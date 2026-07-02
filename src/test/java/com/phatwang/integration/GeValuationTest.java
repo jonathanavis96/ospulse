@@ -6,42 +6,60 @@ import static org.junit.Assert.assertEquals;
 
 public class GeValuationTest
 {
+	// ------------------------------------------------------------------- buy
+
 	@Test
-	public void buyOfferValueIsPriceTimesTotalQuantity()
+	public void buyOfferValueIsFullEscrowWhenNothingBought()
 	{
-		assertEquals(10_000_000L, GeValuation.buyOfferValue(1_000_000L, 10L));
+		// 10 @ 1m offered, none bought yet -> all 10m still escrowed.
+		assertEquals(10_000_000L, GeValuation.buyOfferValue(1_000_000L, 10L, 0L));
 	}
 
 	@Test
-	public void buyOfferValueIsUnaffectedByPartialFill()
+	public void buyOfferValueCountsOnlyTheUnboughtEscrow()
 	{
-		// Coins committed to the offer are counted at the full requested
-		// quantity regardless of how much has filled so far.
-		assertEquals(10_000_000L, GeValuation.buyOfferValue(1_000_000L, 10L));
+		// 10 @ 1m, 4 bought so far -> only the 6 not-yet-bought are still
+		// escrowed (6m). The 4 bought are collectable and must NOT be counted,
+		// otherwise a mid-offer collect would double-count them against the
+		// inventory and inflate net worth.
+		assertEquals(6_000_000L, GeValuation.buyOfferValue(1_000_000L, 10L, 4L));
 	}
 
 	@Test
-	public void sellOfferValueCountsRemainingAtMarketPlusCoinsReceived()
+	public void buyOfferValueIsZeroWhenFullyBought()
 	{
-		// 10 total, 4 sold so far at whatever price, 4_000_000 gp received;
-		// 6 remain unsold, valued at current market price 900,000 each.
-		long value = GeValuation.sellOfferValue(900_000L, 10L, 4L, 4_000_000L);
-		assertEquals(900_000L * 6L + 4_000_000L, value);
+		// Everything bought -> the whole order is now collectable, nothing locked.
+		assertEquals(0L, GeValuation.buyOfferValue(1_000_000L, 10L, 10L));
 	}
 
 	@Test
-	public void sellOfferValueWhenFullySoldIsJustCoinsReceived()
+	public void buyOfferValueClampsIfSoldExceedsTotal()
 	{
-		long value = GeValuation.sellOfferValue(900_000L, 10L, 10L, 9_500_000L);
-		assertEquals(9_500_000L, value);
+		// Defensive: quantitySold should never exceed totalQuantity, but if it
+		// did, remaining escrow clamps to 0 rather than going negative.
+		assertEquals(0L, GeValuation.buyOfferValue(1_000_000L, 10L, 12L));
+	}
+
+	// ------------------------------------------------------------------ sell
+
+	@Test
+	public void sellOfferValueCountsRemainingUnsoldAtMarket()
+	{
+		// 10 total, 4 sold, 6 unsold @ 900k current market -> 5.4m still locked.
+		// Proceeds from the 4 sold are collectable and deliberately excluded.
+		assertEquals(900_000L * 6L, GeValuation.sellOfferValue(900_000L, 10L, 4L));
 	}
 
 	@Test
-	public void sellOfferValueNeverGoesNegativeOnRemaining()
+	public void sellOfferValueIsZeroWhenFullySold()
 	{
-		// Defensive: quantitySold should never exceed totalQuantity, but if
-		// it did, remaining must clamp to 0 rather than subtract value.
-		long value = GeValuation.sellOfferValue(900_000L, 10L, 12L, 9_500_000L);
-		assertEquals(9_500_000L, value);
+		// Nothing unsold remains in the exchange; proceeds are collectable.
+		assertEquals(0L, GeValuation.sellOfferValue(900_000L, 10L, 10L));
+	}
+
+	@Test
+	public void sellOfferValueClampsRemainingToZero()
+	{
+		assertEquals(0L, GeValuation.sellOfferValue(900_000L, 10L, 12L));
 	}
 }

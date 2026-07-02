@@ -346,13 +346,18 @@ public class SessionTracker implements SessionService
 	}
 
 	/**
-	 * Values active Grand Exchange offers (see {@link GeValuation} for the
-	 * approximation used) and folds their items into {@code allHoldings}.
-	 * GE items are never added to trackedItems (loot diffing excludes them;
+	 * Values active Grand Exchange offers by the wealth still <em>locked in</em>
+	 * the exchange (see {@link GeValuation} for the conservative rule) and folds
+	 * the still-locked sell items into {@code allHoldings}. GE items are never
+	 * added to trackedItems (loot diffing excludes them;
 	 * {@link GeReconciler#drainAttributedItemIds()} handles that instead).
-	 * Cancelled offers still hold uncollected coins/items, so they're valued
-	 * the same way as their non-cancelled counterpart (buy-shaped /
-	 * sell-shaped) until collected.
+	 *
+	 * <p>Only the not-yet-filled portion of an offer is counted, never the
+	 * collectable side (bought items / sale proceeds), because a partial collect
+	 * is invisible to us and counting it would double-count anything already
+	 * pulled back into the inventory. Consequently a fully-bought/-sold or
+	 * cancelled offer contributes 0 here: its value is sitting in the collection
+	 * box and is picked up again as soon as the player collects it.
 	 */
 	private long accumulateGrandExchange(Map<Integer, ItemStack> allHoldings)
 	{
@@ -387,17 +392,30 @@ public class SessionTracker implements SessionService
 			{
 				case BUYING:
 				case BOUGHT:
-				case CANCELLED_BUY:
-					value = GeValuation.buyOfferValue(offer.getPrice(), offer.getTotalQuantity());
-					qtyForHoldings = offer.getTotalQuantity();
+					// Only the coins escrowed for the not-yet-bought quantity are
+					// still locked; bought items are collectable, so they add
+					// nothing to holdings here.
+					value = GeValuation.buyOfferValue(
+						offer.getPrice(), offer.getTotalQuantity(), offer.getQuantitySold());
+					qtyForHoldings = 0;
 					break;
 				case SELLING:
 				case SOLD:
+					// The unsold items are still locked in the exchange; proceeds
+					// from the sold portion are collectable and not counted.
+					value = GeValuation.sellOfferValue(
+						unit, offer.getTotalQuantity(), offer.getQuantitySold());
+					qtyForHoldings = Math.max(0, offer.getTotalQuantity() - offer.getQuantitySold());
+					break;
+				case CANCELLED_BUY:
 				case CANCELLED_SELL:
 				default:
-					value = GeValuation.sellOfferValue(
-						unit, offer.getTotalQuantity(), offer.getQuantitySold(), offer.getSpent());
-					qtyForHoldings = Math.max(0, offer.getTotalQuantity() - offer.getQuantitySold());
+					// Nothing is locked any more: the returned coins / unsold items
+					// sit in the collection box awaiting collection, at which point
+					// they reappear in the inventory. Counting them here would risk
+					// double-counting an already-collected amount.
+					value = 0;
+					qtyForHoldings = 0;
 					break;
 			}
 
