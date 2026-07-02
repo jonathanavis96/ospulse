@@ -21,6 +21,7 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.plugins.loottracker.LootReceived;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.util.ImageUtil;
@@ -191,6 +192,12 @@ public class OSPulsePlugin extends Plugin
 	public void onStatChanged(StatChanged event)
 	{
 		tracker.onStatChanged(event.getSkill(), event.getXp());
+	}
+
+	@Subscribe
+	public void onLootReceived(LootReceived event)
+	{
+		tracker.onLootReceived(event.getName(), event.getAmount(), event.getItems());
 	}
 
 	@Provides

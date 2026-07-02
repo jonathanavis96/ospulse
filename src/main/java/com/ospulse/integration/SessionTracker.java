@@ -9,6 +9,7 @@ import com.ospulse.session.SessionEngine;
 import com.ospulse.session.SessionListener;
 import com.ospulse.session.SessionService;
 import com.ospulse.session.SessionSnapshot;
+import com.ospulse.session.SourceLoot;
 import com.ospulse.wealth.WealthSnapshot;
 import com.ospulse.xp.XpTracker;
 import net.runelite.api.Client;
@@ -23,6 +24,7 @@ import net.runelite.api.Varbits;
 import net.runelite.client.game.ItemManager;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +57,19 @@ public class SessionTracker implements SessionService
 	private final GeReconciler geReconciler = new GeReconciler();
 	private final XpTracker xpTracker = new XpTracker();
 	private final CopyOnWriteArrayList<SessionListener> listeners = new CopyOnWriteArrayList<>();
+
+	/**
+	 * Loot aggregated by source (NPC/boss/activity), fed by RuneLite's
+	 * {@code LootReceived} events — the collapsible Loot-Tracker-style feed.
+	 * source name -&gt; running per-item totals + how many drops were received.
+	 */
+	private final Map<String, SourceAgg> lootBySource = new LinkedHashMap<>();
+
+	private static final class SourceAgg
+	{
+		long count;
+		final Map<Integer, ItemStack> items = new LinkedHashMap<>();
+	}
 
 	private volatile SessionSnapshot latest;
 
@@ -154,6 +169,39 @@ public class SessionTracker implements SessionService
 			System.currentTimeMillis());
 	}
 
+	/**
+	 * Records a batch of loot received from a named source (NPC kill, event,
+	 * pickpocket, ...), aggregating it under that source for the collapsible
+	 * loot feed. {@code items} are RuneLite game item stacks (id + quantity).
+	 * Priced via the same valuation as everything else. Publishes an updated
+	 * snapshot so the panel reflects the drop immediately.
+	 */
+	public void onLootReceived(String source, int amount, Collection<net.runelite.client.game.ItemStack> items)
+	{
+		if (!loggedIn || !started || items == null)
+		{
+			return;
+		}
+
+		String key = (source == null || source.isEmpty()) ? "Unknown" : source;
+		SourceAgg agg = lootBySource.computeIfAbsent(key, k -> new SourceAgg());
+		agg.count += Math.max(1, amount);
+
+		for (net.runelite.client.game.ItemStack it : items)
+		{
+			if (it == null || it.getId() <= 0 || it.getQuantity() <= 0)
+			{
+				continue;
+			}
+			int canonicalId = valuation.canonical(it.getId());
+			long unit = valuation.unitValue(it.getId());
+			String name = valuation.name(it.getId());
+			mergeItem(agg.items, canonicalId, name, it.getQuantity(), unit);
+		}
+
+		refresh(System.currentTimeMillis());
+	}
+
 	public void onStatChanged(Skill skill, int xp)
 	{
 		if (skill == null || skill == Skill.OVERALL)
@@ -173,7 +221,7 @@ public class SessionTracker implements SessionService
 		long ts = System.currentTimeMillis();
 		WealthSnapshot current = buildWealth(ts);
 		engine.setBankOpen(open, current, ts);
-		publish(engine.snapshot(current, geReconciler.realizedPnl(), buildGeOffers(), xpTracker.gained(), xpTracker.totalGained(), ts));
+		publish(engine.snapshot(current, geReconciler.realizedPnl(), buildGeOffers(), buildLootSources(), xpTracker.gained(), xpTracker.totalGained(), ts));
 	}
 
 	/** Restarts the session baseline from current wealth (panel reset button). */
@@ -186,10 +234,11 @@ public class SessionTracker implements SessionService
 
 		long ts = System.currentTimeMillis();
 		xpTracker.start(captureXpBaseline());
+		lootBySource.clear();
 		WealthSnapshot current = buildWealth(ts);
 		engine.startSession(current, ts);
 		started = true;
-		publish(engine.snapshot(current, geReconciler.realizedPnl(), buildGeOffers(), xpTracker.gained(), xpTracker.totalGained(), ts));
+		publish(engine.snapshot(current, geReconciler.realizedPnl(), buildGeOffers(), buildLootSources(), xpTracker.gained(), xpTracker.totalGained(), ts));
 	}
 
 	// ------------------------------------------------------------- SessionService
@@ -220,10 +269,11 @@ public class SessionTracker implements SessionService
 	private void bootstrapSession(long ts)
 	{
 		xpTracker.start(captureXpBaseline());
+		lootBySource.clear();
 		WealthSnapshot initial = buildWealth(ts);
 		engine.startSession(initial, ts);
 		started = true;
-		publish(engine.snapshot(initial, geReconciler.realizedPnl(), buildGeOffers(), xpTracker.gained(), xpTracker.totalGained(), ts));
+		publish(engine.snapshot(initial, geReconciler.realizedPnl(), buildGeOffers(), buildLootSources(), xpTracker.gained(), xpTracker.totalGained(), ts));
 	}
 
 	private void refresh(long ts)
@@ -231,7 +281,7 @@ public class SessionTracker implements SessionService
 		WealthSnapshot current = buildWealth(ts);
 		Set<Integer> geAttributedItemIds = geReconciler.drainAttributedItemIds();
 		engine.update(current, geAttributedItemIds, ts);
-		publish(engine.snapshot(current, geReconciler.realizedPnl(), buildGeOffers(), xpTracker.gained(), xpTracker.totalGained(), ts));
+		publish(engine.snapshot(current, geReconciler.realizedPnl(), buildGeOffers(), buildLootSources(), xpTracker.gained(), xpTracker.totalGained(), ts));
 	}
 
 	private void publish(SessionSnapshot snapshot)
@@ -531,6 +581,29 @@ public class SessionTracker implements SessionService
 			mergeItem(allHoldings, canonicalId, name, amount, unit);
 		}
 		return total;
+	}
+
+	/**
+	 * Snapshots the per-source loot aggregate into immutable {@link SourceLoot}
+	 * views: items within each source sorted by value descending, and sources
+	 * themselves sorted by total value descending.
+	 */
+	private List<SourceLoot> buildLootSources()
+	{
+		List<SourceLoot> out = new ArrayList<>();
+		for (Map.Entry<String, SourceAgg> e : lootBySource.entrySet())
+		{
+			List<ItemStack> items = new ArrayList<>(e.getValue().items.values());
+			items.sort((a, b) -> Long.compare(b.value(), a.value()));
+			long total = 0L;
+			for (ItemStack s : items)
+			{
+				total += s.value();
+			}
+			out.add(new SourceLoot(e.getKey(), total, e.getValue().count, items));
+		}
+		out.sort((a, b) -> Long.compare(b.getTotalValue(), a.getTotalValue()));
+		return out;
 	}
 
 	private void mergeItem(Map<Integer, ItemStack> map, int canonicalId, String name, long qty, long unitValue)

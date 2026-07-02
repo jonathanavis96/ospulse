@@ -28,10 +28,11 @@ public final class SessionSnapshot
 	private final long xpTotal;
 	private final WealthSnapshot wealth;
 	private final List<GeOfferView> geOffers;
+	private final List<SourceLoot> lootSources;
 
 	/**
-	 * Backward-compatible constructor: no active-offer breakdown. Delegates to
-	 * the full constructor with an empty {@code geOffers} list.
+	 * Backward-compatible constructor: no active-offer / source-loot breakdown.
+	 * Delegates to the full constructor with empty lists.
 	 */
 	public SessionSnapshot(
 		long startMs,
@@ -47,7 +48,8 @@ public final class SessionSnapshot
 		WealthSnapshot wealth)
 	{
 		this(startMs, elapsedMs, profit, profitPerHour, geRealizedPnl, netWorthDelta,
-			bankKnown, loot, xpGained, xpTotal, wealth, Collections.emptyList());
+			bankKnown, loot, xpGained, xpTotal, wealth, Collections.emptyList(),
+			Collections.emptyList());
 	}
 
 	public SessionSnapshot(
@@ -62,7 +64,8 @@ public final class SessionSnapshot
 		Map<String, Long> xpGained,
 		long xpTotal,
 		WealthSnapshot wealth,
-		List<GeOfferView> geOffers)
+		List<GeOfferView> geOffers,
+		List<SourceLoot> lootSources)
 	{
 		this.startMs = startMs;
 		this.elapsedMs = elapsedMs;
@@ -82,6 +85,9 @@ public final class SessionSnapshot
 		this.geOffers = geOffers == null
 			? Collections.emptyList()
 			: Collections.unmodifiableList(new ArrayList<>(geOffers));
+		this.lootSources = lootSources == null
+			? Collections.emptyList()
+			: Collections.unmodifiableList(new ArrayList<>(lootSources));
 	}
 
 	public long getStartMs()
@@ -150,5 +156,15 @@ public final class SessionSnapshot
 	public List<GeOfferView> getGeOffers()
 	{
 		return geOffers;
+	}
+
+	/**
+	 * Loot grouped by source (NPC/boss/activity), ordered by total value
+	 * descending — the collapsible Loot-Tracker-style feed. Empty when nothing
+	 * has been looted yet this session.
+	 */
+	public List<SourceLoot> getLootSources()
+	{
+		return lootSources;
 	}
 }

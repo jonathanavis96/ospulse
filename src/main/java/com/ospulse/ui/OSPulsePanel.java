@@ -3,9 +3,9 @@ package com.ospulse.ui;
 import com.ospulse.OSPulseConfig;
 import com.ospulse.ge.GeOfferView;
 import com.ospulse.model.ItemStack;
-import com.ospulse.session.LootEntry;
 import com.ospulse.session.SessionListener;
 import com.ospulse.session.SessionSnapshot;
+import com.ospulse.session.SourceLoot;
 import com.ospulse.wealth.WealthSnapshot;
 
 import net.runelite.client.game.ItemManager;
@@ -26,11 +26,16 @@ import javax.swing.border.EmptyBorder;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Read-side view of the session tracker: a RuneLite side panel showing the
@@ -77,6 +82,11 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	private final JPanel xpBreakdownPanel;
 	private final JPanel geListPanel;
 	private final JLabel lootTotalValueLabel;
+
+	/** Latest source-grouped loot, retained so header clicks can re-render. */
+	private List<SourceLoot> lastLootSources = List.of();
+	/** Sources the user has collapsed (by source name); persists across updates. */
+	private final Set<String> collapsedSources = new HashSet<>();
 
 	/**
 	 * Builds the full component tree once. Subsequent updates only mutate
@@ -211,7 +221,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 
 		WealthSnapshot wealth = snapshot.getWealth();
 		applyWealth(wealth);
-		rebuildLoot(snapshot.getLoot());
+		rebuildLootSources(snapshot.getLootSources());
 		applyXp(snapshot.getXpTotal(), snapshot.getXpGained());
 		rebuildGeOffers(snapshot.getGeOffers());
 		rebuildHoldings(wealth);
@@ -311,51 +321,100 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		geListPanel.repaint();
 	}
 
-	private void rebuildLoot(List<LootEntry> loot)
+	private void rebuildLootSources(List<SourceLoot> sources)
 	{
+		lastLootSources = sources == null ? List.of() : sources;
 		lootListPanel.removeAll();
 
-		// Session total spans ALL loot, regardless of the per-row min-value
-		// filter, so the headline value stays honest.
 		long totalValue = 0L;
-		if (loot != null)
+		for (SourceLoot src : lastLootSources)
 		{
-			for (LootEntry entry : loot)
-			{
-				totalValue += entry.getValue();
-			}
+			totalValue += src.getTotalValue();
 		}
 		lootTotalValueLabel.setText(GpFormat.format(totalValue));
 
-		int minLootValue = config.minLootValue();
-		int shown = 0;
-		if (loot != null)
+		if (lastLootSources.isEmpty())
 		{
-			// Already aggregated per item and sorted by value descending.
-			for (LootEntry entry : loot)
+			lootListPanel.add(emptyRowLabel("No loot yet."));
+		}
+		else
+		{
+			int minLootValue = config.minLootValue();
+			for (SourceLoot src : lastLootSources)
 			{
-				if (entry.getValue() < minLootValue)
+				lootListPanel.add(sourceHeaderRow(src));
+				if (collapsedSources.contains(src.getSource()))
 				{
 					continue;
 				}
-				String label = entry.getName() + " x" + String.format("%,d", entry.getQuantity());
-				lootListPanel.add(iconRow(entry.getItemId(), label,
-					GpFormat.format(entry.getValue()), ColorScheme.LIGHT_GRAY_COLOR));
-				shown++;
-				if (shown >= LOOT_ROW_CAP)
+				int shown = 0;
+				for (ItemStack item : src.getItems())
 				{
-					break;
+					if (item.value() < minLootValue)
+					{
+						continue;
+					}
+					String label = item.getName() + " x" + String.format("%,d", item.getQuantity());
+					lootListPanel.add(iconRow(item.getId(), label,
+						GpFormat.format(item.value()), ColorScheme.LIGHT_GRAY_COLOR));
+					shown++;
+					if (shown >= LOOT_ROW_CAP)
+					{
+						break;
+					}
 				}
 			}
-		}
-
-		if (shown == 0)
-		{
-			lootListPanel.add(emptyRowLabel("No loot yet."));
 		}
 
 		lootListPanel.revalidate();
 		lootListPanel.repaint();
+	}
+
+	/**
+	 * A clickable collapsible header for one loot source, e.g.
+	 * "▾ Cerberus x206 … 24m". Clicking toggles the source's expanded state and
+	 * re-renders the loot list from the retained data.
+	 */
+	private JPanel sourceHeaderRow(SourceLoot src)
+	{
+		boolean collapsed = collapsedSources.contains(src.getSource());
+		String triangle = collapsed ? "▸" : "▾";
+		String left = triangle + " " + src.getSource()
+			+ (src.getCount() > 1 ? " x" + String.format("%,d", src.getCount()) : "");
+
+		JPanel row = new JPanel(new BorderLayout(4, 0));
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setBorder(new EmptyBorder(3, 0, 1, 0));
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+		row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+		JLabel leftLabel = new JLabel(left);
+		leftLabel.setForeground(ColorScheme.BRAND_ORANGE);
+		leftLabel.setFont(FontManager.getRunescapeSmallFont());
+
+		JLabel rightLabel = new JLabel(GpFormat.format(src.getTotalValue()));
+		rightLabel.setForeground(Color.WHITE);
+		rightLabel.setFont(FontManager.getRunescapeSmallFont());
+		rightLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+
+		row.add(leftLabel, BorderLayout.CENTER);
+		row.add(rightLabel, BorderLayout.EAST);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+
+		final String source = src.getSource();
+		row.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mousePressed(MouseEvent e)
+			{
+				if (!collapsedSources.remove(source))
+				{
+					collapsedSources.add(source);
+				}
+				rebuildLootSources(lastLootSources);
+			}
+		});
+		return row;
 	}
 
 	private void applyXp(long xpTotal, Map<String, Long> xpGained)

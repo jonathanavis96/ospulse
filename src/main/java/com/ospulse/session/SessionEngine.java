@@ -183,17 +183,19 @@ public final class SessionEngine
 		long xpTotal,
 		long tsMs)
 	{
-		return snapshot(current, geRealizedPnl, Collections.emptyList(), xpGained, xpTotal, tsMs);
+		return snapshot(current, geRealizedPnl, Collections.emptyList(),
+			Collections.emptyList(), xpGained, xpTotal, tsMs);
 	}
 
 	/**
 	 * Produces a read-only snapshot of the session's current state given the
-	 * latest wealth reading and externally-tracked GE/XP data.
+	 * latest wealth reading and externally-tracked GE/XP/loot-source data.
 	 */
 	public SessionSnapshot snapshot(
 		WealthSnapshot current,
 		long geRealizedPnl,
 		List<GeOfferView> geOffers,
+		List<SourceLoot> lootSources,
 		Map<String, Long> xpGained,
 		long xpTotal,
 		long tsMs)
@@ -217,7 +219,8 @@ public final class SessionEngine
 			xpGained,
 			xpTotal,
 			current,
-			geOffers);
+			geOffers,
+			lootSources);
 	}
 
 	/**
