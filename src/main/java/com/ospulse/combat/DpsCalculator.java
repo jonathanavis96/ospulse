@@ -58,7 +58,7 @@ public final class DpsCalculator {
         int attackRoll = CombatMath.meleeOrRangedAttackRoll(effAtt, gear.attackBonus(style), targetGearBonus);
         int defenceRoll = CombatMath.npcDefenceRoll(target.defenceLevel(), target.defenceBonus(style));
 
-        return finish(maxHit, attackRoll, defenceRoll, gear.weaponSpeedTicks());
+        return finish(maxHit, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
     }
 
     // ---- Ranged -----------------------------------------------------------------------
@@ -92,7 +92,7 @@ public final class DpsCalculator {
         int weaponSpeedTicks = gear.weaponSpeedTicks() - (player.stance() == Stance.RAPID ? 1 : 0);
         weaponSpeedTicks = Math.max(1, weaponSpeedTicks);
 
-        return finish(maxHit, attackRoll, defenceRoll, weaponSpeedTicks);
+        return finish(maxHit, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints());
     }
 
     // ---- Magic --------------------------------------------------------------------------
@@ -130,7 +130,7 @@ public final class DpsCalculator {
         boolean slayerPreHitRollApplies = slayerOnTaskImbued && !salveVsUndead;
         int maxHit = CombatMath.magicPreHitRoll(primaryDamage, slayerPreHitRollApplies);
 
-        return finish(maxHit, accuracyRoll, defenceRoll, gear.weaponSpeedTicks());
+        return finish(maxHit, accuracyRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
     }
 
     // ---- Shared helpers -----------------------------------------------------------------
@@ -165,14 +165,16 @@ public final class DpsCalculator {
         return best;
     }
 
-    private static DpsResult finish(int maxHit, int attackRoll, int defenceRoll, int weaponSpeedTicks) {
+    private static DpsResult finish(int maxHit, int attackRoll, int defenceRoll, int weaponSpeedTicks, int targetHitpoints) {
         double hitChance = CombatMath.hitChance(attackRoll, defenceRoll);
         double avgDamage = CombatMath.averageDamagePerAttack(hitChance, maxHit);
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
+        // avgDamage is the expected damage per attack (misses included) — GearScape's "Avg Hit".
+        double ttkSeconds = dps > 0 ? targetHitpoints / dps : 0.0;
         // Tier-A only: no unmodelled-effect detection signal exists in the current input
         // model, so baseEstimate is always false for now. Future tiers that add gear
         // signals for e.g. twisted bow / scythe / special attacks should set this true
         // whenever such a signal is present but not (yet) accounted for above.
-        return new DpsResult(maxHit, hitChance, dps, false);
+        return new DpsResult(maxHit, hitChance, dps, avgDamage, ttkSeconds, false);
     }
 }

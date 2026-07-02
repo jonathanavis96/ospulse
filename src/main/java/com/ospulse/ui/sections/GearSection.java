@@ -85,7 +85,9 @@ public final class GearSection extends CollapsibleSection
 	private final JCheckBox onSlayerTaskCheckbox;
 	private final JLabel maxHitValue;
 	private final JLabel accuracyValue;
+	private final JLabel avgHitValue;
 	private final JLabel dpsValue;
+	private final JLabel ttkValue;
 	private final JLabel baseEstimateNote;
 	private final JLabel disabledNote;
 
@@ -172,7 +174,9 @@ public final class GearSection extends CollapsibleSection
 
 		maxHitValue = PanelWidgets.statRow(body(), "Max hit");
 		accuracyValue = PanelWidgets.statRow(body(), "Accuracy");
+		avgHitValue = PanelWidgets.statRow(body(), "Avg hit");
 		dpsValue = PanelWidgets.statRow(body(), "DPS");
+		ttkValue = PanelWidgets.statRow(body(), "Time to kill");
 
 		baseEstimateNote = PanelWidgets.emptyRowLabel("~ base estimate (some effects not yet modelled)");
 		baseEstimateNote.setVisible(false);
@@ -306,8 +310,10 @@ public final class GearSection extends CollapsibleSection
 
 		maxHitValue.setText(String.valueOf(result.maxHit()));
 		accuracyValue.setText(String.format(Locale.ROOT, "%.1f%%", result.accuracy() * 100.0));
+		avgHitValue.setText(String.format(Locale.ROOT, "%.2f", result.avgHit()));
 		lastDps = result.dps();
 		dpsValue.setText(String.format(Locale.ROOT, "%.2f", lastDps));
+		ttkValue.setText(formatTtk(result.ttkSeconds()));
 		baseEstimateNote.setVisible(result.baseEstimate());
 
 		refreshSummary();
@@ -317,9 +323,26 @@ public final class GearSection extends CollapsibleSection
 	{
 		maxHitValue.setText("-");
 		accuracyValue.setText("-");
+		avgHitValue.setText("-");
 		dpsValue.setText("-");
+		ttkValue.setText("-");
 		baseEstimateNote.setVisible(false);
 		lastDps = 0.0;
+	}
+
+	/** Formats a time-to-kill (seconds) as "12.3s" or "1:05" for a minute or more; "-" when non-positive. */
+	private static String formatTtk(double ttkSeconds)
+	{
+		if (ttkSeconds <= 0 || Double.isInfinite(ttkSeconds) || Double.isNaN(ttkSeconds))
+		{
+			return "-";
+		}
+		if (ttkSeconds < 60)
+		{
+			return String.format(Locale.ROOT, "%.1fs", ttkSeconds);
+		}
+		int total = (int) Math.round(ttkSeconds);
+		return String.format(Locale.ROOT, "%d:%02d", total / 60, total % 60);
 	}
 
 	/**
