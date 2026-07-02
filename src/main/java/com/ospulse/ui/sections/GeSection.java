@@ -5,6 +5,7 @@ import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.GpFormat;
 import com.ospulse.ui.PanelWidgets;
+import com.ospulse.ui.ThinProgressBar;
 
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ColorScheme;
@@ -21,9 +22,9 @@ import java.util.List;
  * Grand Exchange: the current active buy/sell offers. Collapsed summary shows
  * total received / total potential across sell offers (e.g. "0 / 50M sold").
  *
- * <p>NOTE: this is the current baseline layout. The RuneLite grandexchange-style
- * per-offer progress bar is layered on top of this section by a follow-up
- * change.
+ * <p>Each active offer is rendered like RuneLite's own grandexchange side
+ * panel offer card: item icon, name, buy/sell direction, "transacted / total"
+ * quantity, a thin progress bar, and a spent/received gp line.
  */
 public final class GeSection extends CollapsibleSection
 {
@@ -85,6 +86,17 @@ public final class GeSection extends CollapsibleSection
 					? ColorScheme.PROGRESS_COMPLETE_COLOR
 					: ColorScheme.PROGRESS_ERROR_COLOR;
 				geListPanel.add(PanelWidgets.iconRow(itemManager, offer.getItemId(), header, qty, dirColor));
+
+				double progress = offer.getTotalQuantity() == 0L
+					? 0.0
+					: offer.getQuantityTransacted() / (double) offer.getTotalQuantity();
+				ThinProgressBar progressBar = new ThinProgressBar();
+				progressBar.setForeground(dirColor);
+				progressBar.setProgress(progress);
+				progressBar.setAlignmentX(Component.LEFT_ALIGNMENT);
+				geListPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+				geListPanel.add(progressBar);
+				geListPanel.add(Box.createRigidArea(new Dimension(0, 2)));
 
 				String gpLabelText = offer.isBuying() ? "spent" : "received";
 				String gp = GpFormat.format(offer.getGpProgress())
