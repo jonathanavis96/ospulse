@@ -5,6 +5,7 @@ import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 
 import javax.swing.Box;
+import javax.swing.ImageIcon;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
@@ -13,6 +14,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.Image;
 
 /**
  * Shared, stateless builders for the small labelled rows used across every
@@ -110,6 +112,40 @@ public final class PanelWidgets
 		row.add(rightLabel, BorderLayout.EAST);
 
 		// Don't let the row stretch vertically under BoxLayout.
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		return row;
+	}
+
+	/**
+	 * A row with a ready {@link Image} (e.g. a skill icon) left of
+	 * {@code leftText}, and {@code rightText} pinned right. Unlike the item
+	 * {@link #iconRow(ItemManager, int, String, String, Color)} overload, this
+	 * takes an already-loaded image rather than an async item sprite.
+	 */
+	public static JPanel iconRow(Image image, String leftText, String rightText, Color leftColor)
+	{
+		JPanel row = new JPanel(new BorderLayout(4, 0));
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setBorder(new EmptyBorder(1, 0, 1, 0));
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		if (image != null)
+		{
+			row.add(new JLabel(new ImageIcon(image)), BorderLayout.WEST);
+		}
+
+		JLabel textLabel = new JLabel(leftText);
+		textLabel.setForeground(leftColor);
+		textLabel.setFont(FontManager.getRunescapeSmallFont());
+		row.add(textLabel, BorderLayout.CENTER);
+
+		JLabel rightLabel = new JLabel(rightText);
+		rightLabel.setForeground(Color.WHITE);
+		rightLabel.setFont(FontManager.getRunescapeSmallFont());
+		rightLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+		rightLabel.setBorder(new EmptyBorder(0, 4, 0, 0));
+		row.add(rightLabel, BorderLayout.EAST);
+
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
 		return row;
 	}

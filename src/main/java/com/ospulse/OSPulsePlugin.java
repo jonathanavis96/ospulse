@@ -20,6 +20,7 @@ import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.loottracker.LootReceived;
@@ -69,6 +70,9 @@ public class OSPulsePlugin extends Plugin
 	@Inject
 	private ConfigManager configManager;
 
+	@Inject
+	private SkillIconManager skillIconManager;
+
 	private SessionTracker tracker;
 	private OSPulsePanel panel;
 	private DashboardSyncService syncService;
@@ -85,7 +89,7 @@ public class OSPulsePlugin extends Plugin
 
 		priceTrendService = new PriceTrendService(okHttpClient, config, gson);
 
-		panel = new OSPulsePanel(config, itemManager, configManager, priceTrendService);
+		panel = new OSPulsePanel(config, itemManager, configManager, priceTrendService, skillIconManager);
 		panel.setResetCallback(tracker::resetSession);
 		tracker.addListener(panel);
 

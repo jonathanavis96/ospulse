@@ -13,6 +13,7 @@ import com.ospulse.ui.sections.XpSection;
 
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
@@ -67,7 +68,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	private Runnable resetCallback = () -> {};
 
 	public OSPulsePanel(OSPulseConfig config, ItemManager itemManager, ConfigManager configManager,
-		PriceTrendService priceTrendService)
+		PriceTrendService priceTrendService, SkillIconManager skillIconManager)
 	{
 		super(false);
 		Objects.requireNonNull(config, "config");
@@ -86,7 +87,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		sectionList.add(new SessionSection(store));
 		sectionList.add(new WealthSection(store));
 		sectionList.add(new LootSection(store, config, itemManager));
-		sectionList.add(new XpSection(store));
+		sectionList.add(new XpSection(store, skillIconManager));
 		sectionList.add(new GeSection(store, itemManager));
 		sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService));
 

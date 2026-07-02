@@ -6,12 +6,15 @@ import com.ospulse.ui.PanelWidgets;
 import com.ospulse.ui.ThinProgressBar;
 import com.ospulse.xp.XpSkillView;
 
+import net.runelite.api.Skill;
+import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.ui.ColorScheme;
 
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import java.awt.Component;
+import java.awt.Image;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -33,13 +36,15 @@ public final class XpSection extends CollapsibleSection
 
 	private final JLabel totalValue;
 	private final JPanel breakdownPanel;
+	private final SkillIconManager skillIconManager;
 
 	private long xpTotal;
 	private long elapsedMs;
 
-	public XpSection(CollapseStore store)
+	public XpSection(CollapseStore store, SkillIconManager skillIconManager)
 	{
 		super(KEY, "XP gained", store);
+		this.skillIconManager = skillIconManager;
 		totalValue = PanelWidgets.statRow(body(), "Total");
 		breakdownPanel = new JPanel();
 		breakdownPanel.setLayout(new BoxLayout(breakdownPanel, BoxLayout.Y_AXIS));
@@ -81,8 +86,10 @@ public final class XpSection extends CollapsibleSection
 		for (XpSkillView skill : skills)
 		{
 			breakdownPanel.add(PanelWidgets.spacer());
-			breakdownPanel.add(PanelWidgets.listRow(prettySkillName(skill.getSkillName()),
-				String.format("%,d · %,d/hr", skill.getGained(), skill.getXpPerHour())));
+			breakdownPanel.add(PanelWidgets.iconRow(skillIcon(skill.getSkillName()),
+				prettySkillName(skill.getSkillName()),
+				String.format("%,d · %,d/hr", skill.getGained(), skill.getXpPerHour()),
+				ColorScheme.LIGHT_GRAY_COLOR));
 
 			String actionsLeft = skill.getActionsLeft() < 0
 				? "?"
@@ -118,6 +125,27 @@ public final class XpSection extends CollapsibleSection
 		if (!any)
 		{
 			breakdownPanel.add(PanelWidgets.emptyRowLabel("No XP gained yet."));
+		}
+	}
+
+	/**
+	 * The small RuneLite skill icon for a skill name (e.g. "WOODCUTTING"), or
+	 * {@code null} if unavailable / unrecognised — the row then renders with no
+	 * icon rather than failing.
+	 */
+	private Image skillIcon(String name)
+	{
+		if (skillIconManager == null || name == null || name.isEmpty())
+		{
+			return null;
+		}
+		try
+		{
+			return skillIconManager.getSkillImage(Skill.valueOf(name.toUpperCase(Locale.ROOT)), true);
+		}
+		catch (IllegalArgumentException e)
+		{
+			return null;
 		}
 	}
 
