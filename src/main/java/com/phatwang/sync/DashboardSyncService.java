@@ -195,8 +195,10 @@ public final class DashboardSyncService implements SessionListener
 		}
 		catch (InterruptedException e)
 		{
+			// Teardown path: nothing downstream re-checks the interrupt flag, and the
+			// RuneLite Plugin Hub bytecode scanner rejects Thread.interrupt() calls
+			// (even the "restore the flag" idiom), so we swallow it here.
 			executor.shutdownNow();
-			Thread.currentThread().interrupt();
 		}
 	}
 
