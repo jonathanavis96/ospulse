@@ -1,10 +1,12 @@
 package com.ospulse.integration;
 
 import com.ospulse.OSPulseConfig;
+import com.ospulse.combat.OffensivePrayer;
 import com.ospulse.ge.GeOfferState;
 import com.ospulse.ge.GeOfferView;
 import com.ospulse.ge.GeReconciler;
 import com.ospulse.model.ItemStack;
+import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.SessionEngine;
 import com.ospulse.session.SessionListener;
 import com.ospulse.session.SessionService;
@@ -21,14 +23,18 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.EnumComposition;
 import net.runelite.api.EnumID;
+import net.runelite.api.EquipmentInventorySlot;
 import net.runelite.api.GrandExchangeOffer;
 import net.runelite.api.InventoryID;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
+import net.runelite.api.Prayer;
 import net.runelite.api.Skill;
 import net.runelite.api.Varbits;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
+
+import java.util.EnumSet;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -381,7 +387,73 @@ public class SessionTracker implements SessionService
 			base.getGeOffers(),
 			base.getLootSources(),
 			buildXpSkillViews(base.getXpGained(), elapsedMs),
-			overallXpPerHour);
+			overallXpPerHour,
+			buildGear());
+	}
+
+	/**
+	 * Builds a fresh {@link GearSnapshot} from the live client state: worn
+	 * equipment ids (by {@link EquipmentInventorySlot} ordinal — the
+	 * EQUIPMENT container's slot index matches the ordinal), boosted+base
+	 * combat levels, and active offensive prayers. MUST be called on the
+	 * client thread (mirrors {@link #buildWealth(long)}).
+	 *
+	 * <p>Reuses the existing EQUIPMENT container read ({@link #buildWealth}
+	 * already reads it for gp value) but keeps per-slot item ids instead of
+	 * just summing value.
+	 */
+	private GearSnapshot buildGear()
+	{
+		int[] equippedItemIds = new int[EquipmentInventorySlot.values().length];
+		java.util.Arrays.fill(equippedItemIds, -1);
+
+		ItemContainer equipment = client.getItemContainer(InventoryID.EQUIPMENT);
+		if (equipment != null)
+		{
+			Item[] items = equipment.getItems();
+			for (int slot = 0; slot < items.length && slot < equippedItemIds.length; slot++)
+			{
+				Item item = items[slot];
+				if (item != null && item.getId() > 0 && item.getQuantity() > 0)
+				{
+					equippedItemIds[slot] = item.getId();
+				}
+			}
+		}
+
+		Set<OffensivePrayer> activePrayers = EnumSet.noneOf(OffensivePrayer.class);
+		for (OffensivePrayer prayer : OffensivePrayer.values())
+		{
+			// Names are shared 1:1 between com.ospulse.combat.OffensivePrayer and
+			// net.runelite.api.Prayer for every offensive prayer we model (verified
+			// against the resolved 1.12.31.1 client jar).
+			try
+			{
+				Prayer runeLitePrayer = Prayer.valueOf(prayer.name());
+				if (client.isPrayerActive(runeLitePrayer))
+				{
+					activePrayers.add(prayer);
+				}
+			}
+			catch (IllegalArgumentException e)
+			{
+				// No matching RuneLite prayer for this name - skip.
+			}
+		}
+
+		return GearSnapshot.builder()
+			.equippedItemIds(equippedItemIds)
+			.attack(client.getRealSkillLevel(Skill.ATTACK), client.getBoostedSkillLevel(Skill.ATTACK))
+			.strength(client.getRealSkillLevel(Skill.STRENGTH), client.getBoostedSkillLevel(Skill.STRENGTH))
+			.defence(client.getRealSkillLevel(Skill.DEFENCE), client.getBoostedSkillLevel(Skill.DEFENCE))
+			.ranged(client.getRealSkillLevel(Skill.RANGED), client.getBoostedSkillLevel(Skill.RANGED))
+			.magic(client.getRealSkillLevel(Skill.MAGIC), client.getBoostedSkillLevel(Skill.MAGIC))
+			.prayer(client.getRealSkillLevel(Skill.PRAYER), client.getBoostedSkillLevel(Skill.PRAYER))
+			.hitpoints(client.getRealSkillLevel(Skill.HITPOINTS), client.getBoostedSkillLevel(Skill.HITPOINTS))
+			.activePrayers(activePrayers)
+			// TODO Phase 2+: on-task Slayer detection has no confirmed live read yet.
+			.onSlayerTask(false)
+			.build();
 	}
 
 	/**

@@ -4,6 +4,7 @@ import com.ospulse.OSPulseConfig;
 import com.ospulse.integration.PriceTrendService;
 import com.ospulse.session.SessionListener;
 import com.ospulse.session.SessionSnapshot;
+import com.ospulse.ui.sections.GearSection;
 import com.ospulse.ui.sections.GeSection;
 import com.ospulse.ui.sections.HoldingsSection;
 import com.ospulse.ui.sections.LootSection;
@@ -87,7 +88,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		sectionList.add(new SessionSection(store));
 		sectionList.add(new LootSection(store, config, itemManager));
 		sectionList.add(new XpSection(store, skillIconManager));
-		// GearSection is inserted here (after XP) — see gear/DPS spec
+		sectionList.add(new GearSection(store, itemManager, config));
 		sectionList.add(new GeSection(store, itemManager));
 		sectionList.add(new WealthSection(store));
 		sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService));

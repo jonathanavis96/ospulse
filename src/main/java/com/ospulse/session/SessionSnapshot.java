@@ -32,6 +32,7 @@ public final class SessionSnapshot
 	private final List<SourceLoot> lootSources;
 	private final List<XpSkillView> xpSkills;
 	private final long xpPerHour;
+	private final GearSnapshot gear;
 
 	/**
 	 * Backward-compatible constructor: no active-offer / source-loot breakdown.
@@ -79,6 +80,11 @@ public final class SessionSnapshot
 			Collections.emptyList(), 0L);
 	}
 
+	/**
+	 * Backward-compatible constructor: no {@link GearSnapshot}. Delegates to the
+	 * full constructor with {@code gear = null}, which is normalised to
+	 * {@link GearSnapshot#empty()}.
+	 */
 	public SessionSnapshot(
 		long startMs,
 		long elapsedMs,
@@ -95,6 +101,29 @@ public final class SessionSnapshot
 		List<SourceLoot> lootSources,
 		List<XpSkillView> xpSkills,
 		long xpPerHour)
+	{
+		this(startMs, elapsedMs, profit, profitPerHour, geRealizedPnl, netWorthDelta,
+			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
+			xpSkills, xpPerHour, null);
+	}
+
+	public SessionSnapshot(
+		long startMs,
+		long elapsedMs,
+		long profit,
+		long profitPerHour,
+		long geRealizedPnl,
+		long netWorthDelta,
+		boolean bankKnown,
+		List<LootEntry> loot,
+		Map<String, Long> xpGained,
+		long xpTotal,
+		WealthSnapshot wealth,
+		List<GeOfferView> geOffers,
+		List<SourceLoot> lootSources,
+		List<XpSkillView> xpSkills,
+		long xpPerHour,
+		GearSnapshot gear)
 	{
 		this.startMs = startMs;
 		this.elapsedMs = elapsedMs;
@@ -121,6 +150,7 @@ public final class SessionSnapshot
 			? Collections.emptyList()
 			: Collections.unmodifiableList(new ArrayList<>(xpSkills));
 		this.xpPerHour = xpPerHour;
+		this.gear = gear == null ? GearSnapshot.empty() : gear;
 	}
 
 	public long getStartMs()
@@ -215,5 +245,16 @@ public final class SessionSnapshot
 	public long getXpPerHour()
 	{
 		return xpPerHour;
+	}
+
+	/**
+	 * Live worn gear + boosted levels + active prayers for the Gear/DPS
+	 * calculator section. Never {@code null} — defaults to
+	 * {@link GearSnapshot#empty()} for snapshots built before that plumbing
+	 * existed (older constructors) or before the first live read.
+	 */
+	public GearSnapshot getGear()
+	{
+		return gear;
 	}
 }
