@@ -65,6 +65,9 @@ public class OSPulsePlugin extends Plugin
 	@Inject
 	private Gson gson;
 
+	@Inject
+	private ConfigManager configManager;
+
 	private SessionTracker tracker;
 	private OSPulsePanel panel;
 	private DashboardSyncService syncService;
@@ -76,7 +79,7 @@ public class OSPulsePlugin extends Plugin
 	@Override
 	protected void startUp()
 	{
-		tracker = new SessionTracker(client, itemManager, config);
+		tracker = new SessionTracker(client, itemManager, config, configManager, gson);
 
 		panel = new OSPulsePanel(config, itemManager);
 		panel.setResetCallback(tracker::resetSession);
@@ -113,6 +116,9 @@ public class OSPulsePlugin extends Plugin
 		}
 		if (tracker != null)
 		{
+			// Persist the last-known bank before tearing down so a plugin toggle
+			// or client close doesn't lose it.
+			tracker.flush();
 			tracker.removeListener(panel);
 			tracker.removeListener(syncService);
 		}

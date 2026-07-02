@@ -10,8 +10,11 @@ import com.ospulse.session.SessionListener;
 import com.ospulse.session.SessionService;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.session.SourceLoot;
+import com.ospulse.wealth.BankCache;
 import com.ospulse.wealth.WealthSnapshot;
 import com.ospulse.xp.XpTracker;
+import com.google.gson.Gson;
+import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.EnumComposition;
 import net.runelite.api.EnumID;
@@ -21,6 +24,7 @@ import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.Skill;
 import net.runelite.api.Varbits;
+import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
 
 import java.util.ArrayList;
@@ -45,13 +49,18 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * calling (client) thread; listeners that touch Swing must marshal to the
  * EDT themselves.
  */
+@Slf4j
 public class SessionTracker implements SessionService
 {
 	private static final int TOP_HOLDINGS_LIMIT = 10;
+	/** RS-profile config key under which the per-account bank cache is stored. */
+	private static final String BANK_CACHE_KEY = "bankCache";
 
 	private final Client client;
 	private final RuneLiteItemValuation valuation;
 	private final OSPulseConfig config;
+	private final ConfigManager configManager;
+	private final Gson gson;
 
 	private final SessionEngine engine = new SessionEngine();
 	private final GeReconciler geReconciler = new GeReconciler();
@@ -73,20 +82,30 @@ public class SessionTracker implements SessionService
 
 	private volatile SessionSnapshot latest;
 
-	/** Last bank value observed while the bank container was populated. */
+	/** Last bank value observed (live or restored from the persisted cache). */
 	private volatile long lastKnownBankValue = 0L;
-	/** Whether the bank has ever been observed (opened) this client session. */
+	/** Whether the bank is known — observed live this session OR restored from cache. */
 	private volatile boolean bankEverSeen = false;
+	/**
+	 * Last-observed bank contents keyed by canonical item id. Populated live
+	 * whenever the bank container is readable and restored from the per-account
+	 * cache on login; used to value the bank and feed top holdings while the
+	 * bank is closed, and re-priced from live GE prices on every read.
+	 */
+	private volatile Map<Integer, ItemStack> cachedBankItems = new LinkedHashMap<>();
 
 	private volatile boolean loggedIn = false;
 	/** True once {@link SessionEngine#startSession} has been called for the current login. */
 	private volatile boolean started = false;
 
-	public SessionTracker(Client client, ItemManager itemManager, OSPulseConfig config)
+	public SessionTracker(Client client, ItemManager itemManager, OSPulseConfig config,
+		ConfigManager configManager, Gson gson)
 	{
 		this.client = client;
 		this.config = config;
 		this.valuation = new RuneLiteItemValuation(itemManager);
+		this.configManager = configManager;
+		this.gson = gson;
 	}
 
 	// ------------------------------------------------------------- lifecycle
@@ -110,8 +129,20 @@ public class SessionTracker implements SessionService
 	public void onLogout()
 	{
 		loggedIn = false;
+		// Persist the latest bank contents so the next login restores the bank
+		// value, net worth and top holdings without reopening the bank.
+		saveBankCache();
 		// Keep the session/latest snapshot as-is; we simply stop producing
 		// new ones until the next login.
+	}
+
+	/**
+	 * Persists the current bank cache. Called by the plugin on shutdown so a
+	 * clean plugin toggle / client close doesn't lose the last-known bank.
+	 */
+	public void flush()
+	{
+		saveBankCache();
 	}
 
 	/**
@@ -221,6 +252,12 @@ public class SessionTracker implements SessionService
 		long ts = System.currentTimeMillis();
 		WealthSnapshot current = buildWealth(ts);
 		engine.setBankOpen(open, current, ts);
+		if (!open)
+		{
+			// Bank just closed: its final contents are captured in cachedBankItems
+			// by buildWealth above — persist them for the next login.
+			saveBankCache();
+		}
 		publish(engine.snapshot(current, geReconciler.realizedPnl(), buildGeOffers(), buildLootSources(), xpTracker.gained(), xpTracker.totalGained(), ts));
 	}
 
@@ -268,6 +305,7 @@ public class SessionTracker implements SessionService
 
 	private void bootstrapSession(long ts)
 	{
+		loadBankCache();
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
 		WealthSnapshot initial = buildWealth(ts);
@@ -319,19 +357,38 @@ public class SessionTracker implements SessionService
 		Map<Integer, ItemStack> allHoldings = new LinkedHashMap<>();
 
 		long inventoryValue = accumulateContainer(
-			client.getItemContainer(InventoryID.INVENTORY), tracked, allHoldings);
+			client.getItemContainer(InventoryID.INVENTORY), tracked, allHoldings, null);
 		long equipmentValue = accumulateContainer(
-			client.getItemContainer(InventoryID.EQUIPMENT), tracked, allHoldings);
+			client.getItemContainer(InventoryID.EQUIPMENT), tracked, allHoldings, null);
 
-		// Bank is only populated once opened this client session; reuse the
-		// last known value on ticks where the container isn't available.
+		// The bank container is only readable while the bank is open. When it is,
+		// capture its contents (for the panel AND the per-account cache); when it
+		// isn't, fall back to the cached contents so the bank value and top
+		// holdings survive relogs without the player reopening the bank. Bank
+		// contents feed topHoldings only, never trackedItems.
 		ItemContainer bankContainer = client.getItemContainer(InventoryID.BANK);
 		long bankValue;
 		if (bankContainer != null)
 		{
-			// Bank contents feed topHoldings only, never trackedItems.
-			bankValue = accumulateContainer(bankContainer, null, allHoldings);
+			Map<Integer, ItemStack> liveBank = new LinkedHashMap<>();
+			bankValue = accumulateContainer(bankContainer, null, allHoldings, liveBank);
+			cachedBankItems = liveBank;
 			lastKnownBankValue = bankValue;
+			bankEverSeen = true;
+		}
+		else if (!cachedBankItems.isEmpty())
+		{
+			// Re-price the cached bank from live GE prices and fold it into the
+			// top holdings so the panel shows the bank even while it's closed.
+			long total = 0L;
+			for (ItemStack stack : cachedBankItems.values())
+			{
+				long unit = valuation.unitValue(stack.getId());
+				total += unit * stack.getQuantity();
+				mergeItem(allHoldings, stack.getId(), stack.getName(), stack.getQuantity(), unit);
+			}
+			bankValue = total;
+			lastKnownBankValue = total;
 			bankEverSeen = true;
 		}
 		else
@@ -375,7 +432,8 @@ public class SessionTracker implements SessionService
 	 * canonical item id.
 	 */
 	private long accumulateContainer(
-		ItemContainer container, Map<Integer, ItemStack> trackedOrNull, Map<Integer, ItemStack> allHoldings)
+		ItemContainer container, Map<Integer, ItemStack> trackedOrNull,
+		Map<Integer, ItemStack> allHoldings, Map<Integer, ItemStack> captureOrNull)
 	{
 		if (container == null)
 		{
@@ -400,6 +458,10 @@ public class SessionTracker implements SessionService
 			if (trackedOrNull != null)
 			{
 				mergeItem(trackedOrNull, canonicalId, name, qty, unit);
+			}
+			if (captureOrNull != null)
+			{
+				mergeItem(captureOrNull, canonicalId, name, qty, unit);
 			}
 			mergeItem(allHoldings, canonicalId, name, qty, unit);
 		}
@@ -611,5 +673,86 @@ public class SessionTracker implements SessionService
 		ItemStack existing = map.get(canonicalId);
 		long newQty = qty + (existing == null ? 0L : existing.getQuantity());
 		map.put(canonicalId, new ItemStack(canonicalId, name, newQty, unitValue));
+	}
+
+	// --------------------------------------------------------- bank persistence
+
+	/**
+	 * Restores the per-account bank cache into memory at the start of a session,
+	 * re-pricing every line from live GE prices so a stale cache is still valued
+	 * correctly. Resets to "unknown" first so switching accounts never leaks the
+	 * previous account's bank. Keyed automatically to the logged-in RS profile.
+	 */
+	private void loadBankCache()
+	{
+		cachedBankItems = new LinkedHashMap<>();
+		lastKnownBankValue = 0L;
+		bankEverSeen = false;
+
+		if (configManager == null || gson == null || client.getAccountHash() == -1L)
+		{
+			return;
+		}
+
+		try
+		{
+			String json = configManager.getRSProfileConfiguration(OSPulseConfig.GROUP, BANK_CACHE_KEY);
+			if (json == null || json.isEmpty())
+			{
+				return;
+			}
+
+			BankCache cache = gson.fromJson(json, BankCache.class);
+			if (cache == null || cache.getItems().isEmpty())
+			{
+				return;
+			}
+
+			long total = 0L;
+			for (BankCache.Entry e : cache.getItems())
+			{
+				if (e.getId() <= 0 || e.getQuantity() <= 0)
+				{
+					continue;
+				}
+				int canonicalId = valuation.canonical(e.getId());
+				long unit = valuation.unitValue(e.getId());
+				String name = valuation.name(e.getId());
+				mergeItem(cachedBankItems, canonicalId, name, e.getQuantity(), unit);
+				total += unit * e.getQuantity();
+			}
+
+			lastKnownBankValue = total;
+			bankEverSeen = !cachedBankItems.isEmpty();
+		}
+		catch (Exception ex)
+		{
+			// Corrupt/incompatible cache — treat the bank as unknown until the
+			// player next opens it, rather than failing the session bootstrap.
+			log.debug("Failed to load OSPulse bank cache; ignoring", ex);
+			cachedBankItems = new LinkedHashMap<>();
+			lastKnownBankValue = 0L;
+			bankEverSeen = false;
+		}
+	}
+
+	/** Persists the current bank contents to the logged-in account's RS profile. */
+	private void saveBankCache()
+	{
+		if (configManager == null || gson == null
+			|| client.getAccountHash() == -1L || cachedBankItems.isEmpty())
+		{
+			return;
+		}
+
+		try
+		{
+			BankCache cache = new BankCache(System.currentTimeMillis(), cachedBankItems.values());
+			configManager.setRSProfileConfiguration(OSPulseConfig.GROUP, BANK_CACHE_KEY, gson.toJson(cache));
+		}
+		catch (Exception ex)
+		{
+			log.debug("Failed to save OSPulse bank cache", ex);
+		}
 	}
 }
