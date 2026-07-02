@@ -2,6 +2,7 @@ package com.ospulse.integration;
 
 import com.ospulse.OSPulseConfig;
 import com.ospulse.ge.GeOfferState;
+import com.ospulse.ge.GeOfferView;
 import com.ospulse.ge.GeReconciler;
 import com.ospulse.model.ItemStack;
 import com.ospulse.session.SessionEngine;
@@ -11,6 +12,8 @@ import com.ospulse.session.SessionSnapshot;
 import com.ospulse.wealth.WealthSnapshot;
 import com.ospulse.xp.XpTracker;
 import net.runelite.api.Client;
+import net.runelite.api.EnumComposition;
+import net.runelite.api.EnumID;
 import net.runelite.api.GrandExchangeOffer;
 import net.runelite.api.InventoryID;
 import net.runelite.api.Item;
@@ -42,7 +45,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public class SessionTracker implements SessionService
 {
-	private static final int TOP_HOLDINGS_LIMIT = 20;
+	private static final int TOP_HOLDINGS_LIMIT = 10;
 
 	private final Client client;
 	private final RuneLiteItemValuation valuation;
@@ -75,10 +78,18 @@ public class SessionTracker implements SessionService
 
 	public void onLogin()
 	{
+		// RuneLite fires GameState.LOGGED_IN not only on a genuine login/world
+		// hop but on every region/zone load (teleport, instance entry, crossing
+		// a map chunk) while already logged in. Only a genuine login — i.e. a
+		// transition from a logged-out state — should reset the session
+		// baseline; a mere zone load must keep the running session (elapsed,
+		// loot, XP and profit) intact.
+		boolean wasLoggedOut = !loggedIn;
 		loggedIn = true;
-		// Force a fresh baseline on the next tick, so a re-login (e.g. world
-		// hop) starts a new session rather than continuing the old one.
-		started = false;
+		if (wasLoggedOut)
+		{
+			started = false;
+		}
 	}
 
 	public void onLogout()
@@ -162,7 +173,7 @@ public class SessionTracker implements SessionService
 		long ts = System.currentTimeMillis();
 		WealthSnapshot current = buildWealth(ts);
 		engine.setBankOpen(open, current, ts);
-		publish(engine.snapshot(current, geReconciler.realizedPnl(), xpTracker.gained(), xpTracker.totalGained(), ts));
+		publish(engine.snapshot(current, geReconciler.realizedPnl(), buildGeOffers(), xpTracker.gained(), xpTracker.totalGained(), ts));
 	}
 
 	/** Restarts the session baseline from current wealth (panel reset button). */
@@ -178,7 +189,7 @@ public class SessionTracker implements SessionService
 		WealthSnapshot current = buildWealth(ts);
 		engine.startSession(current, ts);
 		started = true;
-		publish(engine.snapshot(current, geReconciler.realizedPnl(), xpTracker.gained(), xpTracker.totalGained(), ts));
+		publish(engine.snapshot(current, geReconciler.realizedPnl(), buildGeOffers(), xpTracker.gained(), xpTracker.totalGained(), ts));
 	}
 
 	// ------------------------------------------------------------- SessionService
@@ -212,7 +223,7 @@ public class SessionTracker implements SessionService
 		WealthSnapshot initial = buildWealth(ts);
 		engine.startSession(initial, ts);
 		started = true;
-		publish(engine.snapshot(initial, geReconciler.realizedPnl(), xpTracker.gained(), xpTracker.totalGained(), ts));
+		publish(engine.snapshot(initial, geReconciler.realizedPnl(), buildGeOffers(), xpTracker.gained(), xpTracker.totalGained(), ts));
 	}
 
 	private void refresh(long ts)
@@ -220,7 +231,7 @@ public class SessionTracker implements SessionService
 		WealthSnapshot current = buildWealth(ts);
 		Set<Integer> geAttributedItemIds = geReconciler.drainAttributedItemIds();
 		engine.update(current, geAttributedItemIds, ts);
-		publish(engine.snapshot(current, geReconciler.realizedPnl(), xpTracker.gained(), xpTracker.totalGained(), ts));
+		publish(engine.snapshot(current, geReconciler.realizedPnl(), buildGeOffers(), xpTracker.gained(), xpTracker.totalGained(), ts));
 	}
 
 	private void publish(SessionSnapshot snapshot)
@@ -278,7 +289,7 @@ public class SessionTracker implements SessionService
 			bankValue = lastKnownBankValue;
 		}
 
-		long geValue = accumulateGrandExchange(allHoldings);
+		long geValue = accumulateGrandExchange();
 
 		long pouchValue = 0L;
 		if (config.includePouches())
@@ -358,8 +369,12 @@ public class SessionTracker implements SessionService
 	 * pulled back into the inventory. Consequently a fully-bought/-sold or
 	 * cancelled offer contributes 0 here: its value is sitting in the collection
 	 * box and is picked up again as soon as the player collects it.
+	 *
+	 * <p>GE offers are shown in their own "Grand Exchange" breakdown (see
+	 * {@link #buildGeOffers()}) and are deliberately NOT folded into the top
+	 * holdings, so holdings reflects only inventory/equipment/bank/pouch items.
 	 */
-	private long accumulateGrandExchange(Map<Integer, ItemStack> allHoldings)
+	private long accumulateGrandExchange()
 	{
 		GrandExchangeOffer[] offers = client.getGrandExchangeOffers();
 		if (offers == null)
@@ -383,29 +398,22 @@ public class SessionTracker implements SessionService
 
 			int itemId = offer.getItemId();
 			long unit = valuation.unitValue(itemId);
-			int canonicalId = valuation.canonical(itemId);
-			String name = valuation.name(itemId);
 
-			long value;
-			long qtyForHoldings;
 			switch (state)
 			{
 				case BUYING:
 				case BOUGHT:
 					// Only the coins escrowed for the not-yet-bought quantity are
-					// still locked; bought items are collectable, so they add
-					// nothing to holdings here.
-					value = GeValuation.buyOfferValue(
+					// still locked; bought items are collectable.
+					total += GeValuation.buyOfferValue(
 						offer.getPrice(), offer.getTotalQuantity(), offer.getQuantitySold());
-					qtyForHoldings = 0;
 					break;
 				case SELLING:
 				case SOLD:
 					// The unsold items are still locked in the exchange; proceeds
 					// from the sold portion are collectable and not counted.
-					value = GeValuation.sellOfferValue(
+					total += GeValuation.sellOfferValue(
 						unit, offer.getTotalQuantity(), offer.getQuantitySold());
-					qtyForHoldings = Math.max(0, offer.getTotalQuantity() - offer.getQuantitySold());
 					break;
 				case CANCELLED_BUY:
 				case CANCELLED_SELL:
@@ -414,35 +422,101 @@ public class SessionTracker implements SessionService
 					// sit in the collection box awaiting collection, at which point
 					// they reappear in the inventory. Counting them here would risk
 					// double-counting an already-collected amount.
-					value = 0;
-					qtyForHoldings = 0;
 					break;
-			}
-
-			total += value;
-			if (qtyForHoldings > 0)
-			{
-				mergeItem(allHoldings, canonicalId, name, qtyForHoldings, unit);
 			}
 		}
 		return total;
 	}
 
 	/**
-	 * Best-effort rune pouch valuation via the rune-pouch varbits (3 rune
-	 * slots; the divine/expanded 4th slot and looting bag are not covered).
+	 * Builds the per-slot Grand Exchange breakdown shown in the panel: every
+	 * non-empty offer, with its buy/sell direction, quantity progress and gp
+	 * progress (gp moved so far out of the gp a full fill would move). Purely a
+	 * display view — it does not affect wealth or loot maths. MUST be called on
+	 * the client thread.
+	 */
+	private List<GeOfferView> buildGeOffers()
+	{
+		GrandExchangeOffer[] offers = client.getGrandExchangeOffers();
+		if (offers == null)
+		{
+			return List.of();
+		}
+
+		List<GeOfferView> views = new ArrayList<>();
+		for (GrandExchangeOffer offer : offers)
+		{
+			if (offer == null)
+			{
+				continue;
+			}
+
+			GeOfferState state = GeOfferStateMapper.map(offer.getState());
+			if (state == GeOfferState.EMPTY)
+			{
+				continue;
+			}
+
+			boolean buying = state == GeOfferState.BUYING
+				|| state == GeOfferState.BOUGHT
+				|| state == GeOfferState.CANCELLED_BUY;
+
+			long price = offer.getPrice();
+			long totalQty = offer.getTotalQuantity();
+			long transacted = offer.getQuantitySold();
+
+			views.add(new GeOfferView(
+				buying,
+				valuation.name(offer.getItemId()),
+				totalQty,
+				transacted,
+				price,
+				offer.getSpent(),
+				price * totalQty));
+		}
+		return views;
+	}
+
+	/**
+	 * Rune pouch valuation across all six type/amount varbit slots (covers the
+	 * regular, divine and expanded pouches; unused slots read 0 and are skipped).
+	 *
+	 * <p>Critically, the {@code RUNE_POUCH_RUNE*} varbits do NOT hold an item id —
+	 * they hold a KEY into the {@link EnumID#RUNEPOUCH_RUNE} game enum, which maps
+	 * to the actual rune item id. Treating the raw varbit value as an item id
+	 * (as an earlier version did) mis-identifies and mis-prices the rune, which
+	 * is how a handful of runes turned into a multi-billion "pouch" holding. This
+	 * mirrors RuneLite's own {@code RunepouchOverlay}.
 	 */
 	private long accumulateRunePouch(Map<Integer, ItemStack> tracked, Map<Integer, ItemStack> allHoldings)
 	{
-		int[] runeVarbits = {Varbits.RUNE_POUCH_RUNE1, Varbits.RUNE_POUCH_RUNE2, Varbits.RUNE_POUCH_RUNE3};
-		int[] amountVarbits = {Varbits.RUNE_POUCH_AMOUNT1, Varbits.RUNE_POUCH_AMOUNT2, Varbits.RUNE_POUCH_AMOUNT3};
+		EnumComposition runepouchEnum = client.getEnum(EnumID.RUNEPOUCH_RUNE);
+		if (runepouchEnum == null)
+		{
+			return 0L;
+		}
+
+		int[] runeVarbits = {
+			Varbits.RUNE_POUCH_RUNE1, Varbits.RUNE_POUCH_RUNE2, Varbits.RUNE_POUCH_RUNE3,
+			Varbits.RUNE_POUCH_RUNE4, Varbits.RUNE_POUCH_RUNE5, Varbits.RUNE_POUCH_RUNE6,
+		};
+		int[] amountVarbits = {
+			Varbits.RUNE_POUCH_AMOUNT1, Varbits.RUNE_POUCH_AMOUNT2, Varbits.RUNE_POUCH_AMOUNT3,
+			Varbits.RUNE_POUCH_AMOUNT4, Varbits.RUNE_POUCH_AMOUNT5, Varbits.RUNE_POUCH_AMOUNT6,
+		};
 
 		long total = 0L;
 		for (int i = 0; i < runeVarbits.length; i++)
 		{
-			int itemId = client.getVarbitValue(runeVarbits[i]);
+			int runeKey = client.getVarbitValue(runeVarbits[i]);
 			int amount = client.getVarbitValue(amountVarbits[i]);
-			if (itemId <= 0 || amount <= 0)
+			if (runeKey <= 0 || amount <= 0)
+			{
+				continue;
+			}
+
+			int itemId = runepouchEnum.getIntValue(runeKey);
+			if (itemId <= 0)
 			{
 				continue;
 			}

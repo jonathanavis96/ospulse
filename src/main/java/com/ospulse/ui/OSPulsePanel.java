@@ -1,6 +1,7 @@
 package com.ospulse.ui;
 
 import com.ospulse.OSPulseConfig;
+import com.ospulse.ge.GeOfferView;
 import com.ospulse.model.ItemStack;
 import com.ospulse.session.LootEntry;
 import com.ospulse.session.SessionListener;
@@ -72,6 +73,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	private final JPanel lootListPanel;
 	private final JLabel xpTotalValueLabel;
 	private final JPanel xpBreakdownPanel;
+	private final JPanel geListPanel;
 
 	/**
 	 * Builds the full component tree once. Subsequent updates only mutate
@@ -117,15 +119,6 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		sections.add(wealthSection);
 		sections.add(spacer());
 
-		// --- Top holdings ------------------------------------------------------
-		JPanel holdingsSection = section("Top holdings");
-		holdingsListPanel = new JPanel();
-		holdingsListPanel.setLayout(new BoxLayout(holdingsListPanel, BoxLayout.Y_AXIS));
-		holdingsListPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		holdingsSection.add(holdingsListPanel);
-		sections.add(holdingsSection);
-		sections.add(spacer());
-
 		// --- Loot feed -----------------------------------------------------------
 		JPanel lootSection = section("Loot feed");
 		lootListPanel = new JPanel();
@@ -143,6 +136,24 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		xpBreakdownPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		xpSection.add(xpBreakdownPanel);
 		sections.add(xpSection);
+		sections.add(spacer());
+
+		// --- Grand Exchange ----------------------------------------------------
+		JPanel geSection = section("Grand Exchange");
+		geListPanel = new JPanel();
+		geListPanel.setLayout(new BoxLayout(geListPanel, BoxLayout.Y_AXIS));
+		geListPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		geSection.add(geListPanel);
+		sections.add(geSection);
+		sections.add(spacer());
+
+		// --- Top holdings ------------------------------------------------------
+		JPanel holdingsSection = section("Top holdings");
+		holdingsListPanel = new JPanel();
+		holdingsListPanel.setLayout(new BoxLayout(holdingsListPanel, BoxLayout.Y_AXIS));
+		holdingsListPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		holdingsSection.add(holdingsListPanel);
+		sections.add(holdingsSection);
 
 		JScrollPane scrollPane = new JScrollPane(sections);
 		scrollPane.setBorder(BorderFactory.createEmptyBorder());
@@ -192,9 +203,10 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 
 		WealthSnapshot wealth = snapshot.getWealth();
 		applyWealth(wealth);
-		rebuildHoldings(wealth);
 		rebuildLoot(snapshot.getLoot());
 		applyXp(snapshot.getXpTotal(), snapshot.getXpGained());
+		rebuildGeOffers(snapshot.getGeOffers());
+		rebuildHoldings(wealth);
 	}
 
 	private void applyWealth(WealthSnapshot wealth)
@@ -250,6 +262,46 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 
 		holdingsListPanel.revalidate();
 		holdingsListPanel.repaint();
+	}
+
+	private void rebuildGeOffers(List<GeOfferView> offers)
+	{
+		geListPanel.removeAll();
+
+		if (offers == null || offers.isEmpty())
+		{
+			geListPanel.add(emptyRowLabel("No active offers."));
+		}
+		else
+		{
+			boolean first = true;
+			for (GeOfferView offer : offers)
+			{
+				if (!first)
+				{
+					geListPanel.add(Box.createRigidArea(new Dimension(0, 4)));
+				}
+				first = false;
+
+				String arrow = offer.isBuying() ? "▲" : "▼"; // ▲ buy / ▼ sell
+				String header = arrow + " " + offer.getItemName();
+				String qty = String.format("%,d / %,d",
+					offer.getQuantityTransacted(), offer.getTotalQuantity());
+				JPanel headerRow = listRow(header, qty);
+				tintLeft(headerRow, offer.isBuying()
+					? ColorScheme.PROGRESS_COMPLETE_COLOR
+					: ColorScheme.PROGRESS_ERROR_COLOR);
+				geListPanel.add(headerRow);
+
+				String gpLabelText = offer.isBuying() ? "spent" : "received";
+				String gp = GpFormat.format(offer.getGpProgress())
+					+ " / " + GpFormat.format(offer.getGpPotential());
+				geListPanel.add(listRow("   " + gpLabelText, gp));
+			}
+		}
+
+		geListPanel.revalidate();
+		geListPanel.repaint();
 	}
 
 	private void rebuildLoot(List<LootEntry> loot)
@@ -418,6 +470,16 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		row.add(leftLabel, BorderLayout.WEST);
 		row.add(rightLabel, BorderLayout.EAST);
 		return row;
+	}
+
+	/** Recolours the left-hand (WEST) label of a {@link #listRow} panel. */
+	private static void tintLeft(JPanel row, Color color)
+	{
+		Component west = ((BorderLayout) row.getLayout()).getLayoutComponent(BorderLayout.WEST);
+		if (west instanceof JLabel)
+		{
+			((JLabel) west).setForeground(color);
+		}
 	}
 
 	private static JLabel emptyRowLabel(String text)

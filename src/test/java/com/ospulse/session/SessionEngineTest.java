@@ -178,6 +178,48 @@ public class SessionEngineTest
 	}
 
 	@Test
+	public void firstBankOpenDoesNotInflateNetWorthDelta()
+	{
+		// Session starts before the bank is opened: bank value is unknown.
+		WealthSnapshot initial = snap(100_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Bank opened for the first time; it holds 1.6B. Net worth only "jumps"
+		// because the bank was previously invisible — it must NOT be reported as
+		// a session gain.
+		WealthSnapshot atOpen = snap(100_000_000L, Collections.emptyMap(), 1_600_000_000L, true, 100L);
+		engine.setBankOpen(true, atOpen, 100L);
+
+		SessionSnapshot result = engine.snapshot(atOpen, 0L, Collections.emptyMap(), 0L, 100L);
+		assertEquals("first bank sighting must not register as a net-worth gain",
+			0L, result.getNetWorthDelta());
+		assertTrue(result.isBankKnown());
+
+		// A genuine gain AFTER the bank is known is still reflected.
+		WealthSnapshot later = snap(150_000_000L, Collections.emptyMap(), 1_600_000_000L, true, 200L);
+		engine.update(later, Collections.emptySet(), 200L);
+		SessionSnapshot after = engine.snapshot(later, 0L, Collections.emptyMap(), 0L, 200L);
+		assertEquals(50_000_000L, after.getNetWorthDelta());
+	}
+
+	@Test
+	public void netWorthAboveIntMaxIsNotTruncated()
+	{
+		// 3B exceeds Integer.MAX_VALUE (~2.147B): the whole pipeline must stay
+		// in long arithmetic and never wrap negative.
+		long huge = 3_000_000_000L;
+		WealthSnapshot initial = snap(0L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		WealthSnapshot current = snap(huge, Collections.emptyMap(), 0L, false, 1000L);
+		engine.update(current, Collections.emptySet(), 1000L);
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+
+		assertEquals(huge, result.getProfit());
+		assertEquals(huge, result.getNetWorthDelta());
+	}
+
+	@Test
 	public void profitPerHourIsZeroWhenElapsedIsZero()
 	{
 		WealthSnapshot initial = snap(1_000_000L, Collections.emptyMap(), 0L, false, 500L);

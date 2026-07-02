@@ -1,5 +1,6 @@
 package com.ospulse.session;
 
+import com.ospulse.ge.GeOfferView;
 import com.ospulse.model.ItemStack;
 import com.ospulse.wealth.WealthSnapshot;
 
@@ -151,7 +152,8 @@ public final class SessionEngine
 
 	/**
 	 * Produces a read-only snapshot of the session's current state given the
-	 * latest wealth reading and externally-tracked GE/XP data.
+	 * latest wealth reading and externally-tracked GE/XP data. No active-offer
+	 * breakdown (delegates with an empty offer list).
 	 */
 	public SessionSnapshot snapshot(
 		WealthSnapshot current,
@@ -160,6 +162,23 @@ public final class SessionEngine
 		long xpTotal,
 		long tsMs)
 	{
+		return snapshot(current, geRealizedPnl, Collections.emptyList(), xpGained, xpTotal, tsMs);
+	}
+
+	/**
+	 * Produces a read-only snapshot of the session's current state given the
+	 * latest wealth reading and externally-tracked GE/XP data.
+	 */
+	public SessionSnapshot snapshot(
+		WealthSnapshot current,
+		long geRealizedPnl,
+		List<GeOfferView> geOffers,
+		Map<String, Long> xpGained,
+		long xpTotal,
+		long tsMs)
+	{
+		foldNewlyKnownBankIntoStart(current);
+
 		long profit = current.tracked() - baseline;
 		long elapsedMs = tsMs - startMs;
 		long profitPerHour = elapsedMs > 0 ? profit * 3600000L / elapsedMs : 0L;
@@ -176,7 +195,25 @@ public final class SessionEngine
 			new ArrayList<>(loot),
 			xpGained,
 			xpTotal,
-			current);
+			current,
+			geOffers);
+	}
+
+	/**
+	 * The bank value is unknown until the bank is first opened this session, so
+	 * the session's starting net worth was captured tracked-only. The instant
+	 * the bank becomes known we retroactively fold its value into the starting
+	 * net worth, so the "Net worth Δ" reflects the newly-visible bank as having
+	 * been there all along rather than jumping by the whole bank balance (which
+	 * looked like a huge phantom gain the first time the bank was opened).
+	 */
+	private void foldNewlyKnownBankIntoStart(WealthSnapshot current)
+	{
+		if (!startBankKnown && current.isBankKnown())
+		{
+			startNetWorth += current.getBankValue();
+			startBankKnown = true;
+		}
 	}
 
 	// Accessors below are useful for tests/inspection; state remains
