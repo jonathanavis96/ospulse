@@ -467,6 +467,7 @@ public class SessionTracker implements SessionService
 
 			views.add(new GeOfferView(
 				buying,
+				offer.getItemId(),
 				valuation.name(offer.getItemId()),
 				totalQty,
 				transacted,

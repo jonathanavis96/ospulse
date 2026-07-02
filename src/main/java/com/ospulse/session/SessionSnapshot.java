@@ -11,8 +11,8 @@ import java.util.Map;
 
 /**
  * Immutable output DTO summarising the current state of a tracked session.
- * The {@link #getLoot()} list is ordered most-recent-first (index 0 = latest
- * loot event), matching {@link SessionEngine}'s internal accumulation order.
+ * The {@link #getLoot()} list is aggregated per item and ordered by total
+ * value descending (index 0 = most valuable item this session).
  */
 public final class SessionSnapshot
 {
@@ -120,7 +120,8 @@ public final class SessionSnapshot
 	}
 
 	/**
-	 * Loot events, most-recent first.
+	 * Loot aggregated per item (one row per distinct item, quantities and
+	 * values summed across the session), ordered by total value descending.
 	 */
 	public List<LootEntry> getLoot()
 	{

@@ -15,6 +15,7 @@ import java.util.Objects;
 public final class GeOfferView
 {
 	private final boolean buying;
+	private final int itemId;
 	private final String itemName;
 	private final long totalQuantity;
 	private final long quantityTransacted;
@@ -26,6 +27,7 @@ public final class GeOfferView
 
 	public GeOfferView(
 		boolean buying,
+		int itemId,
 		String itemName,
 		long totalQuantity,
 		long quantityTransacted,
@@ -34,6 +36,7 @@ public final class GeOfferView
 		long gpPotential)
 	{
 		this.buying = buying;
+		this.itemId = itemId;
 		this.itemName = itemName;
 		this.totalQuantity = totalQuantity;
 		this.quantityTransacted = quantityTransacted;
@@ -45,6 +48,11 @@ public final class GeOfferView
 	public boolean isBuying()
 	{
 		return buying;
+	}
+
+	public int getItemId()
+	{
+		return itemId;
 	}
 
 	public String getItemName()
@@ -90,6 +98,7 @@ public final class GeOfferView
 		}
 		GeOfferView that = (GeOfferView) o;
 		return buying == that.buying
+			&& itemId == that.itemId
 			&& totalQuantity == that.totalQuantity
 			&& quantityTransacted == that.quantityTransacted
 			&& pricePerItem == that.pricePerItem
@@ -101,7 +110,7 @@ public final class GeOfferView
 	@Override
 	public int hashCode()
 	{
-		return Objects.hash(buying, itemName, totalQuantity, quantityTransacted,
+		return Objects.hash(buying, itemId, itemName, totalQuantity, quantityTransacted,
 			pricePerItem, gpProgress, gpPotential);
 	}
 

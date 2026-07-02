@@ -8,6 +8,7 @@ import com.ospulse.session.SessionListener;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.wealth.WealthSnapshot;
 
+import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
@@ -26,6 +27,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +48,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	private static final int LOOT_ROW_CAP = 30;
 
 	private final OSPulseConfig config;
+	private final ItemManager itemManager;
 	private Runnable resetCallback = () -> {};
 
 	private final JPanel emptyStatePanel;
@@ -74,16 +77,18 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	private final JLabel xpTotalValueLabel;
 	private final JPanel xpBreakdownPanel;
 	private final JPanel geListPanel;
+	private final JLabel lootTotalValueLabel;
 
 	/**
 	 * Builds the full component tree once. Subsequent updates only mutate
 	 * label text/colour (or rebuild the small dynamic list panels), they
 	 * never reconstruct this tree.
 	 */
-	public OSPulsePanel(OSPulseConfig config)
+	public OSPulsePanel(OSPulseConfig config, ItemManager itemManager)
 	{
 		super(false);
 		this.config = Objects.requireNonNull(config, "config");
+		this.itemManager = itemManager;
 
 		setLayout(new BorderLayout());
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -121,6 +126,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 
 		// --- Loot feed -----------------------------------------------------------
 		JPanel lootSection = section("Loot feed");
+		lootTotalValueLabel = statRow(lootSection, "Total value");
 		lootListPanel = new JPanel();
 		lootListPanel.setLayout(new BoxLayout(lootListPanel, BoxLayout.Y_AXIS));
 		lootListPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -287,11 +293,10 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 				String header = arrow + " " + offer.getItemName();
 				String qty = String.format("%,d / %,d",
 					offer.getQuantityTransacted(), offer.getTotalQuantity());
-				JPanel headerRow = listRow(header, qty);
-				tintLeft(headerRow, offer.isBuying()
+				Color dirColor = offer.isBuying()
 					? ColorScheme.PROGRESS_COMPLETE_COLOR
-					: ColorScheme.PROGRESS_ERROR_COLOR);
-				geListPanel.add(headerRow);
+					: ColorScheme.PROGRESS_ERROR_COLOR;
+				geListPanel.add(iconRow(offer.getItemId(), header, qty, dirColor));
 
 				String gpLabelText = offer.isBuying() ? "spent" : "received";
 				String gp = GpFormat.format(offer.getGpProgress())
@@ -308,10 +313,23 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	{
 		lootListPanel.removeAll();
 
+		// Session total spans ALL loot, regardless of the per-row min-value
+		// filter, so the headline value stays honest.
+		long totalValue = 0L;
+		if (loot != null)
+		{
+			for (LootEntry entry : loot)
+			{
+				totalValue += entry.getValue();
+			}
+		}
+		lootTotalValueLabel.setText(GpFormat.format(totalValue));
+
 		int minLootValue = config.minLootValue();
 		int shown = 0;
 		if (loot != null)
 		{
+			// Already aggregated per item and sorted by value descending.
 			for (LootEntry entry : loot)
 			{
 				if (entry.getValue() < minLootValue)
@@ -319,7 +337,8 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 					continue;
 				}
 				String label = entry.getName() + " x" + String.format("%,d", entry.getQuantity());
-				lootListPanel.add(listRow(label, GpFormat.format(entry.getValue())));
+				lootListPanel.add(iconRow(entry.getItemId(), label,
+					GpFormat.format(entry.getValue()), ColorScheme.LIGHT_GRAY_COLOR));
 				shown++;
 				if (shown >= LOOT_ROW_CAP)
 				{
@@ -472,14 +491,41 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		return row;
 	}
 
-	/** Recolours the left-hand (WEST) label of a {@link #listRow} panel. */
-	private static void tintLeft(JPanel row, Color color)
+	/**
+	 * A list row with the item's sprite on the left of {@code leftText}, and
+	 * {@code rightText} pinned right. The icon loads asynchronously via
+	 * {@link ItemManager} and repaints itself when ready.
+	 */
+	private JPanel iconRow(int itemId, String leftText, String rightText, Color leftColor)
 	{
-		Component west = ((BorderLayout) row.getLayout()).getLayoutComponent(BorderLayout.WEST);
-		if (west instanceof JLabel)
+		JPanel row = new JPanel(new BorderLayout());
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setBorder(new EmptyBorder(1, 0, 1, 0));
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+		left.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+
+		if (itemManager != null && itemId > 0)
 		{
-			((JLabel) west).setForeground(color);
+			JLabel iconLabel = new JLabel();
+			itemManager.getImage(itemId).addTo(iconLabel);
+			left.add(iconLabel);
 		}
+
+		JLabel textLabel = new JLabel(leftText);
+		textLabel.setForeground(leftColor);
+		textLabel.setFont(FontManager.getRunescapeSmallFont());
+		left.add(textLabel);
+
+		JLabel rightLabel = new JLabel(rightText);
+		rightLabel.setForeground(Color.WHITE);
+		rightLabel.setFont(FontManager.getRunescapeSmallFont());
+		rightLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+
+		row.add(left, BorderLayout.WEST);
+		row.add(rightLabel, BorderLayout.EAST);
+		return row;
 	}
 
 	private static JLabel emptyRowLabel(String text)

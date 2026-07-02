@@ -6,7 +6,7 @@ import com.ospulse.wealth.WealthSnapshot;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -25,18 +25,19 @@ import java.util.Set;
  */
 public final class SessionEngine
 {
-	/**
-	 * Loot list is kept most-recent-first and bounded to this many entries.
-	 */
-	private static final int MAX_LOOT_ENTRIES = 200;
-
 	/** Tracked wealth that currently defines zero profit. */
 	private long baseline;
 	private long startMs;
 	private boolean bankOpen;
 	private long trackedAtBankOpen;
 	private WealthSnapshot previous;
-	private final LinkedList<LootEntry> loot = new LinkedList<>();
+	/**
+	 * Loot aggregated per item across the whole session (like the Loot Tracker
+	 * plugin): itemId -&gt; running total quantity + value. Unbounded — one entry
+	 * per distinct item, not one per pickup — so a stream of the same drop
+	 * (e.g. thousands of bird nests) collapses into a single summarised row.
+	 */
+	private final Map<Integer, LootEntry> lootTotals = new LinkedHashMap<>();
 	private long startNetWorth;
 	private boolean startBankKnown;
 
@@ -53,7 +54,7 @@ public final class SessionEngine
 		this.startBankKnown = initial.isBankKnown();
 		this.bankOpen = false;
 		this.trackedAtBankOpen = 0L;
-		this.loot.clear();
+		this.lootTotals.clear();
 	}
 
 	/**
@@ -143,11 +144,31 @@ public final class SessionEngine
 
 	private void addLoot(LootEntry entry)
 	{
-		loot.addFirst(entry);
-		while (loot.size() > MAX_LOOT_ENTRIES)
+		LootEntry existing = lootTotals.get(entry.getItemId());
+		if (existing == null)
 		{
-			loot.removeLast();
+			lootTotals.put(entry.getItemId(), entry);
 		}
+		else
+		{
+			lootTotals.put(entry.getItemId(), new LootEntry(
+				entry.getItemId(),
+				entry.getName(),
+				existing.getQuantity() + entry.getQuantity(),
+				existing.getValue() + entry.getValue(),
+				entry.getTimestampMs()));
+		}
+	}
+
+	/**
+	 * Aggregated loot, one row per item, ordered by total value descending
+	 * (most valuable first) — the summarised view the panel renders.
+	 */
+	private List<LootEntry> lootSummary()
+	{
+		List<LootEntry> summary = new ArrayList<>(lootTotals.values());
+		summary.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
+		return summary;
 	}
 
 	/**
@@ -192,7 +213,7 @@ public final class SessionEngine
 			geRealizedPnl,
 			netWorthDelta,
 			current.isBankKnown(),
-			new ArrayList<>(loot),
+			lootSummary(),
 			xpGained,
 			xpTotal,
 			current,
@@ -231,7 +252,7 @@ public final class SessionEngine
 
 	public List<LootEntry> getLoot()
 	{
-		return Collections.unmodifiableList(new ArrayList<>(loot));
+		return Collections.unmodifiableList(lootSummary());
 	}
 
 	public boolean isStartBankKnown()

@@ -230,24 +230,51 @@ public class SessionEngineTest
 	}
 
 	@Test
-	public void lootListIsBoundedToTwoHundredEntries()
+	public void lootIsAggregatedPerItemAcrossPickups()
+	{
+		WealthSnapshot initial = snap(0L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Same item (bird nest) looted many times, one per update: must collapse
+		// into a single summarised row with summed quantity and value, not one
+		// row per pickup.
+		long qtySoFar = 0;
+		WealthSnapshot current = initial;
+		for (int i = 1; i <= 300; i++)
+		{
+			qtySoFar = i;
+			Map<Integer, ItemStack> tracked = new LinkedHashMap<>();
+			tracked.put(DRAGON_BONES, new ItemStack(DRAGON_BONES, "Bird nest", qtySoFar, 5_000L));
+			current = snap(qtySoFar * 5_000L, tracked, 0L, false, i);
+			engine.update(current, Collections.emptySet(), i);
+		}
+
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 300L);
+		assertEquals(1, result.getLoot().size());
+		LootEntry nest = result.getLoot().get(0);
+		assertEquals(300L, nest.getQuantity());
+		assertEquals(300L * 5_000L, nest.getValue());
+	}
+
+	@Test
+	public void lootSummaryIsOrderedByValueDescending()
 	{
 		WealthSnapshot initial = snap(0L, Collections.emptyMap(), 0L, false, 0L);
 		engine.startSession(initial, 0L);
 
 		Map<Integer, ItemStack> tracked = new LinkedHashMap<>();
-		WealthSnapshot previous = initial;
-		for (int i = 0; i < 250; i++)
-		{
-			tracked = new LinkedHashMap<>(tracked);
-			tracked.put(i, new ItemStack(i, "item" + i, 1L, 100L));
-			WealthSnapshot current = snap(100L * (i + 1), tracked, 0L, false, i + 1);
-			engine.update(current, Collections.emptySet(), i + 1);
-			previous = current;
-		}
+		tracked.put(1, new ItemStack(1, "Cheap", 1L, 10_000L));       // 10k
+		tracked.put(2, new ItemStack(2, "Pricey", 1L, 5_000_000L));   // 5m
+		tracked.put(3, new ItemStack(3, "Mid", 1L, 500_000L));        // 500k
+		WealthSnapshot current = snap(5_510_000L, tracked, 0L, false, 1000L);
 
-		SessionSnapshot result = engine.snapshot(previous, 0L, Collections.emptyMap(), 0L, 300L);
-		assertEquals(200, result.getLoot().size());
+		engine.update(current, Collections.emptySet(), 1000L);
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+
+		assertEquals(3, result.getLoot().size());
+		assertEquals("Pricey", result.getLoot().get(0).getName());
+		assertEquals("Mid", result.getLoot().get(1).getName());
+		assertEquals("Cheap", result.getLoot().get(2).getName());
 	}
 
 	@Test
