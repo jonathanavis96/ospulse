@@ -1,5 +1,6 @@
 package com.ospulse.integration;
 
+import net.runelite.api.ItemComposition;
 import net.runelite.client.game.ItemManager;
 
 /**
@@ -46,5 +47,19 @@ public class RuneLiteItemValuation
 	public boolean isPlaceholder(int itemId)
 	{
 		return itemManager.getItemComposition(itemId).getPlaceholderTemplateId() != -1;
+	}
+
+	/**
+	 * Per-unit High Alchemy price for the given item, canonicalized first, or
+	 * {@code -1} if no composition is available. Calls
+	 * {@link ItemManager#getItemComposition(int)}, which asserts it is running
+	 * on the RuneLite client thread — callers must never invoke this from the
+	 * Swing EDT.
+	 */
+	public long haPrice(int itemId)
+	{
+		int canonicalId = itemManager.canonicalize(itemId);
+		ItemComposition comp = itemManager.getItemComposition(canonicalId);
+		return comp == null ? -1L : comp.getHaPrice();
 	}
 }

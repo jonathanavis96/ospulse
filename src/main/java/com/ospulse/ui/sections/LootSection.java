@@ -8,7 +8,6 @@ import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.GpFormat;
 import com.ospulse.ui.PanelWidgets;
 
-import net.runelite.api.ItemComposition;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
@@ -160,14 +159,13 @@ public final class LootSection extends CollapsibleSection
 			.append("<br>GE: ")
 			.append(GpFormat.format(item.value()));
 
-		if (itemManager != null && item.getId() > 0)
+		// HA price is precomputed on the client thread (see SessionTracker.mergeItem);
+		// -1 means it couldn't be resolved. Never call getItemComposition here — this
+		// runs on the EDT and that method asserts the client thread.
+		if (item.getHaPrice() >= 0)
 		{
-			ItemComposition comp = itemManager.getItemComposition(item.getId());
-			if (comp != null)
-			{
-				long haValue = (long) comp.getHaPrice() * item.getQuantity();
-				tooltip.append("<br>HA: ").append(GpFormat.format(haValue));
-			}
+			long haValue = item.getHaPrice() * item.getQuantity();
+			tooltip.append("<br>HA: ").append(GpFormat.format(haValue));
 		}
 		tooltip.append("</html>");
 		icon.setToolTipText(tooltip.toString());

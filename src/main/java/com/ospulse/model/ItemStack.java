@@ -13,13 +13,27 @@ public final class ItemStack
 	private final String name;
 	private final long quantity;
 	private final long unitValue;
+	private final long haPrice;
 
 	public ItemStack(int id, String name, long quantity, long unitValue)
+	{
+		this(id, name, quantity, unitValue, -1L);
+	}
+
+	/**
+	 * @param haPrice per-unit High Alchemy price, or {@code -1} if not resolved
+	 *                (e.g. no {@code ItemComposition} was available). Must be
+	 *                resolved on the RuneLite client thread — never the Swing
+	 *                EDT, since {@code ItemManager.getItemComposition} asserts
+	 *                that thread.
+	 */
+	public ItemStack(int id, String name, long quantity, long unitValue, long haPrice)
 	{
 		this.id = id;
 		this.name = name;
 		this.quantity = quantity;
 		this.unitValue = unitValue;
+		this.haPrice = haPrice;
 	}
 
 	public int getId()
@@ -40,6 +54,15 @@ public final class ItemStack
 	public long getUnitValue()
 	{
 		return unitValue;
+	}
+
+	/**
+	 * Per-unit High Alchemy price, resolved on the client thread at
+	 * construction time; {@code -1} if not resolved (composition unavailable).
+	 */
+	public long getHaPrice()
+	{
+		return haPrice;
 	}
 
 	/**

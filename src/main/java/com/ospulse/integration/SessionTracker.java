@@ -804,7 +804,9 @@ public class SessionTracker implements SessionService
 	{
 		ItemStack existing = map.get(canonicalId);
 		long newQty = qty + (existing == null ? 0L : existing.getQuantity());
-		map.put(canonicalId, new ItemStack(canonicalId, name, newQty, unitValue));
+		// HA price resolved here on the client thread (getItemComposition asserts
+		// it) so the EDT-side loot tooltip can read it without threading errors.
+		map.put(canonicalId, new ItemStack(canonicalId, name, newQty, unitValue, valuation.haPrice(canonicalId)));
 	}
 
 	// --------------------------------------------------------- bank persistence
