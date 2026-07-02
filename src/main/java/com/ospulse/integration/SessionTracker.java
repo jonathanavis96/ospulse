@@ -54,7 +54,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 @Slf4j
 public class SessionTracker implements SessionService
 {
-	private static final int TOP_HOLDINGS_LIMIT = 10;
+	private static final int TOP_HOLDINGS_LIMIT = 50;
 	/** RS-profile config key under which the per-account bank cache is stored. */
 	private static final String BANK_CACHE_KEY = "bankCache";
 
@@ -556,6 +556,10 @@ public class SessionTracker implements SessionService
 			}
 
 			int itemId = item.getId();
+			if (valuation.isPlaceholder(itemId))
+			{
+				continue; // bank placeholder: reserved empty slot, not actually owned
+			}
 			long qty = item.getQuantity();
 			int canonicalId = valuation.canonical(itemId);
 			long unit = valuation.unitValue(itemId);
