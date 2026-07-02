@@ -81,7 +81,7 @@ public class OSPulsePlugin extends Plugin
 	{
 		tracker = new SessionTracker(client, itemManager, config, configManager, gson);
 
-		panel = new OSPulsePanel(config, itemManager);
+		panel = new OSPulsePanel(config, itemManager, configManager);
 		panel.setResetCallback(tracker::resetSession);
 		tracker.addListener(panel);
 

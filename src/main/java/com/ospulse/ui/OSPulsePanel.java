@@ -1,20 +1,22 @@
 package com.ospulse.ui;
 
 import com.ospulse.OSPulseConfig;
-import com.ospulse.ge.GeOfferView;
-import com.ospulse.model.ItemStack;
 import com.ospulse.session.SessionListener;
 import com.ospulse.session.SessionSnapshot;
-import com.ospulse.session.SourceLoot;
-import com.ospulse.wealth.WealthSnapshot;
+import com.ospulse.ui.sections.GeSection;
+import com.ospulse.ui.sections.HoldingsSection;
+import com.ospulse.ui.sections.LootSection;
+import com.ospulse.ui.sections.SessionSection;
+import com.ospulse.ui.sections.WealthSection;
+import com.ospulse.ui.sections.XpSection;
 
+import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
 
 import javax.swing.BorderFactory;
-import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JLabel;
@@ -27,79 +29,47 @@ import javax.swing.border.EmptyBorder;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Rectangle;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Read-side view of the session tracker: a RuneLite side panel showing the
- * current session's profit, net-worth breakdown, top holdings, loot feed and
- * XP gains at a glance.
+ * current session's profit, net-worth breakdown, loot feed, XP gains, Grand
+ * Exchange offers and top holdings — each in a {@link CollapsibleSection} the
+ * user can minimize.
  *
- * <p>Snapshots arrive via {@link #onSessionUpdate(SessionSnapshot)} on the
- * RuneLite client thread; every update is marshalled onto the Swing EDT via
- * {@link SwingUtilities#invokeLater(Runnable)} before any component is
- * touched.
+ * <p>This class is a thin assembler: it builds the sections once, owns the
+ * scroll/empty-state chrome, persists which sections are collapsed via
+ * {@link ConfigManager}, and on every snapshot dispatches to each section's
+ * {@link CollapsibleSection#apply(SessionSnapshot)} on the Swing EDT.
  */
 public class OSPulsePanel extends PluginPanel implements SessionListener
 {
-	private static final int LOOT_ROW_CAP = 30;
+	/** Config key (raw, not declared on the interface) for collapsed sections. */
+	private static final String COLLAPSED_KEY = "collapsedSections";
 
-	private final OSPulseConfig config;
-	private final ItemManager itemManager;
-	private Runnable resetCallback = () -> {};
+	private final ConfigManager configManager;
 
 	private final JPanel emptyStatePanel;
 	private final JPanel contentPanel;
 	private final CardHolder cardHolder;
 
-	// Session summary
-	private final JLabel elapsedValueLabel;
-	private final JLabel profitValueLabel;
-	private final JLabel profitPerHourValueLabel;
-	private final JLabel netWorthDeltaValueLabel;
-	private final JLabel geRealizedPnlValueLabel;
+	private final List<CollapsibleSection> sectionList = new ArrayList<>();
 
-	// Net worth breakdown
-	private final JLabel netWorthValueLabel;
-	private final JLabel trackedValueLabel;
-	private final JLabel inventoryValueLabel;
-	private final JLabel equipmentValueLabel;
-	private final JLabel geInFlightValueLabel;
-	private final JLabel pouchValueLabel;
-	private final JLabel bankValueLabel;
+	private Runnable resetCallback = () -> {};
 
-	// Dynamic list containers, rebuilt on every snapshot
-	private final JPanel holdingsListPanel;
-	private final JPanel lootListPanel;
-	private final JLabel xpTotalValueLabel;
-	private final JPanel xpBreakdownPanel;
-	private final JPanel geListPanel;
-	private final JLabel lootTotalValueLabel;
-
-	/** Latest source-grouped loot, retained so header clicks can re-render. */
-	private List<SourceLoot> lastLootSources = List.of();
-	/** Sources the user has collapsed (by source name); persists across updates. */
-	private final Set<String> collapsedSources = new HashSet<>();
-
-	/**
-	 * Builds the full component tree once. Subsequent updates only mutate
-	 * label text/colour (or rebuild the small dynamic list panels), they
-	 * never reconstruct this tree.
-	 */
-	public OSPulsePanel(OSPulseConfig config, ItemManager itemManager)
+	public OSPulsePanel(OSPulseConfig config, ItemManager itemManager, ConfigManager configManager)
 	{
 		super(false);
-		this.config = Objects.requireNonNull(config, "config");
-		this.itemManager = itemManager;
+		Objects.requireNonNull(config, "config");
+		this.configManager = configManager;
 
 		setLayout(new BorderLayout());
 		setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -109,72 +79,32 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 
 		emptyStatePanel = buildEmptyState();
 
-		// A width-tracking panel: it forces its content to the scroll viewport's
-		// width so nothing is ever laid out wider than the fixed side panel.
-		// Without this, the widest row would push the content past the viewport
-		// and — with horizontal scrolling disabled — clip it out of reach.
+		CollapsibleSection.CollapseStore store = new ConfigCollapseStore();
+
+		sectionList.add(new SessionSection(store));
+		sectionList.add(new WealthSection(store));
+		sectionList.add(new LootSection(store, config, itemManager));
+		sectionList.add(new XpSection(store));
+		sectionList.add(new GeSection(store, itemManager));
+		sectionList.add(new HoldingsSection(store, itemManager));
+
+		// A width-tracking column so nothing is laid out wider than the fixed
+		// side-panel width; the widest row ellipsizes within its row instead of
+		// pushing content past the (horizontally non-scrolling) viewport edge.
 		JPanel sections = new ScrollablePanel();
 		sections.setLayout(new BoxLayout(sections, BoxLayout.Y_AXIS));
 		sections.setBackground(ColorScheme.DARK_GRAY_COLOR);
 
-		// --- Session summary -------------------------------------------------
-		JPanel summarySection = section("Session");
-		elapsedValueLabel = statRow(summarySection, "Elapsed");
-		profitValueLabel = statRow(summarySection, "Profit");
-		profitPerHourValueLabel = statRow(summarySection, "Profit/hr");
-		netWorthDeltaValueLabel = statRow(summarySection, "Net worth Δ");
-		geRealizedPnlValueLabel = statRow(summarySection, "GE flip P&L");
-		sections.add(summarySection);
-		sections.add(spacer());
-
-		// --- Net worth breakdown ---------------------------------------------
-		JPanel wealthSection = section("Net worth breakdown");
-		netWorthValueLabel = statRow(wealthSection, "Net worth");
-		trackedValueLabel = statRow(wealthSection, "Tracked");
-		inventoryValueLabel = statRow(wealthSection, "Inventory");
-		equipmentValueLabel = statRow(wealthSection, "Equipment");
-		geInFlightValueLabel = statRow(wealthSection, "GE in-flight");
-		pouchValueLabel = statRow(wealthSection, "Pouch");
-		bankValueLabel = statRow(wealthSection, "Bank");
-		sections.add(wealthSection);
-		sections.add(spacer());
-
-		// --- Loot feed -----------------------------------------------------------
-		JPanel lootSection = section("Loot feed");
-		lootTotalValueLabel = statRow(lootSection, "Total value");
-		lootListPanel = new JPanel();
-		lootListPanel.setLayout(new BoxLayout(lootListPanel, BoxLayout.Y_AXIS));
-		lootListPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		lootSection.add(lootListPanel);
-		sections.add(lootSection);
-		sections.add(spacer());
-
-		// --- XP ----------------------------------------------------------------
-		JPanel xpSection = section("XP gained");
-		xpTotalValueLabel = statRow(xpSection, "Total");
-		xpBreakdownPanel = new JPanel();
-		xpBreakdownPanel.setLayout(new BoxLayout(xpBreakdownPanel, BoxLayout.Y_AXIS));
-		xpBreakdownPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		xpSection.add(xpBreakdownPanel);
-		sections.add(xpSection);
-		sections.add(spacer());
-
-		// --- Grand Exchange ----------------------------------------------------
-		JPanel geSection = section("Grand Exchange");
-		geListPanel = new JPanel();
-		geListPanel.setLayout(new BoxLayout(geListPanel, BoxLayout.Y_AXIS));
-		geListPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		geSection.add(geListPanel);
-		sections.add(geSection);
-		sections.add(spacer());
-
-		// --- Top holdings ------------------------------------------------------
-		JPanel holdingsSection = section("Top holdings");
-		holdingsListPanel = new JPanel();
-		holdingsListPanel.setLayout(new BoxLayout(holdingsListPanel, BoxLayout.Y_AXIS));
-		holdingsListPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		holdingsSection.add(holdingsListPanel);
-		sections.add(holdingsSection);
+		boolean first = true;
+		for (CollapsibleSection section : sectionList)
+		{
+			if (!first)
+			{
+				sections.add(PanelWidgets.spacer());
+			}
+			first = false;
+			sections.add(section);
+		}
 
 		JScrollPane scrollPane = new JScrollPane(sections);
 		scrollPane.setBorder(BorderFactory.createEmptyBorder());
@@ -193,8 +123,8 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	}
 
 	/**
-	 * Wires the Reset button to {@code resetCallback}. Defaults to a no-op;
-	 * the plugin assembles this to the tracker's {@code resetSession()}.
+	 * Wires the Reset button to {@code resetCallback}. Defaults to a no-op; the
+	 * plugin assembles this to the tracker's {@code resetSession()}.
 	 */
 	public void setResetCallback(Runnable resetCallback)
 	{
@@ -218,237 +148,10 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		}
 
 		showContent();
-
-		elapsedValueLabel.setText(formatElapsed(snapshot.getElapsedMs()));
-		setSignedGpLabel(profitValueLabel, snapshot.getProfit());
-		setSignedGpLabel(profitPerHourValueLabel, snapshot.getProfitPerHour());
-		setSignedGpLabel(netWorthDeltaValueLabel, snapshot.getNetWorthDelta());
-		setSignedGpLabel(geRealizedPnlValueLabel, snapshot.getGeRealizedPnl());
-
-		WealthSnapshot wealth = snapshot.getWealth();
-		applyWealth(wealth);
-		rebuildLootSources(snapshot.getLootSources());
-		applyXp(snapshot.getXpTotal(), snapshot.getXpGained());
-		rebuildGeOffers(snapshot.getGeOffers());
-		rebuildHoldings(wealth);
-	}
-
-	private void applyWealth(WealthSnapshot wealth)
-	{
-		if (wealth == null)
+		for (CollapsibleSection section : sectionList)
 		{
-			netWorthValueLabel.setText("—");
-			trackedValueLabel.setText("—");
-			inventoryValueLabel.setText("—");
-			equipmentValueLabel.setText("—");
-			geInFlightValueLabel.setText("—");
-			pouchValueLabel.setText("—");
-			bankValueLabel.setText("—");
-			resetLabelColor(netWorthValueLabel);
-			return;
+			section.apply(snapshot);
 		}
-
-		setSignedGpLabel(netWorthValueLabel, wealth.netWorth());
-		gpLabel(trackedValueLabel, wealth.tracked());
-		gpLabel(inventoryValueLabel, wealth.getInventoryValue());
-		gpLabel(equipmentValueLabel, wealth.getEquipmentValue());
-		gpLabel(geInFlightValueLabel, wealth.getGeInFlightValue());
-		gpLabel(pouchValueLabel, wealth.getPouchValue());
-
-		if (wealth.isBankKnown())
-		{
-			gpLabel(bankValueLabel, wealth.getBankValue());
-		}
-		else
-		{
-			bankValueLabel.setText("— (unknown)");
-			resetLabelColor(bankValueLabel);
-		}
-	}
-
-	private void rebuildHoldings(WealthSnapshot wealth)
-	{
-		holdingsListPanel.removeAll();
-
-		List<ItemStack> topHoldings = wealth == null ? List.of() : wealth.getTopHoldings();
-		if (topHoldings.isEmpty())
-		{
-			holdingsListPanel.add(emptyRowLabel("No holdings tracked yet."));
-		}
-		else
-		{
-			for (ItemStack stack : topHoldings)
-			{
-				String label = stack.getName() + " x" + String.format("%,d", stack.getQuantity());
-				holdingsListPanel.add(iconRow(stack.getId(), label,
-					GpFormat.format(stack.value()), ColorScheme.LIGHT_GRAY_COLOR));
-			}
-		}
-
-		holdingsListPanel.revalidate();
-		holdingsListPanel.repaint();
-	}
-
-	private void rebuildGeOffers(List<GeOfferView> offers)
-	{
-		geListPanel.removeAll();
-
-		if (offers == null || offers.isEmpty())
-		{
-			geListPanel.add(emptyRowLabel("No active offers."));
-		}
-		else
-		{
-			boolean first = true;
-			for (GeOfferView offer : offers)
-			{
-				if (!first)
-				{
-					geListPanel.add(Box.createRigidArea(new Dimension(0, 4)));
-				}
-				first = false;
-
-				String arrow = offer.isBuying() ? "▲" : "▼"; // ▲ buy / ▼ sell
-				String header = arrow + " " + offer.getItemName();
-				String qty = String.format("%,d / %,d",
-					offer.getQuantityTransacted(), offer.getTotalQuantity());
-				Color dirColor = offer.isBuying()
-					? ColorScheme.PROGRESS_COMPLETE_COLOR
-					: ColorScheme.PROGRESS_ERROR_COLOR;
-				geListPanel.add(iconRow(offer.getItemId(), header, qty, dirColor));
-
-				String gpLabelText = offer.isBuying() ? "spent" : "received";
-				String gp = GpFormat.format(offer.getGpProgress())
-					+ " / " + GpFormat.format(offer.getGpPotential());
-				geListPanel.add(listRow("   " + gpLabelText, gp));
-			}
-		}
-
-		geListPanel.revalidate();
-		geListPanel.repaint();
-	}
-
-	private void rebuildLootSources(List<SourceLoot> sources)
-	{
-		lastLootSources = sources == null ? List.of() : sources;
-		lootListPanel.removeAll();
-
-		long totalValue = 0L;
-		for (SourceLoot src : lastLootSources)
-		{
-			totalValue += src.getTotalValue();
-		}
-		lootTotalValueLabel.setText(GpFormat.format(totalValue));
-
-		if (lastLootSources.isEmpty())
-		{
-			lootListPanel.add(emptyRowLabel("No loot yet."));
-		}
-		else
-		{
-			int minLootValue = config.minLootValue();
-			for (SourceLoot src : lastLootSources)
-			{
-				lootListPanel.add(sourceHeaderRow(src));
-				if (collapsedSources.contains(src.getSource()))
-				{
-					continue;
-				}
-				int shown = 0;
-				for (ItemStack item : src.getItems())
-				{
-					if (item.value() < minLootValue)
-					{
-						continue;
-					}
-					String label = item.getName() + " x" + String.format("%,d", item.getQuantity());
-					lootListPanel.add(iconRow(item.getId(), label,
-						GpFormat.format(item.value()), ColorScheme.LIGHT_GRAY_COLOR));
-					shown++;
-					if (shown >= LOOT_ROW_CAP)
-					{
-						break;
-					}
-				}
-			}
-		}
-
-		lootListPanel.revalidate();
-		lootListPanel.repaint();
-	}
-
-	/**
-	 * A clickable collapsible header for one loot source, e.g.
-	 * "▾ Cerberus x206 … 24m". Clicking toggles the source's expanded state and
-	 * re-renders the loot list from the retained data.
-	 */
-	private JPanel sourceHeaderRow(SourceLoot src)
-	{
-		boolean collapsed = collapsedSources.contains(src.getSource());
-		String triangle = collapsed ? "▸" : "▾";
-		String left = triangle + " " + src.getSource()
-			+ (src.getCount() > 1 ? " x" + String.format("%,d", src.getCount()) : "");
-
-		JPanel row = new JPanel(new BorderLayout(4, 0));
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(new EmptyBorder(3, 0, 1, 0));
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-		row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-
-		JLabel leftLabel = new JLabel(left);
-		leftLabel.setForeground(ColorScheme.BRAND_ORANGE);
-		leftLabel.setFont(FontManager.getRunescapeSmallFont());
-
-		JLabel rightLabel = new JLabel(GpFormat.format(src.getTotalValue()));
-		rightLabel.setForeground(Color.WHITE);
-		rightLabel.setFont(FontManager.getRunescapeSmallFont());
-		rightLabel.setHorizontalAlignment(SwingConstants.RIGHT);
-
-		row.add(leftLabel, BorderLayout.CENTER);
-		row.add(rightLabel, BorderLayout.EAST);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-
-		final String source = src.getSource();
-		row.addMouseListener(new MouseAdapter()
-		{
-			@Override
-			public void mousePressed(MouseEvent e)
-			{
-				if (!collapsedSources.remove(source))
-				{
-					collapsedSources.add(source);
-				}
-				rebuildLootSources(lastLootSources);
-			}
-		});
-		return row;
-	}
-
-	private void applyXp(long xpTotal, Map<String, Long> xpGained)
-	{
-		xpTotalValueLabel.setText(String.format("%,d", xpTotal));
-
-		xpBreakdownPanel.removeAll();
-		boolean any = false;
-		if (xpGained != null)
-		{
-			List<Map.Entry<String, Long>> entries = new ArrayList<>(xpGained.entrySet());
-			entries.removeIf(e -> e.getValue() == null || e.getValue() <= 0);
-			entries.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
-			for (Map.Entry<String, Long> entry : entries)
-			{
-				xpBreakdownPanel.add(listRow(entry.getKey(), String.format("%,d", entry.getValue())));
-				any = true;
-			}
-		}
-
-		if (!any)
-		{
-			xpBreakdownPanel.add(emptyRowLabel("No XP gained yet."));
-		}
-
-		xpBreakdownPanel.revalidate();
-		xpBreakdownPanel.repaint();
 	}
 
 	private void showEmptyState()
@@ -496,151 +199,60 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		return panel;
 	}
 
-	private static JPanel section(String title)
-	{
-		JPanel panel = new JPanel();
-		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		panel.setBorder(new EmptyBorder(5, 6, 5, 6));
-		panel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-		JLabel header = new JLabel(title);
-		header.setForeground(ColorScheme.BRAND_ORANGE);
-		header.setFont(FontManager.getRunescapeBoldFont());
-		header.setAlignmentX(Component.LEFT_ALIGNMENT);
-		header.setBorder(new EmptyBorder(0, 0, 4, 0));
-		panel.add(header);
-
-		return panel;
-	}
-
-	private static JLabel statRow(JPanel container, String labelText)
-	{
-		JPanel row = new JPanel(new BorderLayout());
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(new EmptyBorder(1, 0, 1, 0));
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-		JLabel label = new JLabel(labelText);
-		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		label.setFont(FontManager.getRunescapeSmallFont());
-
-		JLabel value = new JLabel("-");
-		value.setForeground(Color.WHITE);
-		value.setFont(FontManager.getRunescapeSmallFont());
-		value.setHorizontalAlignment(SwingConstants.RIGHT);
-
-		row.add(label, BorderLayout.WEST);
-		row.add(value, BorderLayout.EAST);
-		container.add(row);
-		return value;
-	}
-
-	private static JPanel listRow(String left, String right)
-	{
-		JPanel row = new JPanel(new BorderLayout());
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(new EmptyBorder(1, 0, 1, 0));
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-		JLabel leftLabel = new JLabel(left);
-		leftLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		leftLabel.setFont(FontManager.getRunescapeSmallFont());
-
-		JLabel rightLabel = new JLabel(right);
-		rightLabel.setForeground(Color.WHITE);
-		rightLabel.setFont(FontManager.getRunescapeSmallFont());
-		rightLabel.setHorizontalAlignment(SwingConstants.RIGHT);
-
-		row.add(leftLabel, BorderLayout.WEST);
-		row.add(rightLabel, BorderLayout.EAST);
-		return row;
-	}
-
 	/**
-	 * A list row with the item's sprite on the left of {@code leftText}, and
-	 * {@code rightText} pinned right. The icon loads asynchronously via
-	 * {@link ItemManager} and repaints itself when ready.
+	 * A {@link CollapsibleSection.CollapseStore} backed by a single comma-joined
+	 * config value, so the set of collapsed sections survives a client restart.
 	 */
-	private JPanel iconRow(int itemId, String leftText, String rightText, Color leftColor)
+	private final class ConfigCollapseStore implements CollapsibleSection.CollapseStore
 	{
-		JPanel row = new JPanel(new BorderLayout(4, 0));
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(new EmptyBorder(1, 0, 1, 0));
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+		private final Set<String> collapsed;
 
-		if (itemManager != null && itemId > 0)
+		private ConfigCollapseStore()
 		{
-			JLabel iconLabel = new JLabel();
-			itemManager.getImage(itemId).addTo(iconLabel);
-			row.add(iconLabel, BorderLayout.WEST);
+			this.collapsed = load();
 		}
 
-		// CENTER takes the leftover width and truncates long names with "…"
-		// instead of forcing the row (and the whole panel) wider.
-		JLabel textLabel = new JLabel(leftText);
-		textLabel.setForeground(leftColor);
-		textLabel.setFont(FontManager.getRunescapeSmallFont());
-		row.add(textLabel, BorderLayout.CENTER);
+		private Set<String> load()
+		{
+			Set<String> result = new LinkedHashSet<>();
+			if (configManager == null)
+			{
+				return result;
+			}
+			String raw = configManager.getConfiguration(OSPulseConfig.GROUP, COLLAPSED_KEY);
+			if (raw != null && !raw.isEmpty())
+			{
+				result.addAll(Arrays.stream(raw.split(","))
+					.map(String::trim)
+					.filter(s -> !s.isEmpty())
+					.collect(Collectors.toList()));
+			}
+			return result;
+		}
 
-		JLabel rightLabel = new JLabel(rightText);
-		rightLabel.setForeground(Color.WHITE);
-		rightLabel.setFont(FontManager.getRunescapeSmallFont());
-		rightLabel.setHorizontalAlignment(SwingConstants.RIGHT);
-		rightLabel.setBorder(new EmptyBorder(0, 4, 0, 0));
-		row.add(rightLabel, BorderLayout.EAST);
+		@Override
+		public boolean isCollapsed(String key)
+		{
+			return collapsed.contains(key);
+		}
 
-		// Don't let the row stretch vertically under BoxLayout.
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
-	}
-
-	private static JLabel emptyRowLabel(String text)
-	{
-		JLabel label = new JLabel(text);
-		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		label.setFont(FontManager.getRunescapeSmallFont());
-		label.setAlignmentX(Component.LEFT_ALIGNMENT);
-		return label;
-	}
-
-	private static Component spacer()
-	{
-		return Box.createRigidArea(new Dimension(0, 6));
-	}
-
-	private void setSignedGpLabel(JLabel label, long value)
-	{
-		label.setText(GpFormat.format(value));
-		label.setForeground(value >= 0 ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.PROGRESS_ERROR_COLOR);
-	}
-
-	private void gpLabel(JLabel label, long value)
-	{
-		label.setText(GpFormat.format(value));
-		resetLabelColor(label);
-	}
-
-	private static void resetLabelColor(JLabel label)
-	{
-		label.setForeground(Color.WHITE);
-	}
-
-	private static String formatElapsed(long elapsedMs)
-	{
-		long totalSeconds = Math.max(0, elapsedMs) / 1000;
-		long hours = totalSeconds / 3600;
-		long minutes = (totalSeconds % 3600) / 60;
-		long seconds = totalSeconds % 60;
-		return String.format("%d:%02d:%02d", hours, minutes, seconds);
+		@Override
+		public void setCollapsed(String key, boolean isCollapsed)
+		{
+			boolean changed = isCollapsed ? collapsed.add(key) : collapsed.remove(key);
+			if (!changed || configManager == null)
+			{
+				return;
+			}
+			configManager.setConfiguration(OSPulseConfig.GROUP, COLLAPSED_KEY,
+				String.join(",", collapsed));
+		}
 	}
 
 	/**
 	 * A {@link BoxLayout} column that reports it tracks the scroll viewport's
-	 * width. This clamps its (and every row's) width to the fixed side-panel
-	 * width, so long item/offer names ellipsize within their row instead of
-	 * stretching the whole panel past the edge where — with horizontal scrolling
-	 * disabled — they'd be clipped and unreachable.
+	 * width, clamping every row to the fixed side-panel width so long names
+	 * ellipsize instead of being clipped past the (non-scrolling) edge.
 	 */
 	private static final class ScrollablePanel extends JPanel implements Scrollable
 	{
@@ -676,9 +288,9 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	}
 
 	/**
-	 * Minimal two-card switcher. {@link java.awt.CardLayout} requires a
-	 * fixed container to hold both cards; this keeps that container private
-	 * to the panel while exposing a simple {@code show} call.
+	 * Minimal two-card switcher. {@link java.awt.CardLayout} requires a fixed
+	 * container to hold both cards; this keeps that container private to the
+	 * panel while exposing a simple {@code show} call.
 	 */
 	private static final class CardHolder
 	{

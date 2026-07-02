@@ -5,7 +5,7 @@ package com.ospulse.ui;
  * throughout {@link OSPulsePanel}. Kept separate from the panel so it can be
  * unit-tested without any Swing or RuneLite UI dependencies.
  */
-final class GpFormat
+public final class GpFormat
 {
 	private static final String[] SUFFIXES = {"", "k", "m", "b"};
 	private static final long COMMA_THRESHOLD = 100_000L;
@@ -19,7 +19,7 @@ final class GpFormat
 	 * {@code 1_500_000 -> "1.5m"}, {@code 2_000_000_000 -> "2b"}. Negative
 	 * values keep their sign (e.g. {@code -1_500_000 -> "-1.5m"}).
 	 */
-	static String format(long value)
+	public static String format(long value)
 	{
 		if (value == 0)
 		{
