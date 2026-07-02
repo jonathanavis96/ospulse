@@ -1,4 +1,4 @@
-package com.ospulse.ui.sections;
+package com.ospulse.session;
 
 import com.ospulse.combat.SalveType;
 import com.ospulse.combat.SlayerHeadgear;

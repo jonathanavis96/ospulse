@@ -9,15 +9,13 @@ import com.ospulse.combat.Monster;
 import com.ospulse.combat.MonsterRepository;
 import com.ospulse.combat.PlayerCombat;
 import com.ospulse.combat.Stance;
+import com.ospulse.session.GearMapper;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
 
-import net.runelite.api.EquipmentInventorySlot;
-import net.runelite.client.game.ItemEquipmentStats;
 import net.runelite.client.game.ItemManager;
-import net.runelite.client.game.ItemStats;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 
@@ -55,17 +53,17 @@ import java.util.Locale;
  * RuneLite {@code Client} directly and never calls any
  * {@code getBoostedSkillLevel}/{@code isPrayerActive}/{@code getItemContainer}
  * -style API — all of that happens in {@code SessionTracker} on the client
- * thread and is published as {@link GearSnapshot}. The one exception is
- * {@link ItemManager#getItemStats(int)}, which is thread-safe/cached and may
- * be called here to turn snapshot item ids into {@link EquipmentStats} and to
- * fetch item icons.
+ * thread and is published as {@link GearSnapshot}, including the precomputed
+ * {@link GearSnapshot#equipmentStats()}. This section deliberately makes
+ * <b>zero</b> {@code ItemManager}/{@code Client} stat calls of its own —
+ * {@code ItemManager.getItemStats}/{@code getItemComposition} assert the
+ * client thread internally and must never be called from the EDT. The
+ * {@code itemManager} field is kept only for future EDT-safe uses (e.g.
+ * {@code getImage}/{@code getItemPrice}), not for stats.
  */
 public final class GearSection extends CollapsibleSection
 {
 	public static final String KEY = "gear";
-
-	/** {@code EquipmentInventorySlot.WEAPON.ordinal()} — the slot whose aspeed/isTwoHanded drives the loadout. */
-	private static final int WEAPON_SLOT_INDEX = EquipmentInventorySlot.WEAPON.ordinal();
 
 	/**
 	 * TODO Tier-A/magic simplification: Phase 1 has no spellbook UI, so magic
@@ -142,6 +140,9 @@ public final class GearSection extends CollapsibleSection
 		monsterCombo.setFont(FontManager.getRunescapeSmallFont());
 		monsterCombo.setAlignmentX(Component.LEFT_ALIGNMENT);
 		monsterCombo.setMaximumSize(new Dimension(Integer.MAX_VALUE, monsterCombo.getPreferredSize().height));
+		// Default Swing popup only shows ~8 rows before scrolling; widen that so
+		// more of the searchable monster list is visible at once.
+		monsterCombo.setMaximumRowCount(15);
 		monsterCombo.addActionListener(e -> onMonsterSelected());
 		body().add(monsterCombo);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
@@ -151,12 +152,12 @@ public final class GearSection extends CollapsibleSection
 		togglesRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		togglesRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		bestPotionCheckbox = new JCheckBox("Assume best potion");
+		bestPotionCheckbox = new JCheckBox("Best potion");
 		styleCheckbox(bestPotionCheckbox);
 		bestPotionCheckbox.addActionListener(e -> recompute());
 		togglesRow.add(bestPotionCheckbox);
 
-		bestPrayerCheckbox = new JCheckBox("Assume best offensive prayer");
+		bestPrayerCheckbox = new JCheckBox("Best offensive prayer");
 		styleCheckbox(bestPrayerCheckbox);
 		bestPrayerCheckbox.addActionListener(e -> recompute());
 		togglesRow.add(bestPrayerCheckbox);
@@ -294,14 +295,13 @@ public final class GearSection extends CollapsibleSection
 			return;
 		}
 
-		if (lastGear == null || selectedMonster == null)
+		if (lastGear == null || selectedMonster == null || lastGear.equipmentStats() == null)
 		{
 			clearOutputs();
 			return;
 		}
 
-		EquipmentStats gearStats = GearMapper.buildEquipmentStats(lastGear.equippedItemIds(), WEAPON_SLOT_INDEX,
-			this::lookupSlotStats);
+		EquipmentStats gearStats = lastGear.equipmentStats();
 		Stance stance = defaultStanceFor(selectedStyle);
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, stance,
 			bestPotionCheckbox.isSelected(), bestPrayerCheckbox.isSelected(), onSlayerTaskCheckbox.isSelected());
@@ -363,29 +363,6 @@ public final class GearSection extends CollapsibleSection
 			default:
 				return Stance.AGGRESSIVE;
 		}
-	}
-
-	/** Real {@link ItemManager}-backed lookup — thread-safe/cached, callable on the EDT. */
-	private GearMapper.SlotStats lookupSlotStats(int itemId)
-	{
-		if (itemManager == null || itemId <= 0)
-		{
-			return null;
-		}
-		ItemStats stats = itemManager.getItemStats(itemId);
-		if (stats == null || !stats.isEquipable())
-		{
-			return null;
-		}
-		ItemEquipmentStats eq = stats.getEquipment();
-		if (eq == null)
-		{
-			return null;
-		}
-		return new GearMapper.SlotStats(
-			eq.getAstab(), eq.getAslash(), eq.getAcrush(), eq.getAmagic(), eq.getArange(),
-			eq.getDstab(), eq.getDslash(), eq.getDcrush(), eq.getDmagic(), eq.getDrange(),
-			eq.getStr(), eq.getRstr(), eq.getMdmg(), eq.getPrayer(), eq.getAspeed(), eq.isTwoHanded());
 	}
 
 	@Override

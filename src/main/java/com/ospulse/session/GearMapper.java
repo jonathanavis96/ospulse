@@ -1,18 +1,20 @@
-package com.ospulse.ui.sections;
+package com.ospulse.session;
 
 import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.PlayerCombat;
 import com.ospulse.combat.Stance;
-import com.ospulse.session.GearSnapshot;
 
 /**
  * Pure mapping helpers between the plugin's own snapshot/session types and
  * the {@code com.ospulse.combat} engine's input types. Deliberately has no
  * RuneLite dependency so it is unit-testable without a running game client —
- * {@link GearSection} is the only caller, and it supplies a real
- * {@link SlotStatsLookup} backed by {@code ItemManager.getItemStats}.
+ * {@code com.ospulse.integration.SessionTracker} is the only caller of
+ * {@link #buildEquipmentStats}, resolving each slot's {@link SlotStats} via
+ * {@code ItemManager.getItemStats} on the client thread (that call asserts
+ * the client thread internally, so it must never happen on the EDT); {@code
+ * com.ospulse.ui.sections.GearSection} only calls {@link #toPlayerCombat}.
  */
-final class GearMapper
+public final class GearMapper
 {
 	// Slot ordinals mirror net.runelite.api.EquipmentInventorySlot (HEAD=0 .. AMMO=13).
 	// Kept as literals since this class has zero RuneLite dependency (see class javadoc).
@@ -32,7 +34,7 @@ final class GearMapper
 	 * the combat design spec's confirmed API), but with zero RuneLite
 	 * dependency so tests can construct one directly.
 	 */
-	static final class SlotStats
+	public static final class SlotStats
 	{
 		final int astab;
 		final int aslash;
@@ -51,7 +53,7 @@ final class GearMapper
 		final int aspeed;
 		final boolean isTwoHanded;
 
-		SlotStats(int astab, int aslash, int acrush, int amagic, int arange,
+		public SlotStats(int astab, int aslash, int acrush, int amagic, int arange,
 				  int dstab, int dslash, int dcrush, int dmagic, int drange,
 				  int str, int rstr, double mdmg, int prayer, int aspeed, boolean isTwoHanded)
 		{
@@ -76,7 +78,7 @@ final class GearMapper
 
 	/** Resolves an item id to its {@link SlotStats}, or {@code null} if empty/non-equipable/unknown. */
 	@FunctionalInterface
-	interface SlotStatsLookup
+	public interface SlotStatsLookup
 	{
 		SlotStats statsFor(int itemId);
 	}
@@ -89,7 +91,7 @@ final class GearMapper
 	 * attack speed and two-handed flag (every other slot's aspeed is normally
 	 * 0 and would otherwise be nonsensical to sum).
 	 */
-	static EquipmentStats buildEquipmentStats(int[] equippedItemIds, int weaponSlotIndex, SlotStatsLookup lookup)
+	public static EquipmentStats buildEquipmentStats(int[] equippedItemIds, int weaponSlotIndex, SlotStatsLookup lookup)
 	{
 		EquipmentStats.Builder builder = EquipmentStats.builder();
 		for (int slot = 0; slot < equippedItemIds.length; slot++)
@@ -142,10 +144,11 @@ final class GearMapper
 	 * <p>{@code onSlayerTask} is passed in explicitly rather than read from
 	 * {@code gear.onSlayerTask()}: Phase 1 has no live client read for
 	 * on-task status (see {@link GearSnapshot}'s javadoc), so it's always
-	 * false there — the real value comes from {@link GearSection}'s manual
-	 * "On Slayer task" checkbox instead.
+	 * false there — the real value comes from {@code
+	 * com.ospulse.ui.sections.GearSection}'s manual "On Slayer task" checkbox
+	 * instead.
 	 */
-	static PlayerCombat toPlayerCombat(GearSnapshot gear, Stance stance, boolean assumeBestPotion, boolean assumeBestPrayer,
+	public static PlayerCombat toPlayerCombat(GearSnapshot gear, Stance stance, boolean assumeBestPotion, boolean assumeBestPrayer,
 									boolean onSlayerTask)
 	{
 		return PlayerCombat.builder()

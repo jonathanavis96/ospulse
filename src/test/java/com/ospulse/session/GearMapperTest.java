@@ -1,4 +1,4 @@
-package com.ospulse.ui.sections;
+package com.ospulse.session;
 
 import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.OffensivePrayer;
@@ -7,7 +7,6 @@ import com.ospulse.combat.SalveType;
 import com.ospulse.combat.SlayerHeadgear;
 import com.ospulse.combat.Stance;
 import com.ospulse.combat.VoidSet;
-import com.ospulse.session.GearSnapshot;
 import org.junit.Test;
 
 import java.util.EnumSet;

@@ -1,5 +1,6 @@
 package com.ospulse.session;
 
+import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.OffensivePrayer;
 
 import java.util.Arrays;
@@ -13,12 +14,14 @@ import java.util.Set;
  * ordinal) plus base/boosted skill levels and active offensive prayers.
  *
  * <p>Deliberately has zero RuneLite dependency — {@code com.ospulse.integration.SessionTracker}
- * (on the client thread) is the only place that reads the live {@code Client} and
- * builds one of these; {@code com.ospulse.ui.sections.GearSection} (on the
- * EDT) only ever reads this snapshot plus {@code ItemManager.getItemStats}
- * (thread-safe/cached) to drive the {@code com.ospulse.combat} DPS engine.
- * This keeps the gear->DPS mapping pure and unit-testable without a running
- * game client.
+ * (on the client thread) is the only place that reads the live {@code Client}
+ * and builds one of these, including resolving {@link #equipmentStats()} via
+ * {@code ItemManager.getItemStats} <b>on the client thread</b> (that call
+ * internally asserts the client thread and must never be made from the EDT);
+ * {@code com.ospulse.ui.sections.GearSection} (on the EDT) only ever reads
+ * the precomputed fields of this snapshot to drive the
+ * {@code com.ospulse.combat} DPS engine. This keeps the gear-&gt;DPS mapping
+ * pure and unit-testable without a running game client.
  */
 public final class GearSnapshot
 {
@@ -50,6 +53,14 @@ public final class GearSnapshot
 	 * bonuses never apply until this is read live.
 	 */
 	private final boolean onSlayerTask;
+	/**
+	 * Pre-summed loadout-wide {@link EquipmentStats}, resolved once on the
+	 * client thread by {@code SessionTracker.buildGear()} (via {@code
+	 * GearMapper.buildEquipmentStats} + {@code ItemManager.getItemStats}) —
+	 * never on the EDT. {@code null} for {@link #empty()} / whenever no live
+	 * gear has been resolved yet.
+	 */
+	private final EquipmentStats equipmentStats;
 
 	private GearSnapshot(Builder b)
 	{
@@ -72,6 +83,7 @@ public final class GearSnapshot
 			? Collections.emptySet()
 			: Collections.unmodifiableSet(EnumSet.copyOf(b.activePrayers));
 		this.onSlayerTask = b.onSlayerTask;
+		this.equipmentStats = b.equipmentStats;
 	}
 
 	private static int[] normalizeSlots(int[] raw)
@@ -190,6 +202,17 @@ public final class GearSnapshot
 		return onSlayerTask;
 	}
 
+	/**
+	 * Pre-summed loadout-wide equipment bonuses, or {@code null} if not yet
+	 * resolved (e.g. {@link #empty()}). Safe to read on any thread, including
+	 * the EDT — all the client-thread-only resolution already happened when
+	 * this snapshot was built.
+	 */
+	public EquipmentStats equipmentStats()
+	{
+		return equipmentStats;
+	}
+
 	public static final class Builder
 	{
 		private int[] equippedItemIds;
@@ -209,6 +232,7 @@ public final class GearSnapshot
 		private int boostedHitpoints;
 		private Set<OffensivePrayer> activePrayers = EnumSet.noneOf(OffensivePrayer.class);
 		private boolean onSlayerTask;
+		private EquipmentStats equipmentStats;
 
 		private Builder()
 		{
@@ -280,6 +304,12 @@ public final class GearSnapshot
 		public Builder onSlayerTask(boolean value)
 		{
 			this.onSlayerTask = value;
+			return this;
+		}
+
+		public Builder equipmentStats(EquipmentStats equipmentStats)
+		{
+			this.equipmentStats = equipmentStats;
 			return this;
 		}
 

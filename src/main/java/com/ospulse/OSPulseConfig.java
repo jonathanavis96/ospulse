@@ -202,13 +202,14 @@ public interface OSPulseConfig extends Config
 	@ConfigItem(
 		keyName = "gearSectionEnabled",
 		name = "Enable Gear / DPS calculator",
-		description = "OFF by default. When enabled, the Gear section shows a live max hit / "
-			+ "accuracy / DPS readout for your currently worn gear against a selected monster.",
+		description = "ON by default (no network connection is made). When enabled, the Gear "
+			+ "section shows a live max hit / accuracy / DPS readout for your currently worn "
+			+ "gear against a selected monster.",
 		position = 0,
 		section = gearSection
 	)
 	default boolean gearSectionEnabled()
 	{
-		return false;
+		return true;
 	}
 }

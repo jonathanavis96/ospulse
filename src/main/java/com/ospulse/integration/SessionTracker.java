@@ -1,11 +1,13 @@
 package com.ospulse.integration;
 
 import com.ospulse.OSPulseConfig;
+import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.OffensivePrayer;
 import com.ospulse.ge.GeOfferState;
 import com.ospulse.ge.GeOfferView;
 import com.ospulse.ge.GeReconciler;
 import com.ospulse.model.ItemStack;
+import com.ospulse.session.GearMapper;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.SessionEngine;
 import com.ospulse.session.SessionListener;
@@ -32,7 +34,9 @@ import net.runelite.api.Prayer;
 import net.runelite.api.Skill;
 import net.runelite.api.Varbits;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.game.ItemEquipmentStats;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.ItemStats;
 
 import java.util.EnumSet;
 
@@ -66,6 +70,7 @@ public class SessionTracker implements SessionService
 	private static final String BANK_CACHE_KEY = "bankCache";
 
 	private final Client client;
+	private final ItemManager itemManager;
 	private final RuneLiteItemValuation valuation;
 	private final OSPulseConfig config;
 	private final ConfigManager configManager;
@@ -119,6 +124,7 @@ public class SessionTracker implements SessionService
 		ConfigManager configManager, Gson gson)
 	{
 		this.client = client;
+		this.itemManager = itemManager;
 		this.config = config;
 		this.valuation = new RuneLiteItemValuation(itemManager);
 		this.configManager = configManager;
@@ -441,6 +447,10 @@ public class SessionTracker implements SessionService
 			}
 		}
 
+		GearMapper.SlotStatsLookup lookup = this::lookupSlotStats;
+		EquipmentStats equipmentStats = GearMapper.buildEquipmentStats(
+			equippedItemIds, EquipmentInventorySlot.WEAPON.ordinal(), lookup);
+
 		return GearSnapshot.builder()
 			.equippedItemIds(equippedItemIds)
 			.attack(client.getRealSkillLevel(Skill.ATTACK), client.getBoostedSkillLevel(Skill.ATTACK))
@@ -453,7 +463,38 @@ public class SessionTracker implements SessionService
 			.activePrayers(activePrayers)
 			// TODO Phase 2+: on-task Slayer detection has no confirmed live read yet.
 			.onSlayerTask(false)
+			.equipmentStats(equipmentStats)
 			.build();
+	}
+
+	/**
+	 * Real {@link ItemManager}-backed lookup for {@link GearMapper#buildEquipmentStats}.
+	 * MUST be called on the client thread — {@link ItemManager#getItemStats(int)}
+	 * internally calls {@code getItemComposition}, which asserts the client
+	 * thread and throws if invoked from the EDT (this is exactly what {@link
+	 * #buildGear()} exists to avoid: it runs here, on the client thread, once
+	 * per tick, so the UI layer never needs to call this itself).
+	 */
+	private GearMapper.SlotStats lookupSlotStats(int itemId)
+	{
+		if (itemManager == null || itemId <= 0)
+		{
+			return null;
+		}
+		ItemStats stats = itemManager.getItemStats(itemId);
+		if (stats == null || !stats.isEquipable())
+		{
+			return null;
+		}
+		ItemEquipmentStats eq = stats.getEquipment();
+		if (eq == null)
+		{
+			return null;
+		}
+		return new GearMapper.SlotStats(
+			eq.getAstab(), eq.getAslash(), eq.getAcrush(), eq.getAmagic(), eq.getArange(),
+			eq.getDstab(), eq.getDslash(), eq.getDcrush(), eq.getDmagic(), eq.getDrange(),
+			eq.getStr(), eq.getRstr(), eq.getMdmg(), eq.getPrayer(), eq.getAspeed(), eq.isTwoHanded());
 	}
 
 	/**
