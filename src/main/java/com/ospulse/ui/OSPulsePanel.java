@@ -27,7 +27,6 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
-import java.awt.FlowLayout;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -165,6 +164,9 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		scrollPane.setBorder(BorderFactory.createEmptyBorder());
 		scrollPane.getVerticalScrollBar().setUnitIncrement(16);
 		scrollPane.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		// Never scroll horizontally — the side panel has a fixed width; rows must
+		// fit and long names truncate rather than push the panel wider.
+		scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 
 		contentPanel = new JPanel(new BorderLayout());
 		contentPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -498,33 +500,34 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	 */
 	private JPanel iconRow(int itemId, String leftText, String rightText, Color leftColor)
 	{
-		JPanel row = new JPanel(new BorderLayout());
+		JPanel row = new JPanel(new BorderLayout(4, 0));
 		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		row.setBorder(new EmptyBorder(1, 0, 1, 0));
 		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-		JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-		left.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 
 		if (itemManager != null && itemId > 0)
 		{
 			JLabel iconLabel = new JLabel();
 			itemManager.getImage(itemId).addTo(iconLabel);
-			left.add(iconLabel);
+			row.add(iconLabel, BorderLayout.WEST);
 		}
 
+		// CENTER takes the leftover width and truncates long names with "…"
+		// instead of forcing the row (and the whole panel) wider.
 		JLabel textLabel = new JLabel(leftText);
 		textLabel.setForeground(leftColor);
 		textLabel.setFont(FontManager.getRunescapeSmallFont());
-		left.add(textLabel);
+		row.add(textLabel, BorderLayout.CENTER);
 
 		JLabel rightLabel = new JLabel(rightText);
 		rightLabel.setForeground(Color.WHITE);
 		rightLabel.setFont(FontManager.getRunescapeSmallFont());
 		rightLabel.setHorizontalAlignment(SwingConstants.RIGHT);
-
-		row.add(left, BorderLayout.WEST);
+		rightLabel.setBorder(new EmptyBorder(0, 4, 0, 0));
 		row.add(rightLabel, BorderLayout.EAST);
+
+		// Don't let the row stretch vertically under BoxLayout.
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
 		return row;
 	}
 
