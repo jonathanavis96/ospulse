@@ -5,6 +5,7 @@ import com.google.inject.Provides;
 import com.ospulse.integration.PriceTrendService;
 import com.ospulse.integration.SessionTracker;
 import com.ospulse.sync.DashboardSyncService;
+import com.ospulse.sync.PairingClient;
 import com.ospulse.ui.OSPulsePanel;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
@@ -18,6 +19,7 @@ import net.runelite.api.events.StatChanged;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
@@ -76,6 +78,7 @@ public class OSPulsePlugin extends Plugin
 	private SessionTracker tracker;
 	private OSPulsePanel panel;
 	private DashboardSyncService syncService;
+	private PairingClient pairingClient;
 	private PriceTrendService priceTrendService;
 	private NavigationButton navButton;
 
@@ -95,6 +98,8 @@ public class OSPulsePlugin extends Plugin
 
 		syncService = new DashboardSyncService(okHttpClient, config, gson);
 		tracker.addListener(syncService);
+
+		pairingClient = new PairingClient(okHttpClient, gson);
 
 		final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "/icon.png");
 		navButton = NavigationButton.builder()
@@ -135,6 +140,7 @@ public class OSPulsePlugin extends Plugin
 			syncService.shutdown();
 			syncService = null;
 		}
+		pairingClient = null;
 		tracker = null;
 		panel = null;
 		priceTrendService = null;
@@ -213,6 +219,59 @@ public class OSPulsePlugin extends Plugin
 	public void onLootReceived(LootReceived event)
 	{
 		tracker.onLootReceived(event.getName(), event.getAmount(), event.getItems());
+	}
+
+	/**
+	 * Watches for the user typing a pairing code into config and, once it looks
+	 * like a complete 6-digit code, redeems it for a sync token + ingest URL and
+	 * fills those into the (advanced) manual sync fields automatically.
+	 *
+	 * <p>Filtered to only react to the {@code pairingCode} key so that the
+	 * config writes this triggers (syncToken/syncUrl/syncEnabled/pairingCode
+	 * itself being cleared) don't re-enter this handler.
+	 */
+	@Subscribe
+	public void onConfigChanged(ConfigChanged event)
+	{
+		if (!OSPulseConfig.GROUP.equals(event.getGroup()) || !"pairingCode".equals(event.getKey()))
+		{
+			return;
+		}
+
+		String code = event.getNewValue();
+		if (code == null || !code.matches("\\d{6}"))
+		{
+			return;
+		}
+
+		String serverUrl = config.pairingServerUrl();
+		if (serverUrl == null || serverUrl.trim().isEmpty())
+		{
+			log.warn("Pairing code entered but no dashboard URL is set - set the Dashboard URL "
+				+ "field above the pairing code first");
+			configManager.setConfiguration(OSPulseConfig.GROUP, "pairingCode", "");
+			return;
+		}
+
+		pairingClient.redeem(serverUrl, code, new PairingClient.ResultCallback()
+		{
+			@Override
+			public void onSuccess(String token, String ingestUrl)
+			{
+				configManager.setConfiguration(OSPulseConfig.GROUP, "syncToken", token);
+				configManager.setConfiguration(OSPulseConfig.GROUP, "syncUrl", ingestUrl);
+				configManager.setConfiguration(OSPulseConfig.GROUP, "syncEnabled", true);
+				configManager.setConfiguration(OSPulseConfig.GROUP, "pairingCode", "");
+				log.info("OSPulse pairing code redeemed successfully; sync configured automatically");
+			}
+
+			@Override
+			public void onFailure(String message)
+			{
+				log.warn("OSPulse pairing code redemption failed: {}", message);
+				configManager.setConfiguration(OSPulseConfig.GROUP, "pairingCode", "");
+			}
+		});
 	}
 
 	@Provides
