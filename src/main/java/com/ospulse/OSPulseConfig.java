@@ -26,6 +26,15 @@ public interface OSPulseConfig extends Config
 	)
 	String syncSection = "sync";
 
+	@ConfigSection(
+		name = "Price trends (optional)",
+		description = "Optional, off-by-default price trend badges on Top Holdings, sourced from "
+			+ "the OSRS Wiki prices API.",
+		position = 2,
+		closedByDefault = true
+	)
+	String priceTrendSection = "priceTrend";
+
 	// ---------------------------------------------------------------- Session
 
 	@ConfigItem(
@@ -109,5 +118,45 @@ public interface OSPulseConfig extends Config
 	default int syncIntervalSeconds()
 	{
 		return 60;
+	}
+
+	// ---------------------------------------------------------- Price trends
+
+	@ConfigItem(
+		keyName = "priceTrendEnabled",
+		name = "Enable price trends",
+		description = "OFF by default. When enabled, OSPulse fetches item price history from "
+			+ "prices.runescape.wiki to show whether your holdings are trending up or down.",
+		position = 0,
+		section = priceTrendSection
+	)
+	default boolean priceTrendEnabled()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "priceTrendWindow",
+		name = "Trend window",
+		description = "How far back to measure the price trend shown on Top Holdings.",
+		position = 1,
+		section = priceTrendSection
+	)
+	default PriceTrendWindow priceTrendWindow()
+	{
+		return PriceTrendWindow.WEEK;
+	}
+
+	@ConfigItem(
+		keyName = "holdingsPageSize",
+		name = "Holdings page size",
+		description = "How many top holdings to show at a time before needing \"Show more\".",
+		position = 2,
+		section = priceTrendSection
+	)
+	@Range(min = 1)
+	default int holdingsPageSize()
+	{
+		return 5;
 	}
 }

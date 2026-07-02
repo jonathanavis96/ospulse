@@ -2,6 +2,7 @@ package com.ospulse;
 
 import com.google.gson.Gson;
 import com.google.inject.Provides;
+import com.ospulse.integration.PriceTrendService;
 import com.ospulse.integration.SessionTracker;
 import com.ospulse.sync.DashboardSyncService;
 import com.ospulse.ui.OSPulsePanel;
@@ -71,6 +72,7 @@ public class OSPulsePlugin extends Plugin
 	private SessionTracker tracker;
 	private OSPulsePanel panel;
 	private DashboardSyncService syncService;
+	private PriceTrendService priceTrendService;
 	private NavigationButton navButton;
 
 	/** Last observed bank-interface-open state, to fire transitions once. */
@@ -81,7 +83,9 @@ public class OSPulsePlugin extends Plugin
 	{
 		tracker = new SessionTracker(client, itemManager, config, configManager, gson);
 
-		panel = new OSPulsePanel(config, itemManager, configManager);
+		priceTrendService = new PriceTrendService(okHttpClient, config, gson);
+
+		panel = new OSPulsePanel(config, itemManager, configManager, priceTrendService);
 		panel.setResetCallback(tracker::resetSession);
 		tracker.addListener(panel);
 
@@ -129,6 +133,7 @@ public class OSPulsePlugin extends Plugin
 		}
 		tracker = null;
 		panel = null;
+		priceTrendService = null;
 		lastBankOpen = false;
 
 		log.debug("OSPulse plugin stopped");
