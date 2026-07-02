@@ -248,6 +248,47 @@ public class SessionEngineTest
 	}
 
 	@Test
+	public void restartWhileBankOpenKeepsPostResetTransfersZeroSum()
+	{
+		// Session running, bank open, mid-visit (mirrors the "reset while the
+		// bank interface is open" edge: SessionTracker.resetSession() restarts
+		// the engine and then must re-apply bank-open mode via setBankOpen,
+		// exactly like this test does, rather than leaving the fresh engine
+		// thinking the bank is closed).
+		WealthSnapshot initial = snap(100_000_000L, Collections.emptyMap(), 50_000_000L, true, 0L);
+		engine.startSession(initial, 0L);
+		engine.setBankOpen(true, snap(100_000_000L, Collections.emptyMap(), 50_000_000L, true, 100L), 100L);
+
+		// Reset fired while the bank is still open: restart the engine...
+		WealthSnapshot atReset = snap(100_000_000L, Collections.emptyMap(), 50_000_000L, true, 200L);
+		engine.startSession(atReset, 200L);
+		// ...the engine alone would now report bank-closed:
+		assertTrue("startSession must not leave bank-open mode active on its own",
+			!engine.isBankOpen());
+		// ...so the reset path must re-apply bank-open mode, anchored to the
+		// same snapshot the engine was just restarted with.
+		engine.setBankOpen(true, atReset, 200L);
+		assertTrue(engine.isBankOpen());
+
+		// A withdrawal made AFTER the reset but before the next open/close
+		// event: tracked rises by 10M, bank drops by 10M. Must stay zero-sum
+		// immediately (live, bank still open)...
+		WealthSnapshot midWithdraw = snap(110_000_000L, Collections.emptyMap(), 40_000_000L, true, 300L);
+		engine.update(midWithdraw, Collections.emptySet(), 300L);
+		SessionSnapshot live = engine.snapshot(midWithdraw, 0L, Collections.emptyMap(), 0L, 300L);
+		assertEquals("post-reset transfer must not read as profit while the bank is open",
+			0L, live.getProfit());
+		assertEquals(0L, live.getProfitPerHour());
+		assertEquals(0L, live.getNetWorthDelta());
+
+		// ...and stay zero-sum once the bank actually closes.
+		engine.setBankOpen(false, midWithdraw, 400L);
+		SessionSnapshot closed = engine.snapshot(midWithdraw, 0L, Collections.emptyMap(), 0L, 400L);
+		assertEquals("post-reset transfer must still be neutral after the real close",
+			0L, closed.getProfit());
+	}
+
+	@Test
 	public void geBuyIsExcludedFromLootFeed()
 	{
 		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);

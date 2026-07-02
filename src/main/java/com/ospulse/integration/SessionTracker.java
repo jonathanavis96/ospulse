@@ -99,6 +99,14 @@ public class SessionTracker implements SessionService
 	private volatile boolean loggedIn = false;
 	/** True once {@link SessionEngine#startSession} has been called for the current login. */
 	private volatile boolean started = false;
+	/**
+	 * Latest bank-open/closed state reported via {@link #onBankOpenChanged},
+	 * independent of the engine's own {@code bankOpen} (which is wiped back to
+	 * {@code false} by every {@link SessionEngine#startSession}). Lets
+	 * {@link #resetSession()} restore bank-open mode on the fresh engine when
+	 * the bank interface is still open across a reset.
+	 */
+	private volatile boolean lastBankOpenState = false;
 
 	public SessionTracker(Client client, ItemManager itemManager, OSPulseConfig config,
 		ConfigManager configManager, Gson gson)
@@ -246,6 +254,8 @@ public class SessionTracker implements SessionService
 
 	public void onBankOpenChanged(boolean open)
 	{
+		lastBankOpenState = open;
+
 		if (!loggedIn || !started)
 		{
 			return;
@@ -263,7 +273,19 @@ public class SessionTracker implements SessionService
 		publish(buildSnapshot(current, ts));
 	}
 
-	/** Restarts the session baseline from current wealth (panel reset button). */
+	/**
+	 * Restarts the session baseline from current wealth (panel reset button).
+	 *
+	 * <p>If the bank interface is currently open, {@link SessionEngine#startSession}
+	 * would otherwise wipe the fresh engine back to bank-closed, so any
+	 * inventory/bank transfer made after the reset but before the next
+	 * open/close event would be mis-read as loot. Re-apply the last-known
+	 * bank-open state (tracked via {@link #onBankOpenChanged}) through the
+	 * engine's own {@link SessionEngine#setBankOpen} right after the restart,
+	 * anchored to the same freshly-built {@code current} snapshot — which
+	 * already reflects the live bank container, since it actually is open —
+	 * so post-reset transfers net out correctly from the first tick.
+	 */
 	public void resetSession()
 	{
 		if (!loggedIn)
@@ -276,6 +298,10 @@ public class SessionTracker implements SessionService
 		lootBySource.clear();
 		WealthSnapshot current = buildWealth(ts);
 		engine.startSession(current, ts);
+		if (lastBankOpenState)
+		{
+			engine.setBankOpen(true, current, ts);
+		}
 		started = true;
 		publish(buildSnapshot(current, ts));
 	}
