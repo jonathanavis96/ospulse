@@ -1,5 +1,5 @@
 /*
- * Phat Wang RuneLite external plugin.
+ * OSPulse RuneLite external plugin.
  * Layout mirrors https://github.com/runelite/example-plugin so the Plugin Hub
  * "standard" build can compile it against the pinned RuneLite client.
  *
@@ -41,7 +41,7 @@ dependencies {
 	testImplementation group: 'net.runelite', name: 'client', version: runeLiteVersion
 }
 
-group = 'com.phatwang'
+group = 'com.ospulse'
 version = '0.1.0'
 
 tasks.withType(JavaCompile).configureEach {
