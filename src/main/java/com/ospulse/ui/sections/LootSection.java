@@ -8,6 +8,7 @@ import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.GpFormat;
 import com.ospulse.ui.PanelWidgets;
 
+import net.runelite.api.ItemComposition;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
@@ -21,6 +22,7 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.GridLayout;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.HashSet;
@@ -36,6 +38,7 @@ public final class LootSection extends CollapsibleSection
 {
 	public static final String KEY = "loot";
 	private static final int LOOT_ROW_CAP = 30;
+	private static final int ICON_GRID_COLUMNS = 5;
 
 	private final OSPulseConfig config;
 	private final ItemManager itemManager;
@@ -96,6 +99,11 @@ public final class LootSection extends CollapsibleSection
 				{
 					continue;
 				}
+
+				JPanel grid = new JPanel(new GridLayout(0, ICON_GRID_COLUMNS, 2, 2));
+				grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+				grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+
 				int shown = 0;
 				for (ItemStack item : src.getItems())
 				{
@@ -103,14 +111,20 @@ public final class LootSection extends CollapsibleSection
 					{
 						continue;
 					}
-					String label = item.getName() + " x" + String.format("%,d", item.getQuantity());
-					lootListPanel.add(PanelWidgets.iconRow(itemManager, item.getId(), label,
-						GpFormat.format(item.value()), ColorScheme.LIGHT_GRAY_COLOR));
+					grid.add(iconCell(item));
 					shown++;
 					if (shown >= LOOT_ROW_CAP)
 					{
 						break;
 					}
+				}
+
+				if (shown > 0)
+				{
+					// Don't let BoxLayout stretch the grid to fill leftover
+					// vertical space (which would stretch every cell with it).
+					grid.setMaximumSize(new Dimension(Integer.MAX_VALUE, grid.getPreferredSize().height));
+					lootListPanel.add(grid);
 				}
 			}
 		}
@@ -118,6 +132,47 @@ public final class LootSection extends CollapsibleSection
 		lootListPanel.revalidate();
 		lootListPanel.repaint();
 		refreshSummary();
+	}
+
+	/**
+	 * A single loot-tracker-style icon cell: just the item sprite with its
+	 * stack quantity overlaid (RuneLite draws the overlay for us via
+	 * {@link ItemManager#getImage(int, int, boolean)}). Full details (name,
+	 * quantity, GE value, and HA value where available) show as a tooltip on
+	 * hover, since the icon alone has no room for them.
+	 */
+	private JLabel iconCell(ItemStack item)
+	{
+		JLabel icon = new JLabel();
+		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		icon.setVerticalAlignment(SwingConstants.CENTER);
+
+		if (itemManager != null && item.getId() > 0)
+		{
+			int quantity = (int) item.getQuantity();
+			itemManager.getImage(item.getId(), quantity, quantity > 1).addTo(icon);
+		}
+
+		StringBuilder tooltip = new StringBuilder("<html><b>")
+			.append(item.getName())
+			.append("</b><br>Qty: ")
+			.append(String.format("%,d", item.getQuantity()))
+			.append("<br>GE: ")
+			.append(GpFormat.format(item.value()));
+
+		if (itemManager != null && item.getId() > 0)
+		{
+			ItemComposition comp = itemManager.getItemComposition(item.getId());
+			if (comp != null)
+			{
+				long haValue = (long) comp.getHaPrice() * item.getQuantity();
+				tooltip.append("<br>HA: ").append(GpFormat.format(haValue));
+			}
+		}
+		tooltip.append("</html>");
+		icon.setToolTipText(tooltip.toString());
+
+		return icon;
 	}
 
 	/**
