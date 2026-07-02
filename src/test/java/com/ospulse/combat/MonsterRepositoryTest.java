@@ -17,14 +17,17 @@ public class MonsterRepositoryTest {
     }
 
     @Test
-    public void searchIsCaseInsensitiveAndCapped() {
+    public void searchIsCaseInsensitiveAndUncapped() {
         MonsterRepository repo = MonsterRepository.getInstance();
         List<Monster> results = repo.search("abyssal demon");
         assertFalse(results.isEmpty());
         for (Monster m : results) {
             assertTrue(m.name().toLowerCase().contains("abyssal demon"));
         }
-        assertTrue("search should be capped around 25", repo.search("a").size() <= 25);
+        // The old 25-result cap is gone: the UI shows a scrollable list of ALL
+        // matches, so a broad query must return far more than 25.
+        assertTrue("search should return all matches (uncapped)", repo.search("a").size() > 25);
+        assertEquals("empty query should return the entire list", repo.size(), repo.search("").size());
     }
 
     @Test

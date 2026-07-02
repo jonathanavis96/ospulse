@@ -88,7 +88,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		sectionList.add(new SessionSection(store));
 		sectionList.add(new LootSection(store, config, itemManager));
 		sectionList.add(new XpSection(store, skillIconManager));
-		sectionList.add(new GearSection(store, itemManager, config));
+		sectionList.add(new GearSection(store, itemManager));
 		sectionList.add(new GeSection(store, itemManager));
 		sectionList.add(new WealthSection(store));
 		sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService));

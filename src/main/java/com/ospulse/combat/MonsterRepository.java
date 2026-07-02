@@ -26,7 +26,6 @@ import java.util.stream.Collectors;
  */
 public final class MonsterRepository {
     private static final String RESOURCE_PATH = "/com/ospulse/combat/monsters.min.json";
-    private static final int SEARCH_CAP = 25;
 
     private static volatile MonsterRepository instance;
 
@@ -79,12 +78,16 @@ public final class MonsterRepository {
         return monsters.size();
     }
 
-    /** Case-insensitive name-contains search, capped at ~25 results. */
+    /**
+     * Case-insensitive name-contains search over the full bundled list —
+     * deliberately uncapped so the UI's scrollable result list can show every
+     * match (a contains-scan over ~2.8k names is trivially fast; the JList
+     * consuming this is virtualised, so large result sets are cheap too).
+     */
     public List<Monster> search(String query) {
         String needle = query.toLowerCase(Locale.ROOT);
         return monsters.stream()
                 .filter(m -> m.name().toLowerCase(Locale.ROOT).contains(needle))
-                .limit(SEARCH_CAP)
                 .collect(Collectors.toList());
     }
 

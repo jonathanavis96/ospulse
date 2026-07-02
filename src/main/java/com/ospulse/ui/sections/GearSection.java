@@ -1,6 +1,5 @@
 package com.ospulse.ui.sections;
 
-import com.ospulse.OSPulseConfig;
 import com.ospulse.combat.CombatStyle;
 import com.ospulse.combat.DpsCalculator;
 import com.ospulse.combat.DpsResult;
@@ -18,22 +17,31 @@ import com.ospulse.ui.PanelWidgets;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
+import net.runelite.client.ui.components.IconTextField;
+import net.runelite.client.util.AsyncBufferedImage;
 
+import javax.swing.AbstractListModel;
 import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.JCheckBox;
-import javax.swing.JComboBox;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JTextField;
-import javax.swing.JToggleButton;
+import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
+import javax.swing.ImageIcon;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JToggleButton;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingConstants;
+import javax.swing.border.Border;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.util.ArrayList;
+import java.awt.Font;
+import java.awt.GridLayout;
+import java.awt.Insets;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -44,22 +52,27 @@ import java.util.Locale;
  * accuracy / DPS against a selected {@link Monster} using the
  * {@code com.ospulse.combat} engine, for a user-toggleable {@link CombatStyle}.
  *
+ * <p>The section is always active (it makes no network calls). Its body leads
+ * with a live equipment-tab-style grid of the player's worn item icons so it
+ * is unmistakable that the numbers below refer to the CURRENT worn gear.
+ * Combat style and the simulation toggles (best potion / best offensive
+ * prayer / on Slayer task) are icon buttons with tooltips; the target is
+ * picked via a search box over a fully scrollable {@link MonsterRepository}
+ * result list.
+ *
  * <p>Deferred to a later phase (see the design spec): live opponent
- * auto-detection and favourites — target selection here is a simple
- * searchable picker over {@link MonsterRepository}, defaulting to the first
- * entry in the bundled data.
+ * auto-detection, favourites, and gear upgrade suggestions.
  *
  * <p><b>Threading:</b> this is an EDT Swing component. It never reads the
  * RuneLite {@code Client} directly and never calls any
  * {@code getBoostedSkillLevel}/{@code isPrayerActive}/{@code getItemContainer}
  * -style API — all of that happens in {@code SessionTracker} on the client
  * thread and is published as {@link GearSnapshot}, including the precomputed
- * {@link GearSnapshot#equipmentStats()}. This section deliberately makes
- * <b>zero</b> {@code ItemManager}/{@code Client} stat calls of its own —
- * {@code ItemManager.getItemStats}/{@code getItemComposition} assert the
- * client thread internally and must never be called from the EDT. The
- * {@code itemManager} field is kept only for future EDT-safe uses (e.g.
- * {@code getImage}/{@code getItemPrice}), not for stats.
+ * {@link GearSnapshot#equipmentStats()}. The <b>only</b> {@code ItemManager}
+ * method this class calls is {@code getImage(int)}, which is explicitly
+ * EDT-safe (async sprite load); {@code ItemManager.getItemStats} /
+ * {@code getItemComposition} assert the client thread internally and must
+ * never be called from here.
  */
 public final class GearSection extends CollapsibleSection
 {
@@ -73,46 +86,120 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private static final int DEFAULT_MAGIC_BASE_MAX_HIT = 20;
 
-	private final ItemManager itemManager;
-	private final OSPulseConfig config;
+	/** Native RuneLite item sprite size is 36x32; cells pad that slightly. */
+	private static final int SLOT_W = 38;
+	private static final int SLOT_H = 36;
 
-	private final JTextField monsterSearchField;
-	private final JComboBox<String> monsterCombo;
-	private final JCheckBox bestPotionCheckbox;
-	private final JCheckBox bestPrayerCheckbox;
-	private final JCheckBox onSlayerTaskCheckbox;
+	/**
+	 * The classic OSRS equipment-tab layout as {@code EquipmentInventorySlot}
+	 * ordinals (== EQUIPMENT container slot indices), 3 columns x 5 rows;
+	 * {@code -1} = decorative filler (no slot). 0=HEAD 1=CAPE 2=AMULET
+	 * 3=WEAPON 4=BODY 5=SHIELD 7=LEGS 9=GLOVES 10=BOOTS 12=RING 13=AMMO
+	 * (6/8/11 are the internal ARMS/HAIR/JAW slots, never worn items).
+	 */
+	private static final int[] SLOT_GRID = {
+		-1, 0, -1,
+		1, 2, 13,
+		3, 4, 5,
+		-1, 7, -1,
+		9, 10, 12,
+	};
+
+	private static final String[] SLOT_NAMES = {
+		"Head", "Cape", "Amulet", "Weapon", "Body", "Shield", "", "Legs",
+		"", "Gloves", "Boots", "", "Ring", "Ammo",
+	};
+
+	// Representative item ids for the icon buttons (item images are the
+	// EDT-safe icon source — see class javadoc).
+	private static final int ICON_STAB = 1215;     // Dragon dagger
+	private static final int ICON_SLASH = 4587;    // Dragon scimitar
+	private static final int ICON_CRUSH = 13576;   // Dragon warhammer
+	private static final int ICON_RANGED = 861;    // Magic shortbow
+	private static final int ICON_MAGIC = 4675;    // Ancient staff
+	private static final int ICON_POTION = 12695;  // Super combat potion(4)
+	private static final int ICON_PRAYER = 1718;   // Holy symbol
+	private static final int ICON_SLAYER = 11864;  // Slayer helmet
+
+	private final ItemManager itemManager;
+
+	private final JLabel[] slotLabels = new JLabel[GearSnapshot.EQUIPMENT_SLOT_COUNT];
+	private final int[] renderedSlotIds = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
+
+	private final IconTextField monsterSearchField;
+	private final JList<String> monsterList;
+	private final MonsterListModel monsterListModel = new MonsterListModel();
+	private final JLabel targetLabel;
+	private final JToggleButton bestPotionToggle;
+	private final JToggleButton bestPrayerToggle;
+	private final JToggleButton onSlayerTaskToggle;
 	private final JLabel maxHitValue;
 	private final JLabel accuracyValue;
 	private final JLabel avgHitValue;
 	private final JLabel dpsValue;
 	private final JLabel ttkValue;
 	private final JLabel baseEstimateNote;
-	private final JLabel disabledNote;
 
-	private List<Monster> comboMonsters = new ArrayList<>();
+	private List<Monster> filteredMonsters = Collections.emptyList();
 	private Monster selectedMonster;
 	private CombatStyle selectedStyle = CombatStyle.STAB;
 	private GearSnapshot lastGear;
 	private double lastDps;
-	private boolean suppressComboEvents;
+	private boolean suppressListEvents;
+	/** Last observed "slayer helm / black mask worn" state — drives edge-triggered auto-tick. */
+	private boolean lastSlayerHeadgearWorn;
 
-	public GearSection(CollapseStore store, ItemManager itemManager, OSPulseConfig config)
+	public GearSection(CollapseStore store, ItemManager itemManager)
 	{
-		super(KEY, "Gear", store);
+		super(KEY, "Gear DPS", store);
 		this.itemManager = itemManager;
-		this.config = config;
 
-		disabledNote = PanelWidgets.emptyRowLabel(
-			"Disabled - enable \"Gear / DPS calculator\" in the plugin config to use this section.");
-		body().add(disabledNote);
-
-		body().add(styleToggleRow());
+		// ------------------------------------------------ worn-gear header
+		JLabel heading = PanelWidgets.emptyRowLabel("Live DPS · your worn gear");
+		heading.setForeground(ColorScheme.BRAND_ORANGE);
+		heading.setToolTipText("Computed live from the equipment you are currently wearing");
+		body().add(heading);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
 
-		monsterSearchField = new JTextField();
-		monsterSearchField.setFont(FontManager.getRunescapeSmallFont());
+		body().add(buildGearGrid());
+		body().add(Box.createRigidArea(new Dimension(0, 6)));
+
+		// ------------------------------------------- style + boost toggles
+		body().add(buildStyleRow());
+		body().add(Box.createRigidArea(new Dimension(0, 3)));
+		JPanel boostRow = new JPanel(new GridLayout(1, 3, 2, 0));
+		boostRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		boostRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		bestPotionToggle = iconToggle(ICON_POTION,
+			"Simulate best boosting potion (e.g. super combat / ranging / saturated heart)");
+		bestPrayerToggle = iconToggle(ICON_PRAYER,
+			"Simulate best offensive prayer (e.g. Piety / Rigour / Augury)");
+		onSlayerTaskToggle = iconToggle(ICON_SLAYER,
+			"On Slayer task — applies the slayer helmet / black mask bonus (auto-ticks "
+				+ "while one is worn; untick if you are actually off-task)");
+		boostRow.add(bestPotionToggle);
+		boostRow.add(bestPrayerToggle);
+		boostRow.add(onSlayerTaskToggle);
+		// The boost toggles must recompute whenever they change — on a user
+		// click OR the programmatic slayer-helm auto-tick. An ItemListener fires
+		// on both; an ActionListener would silently miss setSelected(), which is
+		// why ticking a boost previously left Max hit unchanged.
+		bestPotionToggle.addItemListener(e -> recompute());
+		bestPrayerToggle.addItemListener(e -> recompute());
+		onSlayerTaskToggle.addItemListener(e -> recompute());
+		boostRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, boostRow.getPreferredSize().height));
+		body().add(boostRow);
+		body().add(Box.createRigidArea(new Dimension(0, 6)));
+
+		// -------------------------------------------------- target picker
+		monsterSearchField = new IconTextField();
+		monsterSearchField.setIcon(IconTextField.Icon.SEARCH);
+		monsterSearchField.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		monsterSearchField.setHoverBackgroundColor(ColorScheme.DARK_GRAY_HOVER_COLOR);
+		monsterSearchField.setToolTipText("Search the monster to compute DPS against");
 		monsterSearchField.setAlignmentX(Component.LEFT_ALIGNMENT);
-		monsterSearchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, monsterSearchField.getPreferredSize().height));
+		monsterSearchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		monsterSearchField.setPreferredSize(new Dimension(100, 24));
 		monsterSearchField.getDocument().addDocumentListener(new DocumentListener()
 		{
 			@Override
@@ -136,43 +223,47 @@ public final class GearSection extends CollapsibleSection
 		body().add(monsterSearchField);
 		body().add(Box.createRigidArea(new Dimension(0, 2)));
 
-		monsterCombo = new JComboBox<>();
-		monsterCombo.setFont(FontManager.getRunescapeSmallFont());
-		monsterCombo.setAlignmentX(Component.LEFT_ALIGNMENT);
-		monsterCombo.setMaximumSize(new Dimension(Integer.MAX_VALUE, monsterCombo.getPreferredSize().height));
-		// Default Swing popup only shows ~8 rows before scrolling; widen that so
-		// more of the searchable monster list is visible at once.
-		monsterCombo.setMaximumRowCount(15);
-		monsterCombo.addActionListener(e -> onMonsterSelected());
-		body().add(monsterCombo);
-		body().add(Box.createRigidArea(new Dimension(0, 4)));
+		monsterList = new JList<>(monsterListModel);
+		monsterList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+		monsterList.setFont(FontManager.getRunescapeSmallFont());
+		monsterList.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		monsterList.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		monsterList.setSelectionBackground(ColorScheme.BRAND_ORANGE);
+		monsterList.setSelectionForeground(ColorScheme.DARK_GRAY_COLOR);
+		monsterList.setVisibleRowCount(6);
+		// Fixed cell size so the (up to ~2830-row) list never measures every
+		// cell — keeps filtering-while-typing snappy.
+		monsterList.setPrototypeCellValue("Abyssal demon (Catacombs of Kourend)");
+		monsterList.addListSelectionListener(e ->
+		{
+			if (suppressListEvents || e.getValueIsAdjusting())
+			{
+				return;
+			}
+			int index = monsterList.getSelectedIndex();
+			if (index >= 0 && index < filteredMonsters.size())
+			{
+				selectedMonster = filteredMonsters.get(index);
+				updateTargetLabel();
+				recompute();
+			}
+		});
 
-		JPanel togglesRow = new JPanel();
-		togglesRow.setLayout(new BoxLayout(togglesRow, BoxLayout.Y_AXIS));
-		togglesRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		togglesRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JScrollPane listScroll = new JScrollPane(monsterList);
+		listScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+		listScroll.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
+		listScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+		listScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, listScroll.getPreferredSize().height));
+		body().add(listScroll);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
 
-		bestPotionCheckbox = new JCheckBox("Best potion");
-		styleCheckbox(bestPotionCheckbox);
-		bestPotionCheckbox.addActionListener(e -> recompute());
-		togglesRow.add(bestPotionCheckbox);
+		targetLabel = PanelWidgets.emptyRowLabel("Target: -");
+		targetLabel.setForeground(java.awt.Color.WHITE);
+		targetLabel.setToolTipText("The monster the DPS numbers below are computed against");
+		body().add(targetLabel);
+		body().add(Box.createRigidArea(new Dimension(0, 6)));
 
-		bestPrayerCheckbox = new JCheckBox("Best offensive prayer");
-		styleCheckbox(bestPrayerCheckbox);
-		bestPrayerCheckbox.addActionListener(e -> recompute());
-		togglesRow.add(bestPrayerCheckbox);
-
-		// Manual toggle (v1): Phase 1 has no live client read for on-task status
-		// (see GearSnapshot's javadoc) — default OFF, same as the other simulation
-		// toggles above.
-		onSlayerTaskCheckbox = new JCheckBox("On Slayer task");
-		styleCheckbox(onSlayerTaskCheckbox);
-		onSlayerTaskCheckbox.addActionListener(e -> recompute());
-		togglesRow.add(onSlayerTaskCheckbox);
-
-		body().add(togglesRow);
-		body().add(Box.createRigidArea(new Dimension(0, 4)));
-
+		// ------------------------------------------------------- outputs
 		maxHitValue = PanelWidgets.statRow(body(), "Max hit");
 		accuracyValue = PanelWidgets.statRow(body(), "Accuracy");
 		avgHitValue = PanelWidgets.statRow(body(), "Avg hit");
@@ -183,37 +274,107 @@ public final class GearSection extends CollapsibleSection
 		baseEstimateNote.setVisible(false);
 		body().add(baseEstimateNote);
 
-		// Sensible default target: first entry in the bundled monster data
-		// (auto-detect-opponent and favourites are deferred to a later phase).
-		populateMonsterCombo("");
+		JLabel comingSoon = PanelWidgets.emptyRowLabel("Gear upgrade suggestions — coming soon");
+		comingSoon.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+		comingSoon.setFont(FontManager.getRunescapeSmallFont().deriveFont(Font.ITALIC));
+		body().add(Box.createRigidArea(new Dimension(0, 4)));
+		body().add(comingSoon);
+
+		// Show the full monster list, but with NO pre-selected target — the
+		// user must explicitly pick one before any numbers are shown (see
+		// populateMonsterList). Auto-detect-opponent and favourites are
+		// deferred to a later phase.
+		populateMonsterList("");
 	}
 
-	private static void styleCheckbox(JCheckBox checkbox)
+	// ----------------------------------------------------------- gear grid
+
+	/**
+	 * A centered, equipment-tab-shaped grid of the player's worn item icons —
+	 * populated live in {@link #apply} from {@link GearSnapshot#equippedItemIds()}
+	 * via the EDT-safe async {@code ItemManager.getImage(int)}.
+	 */
+	private JPanel buildGearGrid()
 	{
-		checkbox.setFont(FontManager.getRunescapeSmallFont());
-		checkbox.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		checkbox.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		checkbox.setAlignmentX(Component.LEFT_ALIGNMENT);
-		checkbox.setFocusPainted(false);
+		JPanel grid = new JPanel(new GridLayout(5, 3, 2, 2));
+		grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		for (int slotOrdinal : SLOT_GRID)
+		{
+			if (slotOrdinal < 0)
+			{
+				JLabel filler = new JLabel();
+				filler.setOpaque(false);
+				grid.add(filler);
+				continue;
+			}
+			JLabel cell = new JLabel();
+			cell.setOpaque(true);
+			cell.setBackground(ColorScheme.DARK_GRAY_COLOR);
+			cell.setHorizontalAlignment(SwingConstants.CENTER);
+			cell.setVerticalAlignment(SwingConstants.CENTER);
+			cell.setPreferredSize(new Dimension(SLOT_W, SLOT_H));
+			cell.setToolTipText(SLOT_NAMES[slotOrdinal] + " slot (live)");
+			slotLabels[slotOrdinal] = cell;
+			renderedSlotIds[slotOrdinal] = Integer.MIN_VALUE;
+			grid.add(cell);
+		}
+
+		// Center the grid within the (BoxLayout, left-aligned) section body.
+		JPanel wrapper = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
+		wrapper.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		wrapper.setAlignmentX(Component.LEFT_ALIGNMENT);
+		wrapper.add(grid);
+		wrapper.setMaximumSize(new Dimension(Integer.MAX_VALUE, wrapper.getPreferredSize().height));
+		return wrapper;
 	}
 
-	/** Five exclusive toggle buttons, one per {@link CombatStyle}. */
-	private JPanel styleToggleRow()
+	/** Diff-updates the worn-gear icon grid; only touched slots reload their sprite. */
+	private void updateGearGrid(GearSnapshot gear)
 	{
-		JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+		int[] ids = gear == null ? null : gear.equippedItemIds();
+		for (int slot = 0; slot < slotLabels.length; slot++)
+		{
+			JLabel cell = slotLabels[slot];
+			if (cell == null)
+			{
+				continue;
+			}
+			int id = ids == null || slot >= ids.length ? -1 : ids[slot];
+			if (id == renderedSlotIds[slot])
+			{
+				continue;
+			}
+			renderedSlotIds[slot] = id;
+			if (id > 0 && itemManager != null)
+			{
+				// EDT-safe: getImage is async (AsyncBufferedImage), the ONLY
+				// ItemManager call permitted off the client thread.
+				itemManager.getImage(id).addTo(cell);
+			}
+			else
+			{
+				cell.setIcon(null);
+			}
+		}
+	}
+
+	// ------------------------------------------------------- icon controls
+
+	/** Five exclusive icon buttons, one per {@link CombatStyle}, with tooltips. */
+	private JPanel buildStyleRow()
+	{
+		JPanel row = new JPanel(new GridLayout(1, 5, 2, 0));
 		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		row.setAlignmentX(Component.LEFT_ALIGNMENT);
 
 		ButtonGroup group = new ButtonGroup();
 		CombatStyle[] styles = { CombatStyle.STAB, CombatStyle.SLASH, CombatStyle.CRUSH, CombatStyle.RANGED, CombatStyle.MAGIC };
-		String[] labels = { "Stab", "Slash", "Crush", "Range", "Magic" };
+		String[] tooltips = { "Stab", "Slash", "Crush", "Ranged", "Magic" };
+		int[] iconIds = { ICON_STAB, ICON_SLASH, ICON_CRUSH, ICON_RANGED, ICON_MAGIC };
 		for (int i = 0; i < styles.length; i++)
 		{
 			CombatStyle style = styles[i];
-			JToggleButton button = new JToggleButton(labels[i]);
-			button.setFont(FontManager.getRunescapeSmallFont());
-			button.setFocusPainted(false);
-			button.setMargin(new java.awt.Insets(1, 4, 1, 4));
+			JToggleButton button = iconToggle(iconIds[i], tooltips[i] + " attack style");
 			button.setSelected(style == selectedStyle);
 			button.addActionListener(e ->
 			{
@@ -223,78 +384,147 @@ public final class GearSection extends CollapsibleSection
 			group.add(button);
 			row.add(button);
 		}
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
 		return row;
 	}
 
-	private void onSearchChanged()
+	/**
+	 * An icon-only toggle button (item sprite + tooltip, orange border when
+	 * active). The sprite loads via the async, EDT-safe
+	 * {@code ItemManager.getImage(int)}.
+	 */
+	private JToggleButton iconToggle(int itemId, String tooltip)
 	{
-		populateMonsterCombo(monsterSearchField.getText());
+		JToggleButton button = new JToggleButton();
+		button.setToolTipText(tooltip);
+		button.setFocusPainted(false);
+		button.setMargin(new Insets(0, 0, 0, 0));
+		button.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		button.setPreferredSize(new Dimension(40, SLOT_H));
+
+		if (itemManager != null)
+		{
+			AsyncBufferedImage image = itemManager.getImage(itemId);
+			button.setIcon(new ImageIcon(image));
+			image.onLoaded(() ->
+			{
+				button.setIcon(new ImageIcon(image));
+				button.repaint();
+			});
+		}
+
+		Border selectedBorder = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE);
+		Border unselectedBorder = BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR);
+		Runnable restyle = () ->
+		{
+			button.setBorder(button.isSelected() ? selectedBorder : unselectedBorder);
+			button.setBackground(button.isSelected()
+				? ColorScheme.MEDIUM_GRAY_COLOR
+				: ColorScheme.DARKER_GRAY_COLOR);
+		};
+		restyle.run();
+		button.addItemListener(e -> restyle.run());
+		return button;
 	}
 
-	private void populateMonsterCombo(String query)
+	// ------------------------------------------------------- target picker
+
+	private void onSearchChanged()
 	{
-		comboMonsters = MonsterRepository.getInstance().search(query == null ? "" : query.trim());
-		suppressComboEvents = true;
-		monsterCombo.removeAllItems();
-		for (Monster m : comboMonsters)
+		populateMonsterList(monsterSearchField.getText());
+	}
+
+	/**
+	 * Refilters the full (uncapped) monster list and swaps the backing list of
+	 * the {@link JList} model in one shot — no per-item model mutation, so
+	 * typing stays responsive even when the filter matches thousands of names.
+	 */
+	private void populateMonsterList(String query)
+	{
+		filteredMonsters = MonsterRepository.getInstance().search(query == null ? "" : query.trim());
+		suppressListEvents = true;
+		monsterListModel.setMonsters(filteredMonsters);
+
+		int keepIndex = -1;
+		if (selectedMonster != null)
 		{
-			monsterCombo.addItem(m.name());
-		}
-		if (!comboMonsters.isEmpty())
-		{
-			// Keep the previous selection if it's still in the filtered list.
-			int keepIndex = 0;
-			if (selectedMonster != null)
+			for (int i = 0; i < filteredMonsters.size(); i++)
 			{
-				for (int i = 0; i < comboMonsters.size(); i++)
+				if (filteredMonsters.get(i).name().equalsIgnoreCase(selectedMonster.name()))
 				{
-					if (comboMonsters.get(i).name().equalsIgnoreCase(selectedMonster.name()))
-					{
-						keepIndex = i;
-						break;
-					}
+					keepIndex = i;
+					break;
 				}
 			}
-			monsterCombo.setSelectedIndex(keepIndex);
-			selectedMonster = comboMonsters.get(keepIndex);
 		}
-		suppressComboEvents = false;
+		// Deliberately NO silent default target: computing against an
+		// arbitrary first entry (previously "A corpse", 90 HP) produced
+		// convincing-but-wrong numbers when the user hadn't picked yet. Until
+		// the user selects a monster the outputs stay "-" with an explicit
+		// "pick a target" hint instead.
+		if (keepIndex >= 0)
+		{
+			monsterList.setSelectedIndex(keepIndex);
+			monsterList.ensureIndexIsVisible(keepIndex);
+		}
+		else
+		{
+			// Selection filtered out — keep the last target (label still shows it).
+			monsterList.clearSelection();
+		}
+		suppressListEvents = false;
+		updateTargetLabel();
 		recompute();
 	}
 
-	private void onMonsterSelected()
+	private void updateTargetLabel()
 	{
-		if (suppressComboEvents)
-		{
-			return;
-		}
-		int index = monsterCombo.getSelectedIndex();
-		if (index >= 0 && index < comboMonsters.size())
-		{
-			selectedMonster = comboMonsters.get(index);
-			recompute();
-		}
+		targetLabel.setText(selectedMonster == null
+			? "Target: pick a monster above"
+			: "Target: " + selectedMonster.name());
+		targetLabel.setForeground(selectedMonster == null
+			? ColorScheme.LIGHT_GRAY_COLOR
+			: java.awt.Color.WHITE);
 	}
+
+	// ------------------------------------------------------------- compute
 
 	@Override
 	public void apply(SessionSnapshot snapshot)
 	{
 		lastGear = snapshot.getGear();
+		updateGearGrid(lastGear);
+		autoToggleSlayerFromGear();
 		recompute();
 		refreshSummary();
+	}
+
+	/**
+	 * Auto-ticks "On Slayer task" when the player puts on a slayer helmet /
+	 * black mask (any variant), and auto-unticks it when the headgear comes
+	 * off. Edge-triggered: it only acts when the worn-state actually flips, so
+	 * a manual untick while the helm is still worn is respected (the common
+	 * "wearing the helm but off-task" case). Detection uses the client-thread-
+	 * computed {@link GearSnapshot#equipmentStats()} — {@code slayerHeadgear()}
+	 * is already resolved there, so no {@code Client}/{@code ItemManager} lookup
+	 * happens on the EDT. The slayer bonus only applies while the headgear is
+	 * worn anyway, so this keeps the toggle honest by default.
+	 */
+	private void autoToggleSlayerFromGear()
+	{
+		boolean worn = lastGear != null
+			&& lastGear.equipmentStats() != null
+			&& lastGear.equipmentStats().slayerHeadgear().wornAtAll();
+		if (worn != lastSlayerHeadgearWorn)
+		{
+			lastSlayerHeadgearWorn = worn;
+			onSlayerTaskToggle.setSelected(worn); // fires ItemListener -> recompute + restyle
+		}
 	}
 
 	/** Recomputes max hit / accuracy / DPS from the latest gear snapshot + current UI selections. */
 	private void recompute()
 	{
-		boolean enabled = config == null || config.gearSectionEnabled();
-		disabledNote.setVisible(!enabled);
-		if (!enabled)
-		{
-			clearOutputs();
-			return;
-		}
-
 		if (lastGear == null || selectedMonster == null || lastGear.equipmentStats() == null)
 		{
 			clearOutputs();
@@ -304,7 +534,7 @@ public final class GearSection extends CollapsibleSection
 		EquipmentStats gearStats = lastGear.equipmentStats();
 		Stance stance = defaultStanceFor(selectedStyle);
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, stance,
-			bestPotionCheckbox.isSelected(), bestPrayerCheckbox.isSelected(), onSlayerTaskCheckbox.isSelected());
+			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected());
 
 		DpsResult result = DpsCalculator.compute(gearStats, player, selectedStyle, selectedMonster, DEFAULT_MAGIC_BASE_MAX_HIT);
 
@@ -368,10 +598,94 @@ public final class GearSection extends CollapsibleSection
 	@Override
 	protected String summaryText()
 	{
-		if (config != null && !config.gearSectionEnabled())
+		if (selectedMonster == null)
 		{
-			return "Disabled";
+			return "no target";
 		}
 		return "DPS " + String.format(Locale.ROOT, "%.2f", lastDps);
+	}
+
+	// ------------------------------------------------- test seams (package)
+
+	IconTextField searchFieldForTest()
+	{
+		return monsterSearchField;
+	}
+
+	JList<String> monsterListForTest()
+	{
+		return monsterList;
+	}
+
+	Monster selectedMonsterForTest()
+	{
+		return selectedMonster;
+	}
+
+	String dpsTextForTest()
+	{
+		return dpsValue.getText();
+	}
+
+	String maxHitTextForTest()
+	{
+		return maxHitValue.getText();
+	}
+
+	JToggleButton bestPotionToggleForTest()
+	{
+		return bestPotionToggle;
+	}
+
+	JToggleButton onSlayerTaskToggleForTest()
+	{
+		return onSlayerTaskToggle;
+	}
+
+	String ttkTextForTest()
+	{
+		return ttkValue.getText();
+	}
+
+	String targetTextForTest()
+	{
+		return targetLabel.getText();
+	}
+
+	/**
+	 * A {@link JList} model over the current filtered {@link Monster} list.
+	 * Refiltering swaps the backing list and fires two coarse events instead
+	 * of mutating a {@code DefaultListModel} item-by-item (which fires one
+	 * event per element — noticeably slow at ~2.8k rows per keystroke).
+	 */
+	private static final class MonsterListModel extends AbstractListModel<String>
+	{
+		private List<Monster> monsters = Collections.emptyList();
+
+		void setMonsters(List<Monster> newMonsters)
+		{
+			int oldSize = monsters.size();
+			monsters = newMonsters == null ? Collections.emptyList() : newMonsters;
+			if (oldSize > 0)
+			{
+				fireIntervalRemoved(this, 0, oldSize - 1);
+			}
+			if (!monsters.isEmpty())
+			{
+				fireIntervalAdded(this, 0, monsters.size() - 1);
+			}
+		}
+
+		@Override
+		public int getSize()
+		{
+			return monsters.size();
+		}
+
+		@Override
+		public String getElementAt(int index)
+		{
+			return monsters.get(index).name();
+		}
 	}
 }

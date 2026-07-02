@@ -35,15 +35,6 @@ public interface OSPulseConfig extends Config
 	)
 	String priceTrendSection = "priceTrend";
 
-	@ConfigSection(
-		name = "Gear / DPS calculator (optional)",
-		description = "Optional, off-by-default live max hit / accuracy / DPS readout for your "
-			+ "currently worn gear against a selected monster.",
-		position = 3,
-		closedByDefault = true
-	)
-	String gearSection = "gear";
-
 	// ---------------------------------------------------------------- Session
 
 	@ConfigItem(
@@ -195,21 +186,5 @@ public interface OSPulseConfig extends Config
 	default int holdingsPageSize()
 	{
 		return 5;
-	}
-
-	// -------------------------------------------------------------- Gear/DPS
-
-	@ConfigItem(
-		keyName = "gearSectionEnabled",
-		name = "Enable Gear / DPS calculator",
-		description = "ON by default (no network connection is made). When enabled, the Gear "
-			+ "section shows a live max hit / accuracy / DPS readout for your currently worn "
-			+ "gear against a selected monster.",
-		position = 0,
-		section = gearSection
-	)
-	default boolean gearSectionEnabled()
-	{
-		return true;
 	}
 }
