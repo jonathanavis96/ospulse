@@ -12,6 +12,8 @@ import com.ospulse.session.SessionSnapshot;
 import com.ospulse.session.SourceLoot;
 import com.ospulse.wealth.BankCache;
 import com.ospulse.wealth.WealthSnapshot;
+import com.ospulse.xp.LevelTable;
+import com.ospulse.xp.XpSkillView;
 import com.ospulse.xp.XpTracker;
 import com.google.gson.Gson;
 import lombok.extern.slf4j.Slf4j;
@@ -258,7 +260,7 @@ public class SessionTracker implements SessionService
 			// by buildWealth above — persist them for the next login.
 			saveBankCache();
 		}
-		publish(engine.snapshot(current, geReconciler.realizedPnl(), buildGeOffers(), buildLootSources(), xpTracker.gained(), xpTracker.totalGained(), ts));
+		publish(buildSnapshot(current, ts));
 	}
 
 	/** Restarts the session baseline from current wealth (panel reset button). */
@@ -275,7 +277,7 @@ public class SessionTracker implements SessionService
 		WealthSnapshot current = buildWealth(ts);
 		engine.startSession(current, ts);
 		started = true;
-		publish(engine.snapshot(current, geReconciler.realizedPnl(), buildGeOffers(), buildLootSources(), xpTracker.gained(), xpTracker.totalGained(), ts));
+		publish(buildSnapshot(current, ts));
 	}
 
 	// ------------------------------------------------------------- SessionService
@@ -311,7 +313,7 @@ public class SessionTracker implements SessionService
 		WealthSnapshot initial = buildWealth(ts);
 		engine.startSession(initial, ts);
 		started = true;
-		publish(engine.snapshot(initial, geReconciler.realizedPnl(), buildGeOffers(), buildLootSources(), xpTracker.gained(), xpTracker.totalGained(), ts));
+		publish(buildSnapshot(initial, ts));
 	}
 
 	private void refresh(long ts)
@@ -319,7 +321,86 @@ public class SessionTracker implements SessionService
 		WealthSnapshot current = buildWealth(ts);
 		Set<Integer> geAttributedItemIds = geReconciler.drainAttributedItemIds();
 		engine.update(current, geAttributedItemIds, ts);
-		publish(engine.snapshot(current, geReconciler.realizedPnl(), buildGeOffers(), buildLootSources(), xpTracker.gained(), xpTracker.totalGained(), ts));
+		publish(buildSnapshot(current, ts));
+	}
+
+	/**
+	 * Builds the published snapshot: the engine's wealth/loot view decorated
+	 * with the per-skill XP progress views and overall XP rate computed from
+	 * the {@link XpTracker} and the {@link LevelTable}.
+	 */
+	private SessionSnapshot buildSnapshot(WealthSnapshot current, long ts)
+	{
+		SessionSnapshot base = engine.snapshot(current, geReconciler.realizedPnl(),
+			buildGeOffers(), buildLootSources(), xpTracker.gained(), xpTracker.totalGained(), ts);
+
+		long elapsedMs = base.getElapsedMs();
+		long overallXpPerHour = elapsedMs > 0
+			? base.getXpTotal() * 3_600_000L / elapsedMs
+			: 0L;
+
+		return new SessionSnapshot(
+			base.getStartMs(),
+			elapsedMs,
+			base.getProfit(),
+			base.getProfitPerHour(),
+			base.getGeRealizedPnl(),
+			base.getNetWorthDelta(),
+			base.isBankKnown(),
+			base.getLoot(),
+			base.getXpGained(),
+			base.getXpTotal(),
+			base.getWealth(),
+			base.getGeOffers(),
+			base.getLootSources(),
+			buildXpSkillViews(base.getXpGained(), elapsedMs),
+			overallXpPerHour);
+	}
+
+	/**
+	 * Computes the RuneLite-xptracker-style per-skill views for every skill
+	 * with a positive gain this session, ordered by XP gained descending.
+	 * Actions-left uses the XP of the most recently observed gain event as the
+	 * per-action size, so it reads -1 (unknown) until the first action of the
+	 * session has been seen for that skill.
+	 */
+	private List<XpSkillView> buildXpSkillViews(Map<String, Long> gained, long elapsedMs)
+	{
+		List<XpSkillView> views = new ArrayList<>();
+		for (Map.Entry<String, Long> entry : gained.entrySet())
+		{
+			String skill = entry.getKey();
+			long skillGained = entry.getValue();
+			long xpPerHour = elapsedMs > 0 ? skillGained * 3_600_000L / elapsedMs : 0L;
+			long currentXp = xpTracker.currentXp(skill);
+			int level = LevelTable.levelForXp(currentXp);
+
+			long xpLeft;
+			long actionsLeft;
+			double progress;
+			if (level >= LevelTable.MAX_LEVEL)
+			{
+				xpLeft = 0L;
+				actionsLeft = -1L;
+				progress = 1.0;
+			}
+			else
+			{
+				long levelFloor = LevelTable.xpForLevel(level);
+				long levelCeiling = LevelTable.xpForLevel(level + 1);
+				xpLeft = levelCeiling - currentXp;
+				progress = (double) (currentXp - levelFloor) / (levelCeiling - levelFloor);
+				long lastActionXp = xpTracker.lastActionXp(skill);
+				actionsLeft = lastActionXp > 0
+					? (xpLeft + lastActionXp - 1) / lastActionXp
+					: -1L;
+			}
+
+			views.add(new XpSkillView(skill, skillGained, xpPerHour, currentXp,
+				level, xpLeft, actionsLeft, progress));
+		}
+		views.sort((a, b) -> Long.compare(b.getGained(), a.getGained()));
+		return views;
 	}
 
 	private void publish(SessionSnapshot snapshot)
