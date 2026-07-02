@@ -1,0 +1,65 @@
+/*
+ * Phat Wang RuneLite external plugin.
+ * Layout mirrors https://github.com/runelite/example-plugin so the Plugin Hub
+ * "standard" build can compile it against the pinned RuneLite client.
+ *
+ * Note on dependencies: gson and okhttp are TRANSITIVE dependencies of
+ * net.runelite:client (provided by the RuneLite client at runtime), so they
+ * are available on the compile classpath without an explicit declaration and
+ * require no dependency-hash verification. okhttp is pinned compileOnly to
+ * 3.14.9 to MATCH the version RuneLite ships at runtime (compiling against
+ * okhttp 4.x throws NoSuchMethodError at runtime for RequestBody.create).
+ */
+plugins {
+	id 'java'
+}
+
+repositories {
+	mavenLocal()
+	maven {
+		url = 'https://repo.runelite.net'
+		content {
+			includeGroupByRegex("net\\.runelite.*")
+		}
+	}
+	mavenCentral()
+}
+
+def runeLiteVersion = 'latest.release'
+
+dependencies {
+	compileOnly group: 'net.runelite', name: 'client', version: runeLiteVersion
+
+	compileOnly 'org.projectlombok:lombok:1.18.30'
+	annotationProcessor 'org.projectlombok:lombok:1.18.30'
+
+	// Pinned to the version RuneLite ships at runtime; provided by the client.
+	compileOnly 'com.squareup.okhttp3:okhttp:3.14.9'
+	compileOnly 'com.google.code.gson:gson:2.8.5'
+
+	testImplementation 'junit:junit:4.12'
+	testImplementation group: 'net.runelite', name: 'client', version: runeLiteVersion
+}
+
+group = 'com.phatwang'
+version = '0.1.0'
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+	options.release.set(11)
+}
+
+tasks.register('shadowJar', Jar) {
+	from sourceSets.main.output
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+	exclude 'META-INF/INDEX.LIST'
+	exclude 'META-INF/*.SF'
+	exclude 'META-INF/*.DSA'
+	exclude 'META-INF/*.RSA'
+	exclude '**/module-info.class'
+
+	group = BasePlugin.BUILD_GROUP
+	archiveClassifier.set('shadow')
+	archiveFileName.set("${rootProject.name}-${project.version}-all.jar")
+}
