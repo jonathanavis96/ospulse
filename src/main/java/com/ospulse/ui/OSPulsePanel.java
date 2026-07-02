@@ -85,10 +85,11 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		CollapsibleSection.CollapseStore store = new ConfigCollapseStore();
 
 		sectionList.add(new SessionSection(store));
-		sectionList.add(new WealthSection(store));
 		sectionList.add(new LootSection(store, config, itemManager));
 		sectionList.add(new XpSection(store, skillIconManager));
+		// GearSection is inserted here (after XP) — see gear/DPS spec
 		sectionList.add(new GeSection(store, itemManager));
+		sectionList.add(new WealthSection(store));
 		sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService));
 
 		// A width-tracking column so nothing is laid out wider than the fixed

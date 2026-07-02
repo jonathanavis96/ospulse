@@ -15,12 +15,13 @@ public final class XpSkillView
 	private final long gained;
 	private final long xpPerHour;
 	private final long currentXp;
+	/** Real level 1..99, or virtual level 100..126 once 99 is reached (see VirtualLevelTable). */
 	private final int currentLevel;
-	/** XP still needed to reach the next level; 0 at level 99. */
+	/** XP still needed to reach the next (real or virtual) level; 0 once maxed at 126. */
 	private final long xpLeft;
-	/** Actions to the next level at the last action's xp; -1 when unknown or at 99. */
+	/** Actions to the next level at the last action's xp; -1 when unknown or maxed at 126. */
 	private final long actionsLeft;
-	/** Fraction of the current level completed, 0..1; 1.0 at level 99. */
+	/** Fraction of the current level completed, 0..1; 1.0 once maxed at 126. */
 	private final double progressToNextLevel;
 
 	public XpSkillView(

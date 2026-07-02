@@ -2,26 +2,20 @@ package com.ospulse.ui.sections;
 
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
+import com.ospulse.ui.GpFormat;
 import com.ospulse.ui.PanelWidgets;
+import com.ospulse.ui.ThinProgressBar;
+import com.ospulse.xp.VirtualLevelTable;
 import com.ospulse.xp.XpSkillView;
 
 import net.runelite.api.Skill;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.DynamicGridLayout;
-import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.SkillColor;
-import net.runelite.client.ui.components.ProgressBar;
-import net.runelite.client.util.ColorUtil;
-import net.runelite.client.util.QuantityFormatter;
 
-import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.BoxLayout;
-import javax.swing.ImageIcon;
-import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.SwingConstants;
-import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -32,13 +26,15 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * XP gained this session, rendered at visual parity with RuneLite's built-in
- * XP Tracker: an Overall row (total gained + overall XP/hr) followed by, per
- * trained skill, an {@code XpInfoBox}-style block — a 35x35 skill icon beside a
- * 2x2 grid of stats (XP, XP/hr, XP left, actions left), above a skill-coloured
- * progress bar through the current level labelled {@code Lvl. N} / percent /
- * {@code Lvl. N+1}. The skill is identified by its icon alone (no text name),
- * exactly like the built-in tracker.
+ * XP gained this session, in this plugin's own compact card style rather than
+ * a copy of RuneLite's built-in XP Tracker widget: an "Overall" summary row,
+ * then per trained skill a small icon-row/progress-bar/detail-row stack built
+ * from the same {@link PanelWidgets} + {@link ThinProgressBar} pieces the
+ * Grand Exchange section uses, so the whole panel reads as one design.
+ *
+ * <p>Levels past 99 keep climbing as RuneLite's virtual levels (see {@link
+ * VirtualLevelTable}), up to the 126 cap, instead of flatlining the progress
+ * bar and "next level" target at 99.
  *
  * <p>Falls back to the plain gained-per-skill list when the snapshot carries
  * no {@link XpSkillView}s (e.g. one produced via the older constructors).
@@ -47,10 +43,8 @@ public final class XpSection extends CollapsibleSection
 {
 	public static final String KEY = "xp";
 
-	/** The XP Tracker's progress-bar trough colour (dark brown). */
-	private static final Color PROGRESS_BAR_BG = new Color(61, 56, 49);
+	private static final int ICON_SIZE = 22;
 
-	private final JLabel totalValue;
 	private final JPanel breakdownPanel;
 	private final SkillIconManager skillIconManager;
 
@@ -61,7 +55,6 @@ public final class XpSection extends CollapsibleSection
 	{
 		super(KEY, "XP gained", store);
 		this.skillIconManager = skillIconManager;
-		totalValue = PanelWidgets.statRow(body(), "Total");
 		breakdownPanel = new JPanel();
 		breakdownPanel.setLayout(new BoxLayout(breakdownPanel, BoxLayout.Y_AXIS));
 		breakdownPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -74,8 +67,6 @@ public final class XpSection extends CollapsibleSection
 	{
 		xpTotal = snapshot.getXpTotal();
 		elapsedMs = snapshot.getElapsedMs();
-
-		totalValue.setText(String.format("%,d", xpTotal));
 
 		breakdownPanel.removeAll();
 		List<XpSkillView> skills = snapshot.getXpSkills();
@@ -93,101 +84,73 @@ public final class XpSection extends CollapsibleSection
 		refreshSummary();
 	}
 
-	/** The xptracker-parity rendering: Overall row + per-skill {@link #skillBox} blocks. */
+	/** "Overall" summary row + one compact card per skill. */
 	private void renderSkillViews(List<XpSkillView> skills, long overallXpPerHour)
 	{
 		breakdownPanel.add(PanelWidgets.listRow("Overall",
-			String.format("%,d · %,d/hr", xpTotal, overallXpPerHour)));
+			GpFormat.format(xpTotal) + " · " + GpFormat.format(overallXpPerHour) + "/hr"));
+		breakdownPanel.add(PanelWidgets.spacer());
 
+		boolean first = true;
 		for (XpSkillView skill : skills)
 		{
-			breakdownPanel.add(skillBox(skill));
+			if (!first)
+			{
+				breakdownPanel.add(PanelWidgets.spacer());
+			}
+			first = false;
+			breakdownPanel.add(skillCard(skill));
 		}
 	}
 
 	/**
-	 * One XpInfoBox-parity block for a single skill: header (icon + 2x2 stats)
-	 * over a skill-coloured progress bar. Mirrors RuneLite's {@code XpInfoBox}.
+	 * One skill's own compact card: icon + name + level (left) with XP gained
+	 * (right), a skill-coloured {@link ThinProgressBar}, then a detail row of
+	 * XP/hr and actions-to-next-level. Deliberately its own layout rather than
+	 * RuneLite's XpInfoBox 2x2 stat grid.
 	 */
-	private JPanel skillBox(XpSkillView view)
+	private JPanel skillCard(XpSkillView view)
 	{
 		Skill skill = parseSkill(view.getSkillName());
+		Color accent = skill != null ? SkillColor.find(skill).getColor() : ColorScheme.BRAND_ORANGE;
 
-		JPanel container = new JPanel(new BorderLayout());
-		container.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		container.setBorder(BorderFactory.createEmptyBorder(5, 0, 0, 0));
-		container.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JPanel card = new JPanel();
+		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+		card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		card.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		// Header: 35x35 skill icon (WEST) + 2x2 stat grid (CENTER).
-		JPanel header = new JPanel(new BorderLayout());
-		header.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		String name = prettySkillName(view.getSkillName()) + "  Lvl " + view.getCurrentLevel();
+		card.add(PanelWidgets.iconRow(skillIcon(skill), name, "+" + GpFormat.format(view.getGained()), accent));
 
-		Image icon = skillIcon(skill);
-		if (icon != null)
+		card.add(rigidSpacer(2));
+		ThinProgressBar bar = new ThinProgressBar();
+		bar.setForeground(accent);
+		bar.setProgress(view.getProgressToNextLevel());
+		bar.setAlignmentX(Component.LEFT_ALIGNMENT);
+		card.add(bar);
+		card.add(rigidSpacer(2));
+
+		card.add(PanelWidgets.listRow("   " + GpFormat.format(view.getXpPerHour()) + "/hr", nextLevelText(view)));
+
+		card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
+		return card;
+	}
+
+	/** "N to Lvl X" (actions still needed at the last action's xp size), or "Maxed" at 126. */
+	private static String nextLevelText(XpSkillView view)
+	{
+		if (view.getCurrentLevel() >= VirtualLevelTable.MAX_LEVEL)
 		{
-			JLabel iconLabel = new JLabel(new ImageIcon(icon));
-			iconLabel.setPreferredSize(new Dimension(35, 35));
-			iconLabel.setHorizontalAlignment(SwingConstants.CENTER);
-			iconLabel.setVerticalAlignment(SwingConstants.CENTER);
-			header.add(iconLabel, BorderLayout.WEST);
+			return "Maxed";
 		}
-
-		JPanel stats = new JPanel(new DynamicGridLayout(2, 2));
-		stats.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		stats.setBorder(BorderFactory.createEmptyBorder(9, 2, 9, 2));
-		String actions = view.getActionsLeft() < 0
-			? "?"
-			: QuantityFormatter.quantityToRSDecimalStack((int) Math.min(view.getActionsLeft(), Integer.MAX_VALUE), true);
-		stats.add(statLabel("XP: ", rsStack(view.getGained())));       // top-left
-		stats.add(statLabel("XP/hr: ", rsStack(view.getXpPerHour()))); // top-right
-		stats.add(statLabel("Left: ", rsStack(view.getXpLeft())));     // bottom-left
-		stats.add(statLabel("Actions: ", actions));                    // bottom-right
-		header.add(stats, BorderLayout.CENTER);
-
-		// Progress bar: skill-coloured, Lvl. N / percent / Lvl. N+1.
-		ProgressBar bar = new ProgressBar();
-		bar.setMaximumValue(100);
-		bar.setValue((int) Math.round(clamp01(view.getProgressToNextLevel()) * 100));
-		bar.setBackground(PROGRESS_BAR_BG);
-		bar.setForeground(skill != null ? SkillColor.find(skill).getColor() : ColorScheme.BRAND_ORANGE);
-		bar.setLeftLabel("Lvl. " + view.getCurrentLevel());
-		bar.setRightLabel(view.getCurrentLevel() >= 99 ? "99" : "Lvl. " + (view.getCurrentLevel() + 1));
-		bar.setCenterLabel((int) Math.round(clamp01(view.getProgressToNextLevel()) * 100) + "%");
-
-		JPanel progressWrapper = new JPanel(new BorderLayout());
-		progressWrapper.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		progressWrapper.setBorder(BorderFactory.createEmptyBorder(0, 7, 7, 7));
-		progressWrapper.add(bar, BorderLayout.CENTER);
-
-		container.add(header, BorderLayout.NORTH);
-		container.add(progressWrapper, BorderLayout.SOUTH);
-
-		// Fill the panel width in the Y_AXIS BoxLayout while keeping its height.
-		container.setMaximumSize(new Dimension(Integer.MAX_VALUE, container.getPreferredSize().height));
-		return container;
+		int nextLevel = view.getCurrentLevel() + 1;
+		String actions = view.getActionsLeft() < 0 ? "?" : String.format("%,d", view.getActionsLeft());
+		return actions + " to Lvl " + nextLevel;
 	}
 
-	private static JLabel statLabel(String key, String value)
+	private static Component rigidSpacer(int height)
 	{
-		JLabel label = new JLabel(String.format(
-			"<html><body style='color:%s'>%s<span style='color:white'>%s</span></body></html>",
-			ColorUtil.toHexColor(ColorScheme.LIGHT_GRAY_COLOR), key, value));
-		label.setFont(FontManager.getRunescapeSmallFont());
-		return label;
-	}
-
-	private static String rsStack(long value)
-	{
-		return QuantityFormatter.quantityToRSDecimalStack((int) Math.min(value, Integer.MAX_VALUE), true);
-	}
-
-	private static double clamp01(double v)
-	{
-		if (v < 0)
-		{
-			return 0;
-		}
-		return Math.min(v, 1.0);
+		return Box.createRigidArea(new Dimension(0, height));
 	}
 
 	/** The pre-parity rendering: gained per skill, ordered by gain descending. */
@@ -202,7 +165,7 @@ public final class XpSection extends CollapsibleSection
 			for (Map.Entry<String, Long> entry : entries)
 			{
 				breakdownPanel.add(PanelWidgets.listRow(prettySkillName(entry.getKey()),
-					String.format("%,d", entry.getValue())));
+					GpFormat.format(entry.getValue())));
 				any = true;
 			}
 		}
@@ -231,8 +194,10 @@ public final class XpSection extends CollapsibleSection
 	}
 
 	/**
-	 * The large (35x35) RuneLite skill icon for a skill, or {@code null} if
-	 * unavailable — the header then renders without an icon rather than failing.
+	 * A small ({@value #ICON_SIZE}px) skill icon for a skill, or {@code null}
+	 * if unavailable — the row then renders without an icon rather than
+	 * failing. Deliberately smaller than RuneLite's 35x35 XpInfoBox icon to
+	 * keep this section's rows compact.
 	 */
 	private Image skillIcon(Skill skill)
 	{
@@ -242,7 +207,8 @@ public final class XpSection extends CollapsibleSection
 		}
 		try
 		{
-			return skillIconManager.getSkillImage(skill, false);
+			Image full = skillIconManager.getSkillImage(skill, false);
+			return full == null ? null : full.getScaledInstance(ICON_SIZE, ICON_SIZE, Image.SCALE_SMOOTH);
 		}
 		catch (RuntimeException e)
 		{
@@ -273,6 +239,6 @@ public final class XpSection extends CollapsibleSection
 	@Override
 	protected String summaryText()
 	{
-		return String.format("%,d · %,d/hr", xpTotal, xpPerHour());
+		return GpFormat.format(xpTotal) + " · " + GpFormat.format(xpPerHour()) + "/hr";
 	}
 }

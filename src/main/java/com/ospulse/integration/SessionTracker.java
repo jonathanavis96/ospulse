@@ -13,6 +13,7 @@ import com.ospulse.session.SourceLoot;
 import com.ospulse.wealth.BankCache;
 import com.ospulse.wealth.WealthSnapshot;
 import com.ospulse.xp.LevelTable;
+import com.ospulse.xp.VirtualLevelTable;
 import com.ospulse.xp.XpSkillView;
 import com.ospulse.xp.XpTracker;
 import com.google.gson.Gson;
@@ -389,6 +390,10 @@ public class SessionTracker implements SessionService
 	 * Actions-left uses the XP of the most recently observed gain event as the
 	 * per-action size, so it reads -1 (unknown) until the first action of the
 	 * session has been seen for that skill.
+	 *
+	 * <p>Once a skill reaches real level 99, progress keeps going via {@link
+	 * VirtualLevelTable}'s virtual levels (100..126) instead of flatlining at
+	 * 99, matching RuneLite's own tracker.
 	 */
 	private List<XpSkillView> buildXpSkillViews(Map<String, Long> gained, long elapsedMs)
 	{
@@ -406,9 +411,25 @@ public class SessionTracker implements SessionService
 			double progress;
 			if (level >= LevelTable.MAX_LEVEL)
 			{
-				xpLeft = 0L;
-				actionsLeft = -1L;
-				progress = 1.0;
+				// Past 99: keep climbing via virtual levels, up to the 126 cap.
+				level = VirtualLevelTable.levelForXp(currentXp);
+				if (level >= VirtualLevelTable.MAX_LEVEL)
+				{
+					xpLeft = 0L;
+					actionsLeft = -1L;
+					progress = 1.0;
+				}
+				else
+				{
+					long levelFloor = VirtualLevelTable.xpForLevel(level);
+					long levelCeiling = VirtualLevelTable.xpForLevel(level + 1);
+					xpLeft = levelCeiling - currentXp;
+					progress = (double) (currentXp - levelFloor) / (levelCeiling - levelFloor);
+					long lastActionXp = xpTracker.lastActionXp(skill);
+					actionsLeft = lastActionXp > 0
+						? (xpLeft + lastActionXp - 1) / lastActionXp
+						: -1L;
+				}
 			}
 			else
 			{
