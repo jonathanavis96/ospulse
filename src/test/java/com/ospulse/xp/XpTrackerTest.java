@@ -94,6 +94,72 @@ public class XpTrackerTest
 	}
 
 	@Test
+	public void currentXpReflectsBaselineThenLatestObservation()
+	{
+		Map<String, Long> baseline = new HashMap<>();
+		baseline.put("MAGIC", 1_000_000L);
+		tracker.start(baseline);
+
+		assertEquals(1_000_000L, tracker.currentXp("MAGIC"));
+		assertEquals(0L, tracker.currentXp("ATTACK")); // never seen
+
+		tracker.update("MAGIC", 1_050_000L);
+		assertEquals(1_050_000L, tracker.currentXp("MAGIC"));
+	}
+
+	@Test
+	public void lastActionXpIsZeroBeforeFirstGainEvent()
+	{
+		Map<String, Long> baseline = new HashMap<>();
+		baseline.put("MAGIC", 1_000_000L);
+		tracker.start(baseline);
+
+		assertEquals(0L, tracker.lastActionXp("MAGIC"));
+
+		// First observation of an unbaselined skill establishes its baseline
+		// and must NOT register as an action.
+		tracker.update("WOODCUTTING", 2_500_000L);
+		assertEquals(0L, tracker.lastActionXp("WOODCUTTING"));
+	}
+
+	@Test
+	public void lastActionXpTracksMostRecentPositiveDelta()
+	{
+		Map<String, Long> baseline = new HashMap<>();
+		baseline.put("MAGIC", 1_000_000L);
+		tracker.start(baseline);
+
+		tracker.update("MAGIC", 1_000_042L);
+		assertEquals(42L, tracker.lastActionXp("MAGIC"));
+
+		tracker.update("MAGIC", 1_000_142L);
+		assertEquals(100L, tracker.lastActionXp("MAGIC"));
+
+		// A no-change or negative reading must not disturb the last action.
+		tracker.update("MAGIC", 1_000_142L);
+		assertEquals(100L, tracker.lastActionXp("MAGIC"));
+		tracker.update("MAGIC", 900_000L);
+		assertEquals(100L, tracker.lastActionXp("MAGIC"));
+	}
+
+	@Test
+	public void restartingClearsLastActionXp()
+	{
+		Map<String, Long> baseline = new HashMap<>();
+		baseline.put("MAGIC", 1_000_000L);
+		tracker.start(baseline);
+		tracker.update("MAGIC", 1_000_042L);
+		assertEquals(42L, tracker.lastActionXp("MAGIC"));
+
+		Map<String, Long> newBaseline = new HashMap<>();
+		newBaseline.put("MAGIC", 1_000_042L);
+		tracker.start(newBaseline);
+
+		assertEquals(0L, tracker.lastActionXp("MAGIC"));
+		assertEquals(1_000_042L, tracker.currentXp("MAGIC"));
+	}
+
+	@Test
 	public void neverGoesNegativeForXpDrops()
 	{
 		// XP should never drop in OSRS, but guard against it anyway: no

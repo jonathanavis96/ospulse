@@ -2,6 +2,7 @@ package com.ospulse.session;
 
 import com.ospulse.ge.GeOfferView;
 import com.ospulse.wealth.WealthSnapshot;
+import com.ospulse.xp.XpSkillView;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -29,6 +30,8 @@ public final class SessionSnapshot
 	private final WealthSnapshot wealth;
 	private final List<GeOfferView> geOffers;
 	private final List<SourceLoot> lootSources;
+	private final List<XpSkillView> xpSkills;
+	private final long xpPerHour;
 
 	/**
 	 * Backward-compatible constructor: no active-offer / source-loot breakdown.
@@ -52,6 +55,10 @@ public final class SessionSnapshot
 			Collections.emptyList());
 	}
 
+	/**
+	 * Backward-compatible constructor: no per-skill XP views / overall XP rate.
+	 * Delegates to the full constructor with empty defaults.
+	 */
 	public SessionSnapshot(
 		long startMs,
 		long elapsedMs,
@@ -66,6 +73,28 @@ public final class SessionSnapshot
 		WealthSnapshot wealth,
 		List<GeOfferView> geOffers,
 		List<SourceLoot> lootSources)
+	{
+		this(startMs, elapsedMs, profit, profitPerHour, geRealizedPnl, netWorthDelta,
+			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
+			Collections.emptyList(), 0L);
+	}
+
+	public SessionSnapshot(
+		long startMs,
+		long elapsedMs,
+		long profit,
+		long profitPerHour,
+		long geRealizedPnl,
+		long netWorthDelta,
+		boolean bankKnown,
+		List<LootEntry> loot,
+		Map<String, Long> xpGained,
+		long xpTotal,
+		WealthSnapshot wealth,
+		List<GeOfferView> geOffers,
+		List<SourceLoot> lootSources,
+		List<XpSkillView> xpSkills,
+		long xpPerHour)
 	{
 		this.startMs = startMs;
 		this.elapsedMs = elapsedMs;
@@ -88,6 +117,10 @@ public final class SessionSnapshot
 		this.lootSources = lootSources == null
 			? Collections.emptyList()
 			: Collections.unmodifiableList(new ArrayList<>(lootSources));
+		this.xpSkills = xpSkills == null
+			? Collections.emptyList()
+			: Collections.unmodifiableList(new ArrayList<>(xpSkills));
+		this.xpPerHour = xpPerHour;
 	}
 
 	public long getStartMs()
@@ -166,5 +199,21 @@ public final class SessionSnapshot
 	public List<SourceLoot> getLootSources()
 	{
 		return lootSources;
+	}
+
+	/**
+	 * Per-skill XP progress views (gained, rate, xp/actions left, level
+	 * progress), ordered by XP gained descending. Empty until the integration
+	 * layer supplies them (e.g. before the first XP gain of the session).
+	 */
+	public List<XpSkillView> getXpSkills()
+	{
+		return xpSkills;
+	}
+
+	/** Overall XP gained per hour across all skills; 0 while elapsed is 0. */
+	public long getXpPerHour()
+	{
+		return xpPerHour;
 	}
 }
