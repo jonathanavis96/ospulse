@@ -41,4 +41,10 @@ public class RuneLiteItemValuation
 	{
 		return itemManager.canonicalize(itemId);
 	}
+
+	/** True if this item id is a bank placeholder (empty reserved slot, not owned). */
+	public boolean isPlaceholder(int itemId)
+	{
+		return itemManager.getItemComposition(itemId).getPlaceholderTemplateId() != -1;
+	}
 }
