@@ -1,6 +1,7 @@
 package com.ospulse.ui;
 
 import com.ospulse.OSPulseConfig;
+import com.ospulse.integration.PriceTrendService;
 import com.ospulse.session.SessionListener;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.sections.GeSection;
@@ -65,7 +66,8 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 
 	private Runnable resetCallback = () -> {};
 
-	public OSPulsePanel(OSPulseConfig config, ItemManager itemManager, ConfigManager configManager)
+	public OSPulsePanel(OSPulseConfig config, ItemManager itemManager, ConfigManager configManager,
+		PriceTrendService priceTrendService)
 	{
 		super(false);
 		Objects.requireNonNull(config, "config");
@@ -86,7 +88,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		sectionList.add(new LootSection(store, config, itemManager));
 		sectionList.add(new XpSection(store));
 		sectionList.add(new GeSection(store, itemManager));
-		sectionList.add(new HoldingsSection(store, itemManager));
+		sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService));
 
 		// A width-tracking column so nothing is laid out wider than the fixed
 		// side-panel width; the widest row ellipsizes within its row instead of
