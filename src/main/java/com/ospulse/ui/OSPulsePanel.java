@@ -20,6 +20,7 @@ import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
@@ -28,6 +29,7 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.Rectangle;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -107,7 +109,11 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 
 		emptyStatePanel = buildEmptyState();
 
-		JPanel sections = new JPanel();
+		// A width-tracking panel: it forces its content to the scroll viewport's
+		// width so nothing is ever laid out wider than the fixed side panel.
+		// Without this, the widest row would push the content past the viewport
+		// and — with horizontal scrolling disabled — clip it out of reach.
+		JPanel sections = new ScrollablePanel();
 		sections.setLayout(new BoxLayout(sections, BoxLayout.Y_AXIS));
 		sections.setBackground(ColorScheme.DARK_GRAY_COLOR);
 
@@ -274,7 +280,8 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 			for (ItemStack stack : topHoldings)
 			{
 				String label = stack.getName() + " x" + String.format("%,d", stack.getQuantity());
-				holdingsListPanel.add(listRow(label, GpFormat.format(stack.value())));
+				holdingsListPanel.add(iconRow(stack.getId(), label,
+					GpFormat.format(stack.value()), ColorScheme.LIGHT_GRAY_COLOR));
 			}
 		}
 
@@ -494,9 +501,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		JPanel panel = new JPanel();
 		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		panel.setBorder(BorderFactory.createCompoundBorder(
-			BorderFactory.createLineBorder(ColorScheme.DARKER_GRAY_COLOR.darker()),
-			new EmptyBorder(6, 8, 6, 8)));
+		panel.setBorder(new EmptyBorder(5, 6, 5, 6));
 		panel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
 		JLabel header = new JLabel(title);
@@ -628,6 +633,46 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		long minutes = (totalSeconds % 3600) / 60;
 		long seconds = totalSeconds % 60;
 		return String.format("%d:%02d:%02d", hours, minutes, seconds);
+	}
+
+	/**
+	 * A {@link BoxLayout} column that reports it tracks the scroll viewport's
+	 * width. This clamps its (and every row's) width to the fixed side-panel
+	 * width, so long item/offer names ellipsize within their row instead of
+	 * stretching the whole panel past the edge where — with horizontal scrolling
+	 * disabled — they'd be clipped and unreachable.
+	 */
+	private static final class ScrollablePanel extends JPanel implements Scrollable
+	{
+		@Override
+		public Dimension getPreferredScrollableViewportSize()
+		{
+			return getPreferredSize();
+		}
+
+		@Override
+		public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction)
+		{
+			return 16;
+		}
+
+		@Override
+		public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction)
+		{
+			return visibleRect.height;
+		}
+
+		@Override
+		public boolean getScrollableTracksViewportWidth()
+		{
+			return true;
+		}
+
+		@Override
+		public boolean getScrollableTracksViewportHeight()
+		{
+			return false;
+		}
 	}
 
 	/**
