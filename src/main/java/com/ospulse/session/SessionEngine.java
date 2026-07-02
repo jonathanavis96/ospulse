@@ -17,9 +17,14 @@ import java.util.Set;
  * <p>"Tracked wealth" (see {@link WealthSnapshot#tracked()}) is inventory +
  * equipment + GE-in-flight + pouches. While away from a bank, any change in
  * tracked wealth is real profit/loss. Bank visits are transfers of cold
- * storage into/out of tracked wealth and must not register as profit, so a
- * bank deposit/withdrawal shifts the profit {@code baseline} by exactly the
- * amount that moved, neutralising it.
+ * storage into/out of tracked wealth and must not register as profit — not
+ * even transiently. While the bank is open its value is live, and the bank's
+ * change since open is exactly the net amount transferred (nothing else can
+ * move the bank), so profit adds that change back on top of tracked wealth,
+ * making every deposit/withdrawal zero-sum in real time. On close the same
+ * net transfer is folded into the profit {@code baseline} permanently, so the
+ * figure is continuous across the close. Genuine gains while the bank happens
+ * to be open (e.g. a GE fill) don't move the bank and therefore still count.
  *
  * <p>Mutable, single-threaded use only. Not thread-safe.
  */
@@ -30,6 +35,14 @@ public final class SessionEngine
 	private long startMs;
 	private boolean bankOpen;
 	private long trackedAtBankOpen;
+	/**
+	 * Live bank value captured when the current bank visit began (or the
+	 * first moment during the visit the bank value became known). The bank's
+	 * movement away from this anchor is the net amount deposited so far.
+	 */
+	private long bankValueAtOpen;
+	/** Whether {@link #bankValueAtOpen} has been captured for this visit. */
+	private boolean bankValueAtOpenKnown;
 	private WealthSnapshot previous;
 	/**
 	 * Loot aggregated per item across the whole session (like the Loot Tracker
@@ -54,32 +67,88 @@ public final class SessionEngine
 		this.startBankKnown = initial.isBankKnown();
 		this.bankOpen = false;
 		this.trackedAtBankOpen = 0L;
+		this.bankValueAtOpen = 0L;
+		this.bankValueAtOpenKnown = false;
 		this.lootTotals.clear();
 	}
 
 	/**
 	 * Reports a bank-open/close transition. On open, records the tracked
-	 * wealth at that instant. On close, shifts the baseline by however much
-	 * tracked wealth moved while the bank was open, so deposits/withdrawals
-	 * never register as profit or loss. No loot diffing happens while the
-	 * bank is open (see {@link #update}).
+	 * wealth and live bank value at that instant. On close, folds the net
+	 * amount transferred during the visit (measured by the bank's own change,
+	 * see {@link #bankVisitBaselineShift}) into the baseline, so
+	 * deposits/withdrawals never register as profit or loss — matching the
+	 * live offset {@link #snapshot} applied while the bank was open, so the
+	 * profit figure is continuous across the close. No loot diffing happens
+	 * while the bank is open (see {@link #update}).
 	 */
 	public void setBankOpen(boolean open, WealthSnapshot current, long tsMs)
 	{
 		if (!this.bankOpen && open)
 		{
-			// FALSE -> TRUE: bank just opened.
+			// FALSE -> TRUE: bank just opened. Anchor the visit.
 			this.trackedAtBankOpen = current.tracked();
+			this.bankValueAtOpenKnown = current.isBankKnown();
+			this.bankValueAtOpen = current.isBankKnown() ? current.getBankValue() : 0L;
 		}
 		else if (this.bankOpen && !open)
 		{
-			// TRUE -> FALSE: bank just closed. Neutralise whatever moved
-			// in/out of tracked wealth while the bank was open.
-			this.baseline += current.tracked() - trackedAtBankOpen;
+			// TRUE -> FALSE: bank just closed. Make the visit's net transfer
+			// permanently neutral.
+			this.baseline += bankVisitBaselineShift(current);
 		}
 
 		this.previous = current;
 		this.bankOpen = open;
+	}
+
+	/**
+	 * Baseline shift that neutralises the current bank visit at close time.
+	 * The bank's change since open is exactly the net amount deposited
+	 * (nothing but transfers can move the bank while it is open), so shifting
+	 * the baseline by minus that change keeps a pure transfer at zero profit
+	 * while leaving genuine tracked-wealth gains made during the visit
+	 * counted. Falls back to neutralising the whole tracked-wealth change
+	 * (the pre-live behaviour) only if the bank value somehow never became
+	 * visible during the visit.
+	 */
+	private long bankVisitBaselineShift(WealthSnapshot current)
+	{
+		if (bankValueAtOpenKnown && current.isBankKnown())
+		{
+			return -(current.getBankValue() - bankValueAtOpen);
+		}
+		return current.tracked() - trackedAtBankOpen;
+	}
+
+	/**
+	 * If the bank value only became known partway through the current visit,
+	 * anchor {@link #bankValueAtOpen} at its first known reading (treating
+	 * the blind interval as transfer-free). Idempotent.
+	 */
+	private void captureLateKnownBank(WealthSnapshot current)
+	{
+		if (bankOpen && !bankValueAtOpenKnown && current.isBankKnown())
+		{
+			this.bankValueAtOpen = current.getBankValue();
+			this.bankValueAtOpenKnown = true;
+		}
+	}
+
+	/**
+	 * While the bank is open, the net amount deposited so far this visit
+	 * (withdrawals negative); added to tracked wealth it makes inventory/bank
+	 * transfers zero-sum in real time. Zero while the bank is closed — after
+	 * a close the same amount lives in the baseline instead (see
+	 * {@link #setBankOpen}).
+	 */
+	private long liveBankTransferOffset(WealthSnapshot current)
+	{
+		if (!bankOpen || !bankValueAtOpenKnown || !current.isBankKnown())
+		{
+			return 0L;
+		}
+		return current.getBankValue() - bankValueAtOpen;
 	}
 
 	/**
@@ -100,6 +169,7 @@ public final class SessionEngine
 	{
 		if (bankOpen)
 		{
+			captureLateKnownBank(current);
 			this.previous = current;
 			return;
 		}
@@ -201,8 +271,12 @@ public final class SessionEngine
 		long tsMs)
 	{
 		foldNewlyKnownBankIntoStart(current);
+		captureLateKnownBank(current);
 
-		long profit = current.tracked() - baseline;
+		// While the bank is open, add back the net amount deposited so far so
+		// in-progress transfers are zero-sum immediately rather than only
+		// after the bank closes.
+		long profit = current.tracked() + liveBankTransferOffset(current) - baseline;
 		long elapsedMs = tsMs - startMs;
 		long profitPerHour = elapsedMs > 0 ? profit * 3600000L / elapsedMs : 0L;
 		long netWorthDelta = current.netWorth() - startNetWorth;
