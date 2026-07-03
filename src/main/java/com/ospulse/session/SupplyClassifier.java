@@ -52,14 +52,27 @@ public final class SupplyClassifier
 			+ "kebab|jug of wine|pizza|curry|crab|mackerel|cod|bass|"
 			+ "meat|rocktail|cooked)s?$");
 
+	/**
+	 * Teleport tablets and other single-use teleport consumables: single-charge
+	 * items burned on use exactly like a potion dose or a piece of food (e.g.
+	 * "Teleport to house", "Varrock teleport", "Ardougne teleport", "Teleport to
+	 * target"). Deliberately requires the "teleport" word itself so it doesn't
+	 * catch teleport jewellery (rings/amulets/capes), which are equipped gear
+	 * with charges, not a tracked-wealth item whose whole stack is consumed the
+	 * way a tablet is; those are out of scope for this classifier the same way
+	 * other equippable-with-charges items are.
+	 */
+	private static final Pattern TELEPORT_PATTERN = Pattern.compile(
+		"(?i)^(teleport to [\\w' ]+|[\\w' ]+ teleport)\\s*(tablet)?$");
+
 	private SupplyClassifier()
 	{
 	}
 
 	/**
 	 * @return true if {@code itemName} looks like a consumable supply item
-	 *         (potion, food, ammunition or rune) worth tracking as "supplies
-	 *         used" when its quantity decreases.
+	 *         (potion, food, ammunition, rune or teleport tablet) worth
+	 *         tracking as "supplies used" when its quantity decreases.
 	 */
 	public static boolean isConsumable(String itemName)
 	{
@@ -71,6 +84,7 @@ public final class SupplyClassifier
 		return POTION_PATTERN.matcher(trimmed).matches()
 			|| AMMO_PATTERN.matcher(trimmed).matches()
 			|| RUNE_PATTERN.matcher(trimmed).matches()
-			|| FOOD_PATTERN.matcher(trimmed).matches();
+			|| FOOD_PATTERN.matcher(trimmed).matches()
+			|| TELEPORT_PATTERN.matcher(trimmed).matches();
 	}
 }
