@@ -673,4 +673,141 @@ public class SessionEngineTest
 
 		assertTrue(result.getLoot().isEmpty());
 	}
+
+	// ------------------------------------------------------------ supplies used
+
+	private static final int PRAYER_POTION = 2434;
+	private static final int ADAMANT_ARROW = 890;
+
+	@Test
+	public void consumingPotionDosesIncreasesSuppliesUsed()
+	{
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(PRAYER_POTION, new ItemStack(PRAYER_POTION, "Prayer potion(4)", 5L, 1_000L));
+		WealthSnapshot initial = snap(5_000L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Drank down from 5 doses to 2 doses (3 doses consumed) while away
+		// from the bank.
+		Map<Integer, ItemStack> afterTracked = new LinkedHashMap<>();
+		afterTracked.put(PRAYER_POTION, new ItemStack(PRAYER_POTION, "Prayer potion(4)", 2L, 1_000L));
+		WealthSnapshot current = snap(2_000L, afterTracked, 0L, false, 1000L);
+
+		engine.update(current, Collections.emptySet(), 1000L);
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+
+		assertEquals(3_000L, result.getSuppliesUsed());
+		assertEquals(3_000L, engine.getSuppliesUsed());
+	}
+
+	@Test
+	public void firingArrowsIncreasesSuppliesUsedByTheirValue()
+	{
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(ADAMANT_ARROW, new ItemStack(ADAMANT_ARROW, "Adamant arrow", 1000L, 50L));
+		WealthSnapshot initial = snap(50_000L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Fired 200 arrows (quiver dropped from 1000 to 800) while away from
+		// the bank.
+		Map<Integer, ItemStack> afterTracked = new LinkedHashMap<>();
+		afterTracked.put(ADAMANT_ARROW, new ItemStack(ADAMANT_ARROW, "Adamant arrow", 800L, 50L));
+		WealthSnapshot current = snap(40_000L, afterTracked, 0L, false, 1000L);
+
+		engine.update(current, Collections.emptySet(), 1000L);
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+
+		assertEquals(200L * 50L, result.getSuppliesUsed());
+	}
+
+	@Test
+	public void depositingPotionsInTheBankDoesNotCountAsSuppliesUsed()
+	{
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(PRAYER_POTION, new ItemStack(PRAYER_POTION, "Prayer potion(4)", 5L, 1_000L));
+		WealthSnapshot initial = snap(5_000L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Open the bank, then deposit all 5 potions: the tracked-item quantity
+		// drops to zero, but this is a transfer, not consumption.
+		WealthSnapshot atOpen = snap(5_000L, initialTracked, 0L, true, 100L);
+		engine.setBankOpen(true, atOpen, 100L);
+
+		Map<Integer, ItemStack> afterDepositTracked = new LinkedHashMap<>();
+		WealthSnapshot afterDeposit = snap(0L, afterDepositTracked, 5_000L, true, 200L);
+		// While the bank is open, update() is a no-op besides bookkeeping —
+		// mirrors bankDepositIsNeutralised above.
+		engine.update(afterDeposit, Collections.emptySet(), 200L);
+		engine.setBankOpen(false, afterDeposit, 200L);
+
+		SessionSnapshot result = engine.snapshot(afterDeposit, 0L, Collections.emptyMap(), 0L, 200L);
+		assertEquals("depositing potions must not count as supplies used",
+			0L, result.getSuppliesUsed());
+		assertEquals(0L, result.getProfit());
+	}
+
+	@Test
+	public void geSaleOfConsumableDoesNotCountAsSuppliesUsed()
+	{
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(PRAYER_POTION, new ItemStack(PRAYER_POTION, "Prayer potion(4)", 5L, 1_000L));
+		WealthSnapshot initial = snap(5_000L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Sold 5 potions on the GE while away from the bank: tracked
+		// quantity drops to zero, but the item id is GE-attributed this
+		// interval, so it must be excluded from supplies-used (same
+		// exclusion the loot feed already relies on).
+		Map<Integer, ItemStack> afterTracked = new LinkedHashMap<>();
+		WealthSnapshot afterSale = snap(0L, afterTracked, 0L, false, 1000L);
+
+		Set<Integer> geAttributed = new HashSet<>();
+		geAttributed.add(PRAYER_POTION);
+		engine.update(afterSale, geAttributed, 1000L);
+
+		SessionSnapshot result = engine.snapshot(afterSale, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("a GE-attributed decrease must not count as supplies used",
+			0L, result.getSuppliesUsed());
+	}
+
+	@Test
+	public void nonConsumableItemDecreaseDoesNotCountAsSuppliesUsed()
+	{
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(DRAGON_BONES, new ItemStack(DRAGON_BONES, "Dragon bones", 100L, 10_000L));
+		WealthSnapshot initial = snap(1_000_000L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Dragon bones aren't a recognised consumable pattern (bones aren't
+		// potions/food/ammo/runes) — a decrease (e.g. burying/using them)
+		// still reduces profit but must not be double-surfaced as supplies.
+		Map<Integer, ItemStack> afterTracked = new LinkedHashMap<>();
+		afterTracked.put(DRAGON_BONES, new ItemStack(DRAGON_BONES, "Dragon bones", 50L, 10_000L));
+		WealthSnapshot current = snap(500_000L, afterTracked, 0L, false, 1000L);
+
+		engine.update(current, Collections.emptySet(), 1000L);
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+
+		assertEquals(0L, result.getSuppliesUsed());
+		assertEquals(-500_000L, result.getProfit());
+	}
+
+	@Test
+	public void suppliesUsedResetsOnNewSession()
+	{
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(PRAYER_POTION, new ItemStack(PRAYER_POTION, "Prayer potion(4)", 5L, 1_000L));
+		WealthSnapshot initial = snap(5_000L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		Map<Integer, ItemStack> afterTracked = new LinkedHashMap<>();
+		afterTracked.put(PRAYER_POTION, new ItemStack(PRAYER_POTION, "Prayer potion(4)", 2L, 1_000L));
+		WealthSnapshot current = snap(2_000L, afterTracked, 0L, false, 1000L);
+		engine.update(current, Collections.emptySet(), 1000L);
+		assertEquals(3_000L, engine.getSuppliesUsed());
+
+		// Restarting the session must clear the running total.
+		engine.startSession(current, 1000L);
+		assertEquals(0L, engine.getSuppliesUsed());
+	}
 }
