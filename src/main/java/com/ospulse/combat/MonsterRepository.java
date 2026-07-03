@@ -103,7 +103,13 @@ public final class MonsterRepository {
                 .findFirst();
     }
 
-    /** Internal Gson deserialisation shape, mirroring {@code monsters.min.json}'s fields exactly. */
+    /**
+     * Internal Gson deserialisation shape, mirroring {@code monsters.min.json}'s
+     * fields. {@code demonbaneResistPercent} is optional in the JSON (Gson
+     * leaves the {@code int} field at its default 0 when absent) — the
+     * mechanism is data-driven and activates automatically once a monster
+     * entry carries a non-zero value.
+     */
     private static final class MonsterDto {
         int id;
         String name;
@@ -118,6 +124,7 @@ public final class MonsterRepository {
         int size;
         List<String> attributes;
         Integer attackSpeedTicks;
+        int demonbaneResistPercent;
 
         Monster toMonster() {
             java.util.EnumSet<MonsterAttribute> attrs = java.util.EnumSet.noneOf(MonsterAttribute.class);
@@ -140,6 +147,7 @@ public final class MonsterRepository {
                     .size(size)
                     .attributes(attrs)
                     .attackSpeedTicks(attackSpeedTicks)
+                    .demonbaneResistPercent(demonbaneResistPercent)
                     .build();
         }
     }

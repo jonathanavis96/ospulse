@@ -20,15 +20,18 @@ package com.ospulse.combat;
  *
  * <p>The accuracy multiplier scales the attack roll; the damage multiplier
  * scales max hit. Silverlight/Darklight boost damage only (+60%); Arclight
- * and Emberlight boost both (+70%); the Scorching bow boosts both (+30%).
- * Cerberus and almost all demons take the full multiplier — the sole
- * documented exception is Duke Sucellus (30% demonbane resistance), a
- * per-monster resistance not modelled here (out of the current monster set).
+ * and Emberlight boost both (+70%); the Scorching bow boosts both (+30%);
+ * Burning claws boost both (+5%). Cerberus and almost all demons take the
+ * full multiplier — the documented exception is Duke Sucellus (30%
+ * demonbane resistance), modelled via {@link Monster#demonbaneResistPercent()}
+ * and applied in {@code DpsCalculator}'s demonbane step (see that class for
+ * the exact formula).
  *
- * <p><b>Scope:</b> the sword line and the Scorching bow are wired in
- * {@code GearVariants}; Burning claws (+5%) and the magic demonbane path
- * (Purging staff, which doubles demonbane-SPELL bonuses rather than granting
- * a flat passive) are deferred.
+ * <p><b>Scope:</b> the sword line, the Scorching bow and Burning claws (melee,
+ * +5% accuracy AND damage, item id 29577 — cache-verified, see
+ * {@code GearVariants}) are wired; the magic demonbane path (Purging staff,
+ * which doubles demonbane-SPELL bonuses rather than granting a flat passive)
+ * is deferred.
  *
  * @see <a href="https://oldschool.runescape.wiki/w/Demonbane_weapons">Demonbane weapons</a>
  * @see <a href="https://oldschool.runescape.wiki/w/Emberlight">Emberlight</a> (+70% accuracy and damage)
@@ -45,7 +48,9 @@ public enum DemonbaneWeapon {
     /** Emberlight (melee): +70% accuracy AND damage. */
     EMBERLIGHT(new Fraction(17, 10), new Fraction(17, 10), CombatStyle.STAB),
     /** Scorching bow (ranged): +30% accuracy AND damage. */
-    SCORCHING_BOW(new Fraction(13, 10), new Fraction(13, 10), CombatStyle.RANGED);
+    SCORCHING_BOW(new Fraction(13, 10), new Fraction(13, 10), CombatStyle.RANGED),
+    /** Burning claws (melee, slash): +5% accuracy AND damage. */
+    BURNING_CLAWS(new Fraction(21, 20), new Fraction(21, 20), CombatStyle.SLASH);
 
     private final Fraction accuracyMult;
     private final Fraction damageMult;
