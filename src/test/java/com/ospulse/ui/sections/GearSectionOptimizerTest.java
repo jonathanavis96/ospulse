@@ -238,6 +238,69 @@ public class GearSectionOptimizerTest
 		});
 	}
 
+	/**
+	 * Documents a real, confirmed bug in {@code GearSection.ownedPriceMap()}
+	 * (see {@code runOptimizer}/{@code ownedPriceMap}): the {@code priceSource}
+	 * it builds only has an entry for items the player already owns (worn gear
+	 * at 0, {@code WealthSnapshot} top holdings at their held value) and falls
+	 * back to {@code Long.MAX_VALUE} for anything else via
+	 * {@code ownedPrices.getOrDefault(id, Long.MAX_VALUE)}. Since a budget
+	 * upgrade is by definition an item the player does NOT already own, this
+	 * means {@code GearOptimizer} can never see any non-owned item as
+	 * affordable no matter how large the budget field is — the "Find best
+	 * setup" budget has effectively never worked; only owned-only search
+	 * (budget-independent) can ever change anything.
+	 *
+	 * <p>Fixing this for real requires wiring in an actual GE-price source for
+	 * arbitrary (non-owned) items, which this plugin currently only has as an
+	 * OFF-BY-DEFAULT, async, client-thread-fed HTTP integration
+	 * ({@code PriceTrendService}/{@code ItemManager.getItemPrice}) — neither of
+	 * which is safely callable synchronously from the optimiser's background
+	 * search today. That is an architectural decision (new always-on price
+	 * source, caching, EDT-safety) beyond a routine fix, so it is reported
+	 * here rather than guessed at. This test pins today's (buggy) behaviour so
+	 * a future fix has a clear "budget must matter" assertion to flip.
+	 */
+	@Test
+	public void budgetFieldIsCurrentlyIgnored_nonOwnedItemsAreNeverPricedAffordable()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			// Bronze sword is a well-known, drastically-worse weapon than the
+			// abyssal whip/dragon scimitar the optimizer engine tests use to
+			// prove a real, priced upgrade gets picked — see
+			// GearOptimizerTest#budgetAllowsAffordableUpgrade_picksTheBestAffordableWeapon.
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(section);
+
+			// A huge budget — if pricing worked, SOME non-owned weapon upgrade
+			// (e.g. a dragon scimitar, real GE price ~50k) would be affordable.
+			section.setBudgetTextForTest("50m");
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			// Current (buggy) behaviour: nothing was ever affordable, so spend
+			// is always 0 and the weapon never changes — regardless of budget.
+			assertEquals("bug: no non-owned item is ever priced affordable, so nothing is ever bought",
+				0L, result.totalSpend());
+			assertEquals("bug: the live bronze sword is kept even with a 50m budget",
+				BRONZE_SWORD, weaponIdInResult(result));
+		});
+	}
+
+	private static int weaponIdInResult(GearOptimizer.Result result)
+	{
+		for (GearOptimizer.SlotChoice choice : result.loadout())
+		{
+			if (choice.slotOrdinal() == WhatIfLoadout.WEAPON_SLOT)
+			{
+				return choice.itemId();
+			}
+		}
+		return -1;
+	}
+
 	@Test
 	public void noTargetSelected_doesNotRunTheSearch()
 	{
