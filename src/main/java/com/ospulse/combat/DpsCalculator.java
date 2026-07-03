@@ -56,16 +56,6 @@ public final class DpsCalculator {
 
         int maxHit = CombatMath.meleeOrRangedMaxHit(effStr, gear.str(), targetGearBonus);
         int attackRoll = CombatMath.meleeOrRangedAttackRoll(effAtt, gear.attackBonus(style), targetGearBonus);
-
-        // Demonbane (e.g. Emberlight, +70% vs demons) is a SEPARATE multiplicative
-        // step that stacks with the salve/slayer target bonus above — applied as
-        // its own floor on both max hit and the attack roll, and only vs demons.
-        DemonbaneWeapon demonbane = target.isDemon() ? gear.demonbaneWeapon() : DemonbaneWeapon.NONE;
-        if (demonbane.applies()) {
-            maxHit = (int) demonbane.damageMult().applyFloor(maxHit);
-            attackRoll = (int) demonbane.accuracyMult().applyFloor(attackRoll);
-        }
-
         int defenceRoll = CombatMath.npcDefenceRoll(target.defenceLevel(), target.defenceBonus(style));
 
         return finish(maxHit, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
@@ -151,20 +141,38 @@ public final class DpsCalculator {
      * on-task Slayer helm(i)/black mask(i) bonus never stack; Salve wins when both would apply.
      */
     private static Fraction meleeOrRangedTargetGearBonus(CombatStyle style, EquipmentStats gear, Monster target, PlayerCombat player) {
+        // ONE "target-specific gear bonus" slot: Salve (vs undead), the on-task
+        // Slayer helm/black mask, and demonbane (vs demons) all live here and DO
+        // NOT stack — the highest multiplier wins. Matches GearScape and the wiki
+        // DPS calc: e.g. an Emberlight (1.7) on a demon overrides the slayer-helm
+        // 7/6 rather than multiplying on top of it. Salve already dominates the
+        // slayer value numerically, so taking the max preserves the documented
+        // "salve wins over slayer".
+        Fraction best = Fraction.ONE;
+
         if (target.isUndead()) {
-            Fraction salveFraction = style.isMelee() ? gear.salveType().meleeBonus() : gear.salveType().rangedBonus();
-            if (!salveFraction.isOne()) {
-                return salveFraction;
-            }
+            Fraction salve = style.isMelee() ? gear.salveType().meleeBonus() : gear.salveType().rangedBonus();
+            best = higher(best, salve);
         }
         if (player.onSlayerTask() && gear.slayerHeadgear().wornAtAll()) {
-            if (style.isMelee()) {
-                return new Fraction(7, 6);
-            }
-            // Ranged: only the imbued variant extends the bonus.
-            return gear.slayerHeadgear().isImbued() ? new Fraction(23, 20) : Fraction.ONE;
+            Fraction slayer = style.isMelee()
+                    ? new Fraction(7, 6)
+                    : (gear.slayerHeadgear().isImbued() ? new Fraction(23, 20) : Fraction.ONE); // ranged: imbued only
+            best = higher(best, slayer);
         }
-        return Fraction.ONE;
+        if (style.isMelee() && target.isDemon() && gear.demonbaneWeapon().applies()) {
+            // Only the symmetric sword-line demonbane (Emberlight/Arclight, equal
+            // accuracy & damage) is wired today, so this single shared fraction is
+            // exact for both max hit and the attack roll. Damage-only Silverlight/
+            // Darklight — and ranged demonbane (Scorching bow) — need a separate
+            // accuracy/damage split before wiring (see DemonbaneWeapon).
+            best = higher(best, gear.demonbaneWeapon().damageMult());
+        }
+        return best;
+    }
+
+    private static Fraction higher(Fraction a, Fraction b) {
+        return b.asDouble() > a.asDouble() ? b : a;
     }
 
     private static double maxOf(PlayerCombat player, java.util.function.ToDoubleFunction<OffensivePrayer> extractor) {

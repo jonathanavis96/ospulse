@@ -76,15 +76,18 @@ public class DemonbaneEffectTest {
     }
 
     @Test
-    public void emberlight_stacksWithOnTaskSlayerHelm() {
+    public void emberlight_doesNotStackWithSlayerHelm_demonbaneWins() {
         Monster demon = monster(EnumSet.of(MonsterAttribute.DEMON));
-        // Slayer helm alone applies the 7/6 target bonus; adding Emberlight must
-        // then multiply that result by a further 1.7 (the two stack).
-        DpsResult slayerOnly = compute(gear(DemonbaneWeapon.NONE, SlayerHeadgear.STANDARD), player(true), demon);
-        DpsResult both = compute(gear(DemonbaneWeapon.EMBERLIGHT, SlayerHeadgear.STANDARD), player(true), demon);
+        // Demonbane and the slayer helm share the single non-stacking target
+        // bonus slot; the higher (demonbane 1.7 > slayer 7/6) wins, so on-task
+        // with a slayer helm must give the SAME numbers as demonbane alone —
+        // NOT base * 7/6 * 1.7. (Matches GearScape's Cerberus figures.)
+        DpsResult demonbaneOnly = compute(gear(DemonbaneWeapon.EMBERLIGHT, SlayerHeadgear.NONE), player(false), demon);
+        DpsResult withSlayerToo = compute(gear(DemonbaneWeapon.EMBERLIGHT, SlayerHeadgear.STANDARD), player(true), demon);
 
-        int expectedMaxHit = (int) new Fraction(17, 10).applyFloor(slayerOnly.maxHit());
-        assertEquals("Emberlight + slayer helm must stack", expectedMaxHit, both.maxHit());
-        assertTrue("stacked bonus must beat slayer-helm alone", both.dps() > slayerOnly.dps());
+        assertEquals("slayer helm must not stack on top of demonbane",
+                demonbaneOnly.maxHit(), withSlayerToo.maxHit());
+        assertEquals("slayer helm must not stack on top of demonbane",
+                demonbaneOnly.dps(), withSlayerToo.dps(), 1e-9);
     }
 }

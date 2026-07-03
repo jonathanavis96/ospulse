@@ -3,11 +3,12 @@ package com.ospulse.combat;
 /**
  * Demonbane melee weapons (the Silverlight → Emberlight sword line) and their
  * vs-demon multipliers, per the OSRS Wiki. The bonus applies ONLY when the
- * target carries the {@link MonsterAttribute#DEMON} attribute, and is a
- * SEPARATE multiplicative step that STACKS with the slayer-helm / salve
- * "target gear bonus" (in-game you can run e.g. Arclight + an on-task slayer
- * helm on a demon and both apply — unlike salve vs slayer, which don't stack
- * with each other).
+ * target carries the {@link MonsterAttribute#DEMON} attribute. It occupies the
+ * SAME single "target-specific gear bonus" slot as salve and the slayer helm
+ * and does NOT stack with them — the highest multiplier wins (per the wiki DPS
+ * calc / GearScape). Demonbane's +70% dominates the slayer helm's 7/6, so on a
+ * demon task with a demonbane weapon the slayer-helm damage/accuracy bonus adds
+ * nothing on top.
  *
  * <p>The accuracy multiplier scales the attack roll; the damage multiplier
  * scales max hit. Silverlight/Darklight boost damage only (+60%); Arclight and
