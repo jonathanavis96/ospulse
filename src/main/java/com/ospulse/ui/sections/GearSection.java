@@ -391,14 +391,56 @@ public final class GearSection extends CollapsibleSection
 	private static final java.awt.Color NOT_OWNED_GOLD = new java.awt.Color(240, 207, 123);
 
 	/**
-	 * Resolves GE prices for candidate item ids ON THE CLIENT THREAD, then delivers the
-	 * map back to the given callback (impl marshals the callback onto the EDT). Null in
-	 * tests / when unavailable → optimiser falls back to an owned-only search.
+	 * Client-thread-precomputed pricing + tradeability for a candidate id set,
+	 * delivered by an {@link OptimizerPriceResolver}. Both views are plain
+	 * collections so the (EDT/background) optimiser code never needs
+	 * {@code ItemManager}/the client thread itself:
+	 * <ul>
+	 *   <li>{@link #prices()} — GE unit price per id (absent = unpriced);</li>
+	 *   <li>{@link #untradeableIds()} — ids that CANNOT be traded/bought
+	 *       ({@code ItemComposition.isTradeable() == false}). An unowned
+	 *       untradeable is never purchasable regardless of any price RuneLite
+	 *       reports for it (e.g. trouver-locked items are "priced" at the
+	 *       Trouver parchment's GE cost via {@code ItemMapping}) — see
+	 *       {@link #resolveOptimizerPriceSource}.</li>
+	 * </ul>
+	 */
+	public static final class PriceLookup
+	{
+		private final java.util.Map<Integer, Long> prices;
+		private final java.util.Set<Integer> untradeableIds;
+
+		public PriceLookup(java.util.Map<Integer, Long> prices, java.util.Set<Integer> untradeableIds)
+		{
+			this.prices = prices == null
+				? java.util.Collections.emptyMap()
+				: java.util.Collections.unmodifiableMap(new HashMap<>(prices));
+			this.untradeableIds = untradeableIds == null
+				? java.util.Collections.emptySet()
+				: java.util.Collections.unmodifiableSet(new java.util.HashSet<>(untradeableIds));
+		}
+
+		public java.util.Map<Integer, Long> prices()
+		{
+			return prices;
+		}
+
+		public java.util.Set<Integer> untradeableIds()
+		{
+			return untradeableIds;
+		}
+	}
+
+	/**
+	 * Resolves GE prices + tradeability for candidate item ids ON THE CLIENT
+	 * THREAD, then delivers the {@link PriceLookup} back to the given callback
+	 * (impl marshals the callback onto the EDT). Null in tests / when
+	 * unavailable → optimiser falls back to an owned-only search.
 	 */
 	@FunctionalInterface
 	public interface OptimizerPriceResolver
 	{
-		void resolve(java.util.Set<Integer> itemIds, java.util.function.Consumer<java.util.Map<Integer, Long>> onResolved);
+		void resolve(java.util.Set<Integer> itemIds, java.util.function.Consumer<PriceLookup> onResolved);
 	}
 
 	/** Nullable — see {@link OptimizerPriceResolver}; {@code null} means owned-only search (no client-thread pricing available). */
@@ -2477,6 +2519,24 @@ public final class GearSection extends CollapsibleSection
 		infoIcon.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
 		infoIcon.setFont(FontManager.getRunescapeSmallFont());
 		infoIcon.setToolTipText(tooltip);
+		// A tiny bare JLabel is an unreliable tooltip target (bug 7b: the "ⓘ"
+		// help text never appeared on hover): make sure the ToolTipManager is
+		// really watching it, give the glyph a slightly larger hover target,
+		// and force the tooltip machinery awake on mouse-enter — some
+		// enter-only hovers (no intermediate MOUSE_MOVED inside the tiny
+		// bounds) otherwise never trip the manager's show timer.
+		infoIcon.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 2));
+		javax.swing.ToolTipManager.sharedInstance().registerComponent(infoIcon);
+		infoIcon.addMouseListener(new java.awt.event.MouseAdapter()
+		{
+			@Override
+			public void mouseEntered(java.awt.event.MouseEvent e)
+			{
+				javax.swing.ToolTipManager.sharedInstance().mouseMoved(new java.awt.event.MouseEvent(
+					infoIcon, java.awt.event.MouseEvent.MOUSE_MOVED, e.getWhen(), 0,
+					e.getX(), e.getY(), 0, false));
+			}
+		});
 		labelPanel.add(label, BorderLayout.WEST);
 		labelPanel.add(infoIcon, BorderLayout.EAST);
 
@@ -2622,11 +2682,21 @@ public final class GearSection extends CollapsibleSection
 
 	/**
 	 * The owned-item pool + GE prices for the optimiser: every worn item
-	 * (always owned, price irrelevant) plus {@link WealthSnapshot#getTopHoldings()}
-	 * (worn + inventory + bank — see {@link #lastWealth}) filtered to items the
-	 * {@link EquipmentIndexRepository} actually indexes (so the optimiser never
-	 * tries to equip e.g. raw materials). Built fresh per search so it always
-	 * reflects the latest snapshot.
+	 * (always owned, price irrelevant) plus the wealth snapshot's COMPLETE
+	 * owned-item map ({@link WealthSnapshot#getAllHoldings()} — inventory +
+	 * equipment + bank + pouches, see {@link #lastWealth}) filtered to items
+	 * the {@link EquipmentIndexRepository} actually indexes (so the optimiser
+	 * never tries to equip e.g. raw materials). Built fresh per search so it
+	 * always reflects the latest snapshot.
+	 *
+	 * <p><b>Membership-based ownership:</b> ownership is "do you have the item
+	 * at all", fully decoupled from GE value. The previous source —
+	 * {@link WealthSnapshot#getTopHoldings()}, a top-50-BY-VALUE view — wrongly
+	 * dropped owned low/zero-value items (e.g. an untradeable fire cape in the
+	 * bank never makes a by-value cut), making them look purchasable-only.
+	 * {@code getAllHoldings()} has no such truncation; {@code getTopHoldings()}
+	 * remains only as a legacy fallback for snapshots built without the full
+	 * map (older tests/callers).
 	 *
 	 * <p><b>Variant-aware ownership (bug B):</b> owning an upgraded variant —
 	 * a name ending in " (f)" (fortified, e.g. "Masori body (f)") or " (i)"
@@ -2653,7 +2723,10 @@ public final class GearSection extends CollapsibleSection
 		}
 		if (lastWealth != null)
 		{
-			for (ItemStack stack : lastWealth.getTopHoldings())
+			java.util.Collection<ItemStack> ownedStacks = !lastWealth.getAllHoldings().isEmpty()
+				? lastWealth.getAllHoldings().values()
+				: lastWealth.getTopHoldings();
+			for (ItemStack stack : ownedStacks)
 			{
 				if (index.entryFor(stack.getId()) != null)
 				{
@@ -2836,7 +2909,7 @@ public final class GearSection extends CollapsibleSection
 			// Long.MAX_VALUE (unaffordable at any budget); owned items are separately
 			// marked affordable via .owned(...) regardless of price.
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
-				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L)));
+				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()));
 			runOptimizerSearch(request);
 			return;
 		}
@@ -2845,52 +2918,49 @@ public final class GearSection extends CollapsibleSection
 		java.util.Set<Integer> candidateIds = new java.util.HashSet<>(index.allItemIds());
 		candidateIds.removeAll(ownedPrices.keySet());
 
-		priceResolver.resolve(candidateIds, priceMap ->
+		priceResolver.resolve(candidateIds, lookup ->
 		{
 			// .owned() already makes owned items free/affordable — no need to
 			// special-case ownedPrices here. Anything the resolver didn't price
-			// (untradeable/unknown) falls back to Long.MAX_VALUE = unaffordable —
-			// see resolveOptimizerPriceSource (bug D).
+			// (unknown) or flagged untradeable falls back to Long.MAX_VALUE =
+			// unaffordable — see resolveOptimizerPriceSource (bug D).
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
-				resolveOptimizerPriceSource(id -> priceMap.getOrDefault(id, 0L)));
+				resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()));
 			runOptimizerSearch(request);
 		});
 	}
 
 	/**
-	 * A small assembled-item -&gt; tradeable-component price override (bug D):
-	 * some equippable ids are the ASSEMBLED (untradeable) form of an item
-	 * whose real GE cost is a separate tradeable component. Without this, an
-	 * untradeable item's raw GE price resolves to 0 and looks nearly free —
-	 * e.g. the assembled Avernic defender (ids 24186/22322) is untradeable,
-	 * but its real cost is the tradeable Avernic defender hilt (~31.8m).
-	 *
-	 * <p>Add more entries here as they're found — {@code assembled id -> the
-	 * tradeable component id to price instead}.
-	 */
-	private static final java.util.Map<Integer, Integer> PRICE_COMPONENT_OVERRIDE = java.util.Map.of(
-		24186, net.runelite.api.ItemID.AVERNIC_DEFENDER_HILT, // Avernic defender (l) — assembled, untradeable
-		22322, net.runelite.api.ItemID.AVERNIC_DEFENDER_HILT  // Avernic defender — assembled, untradeable
-	);
-
-	/**
 	 * Wraps a raw (unowned-item) GE price lookup with two rules (bug D):
 	 * <ul>
+	 *   <li><b>untradeable = unpurchasable:</b> an UNOWNED item flagged
+	 *       untradeable by the client-thread-precomputed
+	 *       {@link PriceLookup#untradeableIds()} can never be bought, whatever
+	 *       price the raw lookup reports — RuneLite's
+	 *       {@code ItemManager.getItemPrice} routes some untradeables through
+	 *       {@code ItemMapping} to a tradeable proxy (e.g. every
+	 *       trouver-locked item, including Dragon defender (l) 24143 and Fire
+	 *       cape (l) 24223, "costs" the Trouver parchment's ~1m GE price),
+	 *       which made the optimiser recommend buying items that cannot be
+	 *       bought. Tradeability comes from the precomputed set (the source of
+	 *       truth), NOT from a hand-maintained per-item override. Owned
+	 *       untradeables never reach this path — they are priced 0 via
+	 *       {@code .owned()} directly;</li>
 	 *   <li>a resolved price &lt;= 0 means untradeable/unpriced, not free —
 	 *       an UNOWNED item you cannot buy is unaffordable
-	 *       ({@link Long#MAX_VALUE}), not a bargain. Owned items never reach
-	 *       this path (they are priced 0 via {@code .owned()} directly);</li>
-	 *   <li>{@link #PRICE_COMPONENT_OVERRIDE}: some ids price from a
-	 *       different (tradeable) component id instead of their own raw
-	 *       price.</li>
+	 *       ({@link Long#MAX_VALUE}), not a bargain.</li>
 	 * </ul>
 	 */
-	private static GearOptimizer.PriceSource resolveOptimizerPriceSource(GearOptimizer.PriceSource rawPriceSource)
+	private static GearOptimizer.PriceSource resolveOptimizerPriceSource(GearOptimizer.PriceSource rawPriceSource,
+		java.util.Set<Integer> untradeableIds)
 	{
 		return itemId ->
 		{
-			Integer componentId = PRICE_COMPONENT_OVERRIDE.get(itemId);
-			long resolved = rawPriceSource.priceFor(componentId != null ? componentId : itemId);
+			if (untradeableIds.contains(itemId))
+			{
+				return Long.MAX_VALUE;
+			}
+			long resolved = rawPriceSource.priceFor(itemId);
 			return resolved > 0 ? resolved : Long.MAX_VALUE;
 		};
 	}
@@ -2911,19 +2981,56 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
-	 * Every indexed item id whose display name is mode-locked (bug C) — added
-	 * to the optimiser's exclude set every search so Deadman/BH/LMS/beta-only
-	 * items (which the user, not being in those modes, cannot actually use)
-	 * are never suggested, regardless of price or ownership.
+	 * Name suffixes of The Gauntlet's instance-only weapon/armour tiers —
+	 * "Crystal/Corrupted X (basic|attuned|perfected)" (ids 23840–23903 +
+	 * 30340). These are REAL main-game items but exist only INSIDE the
+	 * Gauntlet (made from crystal shards in the instance, unusable/lost the
+	 * moment the player leaves), so they can never be equipped against a
+	 * normal overworld target and must never be optimiser candidates. Their
+	 * names carry no "(deadman)/(lms)"-style mode marker, so
+	 * {@link #MODE_LOCKED_NAME_PATTERN} cannot catch them — the suffix IS the
+	 * marker. The suffix-less main-game crystal armour ("Crystal helm/body/
+	 * legs", distinct ids 23971–23981) is untouched by this rule.
 	 */
-	private static java.util.Set<Integer> modeLockedItemIds()
+	private static final String[] GAUNTLET_ONLY_NAME_SUFFIXES = { " (basic)", " (attuned)", " (perfected)" };
+
+	/** True when an item's indexed display name is a Gauntlet-instance-only tier — see {@link #GAUNTLET_ONLY_NAME_SUFFIXES}. */
+	static boolean isGauntletOnlyItem(String name)
+	{
+		if (name == null)
+		{
+			return false;
+		}
+		for (String suffix : GAUNTLET_ONLY_NAME_SUFFIXES)
+		{
+			if (name.length() >= suffix.length()
+				&& name.regionMatches(true, name.length() - suffix.length(), suffix, 0, suffix.length()))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Every indexed item id the player can never actually use against a
+	 * normal target — added to the optimiser's exclude set every search,
+	 * regardless of price or ownership:
+	 * <ul>
+	 *   <li>mode-locked names (bug C): Deadman/BH/LMS/beta-only items, which
+	 *       the user (not being in those modes) cannot use;</li>
+	 *   <li>Gauntlet-instance-only tiers — see
+	 *       {@link #GAUNTLET_ONLY_NAME_SUFFIXES}.</li>
+	 * </ul>
+	 */
+	static java.util.Set<Integer> restrictedItemIds()
 	{
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Set<Integer> ids = new java.util.HashSet<>();
 		for (Integer id : index.allItemIds())
 		{
 			EquipmentIndexRepository.Entry entry = index.entryFor(id);
-			if (entry != null && isModeLockedItem(entry.name()))
+			if (entry != null && (isModeLockedItem(entry.name()) || isGauntletOnlyItem(entry.name())))
 			{
 				ids.add(id);
 			}
@@ -2952,7 +3059,7 @@ public final class GearSection extends CollapsibleSection
 			.magicPotionVariant(magicPotionVariantForCalc());
 
 		java.util.Set<Integer> exclusions = new java.util.LinkedHashSet<>(excludedItemIds);
-		exclusions.addAll(modeLockedItemIds());
+		exclusions.addAll(restrictedItemIds());
 
 		return GearOptimizer.Request
 			.builder(liveIds, target, template)
@@ -3704,7 +3811,7 @@ public final class GearSection extends CollapsibleSection
 		if (priceResolver == null)
 		{
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
-				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L)));
+				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()));
 			onOptimizerResult(GearOptimizer.optimize(request));
 			return;
 		}
@@ -3713,10 +3820,10 @@ public final class GearSection extends CollapsibleSection
 		java.util.Set<Integer> candidateIds = new java.util.HashSet<>(index.allItemIds());
 		candidateIds.removeAll(ownedPrices.keySet());
 
-		priceResolver.resolve(candidateIds, priceMap ->
+		priceResolver.resolve(candidateIds, lookup ->
 		{
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
-				resolveOptimizerPriceSource(id -> priceMap.getOrDefault(id, 0L)));
+				resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()));
 			onOptimizerResult(GearOptimizer.optimize(request));
 		});
 	}
@@ -3732,10 +3839,11 @@ public final class GearSection extends CollapsibleSection
 		return ownedPriceMap();
 	}
 
-	/** Test seam: {@link #resolveOptimizerPriceSource} (bug D — untradeable pricing + component override). */
-	GearOptimizer.PriceSource resolveOptimizerPriceSourceForTest(GearOptimizer.PriceSource rawPriceSource)
+	/** Test seam: {@link #resolveOptimizerPriceSource} (bug D — untradeable = unpurchasable pricing). */
+	GearOptimizer.PriceSource resolveOptimizerPriceSourceForTest(GearOptimizer.PriceSource rawPriceSource,
+		java.util.Set<Integer> untradeableIds)
 	{
-		return resolveOptimizerPriceSource(rawPriceSource);
+		return resolveOptimizerPriceSource(rawPriceSource, untradeableIds);
 	}
 
 	/** Test seam for item #1's budget K/M-toggle + expensive-items fields — see {@link #resolvedBudget}. */

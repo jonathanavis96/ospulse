@@ -683,6 +683,11 @@ public class SessionTracker implements SessionService
 			.timestampMs(tsMs)
 			.topHoldings(topHoldings)
 			.trackedItems(tracked)
+			// The FULL owned-item map (inventory + equipment + bank + pouches),
+			// untruncated — the gear optimiser's membership-based ownership
+			// source (a 0-value untradeable in the bank never makes the top-50
+			// cut but is still owned).
+			.allHoldings(allHoldings)
 			.build();
 	}
 
