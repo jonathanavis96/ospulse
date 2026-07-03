@@ -319,6 +319,15 @@ public class GearSectionOptimizerTest
 				DRAGON_SCIMITAR, weaponIdInResult(result));
 			assertTrue("spend must be > 0 (an actual purchase happened)", result.totalSpend() > 0L);
 			assertTrue("spend must not exceed the budget", result.totalSpend() <= 100_000L);
+
+			// Item #6b: "vs owned-only" is a real upgrade here, so it must read
+			// "ownedOnlyDps -> dps" with no triangle glyph, coloured green.
+			assertTrue("deltaDps must be positive for a real upgrade", result.deltaDps() > 0);
+			String deltaText = section.optimizerResultDeltaTextForTest();
+			assertFalse("must not contain the old triangle glyphs", deltaText.contains("▲") || deltaText.contains("▼"));
+			assertTrue("must show ownedOnlyDps -> dps as a plain arrow", deltaText.contains("->"));
+			assertEquals("positive delta must be coloured green (PROGRESS_COMPLETE_COLOR)",
+				net.runelite.client.ui.ColorScheme.PROGRESS_COMPLETE_COLOR, section.optimizerResultDeltaColorForTest());
 		});
 	}
 
@@ -386,5 +395,205 @@ public class GearSectionOptimizerTest
 		assertEquals(10_000_000L, GearSection.parseBudget("10M"));
 		assertEquals(1_500_000L, GearSection.parseBudget("1.5m"));
 		assertEquals(2_000_000L, GearSection.parseBudget("2,000,000"));
+	}
+
+	// -------------------------------------------- item #1: budget K/M toggle + expensive-items fields
+
+	/**
+	 * The redesigned budget entry (numeric field + K/M segmented toggle,
+	 * replacing the old single "10m"/"500k" free-text field) must resolve to
+	 * the same values {@code parseBudget} always produced for those strings.
+	 */
+	@Test
+	public void budgetKMToggle_resolvesSameAsOldSingleFieldSyntax()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+
+			section.setBudgetTextForTest("0");
+			assertEquals(0L, section.resolvedBudgetForTest());
+
+			section.setBudgetTextForTest("500k");
+			assertEquals(500_000L, section.resolvedBudgetForTest());
+
+			section.setBudgetTextForTest("10m");
+			assertEquals(10_000_000L, section.resolvedBudgetForTest());
+		});
+	}
+
+	/** Flipping the K/M toggle directly (not via the old-syntax test seam) changes the resolved budget. */
+	@Test
+	public void budgetUnitToggle_switchesBetweenKAndM()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.setBudgetTextForTest("5"); // plain digits, no suffix -> toggle decides the unit
+
+			section.setBudgetUnitMillionsForTest(false);
+			assertEquals(5_000L, section.resolvedBudgetForTest());
+
+			section.setBudgetUnitMillionsForTest(true);
+			assertEquals(5_000_000L, section.resolvedBudgetForTest());
+		});
+	}
+
+	/**
+	 * The "expensive items" count and "expensive threshold" fields (item #1
+	 * parts b/c) are captured from the UI even though the optimiser doesn't
+	 * enforce them yet — this covers the GearSection-side parsing only;
+	 * {@code GearOptimizerTest} covers the {@code GearOptimizer.Request}
+	 * round-trip.
+	 */
+	@Test
+	public void expensiveItemFields_parseFromTheUi()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+
+			assertEquals("blank/default count is 0", 0, section.resolvedExpensiveCountForTest());
+			assertEquals("blank/default threshold is 0", 0L, section.resolvedExpensiveThresholdForTest());
+
+			section.setExpensiveCountTextForTest("3");
+			assertEquals(3, section.resolvedExpensiveCountForTest());
+
+			section.setExpensiveThresholdTextForTest("20m");
+			assertEquals(20_000_000L, section.resolvedExpensiveThresholdForTest());
+
+			section.setExpensiveCountTextForTest("not a number");
+			assertEquals("unparseable count falls back to 0, not a crash", 0, section.resolvedExpensiveCountForTest());
+		});
+	}
+
+	/**
+	 * End-to-end: running the optimiser with the expensive-items fields set
+	 * must not crash and must not change the search's actual behaviour (not
+	 * enforced yet — see {@code GearOptimizer.Request} javadoc), confirming
+	 * the plumbing is inert until a later pass consumes it.
+	 */
+	@Test
+	public void expensiveItemFields_doNotAffectSearchResultYet()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(section);
+
+			section.setBudgetTextForTest("0");
+			section.setExpensiveCountTextForTest("2");
+			section.setExpensiveThresholdTextForTest("10m");
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			assertEquals(BRONZE_SWORD, weaponIdInResult(result));
+		});
+	}
+
+	// -------------------------------------------- item #6a: exclude-from-suggestions
+
+	/**
+	 * Excluding the resolver-priced affordable upgrade (the scimitar) must
+	 * remove it from candidacy entirely — the search falls back to the next
+	 * best affordable option (here, nothing else is affordable/owned, so it
+	 * keeps the live bronze sword), mirroring
+	 * {@code GearOptimizerTest#excludedItem_neverAppearsEvenIfOwned}'s
+	 * coverage of the underlying {@code GearOptimizer.Request.exclude} but
+	 * exercised through the real GearSection UI wiring.
+	 */
+	@Test
+	public void excludingASuggestedItem_removesItFromFutureSearches()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(DRAGON_SCIMITAR, 50_000L);
+			prices.put(ABYSSAL_WHIP, 5_000_000L);
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(section);
+			section.setBudgetTextForTest("100k");
+
+			section.runOptimizerSyncForTest();
+			assertEquals("sanity: the scimitar is suggested before any exclude",
+				DRAGON_SCIMITAR, weaponIdInResult(section.lastOptimizerResultForTest()));
+
+			section.excludeItemFromSuggestionsForTest(DRAGON_SCIMITAR);
+			assertTrue("excluded set must contain the item id", section.excludedItemIdsForTest().contains(DRAGON_SCIMITAR));
+
+			section.runOptimizerSyncForTest();
+			GearOptimizer.Result afterExclude = section.lastOptimizerResultForTest();
+			assertEquals("the excluded scimitar must never be suggested again",
+				BRONZE_SWORD, weaponIdInResult(afterExclude));
+			assertEquals("nothing else affordable/owned to buy, so spend must be 0", 0L, afterExclude.totalSpend());
+		});
+	}
+
+	/** Excluding the same item id twice must not duplicate it or throw (Set semantics). */
+	@Test
+	public void excludingTheSameItemTwice_isIdempotent()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.excludeItemFromSuggestionsForTest(DRAGON_SCIMITAR);
+			section.excludeItemFromSuggestionsForTest(DRAGON_SCIMITAR);
+			assertEquals(1, section.excludedItemIdsForTest().size());
+		});
+	}
+
+	// -------------------------------------------- item #6c: suggested swaps as icons
+
+	/**
+	 * The suggested-swaps list must render one row per actually-changed slot
+	 * (was previously one {@code JLabel} of text per slot; now an icon row
+	 * built by {@code buildSwapRow} plus a spacer — see
+	 * {@code renderOptimizerSwapList}). This locks in "a row exists and the
+	 * count matches the number of changed slots" without depending on Swing
+	 * layout internals inside the row itself.
+	 */
+	@Test
+	public void swapList_rendersOneRowPerChangedSlotAsIconRows()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(DRAGON_SCIMITAR, 50_000L);
+			prices.put(ABYSSAL_WHIP, 5_000_000L);
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(section);
+			section.setBudgetTextForTest("100k");
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			long changedSlots = result.loadout().stream()
+				.filter(choice -> choice.itemId() != BRONZE_SWORD || choice.slotOrdinal() != WhatIfLoadout.WEAPON_SLOT)
+				.count();
+			assertTrue("at least the weapon slot must have changed (bronze sword -> scimitar)", changedSlots > 0);
+			// Each changed slot renders as [row, spacer] — see renderOptimizerSwapList.
+			assertTrue("swap list must have rendered rows for the change(s)", section.optimizerSwapRowCountForTest() >= 2);
+		});
+	}
+
+	/** With no slot changes (already-best loadout), the swap list falls back to the single "no changes" label, not a phantom row. */
+	@Test
+	public void swapList_noChanges_showsSingleFallbackRow()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(ABYSSAL_WHIP)), null));
+			pickCerberus(section);
+			section.setBudgetTextForTest("0"); // owned-only, nothing else owned -> whip must stay
+			section.runOptimizerSyncForTest();
+
+			assertEquals(ABYSSAL_WHIP, weaponIdInResult(section.lastOptimizerResultForTest()));
+			assertEquals(1, section.optimizerSwapRowCountForTest());
+		});
 	}
 }

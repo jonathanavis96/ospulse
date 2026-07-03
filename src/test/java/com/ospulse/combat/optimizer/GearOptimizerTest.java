@@ -137,6 +137,58 @@ public class GearOptimizerTest {
         assertEquals(0L, result.totalSpend());
     }
 
+    // -------------------------------------------------- expensive-item plumbing (GearSection item #1)
+
+    /**
+     * {@code expensiveItemCount}/{@code expensiveItemThreshold} default to 0
+     * when never set on the builder — the search does not yet enforce them
+     * (see {@link GearOptimizer.Request} javadoc), but the values must round
+     * -trip through the builder/getter so the UI (GearSection) can capture
+     * and persist them ahead of a later pass wiring them into the search.
+     */
+    @Test
+    public void expensiveItemSettings_defaultToZeroWhenNotSet() {
+        int[] live = emptyLoadout();
+        live[3] = BRONZE_SWORD;
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .build();
+
+        assertEquals(0, request.expensiveItemCount());
+        assertEquals(0L, request.expensiveItemThreshold());
+    }
+
+    @Test
+    public void expensiveItemSettings_roundTripThroughBuilder() {
+        int[] live = emptyLoadout();
+        live[3] = BRONZE_SWORD;
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .expensiveItemCount(2)
+                .expensiveItemThreshold(10_000_000L)
+                .build();
+
+        assertEquals(2, request.expensiveItemCount());
+        assertEquals(10_000_000L, request.expensiveItemThreshold());
+    }
+
+    @Test
+    public void expensiveItemSettings_negativeInputsClampToZero() {
+        int[] live = emptyLoadout();
+        live[3] = BRONZE_SWORD;
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .expensiveItemCount(-5)
+                .expensiveItemThreshold(-1L)
+                .build();
+
+        assertEquals(0, request.expensiveItemCount());
+        assertEquals(0L, request.expensiveItemThreshold());
+    }
+
     // -------------------------------------------------- exclude / include
 
     @Test

@@ -15,6 +15,8 @@ import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
 
+import net.runelite.client.ui.ColorScheme;
+
 import org.junit.Test;
 
 import javax.swing.ListModel;
@@ -250,6 +252,16 @@ public class GearSectionWhatIfTest
 			assertTrue(section.whatIfRowVisibleForTest());
 			double expectedBaseline = dpsFor(gear, section.selectedStyleForTest());
 			assertEquals(expectedBaseline, section.baselineDpsForTest(), 1e-6);
+
+			// Item #6b: no literal triangle glyph, "baseline -> current" with the
+			// whole readout coloured green (upgrade) or red (downgrade) instead.
+			String deltaText = section.whatIfDeltaTextForTest();
+			assertFalse("must not contain the old triangle glyphs", deltaText.contains("▲") || deltaText.contains("▼"));
+			assertTrue("must show baseline -> current as a plain arrow", deltaText.contains("->"));
+			double delta = whatIfDps - expectedBaseline;
+			java.awt.Color expectedColor = delta > 1e-9 ? ColorScheme.PROGRESS_COMPLETE_COLOR
+				: delta < -1e-9 ? ColorScheme.PROGRESS_ERROR_COLOR : java.awt.Color.WHITE;
+			assertEquals("delta colour must match the sign of the DPS change", expectedColor, section.whatIfDeltaColorForTest());
 		});
 	}
 
