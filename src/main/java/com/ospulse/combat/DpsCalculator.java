@@ -19,10 +19,13 @@ package com.ospulse.combat;
  * scaling (separate multiplicative steps — they stack with the target
  * slot, with the same ranged-max-hit additive fold for the DHCB),
  * powered-staff built-in spells and real {@link Spell} max hits for
- * autocast. Unknown/unmodelled effects (scythe multi-hit, special attacks,
- * elemental weakness, Avarice, Tomes, Tumeken's 3x gear multiplier, ...)
- * are simply not applied — extend this class (and {@link CombatMath}) to add
- * them, gated behind their own "applies when" predicate.
+ * autocast, and elemental weakness (a monster's {@code weaknessElement}/
+ * {@code weaknessSeverity} adds straight into the magic-damage percent when
+ * the cast {@link Spell}'s {@link Spell.Element} matches - see
+ * computeMagic). Unknown/unmodelled effects (scythe multi-hit, special
+ * attacks, Avarice, Tomes, Tumeken's 3x gear multiplier, ...) are simply not
+ * applied — extend this class (and {@link CombatMath}) to add them, gated
+ * behind their own "applies when" predicate.
  */
 public final class DpsCalculator {
     private DpsCalculator() {
@@ -37,7 +40,7 @@ public final class DpsCalculator {
     public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
                                      Monster target, int baseSpellMaxHit) {
         if (style == CombatStyle.MAGIC) {
-            return computeMagic(gear, player, target, baseSpellMaxHit, gear.weaponSpeedTicks(), false);
+            return computeMagic(gear, player, target, baseSpellMaxHit, gear.weaponSpeedTicks(), false, null);
         }
         return computeNonMagic(gear, player, style, target);
     }
@@ -58,11 +61,14 @@ public final class DpsCalculator {
         }
         if (gear.poweredStaff().applies()) {
             // Base max hit derives from the boosted level inside computeMagic.
+            // Powered staves cast their own built-in "spell" (Magic Dart etc.),
+            // which is not a real Spell and carries no element - no weakness bonus.
             return computeMagic(gear, player, target, POWERED_STAFF_SENTINEL, gear.weaponSpeedTicks(),
-                    gear.poweredStaff().approximate());
+                    gear.poweredStaff().approximate(), null);
         }
         int baseMaxHit = spell == null ? 0 : spell.baseMaxHit();
-        return computeMagic(gear, player, target, baseMaxHit, Spell.CAST_SPEED_TICKS, false);
+        Spell.Element element = spell == null ? null : spell.element();
+        return computeMagic(gear, player, target, baseMaxHit, Spell.CAST_SPEED_TICKS, false, element);
     }
 
     private static DpsResult computeNonMagic(EquipmentStats gear, PlayerCombat player, CombatStyle style, Monster target) {
@@ -237,7 +243,8 @@ public final class DpsCalculator {
     }
 
     private static DpsResult computeMagic(EquipmentStats gear, PlayerCombat player, Monster target,
-                                          int baseSpellMaxHit, int castSpeedTicks, boolean approximate) {
+                                          int baseSpellMaxHit, int castSpeedTicks, boolean approximate,
+                                          Spell.Element spellElement) {
         int boostedMagic = player.assumeBestPotion()
                 ? magicPotionBoostedLevel(player.magicPotionVariant(), player.baseMagic())
                 : player.boostedMagic();
@@ -265,10 +272,23 @@ public final class DpsCalculator {
         int accuracyRoll = CombatMath.magicAccuracyRoll(effMagic, gear.amagic(), accuracyTargetBonus);
         int defenceRoll = CombatMath.npcDefenceRoll(target.magicLevel(), target.dmagic());
 
+        // Elemental weakness (e.g. frost dragons vs Fire spells): a per-monster
+        // percent, added straight into the magic-damage percent when the cast
+        // spell's element matches the monster's weakness element - matching
+        // weirdgloop/osrs-dps-calc semantics. Spells with no element (Iban
+        // Blast, Magic Dart/powered staves, god spells, all Ancient Magicks -
+        // spellElement is null for those) never get this bonus, and a monster
+        // with no weakness (weaknessElement() null) never grants it.
+        boolean weaknessApplies = spellElement != null
+                && target.weaknessElement() != null
+                && target.weaknessElement().equals(spellElement.name());
+        double weaknessBonusPercent = weaknessApplies ? target.weaknessSeverity() : 0;
+
         double totalDamagePercent = gear.mdmg()
                 + gear.voidSet().eliteMagicDamageBonusPercent()
                 + (target.isUndead() ? gear.salveType().magicDamagePercent() : 0.0)
-                + prayerDamagePercent;
+                + prayerDamagePercent
+                + weaknessBonusPercent;
         int primaryDamage = CombatMath.magicPrimaryDamage(baseSpellMaxHit, totalDamagePercent);
 
         // Slayer on-task +15% never stacks with an active Salve bonus (per wiki).

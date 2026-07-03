@@ -25,6 +25,8 @@ public final class Monster {
     private final Set<MonsterAttribute> attributes;
     private final Integer attackSpeedTicks;
     private final int demonbaneResistPercent;
+    private final String weaknessElement;
+    private final int weaknessSeverity;
 
     private Monster(Builder b) {
         this.name = b.name;
@@ -42,6 +44,8 @@ public final class Monster {
                 b.attributes.isEmpty() ? EnumSet.noneOf(MonsterAttribute.class) : b.attributes));
         this.attackSpeedTicks = b.attackSpeedTicks;
         this.demonbaneResistPercent = b.demonbaneResistPercent;
+        this.weaknessElement = b.weaknessElement;
+        this.weaknessSeverity = b.weaknessSeverity;
     }
 
     public String name() {
@@ -141,6 +145,28 @@ public final class Monster {
         return demonbaneResistPercent;
     }
 
+    /**
+     * This monster's elemental weakness element ({@code "WIND"}/{@code "WATER"}/
+     * {@code "EARTH"}/{@code "FIRE"}, matching {@link Spell.Element} names), or
+     * {@code null} when this monster has no elemental weakness. Populated from
+     * the bundled monster data's {@code weakness.element} (upstream's
+     * {@code "air"} is mapped to {@code "WIND"} at minify time — see the
+     * monsters.min.json.README.md field-mapping table).
+     */
+    public String weaknessElement() {
+        return weaknessElement;
+    }
+
+    /**
+     * The elemental-weakness damage bonus, as a percent added to the caster's
+     * magic-damage percent when the cast spell's {@link Spell.Element} matches
+     * {@link #weaknessElement()} (0 when {@link #weaknessElement()} is
+     * {@code null}) — see {@code DpsCalculator.computeMagic}.
+     */
+    public int weaknessSeverity() {
+        return weaknessSeverity;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -160,6 +186,8 @@ public final class Monster {
         private Set<MonsterAttribute> attributes = EnumSet.noneOf(MonsterAttribute.class);
         private Integer attackSpeedTicks;
         private int demonbaneResistPercent;
+        private String weaknessElement;
+        private int weaknessSeverity;
 
         private Builder() {
         }
@@ -216,6 +244,13 @@ public final class Monster {
         /** Percent demonbane resistance (0-100; default 0). See {@link Monster#demonbaneResistPercent()}. */
         public Builder demonbaneResistPercent(int percent) {
             this.demonbaneResistPercent = percent;
+            return this;
+        }
+
+        /** Elemental weakness (nullable element + severity). See {@link Monster#weaknessElement()}/{@link Monster#weaknessSeverity()}. */
+        public Builder weakness(String element, int severity) {
+            this.weaknessElement = element;
+            this.weaknessSeverity = severity;
             return this;
         }
 

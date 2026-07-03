@@ -135,6 +135,7 @@ public final class MonsterRepository {
         List<String> attributes;
         Integer attackSpeedTicks;
         int demonbaneResistPercent;
+        WeaknessDto weakness;
 
         Monster toMonster() {
             java.util.EnumSet<MonsterAttribute> attrs = java.util.EnumSet.noneOf(MonsterAttribute.class);
@@ -158,7 +159,19 @@ public final class MonsterRepository {
                     .attributes(attrs)
                     .attackSpeedTicks(attackSpeedTicks)
                     .demonbaneResistPercent(demonbaneResistPercent)
+                    .weakness(weakness == null ? null : weakness.element, weakness == null ? 0 : weakness.severity)
                     .build();
         }
+    }
+
+    /**
+     * Deserialisation shape for the trimmed {@code weakness} object
+     * ({@code {"element":"WIND"|"WATER"|"EARTH"|"FIRE", "severity":<int>}}),
+     * omitted from the JSON entirely for monsters with no elemental weakness
+     * (Gson leaves the {@code MonsterDto.weakness} field {@code null}).
+     */
+    private static final class WeaknessDto {
+        String element;
+        int severity;
     }
 }
