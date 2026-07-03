@@ -56,6 +56,16 @@ public final class DpsCalculator {
 
         int maxHit = CombatMath.meleeOrRangedMaxHit(effStr, gear.str(), targetGearBonus);
         int attackRoll = CombatMath.meleeOrRangedAttackRoll(effAtt, gear.attackBonus(style), targetGearBonus);
+
+        // Demonbane (e.g. Emberlight, +70% vs demons) is a SEPARATE multiplicative
+        // step that stacks with the salve/slayer target bonus above — applied as
+        // its own floor on both max hit and the attack roll, and only vs demons.
+        DemonbaneWeapon demonbane = target.isDemon() ? gear.demonbaneWeapon() : DemonbaneWeapon.NONE;
+        if (demonbane.applies()) {
+            maxHit = (int) demonbane.damageMult().applyFloor(maxHit);
+            attackRoll = (int) demonbane.accuracyMult().applyFloor(attackRoll);
+        }
+
         int defenceRoll = CombatMath.npcDefenceRoll(target.defenceLevel(), target.defenceBonus(style));
 
         return finish(maxHit, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());

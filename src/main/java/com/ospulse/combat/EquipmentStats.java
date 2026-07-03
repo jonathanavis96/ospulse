@@ -29,6 +29,7 @@ public final class EquipmentStats {
     private final SalveType salveType;
     private final SlayerHeadgear slayerHeadgear;
     private final VoidSet voidSet;
+    private final DemonbaneWeapon demonbaneWeapon;
 
     private EquipmentStats(Builder b) {
         this.astab = b.astab;
@@ -50,6 +51,7 @@ public final class EquipmentStats {
         this.salveType = b.salveType;
         this.slayerHeadgear = b.slayerHeadgear;
         this.voidSet = b.voidSet;
+        this.demonbaneWeapon = b.demonbaneWeapon;
     }
 
     public int astab() {
@@ -146,6 +148,10 @@ public final class EquipmentStats {
         return voidSet;
     }
 
+    public DemonbaneWeapon demonbaneWeapon() {
+        return demonbaneWeapon;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -170,6 +176,7 @@ public final class EquipmentStats {
         private SalveType salveType = SalveType.NONE;
         private SlayerHeadgear slayerHeadgear = SlayerHeadgear.NONE;
         private VoidSet voidSet = VoidSet.NONE;
+        private DemonbaneWeapon demonbaneWeapon = DemonbaneWeapon.NONE;
 
         private Builder() {
         }
@@ -224,6 +231,11 @@ public final class EquipmentStats {
 
         public Builder voidSet(VoidSet value) {
             this.voidSet = value;
+            return this;
+        }
+
+        public Builder demonbaneWeapon(DemonbaneWeapon value) {
+            this.demonbaneWeapon = value;
             return this;
         }
 

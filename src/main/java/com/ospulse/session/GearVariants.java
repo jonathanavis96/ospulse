@@ -1,5 +1,6 @@
 package com.ospulse.session;
 
+import com.ospulse.combat.DemonbaneWeapon;
 import com.ospulse.combat.SalveType;
 import com.ospulse.combat.SlayerHeadgear;
 import com.ospulse.combat.VoidSet;
@@ -226,6 +227,31 @@ final class GearVariants
 			return elite ? VoidSet.MAGIC_ELITE : VoidSet.MAGIC;
 		}
 		return VoidSet.NONE;
+	}
+
+	// ==== Demonbane weapons (vs-demon accuracy/damage) ===================================
+
+	/**
+	 * Emberlight — the Arclight upgrade; +70% accuracy AND damage vs demons.
+	 * Live id 29589 verified against the OSRS Wiki infobox (client-current).
+	 *
+	 * <p>TODO: extend to the rest of the demonbane line once each live id (and,
+	 * for the ranged weapons, its exact vs-demon %) is cross-checked the same
+	 * way the salve/slayer ids above were — Arclight, Darklight, Silverlight
+	 * (melee sword line; {@link DemonbaneWeapon} constants already defined),
+	 * Burning claws (melee), and Scorching bow (ranged — needs the ranged
+	 * application path in {@code DpsCalculator} too).
+	 */
+	private static final int EMBERLIGHT = 29589;
+
+	/** Maps a worn WEAPON-slot item id to the {@link DemonbaneWeapon} it is ({@link DemonbaneWeapon#NONE} if not demonbane). */
+	static DemonbaneWeapon demonbaneWeaponFor(int weaponItemId)
+	{
+		if (weaponItemId == EMBERLIGHT)
+		{
+			return DemonbaneWeapon.EMBERLIGHT;
+		}
+		return DemonbaneWeapon.NONE;
 	}
 
 	private static Set<Integer> setOf(int... ids)

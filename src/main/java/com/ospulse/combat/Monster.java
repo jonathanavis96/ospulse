@@ -112,6 +112,10 @@ public final class Monster {
         return attributes.contains(MonsterAttribute.UNDEAD);
     }
 
+    public boolean isDemon() {
+        return attributes.contains(MonsterAttribute.DEMON);
+    }
+
     /** Attack speed in ticks, if known (not always present in the source data). */
     public Integer attackSpeedTicks() {
         return attackSpeedTicks;
