@@ -1,5 +1,9 @@
 package com.ospulse.combat;
 
+import java.util.Collections;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 /**
  * Combat spells and their base max hits — hand-transcribed raw FACTS from the
  * OSRS Wiki spell pages ("OSRS Wiki spell facts, hand-transcribed"; NOT copied
@@ -47,7 +51,12 @@ public enum Spell {
     EARTH_SURGE("Earth Surge", SpellBook.STANDARD, 24, 364),
     FIRE_SURGE("Fire Surge", SpellBook.STANDARD, 24, 365),
     CRUMBLE_UNDEAD("Crumble Undead", SpellBook.STANDARD, 15, 34),
-    IBAN_BLAST("Iban Blast", SpellBook.STANDARD, 25, 53),
+    /**
+     * Castable ONLY with Iban's staff equipped (regular 1409, the other
+     * charged id 1410, or the upgraded Iban's staff (u) 12658) — see
+     * {@link #isCastableWith(int)}.
+     */
+    IBAN_BLAST("Iban Blast", SpellBook.STANDARD, 25, 53, 1409, 1410, 12658),
     SARADOMIN_STRIKE("Saradomin Strike", SpellBook.STANDARD, 20, 61),
     CLAWS_OF_GUTHIX("Claws of Guthix", SpellBook.STANDARD, 20, 60),
     FLAMES_OF_ZAMORAK("Flames of Zamorak", SpellBook.STANDARD, 20, 59),
@@ -92,12 +101,26 @@ public enum Spell {
     private final SpellBook book;
     private final int baseMaxHit;
     private final int spriteId;
+    /** Weapon item ids this spell may be cast with; empty = castable with any (magic) weapon. */
+    private final Set<Integer> requiredWeaponItemIds;
 
     Spell(String displayName, SpellBook book, int baseMaxHit, int spriteId) {
+        this(displayName, book, baseMaxHit, spriteId, new int[0]);
+    }
+
+    /**
+     * @param requiredWeaponItemIds if non-empty, {@link #isCastableWith(int)} only
+     *                               returns {@code true} for one of these weapon
+     *                               item ids (e.g. Iban Blast + Iban's staff).
+     */
+    Spell(String displayName, SpellBook book, int baseMaxHit, int spriteId, int... requiredWeaponItemIds) {
         this.displayName = displayName;
         this.book = book;
         this.baseMaxHit = baseMaxHit;
         this.spriteId = spriteId;
+        this.requiredWeaponItemIds = requiredWeaponItemIds.length == 0
+                ? Collections.emptySet()
+                : java.util.Arrays.stream(requiredWeaponItemIds).boxed().collect(Collectors.toSet());
     }
 
     public String displayName() {
@@ -116,6 +139,16 @@ public enum Spell {
     /** The {@code net.runelite.api.SpriteID.SPELL_*} constant for this spell's icon (see class javadoc). */
     public int spriteId() {
         return spriteId;
+    }
+
+    /**
+     * True when this spell may actually be cast with the given equipped
+     * weapon item id. Spells with no weapon requirement (the vast majority)
+     * are always castable; Iban Blast is the one exception in this enum —
+     * castable ONLY with Iban's staff (1409/1410/12658).
+     */
+    public boolean isCastableWith(int weaponItemId) {
+        return requiredWeaponItemIds.isEmpty() || requiredWeaponItemIds.contains(weaponItemId);
     }
 
     @Override

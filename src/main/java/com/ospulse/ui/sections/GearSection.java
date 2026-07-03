@@ -861,7 +861,7 @@ public final class GearSection extends CollapsibleSection
 			// Magic weapon: magic-first view — melee/ranged rows are dropped and
 			// the legacy spell combo is replaced by the ranked spell rows.
 			spellPicker.setVisible(false);
-			renderMagicView(styles, poweredStaff, canRank);
+			renderMagicView(weaponId, styles, poweredStaff, canRank);
 		}
 		else
 		{
@@ -930,7 +930,7 @@ public final class GearSection extends CollapsibleSection
 	 * (powered staves, which cannot autocast), plus the primary/secondary cast
 	 * readout in both variants.
 	 */
-	private void renderMagicView(List<WeaponStyle> styles, PoweredStaff poweredStaff, boolean canRank)
+	private void renderMagicView(int weaponId, List<WeaponStyle> styles, PoweredStaff poweredStaff, boolean canRank)
 	{
 		// The stance carrier for spell computes: the weapon's own magic combat
 		// option ("Spell"/STANDARD on a staff, "Accurate" on a powered staff).
@@ -988,7 +988,7 @@ public final class GearSection extends CollapsibleSection
 		syncBookTabs();
 		selectedStyle = magicCastStyle;
 
-		List<Spell> candidates = spellsFor(selectedBook);
+		List<Spell> candidates = spellsFor(selectedBook, weaponId);
 		if (candidates.isEmpty())
 		{
 			// Lunar/Arceuus: render the tab, but there is nothing to rank.
@@ -1096,8 +1096,13 @@ public final class GearSection extends CollapsibleSection
 		return ranked;
 	}
 
-	/** The offensive spells of a spellbook tab (empty for Lunar/Arceuus — OSRS has no offensive nukes there). */
-	private static List<Spell> spellsFor(BookTab tab)
+	/**
+	 * The offensive spells of a spellbook tab (empty for Lunar/Arceuus — OSRS
+	 * has no offensive nukes there), filtered to only those actually castable
+	 * with the given weapon (see {@link Spell#isCastableWith(int)}) — e.g.
+	 * Iban Blast never appears/ranks unless Iban's staff is equipped.
+	 */
+	private static List<Spell> spellsFor(BookTab tab, int weaponId)
 	{
 		if (tab.book() == null)
 		{
@@ -1106,7 +1111,7 @@ public final class GearSection extends CollapsibleSection
 		List<Spell> spells = new ArrayList<>();
 		for (Spell spell : Spell.values())
 		{
-			if (spell.book() == tab.book())
+			if (spell.book() == tab.book() && spell.isCastableWith(weaponId))
 			{
 				spells.add(spell);
 			}
