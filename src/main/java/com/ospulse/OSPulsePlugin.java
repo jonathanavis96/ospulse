@@ -75,6 +75,9 @@ public class OSPulsePlugin extends Plugin
 	@Inject
 	private SkillIconManager skillIconManager;
 
+	@Inject
+	private net.runelite.client.game.SpriteManager spriteManager;
+
 	private SessionTracker tracker;
 	private OSPulsePanel panel;
 	private DashboardSyncService syncService;
@@ -92,7 +95,8 @@ public class OSPulsePlugin extends Plugin
 
 		priceTrendService = new PriceTrendService(okHttpClient, config, gson);
 
-		panel = new OSPulsePanel(config, itemManager, configManager, priceTrendService, skillIconManager);
+		panel = new OSPulsePanel(config, itemManager, configManager, priceTrendService, skillIconManager,
+			spriteManager);
 		panel.setResetCallback(tracker::resetSession);
 		tracker.addListener(panel);
 

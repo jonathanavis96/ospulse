@@ -249,41 +249,106 @@ public class GearSectionStyleRankingTest
 			.build();
 	}
 
+	/** DPS of one autocast spell (5-tick, "Spell"/STANDARD stance) against Cerberus, computed independently. */
+	private static double spellDps(GearSnapshot gear, com.ospulse.combat.Spell spell)
+	{
+		PlayerCombat player = GearMapper.toPlayerCombat(gear, com.ospulse.combat.Stance.STANDARD,
+			false, false, false);
+		return DpsCalculator.compute(gear.equipmentStats(), player, CombatStyle.MAGIC,
+			MonsterRepository.getInstance().byName("Cerberus").get(), spell).dps();
+	}
+
 	@Test
-	public void autocastStaffShowsSpellPickerAndRanksARealMagicRow()
+	public void autocastStaffGetsMagicFirstSpellbookView()
 	{
 		onEdt(() ->
 		{
 			GearSection section = new GearSection(NO_STORE, null, null);
-			// Staff of fire 1387 -> "Staff" category: 3 crush styles + a Spell (magic) style.
+			// Staff of fire 1387 -> "Staff" category. Magic-first view: the 3 crush
+			// styles are dropped entirely; spellbook tabs + ranked spell rows replace
+			// them, and the legacy spell combo stays hidden.
 			GearSnapshot gear = gearWithMagicWeapon(1387, com.ospulse.combat.PoweredStaff.NONE);
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			assertTrue("spell picker must show for an autocast-capable weapon",
-				section.spellPickerForTest().isVisible());
+			assertTrue("staff must route to the magic-first view", section.magicViewForTest());
+			assertTrue("legacy spell picker stays hidden in the magic view",
+				!section.spellPickerForTest().isVisible());
+			assertEquals("melee style rows are dropped entirely", 0, section.styleRowCountForTest());
+			assertTrue("spellbook tabs must show", section.bookTabsVisibleForTest());
 
-			List<WeaponStyle> ranked = section.rankedStylesForTest();
-			assertEquals("staff exposes 3 crush styles + 1 magic style", 4, ranked.size());
-			WeaponStyle magicRow = null;
-			for (WeaponStyle s : ranked)
+			// Standard book (default tab): rows ranked DPS-descending, matching an
+			// independent engine compute.
+			List<com.ospulse.combat.Spell> ranked = section.rankedSpellsForTest();
+			assertTrue("standard book must list its offensive spells", ranked.size() >= 20);
+			double prev = Double.MAX_VALUE;
+			for (com.ospulse.combat.Spell spell : ranked)
 			{
-				if (s.type() == CombatStyle.MAGIC)
-				{
-					magicRow = s;
-				}
+				assertEquals(com.ospulse.combat.Spell.SpellBook.STANDARD, spell.book());
+				double dps = spellDps(gear, spell);
+				assertTrue("spells must be ranked DPS-descending (" + dps + " after " + prev + ")",
+					dps <= prev + 1e-9);
+				prev = dps;
 			}
-			assertTrue("a magic row must be present in the ranking", magicRow != null);
 
-			// The magic row computes the picked spell (default Fire Surge, base 24)
-			// through the real engine — lock the readout to it and verify.
-			section.clickStyleRowForTest(section.rankedStylesForTest().indexOf(magicRow));
-			assertEquals("24", section.maxHitTextForTest());
+			// The best spell is auto-selected and drives the readout + primary line.
+			assertEquals(ranked.get(0), section.selectedSpellForTest());
+			assertEquals(String.format(Locale.ROOT, "%.2f", spellDps(gear, ranked.get(0))),
+				section.dpsTextForTest());
+			assertTrue("primary readout must name the best spell, got: " + section.primaryTextForTest(),
+				section.primaryTextForTest().startsWith(ranked.get(0).displayName()));
+			assertTrue("secondary readout must name the next-best spell, got: " + section.secondaryTextForTest(),
+				section.secondaryTextForTest().startsWith(ranked.get(1).displayName()));
+		});
+	}
 
-			// Switching the spell recomputes: Ice Barrage base 30.
-			section.spellPickerForTest().setSelectedItem(com.ospulse.combat.Spell.ICE_BARRAGE);
-			section.clickStyleRowForTest(section.rankedStylesForTest().indexOf(magicRow));
+	@Test
+	public void ancientTabRanksAncientsAndASpellClickLocksTheReadout()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			GearSnapshot gear = gearWithMagicWeapon(1387, com.ospulse.combat.PoweredStaff.NONE);
+			section.apply(snapshotWith(gear));
+			pickCerberus(section);
+
+			section.clickBookTabForTest(1); // Ancient
+			List<com.ospulse.combat.Spell> ranked = section.rankedSpellsForTest();
+			assertEquals("all 16 Ancient Magicks are offensive", 16, ranked.size());
+			for (com.ospulse.combat.Spell spell : ranked)
+			{
+				assertEquals(com.ospulse.combat.Spell.SpellBook.ANCIENT, spell.book());
+			}
+			// Ice Barrage (base 30, the book's hardest hitter) auto-selects; the
+			// readout derives max hit from it (no magic-damage gear worn -> 30).
+			assertEquals(com.ospulse.combat.Spell.ICE_BARRAGE, section.selectedSpellForTest());
 			assertEquals("30", section.maxHitTextForTest());
+
+			// Clicking a worse row locks the main readout to it; the primary/
+			// secondary lines keep showing the best/next-best casts.
+			int last = ranked.size() - 1;
+			section.clickSpellRowForTest(last);
+			assertEquals(ranked.get(last), section.selectedSpellForTest());
+			assertEquals(String.format(Locale.ROOT, "%.2f", spellDps(gear, ranked.get(last))),
+				section.dpsTextForTest());
+			assertTrue(section.primaryTextForTest().startsWith(ranked.get(0).displayName()));
+		});
+	}
+
+	@Test
+	public void lunarTabHasNoOffensiveSpellsAndClearsTheReadout()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			GearSnapshot gear = gearWithMagicWeapon(1387, com.ospulse.combat.PoweredStaff.NONE);
+			section.apply(snapshotWith(gear));
+			pickCerberus(section);
+
+			section.clickBookTabForTest(2); // Lunar
+			assertTrue("no offensive spells on Lunar", section.rankedSpellsForTest().isEmpty());
+			assertEquals("-", section.dpsTextForTest());
+			assertEquals("-", section.primaryTextForTest());
 		});
 	}
 

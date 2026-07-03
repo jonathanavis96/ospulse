@@ -9,6 +9,8 @@ import com.ospulse.combat.MonsterRepository;
 import com.ospulse.combat.PlayerCombat;
 import com.ospulse.combat.PoweredStaff;
 import com.ospulse.combat.Spell;
+import com.ospulse.combat.Stance;
+import com.ospulse.combat.WeaponCategory;
 import com.ospulse.combat.WeaponCategoryRepository;
 import com.ospulse.combat.WeaponStyle;
 import com.ospulse.session.GearMapper;
@@ -20,6 +22,7 @@ import com.ospulse.ui.PanelWidgets;
 import net.runelite.api.Skill;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
+import net.runelite.client.game.SpriteManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.components.IconTextField;
@@ -37,6 +40,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JToggleButton;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.border.Border;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -51,11 +55,14 @@ import java.awt.Image;
 import java.awt.Insets;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Gear / DPS calculator (Phase 1 — live readout): reads the player's current
@@ -75,13 +82,25 @@ import java.util.Locale;
  * are icon buttons with tooltips; the target is picked via a search box over a
  * fully scrollable {@link MonsterRepository} result list.
  *
- * <p>Magic styles rank with REAL numbers: a worn powered staff's built-in
- * spell max hit is derived from the boosted Magic level automatically, and any
- * other autocast-capable weapon gets a spell picker whose chosen {@link Spell}
- * feeds the magic computation (5-tick autocast speed).
+ * <p><b>Magic weapons get a magic-first view:</b> when the equipped weapon is
+ * a staff/wand/powered staff the melee/ranged rows are dropped entirely and
+ * replaced by spellbook tabs (Standard/Ancient/Lunar/Arceuus) over that book's
+ * offensive {@link Spell}s, each computed through the real engine (5-tick
+ * autocast) and ranked by DPS — the best is starred and auto-selected, and a
+ * manual spell click locks the readout until the weapon or target changes. A
+ * worn powered staff (which cannot autocast) instead ranks its built-in-spell
+ * combat options, with the max hit derived from the boosted Magic level. Both
+ * variants surface a primary (auto-selected best) / secondary (next-best DPS)
+ * cast readout. Spell icons load via the async, EDT-safe
+ * {@code SpriteManager.getSpriteAsync}.
  *
  * <p>Deferred to a later phase (see the design spec): live opponent
- * auto-detection, favourites, magic spell picker, and gear upgrade suggestions
+ * auto-detection, favourites, the current-cast spell as the secondary readout
+ * (the snapshot does not expose it yet), the style-aware prayer/potion
+ * indicator icons (TODO: melee→Piety / ranged→Rigour / magic→Augury with
+ * degrade-by-Prayer-level, and per-style potion icons incl. imbued heart —
+ * presentation over the existing OffensivePrayer/PotionBoosts model), and
+ * gear upgrade suggestions
  * (the optimiser reuses this same weapon-id → styles path for weapons you do
  * not yet own).
  *
@@ -139,6 +158,7 @@ public final class GearSection extends CollapsibleSection
 
 	private final ItemManager itemManager;
 	private final SkillIconManager skillIconManager;
+	private final SpriteManager spriteManager;
 	private final WeaponCategoryRepository weaponRepo = WeaponCategoryRepository.getInstance();
 
 	/** Small per-{@link CombatStyle} type icon, index == {@code CombatStyle.ordinal()}; null-safe. */
@@ -148,8 +168,17 @@ public final class GearSection extends CollapsibleSection
 	private final int[] renderedSlotIds = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
 
 	private final JLabel stylesHeading;
+	private final JPanel bookTabsPanel;
+	private final JToggleButton[] bookTabButtons = new JToggleButton[BookTab.values().length];
 	private final JPanel stylesPanel;
 	private final List<StyleRow> styleRows = new ArrayList<>();
+	private final List<SpellRow> spellRows = new ArrayList<>();
+	/** Per-sprite-id spell icon cache — each spellbook sprite is fetched (async) at most once. */
+	private final Map<Integer, ImageIcon> spellIconCache = new HashMap<>();
+	private final JPanel primaryRow;
+	private final JLabel primaryValue;
+	private final JPanel secondaryRow;
+	private final JLabel secondaryValue;
 	private final javax.swing.JComboBox<Spell> spellPicker;
 
 	private final IconTextField monsterSearchField;
@@ -175,6 +204,18 @@ public final class GearSection extends CollapsibleSection
 	private boolean userPickedStyle;
 	/** Weapon id the current ranking/selection was built for; a change re-defaults to the best style. */
 	private int lastRankedWeaponId = Integer.MIN_VALUE;
+	/** True while the equipped weapon routes to the magic-first (spellbook) view. */
+	private boolean magicView;
+	/** The spellbook tab currently selected in the magic view. */
+	private BookTab selectedBook = BookTab.STANDARD;
+	/** The spell driving the readout in the magic view ({@code null} on Lunar/Arceuus or a powered staff). */
+	private Spell selectedSpell;
+	/** True once the user clicks a specific spell row — until then the readout follows the best-DPS spell. */
+	private boolean userPickedSpell;
+	/** Target the current spell ranking/lock was built for; a change re-defaults to the best spell. */
+	private Monster lastRankedTarget;
+	/** Stance carrier for spell computes: the weapon's own magic combat option (e.g. "Spell"/STANDARD). */
+	private WeaponStyle magicCastStyle;
 	private GearSnapshot lastGear;
 	private double lastDps;
 	private boolean suppressListEvents;
@@ -183,9 +224,16 @@ public final class GearSection extends CollapsibleSection
 
 	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager)
 	{
+		this(store, itemManager, skillIconManager, null);
+	}
+
+	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager,
+		SpriteManager spriteManager)
+	{
 		super(KEY, "Gear DPS", store);
 		this.itemManager = itemManager;
 		this.skillIconManager = skillIconManager;
+		this.spriteManager = spriteManager;
 		buildTypeIcons();
 
 		// ------------------------------------------------ worn-gear header
@@ -206,16 +254,48 @@ public final class GearSection extends CollapsibleSection
 		body().add(stylesHeading);
 		body().add(Box.createRigidArea(new Dimension(0, 2)));
 
+		// Spellbook tabs — a compact segmented control, only visible in the
+		// magic-weapon view (see rankAndRender/renderMagicView).
+		bookTabsPanel = new JPanel(new GridLayout(1, BookTab.values().length, 2, 0));
+		bookTabsPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		bookTabsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		for (BookTab tab : BookTab.values())
+		{
+			JToggleButton button = bookTabButton(tab);
+			bookTabButtons[tab.ordinal()] = button;
+			bookTabsPanel.add(button);
+		}
+		bookTabsPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, bookTabsPanel.getPreferredSize().height));
+		bookTabsPanel.setVisible(false);
+		body().add(bookTabsPanel);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
+
 		stylesPanel = new JPanel();
 		stylesPanel.setLayout(new BoxLayout(stylesPanel, BoxLayout.Y_AXIS));
 		stylesPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		stylesPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		body().add(stylesPanel);
-		body().add(Box.createRigidArea(new Dimension(0, 6)));
+		body().add(Box.createRigidArea(new Dimension(0, 4)));
+
+		// -------------------------------- primary/secondary cast readout
+		// Magic-weapon view only: primary = the auto-selected highest-DPS cast;
+		// secondary = the next-best-DPS cast.
+		// TODO: current-cast spell when the snapshot exposes it — the secondary
+		// should then prefer the spell the player is actually autocasting.
+		primaryValue = readoutValueLabel();
+		primaryRow = readoutRow("Primary", primaryValue,
+			"The auto-selected highest-DPS cast for this weapon and target");
+		body().add(primaryRow);
+		secondaryValue = readoutValueLabel();
+		secondaryRow = readoutRow("Secondary", secondaryValue,
+			"The next-best-DPS cast (will prefer your in-game autocast spell once tracked)");
+		body().add(secondaryRow);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
 
 		// ------------------------------------------------- spell picker
-		// Shown only when the equipped weapon can autocast and is NOT a powered
-		// staff (whose built-in spell needs no picking) — see rankAndRender.
+		// Legacy combo, now only shown for the rare NON-magic-view weapon with a
+		// magic style (the salamander's Blaze) — magic weapons proper get the
+		// ranked spell rows instead. See renderStyleView.
 		spellPicker = new javax.swing.JComboBox<>(Spell.values());
 		spellPicker.setSelectedItem(Spell.FIRE_SURGE);
 		spellPicker.setFont(FontManager.getRunescapeSmallFont());
@@ -490,48 +570,242 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
-	 * Recomputes the equipped weapon's attack-style ranking (DPS-desc against
-	 * the current target and boosts), rebuilds the clickable rows, re-selects
-	 * the best (or keeps the user's pick if it survives), and refreshes the
-	 * readout. The single entry point whenever gear, target or boosts change.
+	 * Recomputes the equipped weapon's ranking (DPS-desc against the current
+	 * target and boosts), rebuilds the clickable rows, re-selects the best (or
+	 * keeps the user's pick if it survives), and refreshes the readout. Routes
+	 * a magic weapon to the magic-first spellbook view and everything else to
+	 * the classic ranked attack-style view. The single entry point whenever
+	 * gear, target, boosts or the spellbook tab change.
 	 */
 	private void rankAndRender()
 	{
 		styleRows.clear();
+		spellRows.clear();
 		stylesPanel.removeAll();
 
 		int weaponId = lastGear == null ? -1 : lastGear.itemIdAt(WEAPON_SLOT);
 		if (weaponId != lastRankedWeaponId)
 		{
-			// A different weapon: its styles differ, so any prior manual pick no
-			// longer applies — fall back to auto-selecting the best.
+			// A different weapon: its styles/spells differ, so any prior manual
+			// pick no longer applies — fall back to auto-selecting the best.
 			lastRankedWeaponId = weaponId;
 			userPickedStyle = false;
+			userPickedSpell = false;
 		}
-		List<WeaponStyle> styles = new ArrayList<>(weaponRepo.stylesForItem(weaponId));
+		if (selectedMonster != lastRankedTarget)
+		{
+			// A new target re-ranks the spells, so a manual spell lock only holds
+			// until the weapon or target changes (unlike the style lock, which
+			// deliberately survives a target change).
+			lastRankedTarget = selectedMonster;
+			userPickedSpell = false;
+		}
 
-		// Magic rows compute real numbers now: a worn powered staff derives its
-		// built-in spell max hit from the boosted Magic level, anything else
-		// autocast-capable uses the picked Spell. The picker is only relevant
-		// (and visible) in the latter case.
+		List<WeaponStyle> styles = new ArrayList<>(weaponRepo.stylesForItem(weaponId));
+		PoweredStaff poweredStaff = lastGear != null && lastGear.equipmentStats() != null
+			? lastGear.equipmentStats().poweredStaff()
+			: PoweredStaff.NONE;
+		boolean canRank = lastGear != null && selectedMonster != null && lastGear.equipmentStats() != null;
+
+		magicView = isMagicWeapon(weaponId, styles, poweredStaff);
+		if (magicView)
+		{
+			// Magic weapon: magic-first view — melee/ranged rows are dropped and
+			// the legacy spell combo is replaced by the ranked spell rows.
+			spellPicker.setVisible(false);
+			renderMagicView(styles, poweredStaff, canRank);
+		}
+		else
+		{
+			renderStyleView(styles, poweredStaff, canRank);
+		}
+
+		stylesPanel.revalidate();
+		stylesPanel.repaint();
+		body().revalidate();
+		body().repaint();
+
+		updateOutputs();
+	}
+
+	/**
+	 * True when the equipped weapon should get the magic-first view: any worn
+	 * powered staff, or a weapon whose combat options include a magic style —
+	 * except the salamander, whose "Blaze" is its own built-in attack (it
+	 * cannot autocast spellbook spells), so it keeps the classic ranked view.
+	 */
+	private boolean isMagicWeapon(int weaponId, List<WeaponStyle> styles, PoweredStaff poweredStaff)
+	{
+		if (poweredStaff.applies())
+		{
+			return true;
+		}
+		if (weaponRepo.categoryFor(weaponId) == WeaponCategory.SALAMANDER)
+		{
+			return false;
+		}
+		for (WeaponStyle style : styles)
+		{
+			if (style.type() == CombatStyle.MAGIC)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** The classic ranked attack-style rows (melee/ranged weapons — and the salamander, see isMagicWeapon). */
+	private void renderStyleView(List<WeaponStyle> styles, PoweredStaff poweredStaff, boolean canRank)
+	{
+		stylesHeading.setText("Attack styles (best DPS first)");
+		bookTabsPanel.setVisible(false);
+		primaryRow.setVisible(false);
+		secondaryRow.setVisible(false);
+
+		// The legacy spell combo only remains relevant for a non-magic-view
+		// weapon that still carries a magic style (the salamander's Blaze).
 		boolean hasMagicStyle = false;
 		for (WeaponStyle style : styles)
 		{
 			hasMagicStyle |= style.type() == CombatStyle.MAGIC;
 		}
-		PoweredStaff poweredStaff = lastGear != null && lastGear.equipmentStats() != null
-			? lastGear.equipmentStats().poweredStaff()
-			: PoweredStaff.NONE;
-		boolean pickerRelevant = hasMagicStyle && !poweredStaff.applies();
-		if (spellPicker.isVisible() != pickerRelevant)
+		spellPicker.setVisible(hasMagicStyle && !poweredStaff.applies());
+
+		renderRankedStyleRows(styles, canRank);
+	}
+
+	/**
+	 * The magic-first view for a magic weapon: spellbook tabs + ranked spell
+	 * rows (autocast weapons), or the weapon's built-in-spell combat options
+	 * (powered staves, which cannot autocast), plus the primary/secondary cast
+	 * readout in both variants.
+	 */
+	private void renderMagicView(List<WeaponStyle> styles, PoweredStaff poweredStaff, boolean canRank)
+	{
+		// The stance carrier for spell computes: the weapon's own magic combat
+		// option ("Spell"/STANDARD on a staff, "Accurate" on a powered staff).
+		magicCastStyle = null;
+		for (WeaponStyle style : styles)
 		{
-			spellPicker.setVisible(pickerRelevant);
-			body().revalidate();
+			if (style.type() == CombatStyle.MAGIC)
+			{
+				magicCastStyle = style;
+				break;
+			}
+		}
+		if (magicCastStyle == null)
+		{
+			// e.g. a powered staff missing from the category data — cast anyway.
+			magicCastStyle = new WeaponStyle("Spell", CombatStyle.MAGIC, Stance.STANDARD);
 		}
 
-		boolean canRank = lastGear != null && selectedMonster != null && lastGear.equipmentStats() != null;
+		primaryRow.setVisible(true);
+		secondaryRow.setVisible(true);
 
-		// Compute each style's DPS (NaN when we cannot yet), then rank desc.
+		if (poweredStaff.applies())
+		{
+			// Built-in spell: the spellbook is irrelevant (powered staves cannot
+			// autocast), so rank the weapon's own magic combat options instead of
+			// a spell list — the engine derives the max hit from the Magic level.
+			stylesHeading.setText("Magic — built-in spell (best DPS first)");
+			bookTabsPanel.setVisible(false);
+			selectedSpell = null;
+
+			List<WeaponStyle> magicStyles = new ArrayList<>();
+			for (WeaponStyle style : styles)
+			{
+				if (style.type() == CombatStyle.MAGIC)
+				{
+					magicStyles.add(style);
+				}
+			}
+			if (magicStyles.isEmpty())
+			{
+				magicStyles.add(magicCastStyle);
+			}
+			List<Ranked> ranked = renderRankedStyleRows(magicStyles, canRank);
+			setPrimarySecondary(
+				readout(ranked.isEmpty() ? null : ranked.get(0).style.name(),
+					ranked.isEmpty() ? null : ranked.get(0).result),
+				readout(ranked.size() > 1 ? ranked.get(1).style.name() : null,
+					ranked.size() > 1 ? ranked.get(1).result : null));
+			return;
+		}
+
+		// Autocast weapon: spellbook tabs + that book's offensive spells, ranked.
+		stylesHeading.setText("Spells (best DPS first)");
+		bookTabsPanel.setVisible(true);
+		syncBookTabs();
+		selectedStyle = magicCastStyle;
+
+		List<Spell> candidates = spellsFor(selectedBook);
+		if (candidates.isEmpty())
+		{
+			// Lunar/Arceuus: render the tab, but there is nothing to rank.
+			selectedSpell = null;
+			JLabel none = PanelWidgets.emptyRowLabel("No offensive spells on this spellbook");
+			none.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+			none.setFont(FontManager.getRunescapeSmallFont().deriveFont(Font.ITALIC));
+			stylesPanel.add(none);
+			setPrimarySecondary("-", "-");
+			return;
+		}
+
+		List<RankedSpell> ranked = new ArrayList<>(candidates.size());
+		for (Spell spell : candidates)
+		{
+			ranked.add(new RankedSpell(spell, canRank ? computeSpell(spell) : null));
+		}
+		if (canRank)
+		{
+			// Stable sort: equal-DPS spells keep their spellbook order.
+			ranked.sort(Comparator.comparingDouble((RankedSpell r) -> r.result.dps()).reversed());
+		}
+
+		// Follow the best-DPS spell (top of the ranking) by default; only honour
+		// a prior selection when the user explicitly clicked a spell row and the
+		// weapon, target and spellbook that produced it are unchanged.
+		Spell keep = null;
+		if (userPickedSpell)
+		{
+			for (RankedSpell r : ranked)
+			{
+				if (r.spell == selectedSpell)
+				{
+					keep = r.spell;
+					break;
+				}
+			}
+		}
+		selectedSpell = keep != null ? keep : ranked.get(0).spell;
+
+		for (int i = 0; i < ranked.size(); i++)
+		{
+			RankedSpell r = ranked.get(i);
+			boolean best = canRank && i == 0;
+			SpellRow row = new SpellRow(r.spell, r.result, best);
+			spellRows.add(row);
+			stylesPanel.add(row);
+			stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+		}
+		highlightSelectedSpellRow();
+
+		// Primary = the auto-selected best; secondary = the next-best DPS.
+		// TODO: current-cast spell when the snapshot exposes it — the secondary
+		// should then prefer the spell actually being autocast in game.
+		setPrimarySecondary(
+			readout(ranked.get(0).spell.displayName(), ranked.get(0).result),
+			ranked.size() > 1 ? readout(ranked.get(1).spell.displayName(), ranked.get(1).result) : "-");
+	}
+
+	/**
+	 * Computes, ranks (DPS-desc) and renders one clickable row per style,
+	 * re-selecting the best or keeping a surviving user pick. Shared by the
+	 * classic style view and the powered-staff magic view.
+	 */
+	private List<Ranked> renderRankedStyleRows(List<WeaponStyle> styles, boolean canRank)
+	{
+		// Compute each style's DPS (null when we cannot yet), then rank desc.
 		List<Ranked> ranked = new ArrayList<>(styles.size());
 		for (WeaponStyle style : styles)
 		{
@@ -569,10 +843,192 @@ public final class GearSection extends CollapsibleSection
 			stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
 		}
 		highlightSelectedRow();
-		stylesPanel.revalidate();
-		stylesPanel.repaint();
+		return ranked;
+	}
 
+	/** The offensive spells of a spellbook tab (empty for Lunar/Arceuus — OSRS has no offensive nukes there). */
+	private static List<Spell> spellsFor(BookTab tab)
+	{
+		if (tab.book() == null)
+		{
+			return Collections.emptyList();
+		}
+		List<Spell> spells = new ArrayList<>();
+		for (Spell spell : Spell.values())
+		{
+			if (spell.book() == tab.book())
+			{
+				spells.add(spell);
+			}
+		}
+		return spells;
+	}
+
+	/** "Name  ·  1.23" (or just the name pre-target, or "-" when absent) for the primary/secondary readout. */
+	private static String readout(String name, DpsResult result)
+	{
+		if (name == null)
+		{
+			return "-";
+		}
+		return result == null ? name : name + "  ·  " + String.format(Locale.ROOT, "%.2f", result.dps());
+	}
+
+	private void setPrimarySecondary(String primary, String secondary)
+	{
+		primaryValue.setText(primary);
+		secondaryValue.setText(secondary);
+	}
+
+	// ------------------------------------------------- magic view widgets
+
+	/** One tab of the spellbook segmented control; selection is driven by {@link #syncBookTabs}. */
+	private JToggleButton bookTabButton(BookTab tab)
+	{
+		JToggleButton button = new JToggleButton(tab.label());
+		button.setToolTipText(tab.label() + " spellbook");
+		button.setFont(FontManager.getRunescapeSmallFont());
+		button.setFocusPainted(false);
+		button.setMargin(new Insets(2, 1, 2, 1));
+
+		Border selectedBorder = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE);
+		Border unselectedBorder = BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR);
+		// Restyle on ANY selection change (user click or the programmatic
+		// setSelected from syncBookTabs) — an ItemListener catches both.
+		Runnable restyle = () ->
+		{
+			button.setBorder(button.isSelected() ? selectedBorder : unselectedBorder);
+			button.setBackground(button.isSelected()
+				? ColorScheme.MEDIUM_GRAY_COLOR
+				: ColorScheme.DARKER_GRAY_COLOR);
+			button.setForeground(button.isSelected()
+				? ColorScheme.BRAND_ORANGE
+				: ColorScheme.LIGHT_GRAY_COLOR);
+		};
+		restyle.run();
+		button.addItemListener(e -> restyle.run());
+		// Book-switch logic only on a USER click (an ActionListener does not fire
+		// on programmatic setSelected, so syncBookTabs cannot recurse into here).
+		button.addActionListener(e ->
+		{
+			if (selectedBook != tab)
+			{
+				selectedBook = tab;
+				// A new book is a new ranking — follow its best spell again.
+				userPickedSpell = false;
+				rankAndRender();
+			}
+			else
+			{
+				// Clicking the active tab must not toggle it off.
+				syncBookTabs();
+			}
+		});
+		return button;
+	}
+
+	/** Re-asserts each tab button's selected state from {@link #selectedBook}. */
+	private void syncBookTabs()
+	{
+		for (BookTab tab : BookTab.values())
+		{
+			JToggleButton button = bookTabButtons[tab.ordinal()];
+			if (button != null && button.isSelected() != (tab == selectedBook))
+			{
+				button.setSelected(tab == selectedBook);
+			}
+		}
+	}
+
+	/** Right-aligned white value label for the primary/secondary cast readout. */
+	private static JLabel readoutValueLabel()
+	{
+		JLabel value = new JLabel("-");
+		value.setForeground(java.awt.Color.WHITE);
+		value.setFont(FontManager.getRunescapeSmallFont());
+		value.setHorizontalAlignment(SwingConstants.RIGHT);
+		return value;
+	}
+
+	/** "Label ......... value" row for the primary/secondary cast readout; starts hidden (magic view only). */
+	private static JPanel readoutRow(String labelText, JLabel value, String tooltip)
+	{
+		JPanel row = new JPanel(new BorderLayout());
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+		row.setToolTipText(tooltip);
+
+		JLabel label = new JLabel(labelText);
+		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		label.setFont(FontManager.getRunescapeSmallFont());
+
+		row.add(label, BorderLayout.WEST);
+		row.add(value, BorderLayout.EAST);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		row.setVisible(false);
+		return row;
+	}
+
+	/** Applies the selected-row border/background to whichever spell row matches {@link #selectedSpell}. */
+	private void highlightSelectedSpellRow()
+	{
+		for (SpellRow row : spellRows)
+		{
+			row.setSelected(row.spell == selectedSpell);
+		}
+	}
+
+	/** User clicked a spell row: lock the readout to it (ranking order is unchanged). */
+	private void selectSpell(Spell spell)
+	{
+		selectedSpell = spell;
+		userPickedSpell = true;
+		highlightSelectedSpellRow();
 		updateOutputs();
+	}
+
+	/**
+	 * DPS for one autocast spell against the current target + gear + toggles
+	 * (cast via the weapon's own magic combat option, see
+	 * {@link #magicCastStyle}), or {@code null} if not computable.
+	 */
+	private DpsResult computeSpell(Spell spell)
+	{
+		if (lastGear == null || selectedMonster == null || lastGear.equipmentStats() == null || spell == null)
+		{
+			return null;
+		}
+		Stance stance = magicCastStyle != null ? magicCastStyle.stance() : Stance.STANDARD;
+		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, stance,
+			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected());
+		return DpsCalculator.compute(lastGear.equipmentStats(), player, CombatStyle.MAGIC, selectedMonster, spell);
+	}
+
+	/**
+	 * The spell's spellbook icon, fetched at most once per sprite id via the
+	 * async {@code SpriteManager.getSpriteAsync} (callback hops to the EDT).
+	 * Returns a transparent placeholder-backed icon immediately so row layout
+	 * is stable before the sprite arrives; {@code null} without a SpriteManager
+	 * (headless tests).
+	 */
+	private ImageIcon spellIcon(Spell spell)
+	{
+		if (spriteManager == null)
+		{
+			return null;
+		}
+		return spellIconCache.computeIfAbsent(spell.spriteId(), spriteId ->
+		{
+			ImageIcon icon = new ImageIcon(
+				new BufferedImage(STYLE_ICON_SIZE, STYLE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB));
+			spriteManager.getSpriteAsync(spriteId, 0, sprite ->
+				SwingUtilities.invokeLater(() ->
+				{
+					icon.setImage(sprite.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH));
+					stylesPanel.repaint();
+				}));
+			return icon;
+		});
 	}
 
 	/** Applies the selected-row border/background to whichever row matches {@link #selectedStyle}. */
@@ -606,8 +1062,15 @@ public final class GearSection extends CollapsibleSection
 		if (style.type() == CombatStyle.MAGIC)
 		{
 			// Spell-aware path: a worn powered staff wins automatically; otherwise
-			// the picked spell's base max hit is autocast at 5 ticks.
-			return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, currentSpell());
+			// the magic view's selected spell (or, outside the magic view, the
+			// legacy picker's spell) is autocast at 5 ticks.
+			Spell spell = magicView ? selectedSpell : currentSpell();
+			if (spell == null && !gearStats.poweredStaff().applies())
+			{
+				// Magic view on a spell-less book (Lunar/Arceuus): nothing to cast.
+				return null;
+			}
+			return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell);
 		}
 		return DpsCalculator.compute(gearStats, player, style.type(), selectedMonster, 0);
 	}
@@ -916,6 +1379,52 @@ public final class GearSection extends CollapsibleSection
 		return targetLabel.getText();
 	}
 
+	boolean magicViewForTest()
+	{
+		return magicView;
+	}
+
+	boolean bookTabsVisibleForTest()
+	{
+		return bookTabsPanel.isVisible();
+	}
+
+	/** Simulates a user click on the given spellbook tab (0=Standard 1=Ancient 2=Lunar 3=Arceuus). */
+	void clickBookTabForTest(int tabOrdinal)
+	{
+		bookTabButtons[tabOrdinal].doClick();
+	}
+
+	Spell selectedSpellForTest()
+	{
+		return selectedSpell;
+	}
+
+	List<Spell> rankedSpellsForTest()
+	{
+		List<Spell> out = new ArrayList<>(spellRows.size());
+		for (SpellRow row : spellRows)
+		{
+			out.add(row.spell);
+		}
+		return out;
+	}
+
+	void clickSpellRowForTest(int index)
+	{
+		selectSpell(spellRows.get(index).spell);
+	}
+
+	String primaryTextForTest()
+	{
+		return primaryValue.getText();
+	}
+
+	String secondaryTextForTest()
+	{
+		return secondaryValue.getText();
+	}
+
 	/** A {@link WeaponStyle} paired with its computed DPS ({@code null} before a target is picked). */
 	private static final class Ranked
 	{
@@ -926,6 +1435,109 @@ public final class GearSection extends CollapsibleSection
 		{
 			this.style = style;
 			this.result = result;
+		}
+	}
+
+	/**
+	 * A spellbook tab of the magic view's segmented control. Lunar and Arceuus
+	 * carry no offensive {@link Spell}s (OSRS has none there), so their
+	 * {@link #book()} is {@code null} and the tab renders an empty-book note.
+	 */
+	enum BookTab
+	{
+		STANDARD("Standard", Spell.SpellBook.STANDARD),
+		ANCIENT("Ancient", Spell.SpellBook.ANCIENT),
+		LUNAR("Lunar", null),
+		ARCEUUS("Arceuus", null);
+
+		private final String label;
+		private final Spell.SpellBook book;
+
+		BookTab(String label, Spell.SpellBook book)
+		{
+			this.label = label;
+			this.book = book;
+		}
+
+		String label()
+		{
+			return label;
+		}
+
+		Spell.SpellBook book()
+		{
+			return book;
+		}
+	}
+
+	/** A {@link Spell} paired with its computed DPS ({@code null} before a target is picked). */
+	private static final class RankedSpell
+	{
+		private final Spell spell;
+		private final DpsResult result;
+
+		private RankedSpell(Spell spell, DpsResult result)
+		{
+			this.spell = spell;
+			this.result = result;
+		}
+	}
+
+	/**
+	 * One clickable row in the ranked spell list: the spell's spellbook icon +
+	 * name on the left, its DPS on the right, a leading star for the best.
+	 * Clicking locks the readout to this spell.
+	 */
+	private final class SpellRow extends JPanel
+	{
+		private final Spell spell;
+		private final Border selectedBorder = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE);
+		private final Border unselectedBorder = BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR);
+
+		private SpellRow(Spell spell, DpsResult result, boolean best)
+		{
+			super(new BorderLayout(4, 0));
+			this.spell = spell;
+			setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			setAlignmentX(Component.LEFT_ALIGNMENT);
+			setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			setBorder(BorderFactory.createCompoundBorder(unselectedBorder,
+				BorderFactory.createEmptyBorder(2, 3, 2, 4)));
+
+			JLabel name = new JLabel((best ? "★ " : "") + spell.displayName());
+			name.setFont(FontManager.getRunescapeSmallFont());
+			name.setForeground(best ? ColorScheme.BRAND_ORANGE : ColorScheme.LIGHT_GRAY_COLOR);
+			ImageIcon icon = spellIcon(spell);
+			if (icon != null)
+			{
+				name.setIcon(icon);
+				name.setIconTextGap(4);
+			}
+
+			JLabel dps = new JLabel(result == null ? "—" : String.format(Locale.ROOT, "%.2f", result.dps()));
+			dps.setFont(FontManager.getRunescapeSmallFont());
+			dps.setForeground(best ? ColorScheme.BRAND_ORANGE : java.awt.Color.WHITE);
+			dps.setToolTipText("DPS autocasting this spell");
+
+			add(name, BorderLayout.CENTER);
+			add(dps, BorderLayout.EAST);
+
+			setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
+			addMouseListener(new MouseAdapter()
+			{
+				@Override
+				public void mousePressed(MouseEvent e)
+				{
+					selectSpell(SpellRow.this.spell);
+				}
+			});
+		}
+
+		private void setSelected(boolean selected)
+		{
+			setBorder(BorderFactory.createCompoundBorder(selected ? selectedBorder : unselectedBorder,
+				BorderFactory.createEmptyBorder(2, 3, 2, 4)));
+			setBackground(selected ? ColorScheme.MEDIUM_GRAY_COLOR : ColorScheme.DARKER_GRAY_COLOR);
 		}
 	}
 
