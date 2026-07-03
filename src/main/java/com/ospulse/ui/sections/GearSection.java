@@ -1,5 +1,6 @@
 package com.ospulse.ui.sections;
 
+import com.ospulse.OSPulseConfig;
 import com.ospulse.combat.AttackStyleIcons;
 import com.ospulse.combat.CombatIcons;
 import com.ospulse.combat.CombatStyle;
@@ -28,6 +29,7 @@ import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
 import com.ospulse.wealth.WealthSnapshot;
 
+import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.game.SpriteManager;
@@ -169,7 +171,11 @@ public final class GearSection extends CollapsibleSection
 	// ItemManager.getImage, same as the boost toggles above) — one per
 	// CombatIcons.BoostPotion value.
 	private static final int ITEM_SUPER_COMBAT_POTION = 12695;
+	private static final int ITEM_SUPER_STRENGTH_POTION = 2440; // Super strength potion(4)
+	private static final int ITEM_SUPER_ATTACK_POTION = 2436;   // Super attack potion(4)
 	private static final int ITEM_RANGING_POTION = 2444;
+	private static final int ITEM_BASTION_POTION = 22461;       // Bastion potion(4)
+	private static final int ITEM_DIVINE_RANGING_POTION = 23733; // Divine ranging potion(4)
 	private static final int ITEM_IMBUED_HEART = 20724;
 	private static final int ITEM_SATURATED_HEART = 27641;
 	private static final int ITEM_ANCIENT_BREW = 26340; // Ancient brew(4)
@@ -183,6 +189,8 @@ public final class GearSection extends CollapsibleSection
 	private final ItemManager itemManager;
 	private final SkillIconManager skillIconManager;
 	private final SpriteManager spriteManager;
+	/** {@code null} in tests that don't exercise persistence (see the no-config-manager constructors) — every read/write of it is guarded. */
+	private final ConfigManager configManager;
 	private final WeaponCategoryRepository weaponRepo = WeaponCategoryRepository.getInstance();
 
 	private final JLabel[] slotLabels = new JLabel[GearSnapshot.EQUIPMENT_SLOT_COUNT];
@@ -219,7 +227,7 @@ public final class GearSection extends CollapsibleSection
 	private final JList<String> monsterList;
 	private final MonsterListModel monsterListModel = new MonsterListModel();
 	private final JLabel targetLabel;
-	private final JToggleButton bestPotionToggle;
+	private final HintableToggleButton bestPotionToggle;
 	private final JToggleButton bestPrayerToggle;
 	private final JToggleButton onSlayerTaskToggle;
 	private final JLabel maxHitValue;
@@ -257,13 +265,18 @@ public final class GearSection extends CollapsibleSection
 	/** Last observed "slayer helm / black mask worn" state — drives edge-triggered auto-tick. */
 	private boolean lastSlayerHeadgearWorn;
 	/**
-	 * The magic-style potion variant the potion toggle's right-click swap menu
-	 * has picked ({@code null} = follow {@link CombatIcons#bestPotion} as
-	 * before — Imbued heart for Magic). Melee/Ranged styles ignore this; only
-	 * fed to {@link DpsCalculator} via {@link PlayerCombat#magicPotionVariant()}
-	 * when the active style is Magic.
+	 * The potion variant the right-click swap menu has picked, PER combat
+	 * style ({@code CombatStyle.MELEE_KEY}/{@code RANGED}/{@code MAGIC} — see
+	 * {@link #styleKeyFor}), persisted to RuneLite config (see
+	 * {@link #loadPotionVariantPrefs}/{@link #savePotionVariantPref}) so a
+	 * choice like "Saturated heart on Magic" survives a client restart. Absent
+	 * = follow {@link CombatIcons#bestPotion} (the style's default variant).
+	 * Only the MAGIC entry actually reaches {@link DpsCalculator} (via
+	 * {@link PlayerCombat#magicPotionVariant()}) since melee/ranged variants
+	 * are cosmetic-only (see {@link CombatIcons.BoostPotion} javadoc) — the
+	 * melee/ranged entries only drive which icon/tooltip is shown.
 	 */
-	private CombatIcons.BoostPotion magicPotionVariant;
+	private final Map<String, CombatIcons.BoostPotion> potionVariantByStyle = new HashMap<>();
 
 	// ---------------------------------------------- Phase 2: what-if overrides
 	/**
@@ -308,16 +321,24 @@ public final class GearSection extends CollapsibleSection
 
 	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager)
 	{
-		this(store, itemManager, skillIconManager, null);
+		this(store, itemManager, skillIconManager, null, null);
 	}
 
 	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager,
 		SpriteManager spriteManager)
 	{
+		this(store, itemManager, skillIconManager, spriteManager, null);
+	}
+
+	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager,
+		SpriteManager spriteManager, ConfigManager configManager)
+	{
 		super(KEY, "Gear DPS", store);
 		this.itemManager = itemManager;
 		this.skillIconManager = skillIconManager;
 		this.spriteManager = spriteManager;
+		this.configManager = configManager;
+		loadPotionVariantPrefs();
 
 		// ------------------------------------------------ worn-gear header
 		JLabel heading = PanelWidgets.emptyRowLabel("Live DPS · your worn gear");
@@ -493,8 +514,14 @@ public final class GearSection extends CollapsibleSection
 		// Prayer level; see CombatIcons), refreshed in updateBoostIndicators
 		// (called from updateOutputs) so it always matches whatever prayer/
 		// potion DpsCalculator is actually applying. Right-clicking the potion
-		// button opens a swap menu for the magic-style potion variant (Imbued
-		// heart / Saturated heart / Ancient brew) — see potionVariantPopup.
+		// button opens a swap menu filtered to whatever style is CURRENTLY
+		// selected (melee: Super combat/strength/attack; ranged: Ranging/
+		// Bastion/Divine ranging; magic: Saturated heart/Imbued heart/Ancient
+		// brew — see CombatIcons.variantsFor/buildPotionVariantPopup), each
+		// choice persisted per-style to config (loadPotionVariantPrefs/
+		// savePotionVariantPref) so it survives a client restart. The small
+		// orange "*" painted in the icon's corner (HintableToggleButton) hints
+		// that right-click has more options.
 		JPanel boostRow = new JPanel(new GridLayout(1, 3, 2, 0));
 		boostRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		boostRow.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -1295,7 +1322,7 @@ public final class GearSection extends CollapsibleSection
 		Stance stance = magicCastStyle != null ? magicCastStyle.stance() : Stance.STANDARD;
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, stance,
 			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected(),
-			magicPotionVariant);
+			magicPotionVariantForCalc());
 		return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell);
 	}
 
@@ -1493,7 +1520,11 @@ public final class GearSection extends CollapsibleSection
 		switch (potion)
 		{
 			case SUPER_COMBAT: return ITEM_SUPER_COMBAT_POTION;
+			case SUPER_STRENGTH: return ITEM_SUPER_STRENGTH_POTION;
+			case SUPER_ATTACK: return ITEM_SUPER_ATTACK_POTION;
 			case RANGING: return ITEM_RANGING_POTION;
+			case BASTION: return ITEM_BASTION_POTION;
+			case DIVINE_RANGING: return ITEM_DIVINE_RANGING_POTION;
 			case IMBUED_HEART: return ITEM_IMBUED_HEART;
 			case SATURATED_HEART: return ITEM_SATURATED_HEART;
 			case ANCIENT_BREW: return ITEM_ANCIENT_BREW;
@@ -1527,18 +1558,99 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
-	 * The magic potion variant the potion toggle should show/apply for the
-	 * current style: the user's right-click swap pick when the style is Magic
-	 * (defaulting to Imbued heart if none chosen yet), or {@link CombatIcons#bestPotion}
-	 * unchanged for every other style (melee/ranged are not swappable).
+	 * The potion variant the potion toggle should show/apply for {@code style}:
+	 * the user's right-click swap pick for that style if one was ever made
+	 * (restored from config at startup — see {@link #loadPotionVariantPrefs}),
+	 * else {@link CombatIcons#bestPotion}'s default for that style.
 	 */
 	private CombatIcons.BoostPotion effectivePotionFor(CombatStyle style)
 	{
+		String key = styleKeyFor(style);
+		if (key == null)
+		{
+			return null;
+		}
+		CombatIcons.BoostPotion picked = potionVariantByStyle.get(key);
+		return picked != null ? picked : CombatIcons.bestPotion(style);
+	}
+
+	/**
+	 * The MAGIC-only variant actually fed to {@link DpsCalculator} — see
+	 * {@link PlayerCombat#magicPotionVariant()}. Melee/Ranged variants never
+	 * reach the calculator since their boost math is identical regardless of
+	 * which variant is picked (see {@link CombatIcons.BoostPotion} javadoc).
+	 */
+	private CombatIcons.BoostPotion magicPotionVariantForCalc()
+	{
+		return potionVariantByStyle.get(styleKeyFor(CombatStyle.MAGIC));
+	}
+
+	/** Stable config-key fragment per style ("melee"/"ranged"/"magic"), or {@code null} for a style with no swappable variant. */
+	private static String styleKeyFor(CombatStyle style)
+	{
+		if (style == null)
+		{
+			return null;
+		}
+		if (style.isMelee())
+		{
+			return "melee";
+		}
+		if (style == CombatStyle.RANGED)
+		{
+			return "ranged";
+		}
 		if (style == CombatStyle.MAGIC)
 		{
-			return magicPotionVariant != null ? magicPotionVariant : CombatIcons.BoostPotion.IMBUED_HEART;
+			return "magic";
 		}
-		return CombatIcons.bestPotion(style);
+		return null;
+	}
+
+	/** Config key for a style's persisted potion-variant pick (raw key, not declared on {@link OSPulseConfig}). */
+	private static String potionVariantConfigKey(String styleKey)
+	{
+		return "potionVariant." + styleKey;
+	}
+
+	/**
+	 * Restores each style's potion-variant pick from config (see
+	 * {@link #savePotionVariantPref}) so a choice like "Saturated heart on
+	 * Magic" survives a client restart. No-ops without a {@link ConfigManager}
+	 * (headless tests / the no-config-manager constructor).
+	 */
+	private void loadPotionVariantPrefs()
+	{
+		if (configManager == null)
+		{
+			return;
+		}
+		for (String styleKey : new String[] {"melee", "ranged", "magic"})
+		{
+			String raw = configManager.getConfiguration(OSPulseConfig.GROUP, potionVariantConfigKey(styleKey));
+			if (raw == null || raw.isEmpty())
+			{
+				continue;
+			}
+			try
+			{
+				potionVariantByStyle.put(styleKey, CombatIcons.BoostPotion.valueOf(raw));
+			}
+			catch (IllegalArgumentException e)
+			{
+				// Stale/unknown enum name (e.g. an older plugin version) — ignore, fall back to the style default.
+			}
+		}
+	}
+
+	/** Persists one style's potion-variant pick to config so it survives a client restart. */
+	private void savePotionVariantPref(String styleKey, CombatIcons.BoostPotion variant)
+	{
+		if (configManager == null)
+		{
+			return;
+		}
+		configManager.setConfiguration(OSPulseConfig.GROUP, potionVariantConfigKey(styleKey), variant.name());
 	}
 
 	/**
@@ -1569,9 +1681,11 @@ public final class GearSection extends CollapsibleSection
 		CombatIcons.BoostPotion potion = effectivePotionFor(style);
 		if (potion != null)
 		{
+			boolean swappable = CombatIcons.variantsFor(style).length > 0;
 			bestPotionToggle.setIcon(potionIcon(potion));
 			bestPotionToggle.setToolTipText("Boosting potion applied: " + displayName(potion)
-				+ (style == CombatStyle.MAGIC ? " (right-click to swap)" : ""));
+				+ (swappable ? " (right-click to swap)" : ""));
+			bestPotionToggle.setRightClickHint(swappable);
 		}
 	}
 
@@ -1633,7 +1747,7 @@ public final class GearSection extends CollapsibleSection
 		}
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, style.stance(),
 			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected(),
-			magicPotionVariant);
+			magicPotionVariantForCalc());
 		if (style.type() == CombatStyle.MAGIC)
 		{
 			// Spell-aware path: a worn powered staff wins automatically; otherwise
@@ -2025,7 +2139,7 @@ public final class GearSection extends CollapsibleSection
 			.assumeBestPotion(bestPotionToggle.isSelected())
 			.assumeBestPrayer(bestPrayerToggle.isSelected())
 			.onSlayerTask(onSlayerTaskToggle.isSelected())
-			.magicPotionVariant(magicPotionVariant);
+			.magicPotionVariant(magicPotionVariantForCalc());
 
 		GearOptimizer.Request request = GearOptimizer.Request
 			.builder(liveIds, target, template)
@@ -2302,10 +2416,63 @@ public final class GearSection extends CollapsibleSection
 
 	// ------------------------------------------------------- icon controls
 
-	/** Bare icon-toggle button (border/background styling, no icon yet). */
-	private JToggleButton newToggle(String tooltip)
+	/**
+	 * An icon-toggle button that can paint a small "*" in its top-right corner
+	 * as a "more options on right-click" hint (see {@link #setRightClickHint}) —
+	 * used by the potion (and, if it ever gains options, prayer) boost toggle
+	 * so the right-click swap menu is discoverable instead of hidden.
+	 */
+	private static final class HintableToggleButton extends JToggleButton
 	{
-		JToggleButton button = new JToggleButton();
+		private boolean rightClickHint;
+
+		void setRightClickHint(boolean hint)
+		{
+			if (hint != rightClickHint)
+			{
+				rightClickHint = hint;
+				repaint();
+			}
+		}
+
+		@Override
+		protected void paintComponent(java.awt.Graphics g)
+		{
+			super.paintComponent(g);
+			if (!rightClickHint)
+			{
+				return;
+			}
+			java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+			try
+			{
+				g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+					java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+				g2.setColor(ColorScheme.BRAND_ORANGE);
+				Font markerFont = FontManager.getRunescapeBoldFont().deriveFont(11f);
+				g2.setFont(markerFont);
+				String marker = "*";
+				java.awt.FontMetrics fm = g2.getFontMetrics();
+				int x = getWidth() - fm.stringWidth(marker) - 2;
+				int y = fm.getAscent();
+				// A thin dark outline keeps the marker legible over a bright item icon.
+				g2.setColor(ColorScheme.DARKER_GRAY_COLOR);
+				g2.drawString(marker, x - 1, y);
+				g2.drawString(marker, x + 1, y);
+				g2.setColor(ColorScheme.BRAND_ORANGE);
+				g2.drawString(marker, x, y);
+			}
+			finally
+			{
+				g2.dispose();
+			}
+		}
+	}
+
+	/** Bare icon-toggle button (border/background styling, no icon yet). */
+	private HintableToggleButton newToggle(String tooltip)
+	{
+		HintableToggleButton button = new HintableToggleButton();
 		button.setToolTipText(tooltip);
 		button.setFocusPainted(false);
 		button.setMargin(new Insets(0, 0, 0, 0));
@@ -2330,9 +2497,9 @@ public final class GearSection extends CollapsibleSection
 	 * An icon-only toggle button whose sprite loads via the async, EDT-safe
 	 * {@code ItemManager.getImage(int)}.
 	 */
-	private JToggleButton iconToggle(int itemId, String tooltip)
+	private HintableToggleButton iconToggle(int itemId, String tooltip)
 	{
-		JToggleButton button = newToggle(tooltip);
+		HintableToggleButton button = newToggle(tooltip);
 		if (itemManager != null)
 		{
 			AsyncBufferedImage image = itemManager.getImage(itemId);
@@ -2347,28 +2514,69 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
-	 * The potion toggle's right-click swap menu: one item per magic-style
-	 * potion variant ({@link CombatIcons#MAGIC_POTION_VARIANTS} — Saturated
-	 * heart / Imbued heart / Ancient brew), each setting {@link #magicPotionVariant}
-	 * and re-ranking so the swap immediately feeds {@link DpsCalculator} via
-	 * {@link PlayerCombat#magicPotionVariant()}. Melee/Ranged prayer/potion
-	 * picks are calculator-fixed "best" and have nothing to swap, so only the
-	 * potion toggle gets this menu (the prayer toggle does not).
+	 * The potion toggle's right-click swap menu — rebuilt on every open (via
+	 * the {@code PopupMenuListener} below) from {@link CombatIcons#variantsFor}
+	 * for whatever combat style is CURRENTLY selected, so right-clicking on
+	 * melee offers Super combat/strength/attack, ranged offers Ranging/
+	 * Bastion/Divine ranging, and magic offers Saturated heart/Imbued heart/
+	 * Ancient brew — never a style-inappropriate list (the original bug: the
+	 * menu always showed the magic variants regardless of style). Picking an
+	 * item sets that style's entry in {@link #potionVariantByStyle}, persists
+	 * it to config (see {@link #savePotionVariantPref}) so it survives a
+	 * client restart, and re-ranks so the swap immediately feeds
+	 * {@link DpsCalculator} (Magic only — see {@link #magicPotionVariantForCalc}).
 	 */
 	private javax.swing.JPopupMenu buildPotionVariantPopup()
 	{
 		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
-		for (CombatIcons.BoostPotion variant : CombatIcons.MAGIC_POTION_VARIANTS)
+		menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener()
+		{
+			@Override
+			public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e)
+			{
+				populatePotionVariantPopup(menu);
+			}
+
+			@Override
+			public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e)
+			{
+			}
+
+			@Override
+			public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e)
+			{
+			}
+		});
+		return menu;
+	}
+
+	/** Rebuilds {@code menu}'s items from {@link CombatIcons#variantsFor} for the currently selected combat style. */
+	private void populatePotionVariantPopup(javax.swing.JPopupMenu menu)
+	{
+		menu.removeAll();
+		CombatStyle style = selectedStyle != null ? selectedStyle.type() : null;
+		String styleKey = styleKeyFor(style);
+		CombatIcons.BoostPotion[] variants = CombatIcons.variantsFor(style);
+		for (CombatIcons.BoostPotion variant : variants)
 		{
 			javax.swing.JMenuItem item = new javax.swing.JMenuItem(displayName(variant));
 			item.addActionListener(e ->
 			{
-				magicPotionVariant = variant;
+				if (styleKey != null)
+				{
+					potionVariantByStyle.put(styleKey, variant);
+					savePotionVariantPref(styleKey, variant);
+				}
 				rankAndRender();
 			});
 			menu.add(item);
 		}
-		return menu;
+		if (variants.length == 0)
+		{
+			javax.swing.JMenuItem none = new javax.swing.JMenuItem("Pick a target/style first");
+			none.setEnabled(false);
+			menu.add(none);
+		}
 	}
 
 	// ------------------------------------------------- test seams (package)
@@ -2470,7 +2678,7 @@ public final class GearSection extends CollapsibleSection
 			.assumeBestPotion(bestPotionToggle.isSelected())
 			.assumeBestPrayer(bestPrayerToggle.isSelected())
 			.onSlayerTask(onSlayerTaskToggle.isSelected())
-			.magicPotionVariant(magicPotionVariant);
+			.magicPotionVariant(magicPotionVariantForCalc());
 		GearOptimizer.Request request = GearOptimizer.Request
 			.builder(liveIds, selectedMonster, template)
 			.budget(budget)
@@ -2573,13 +2781,45 @@ public final class GearSection extends CollapsibleSection
 	/** Simulates right-clicking the potion toggle and picking a magic potion variant from the swap menu. */
 	void pickMagicPotionVariantForTest(CombatIcons.BoostPotion variant)
 	{
-		magicPotionVariant = variant;
+		potionVariantByStyle.put(styleKeyFor(CombatStyle.MAGIC), variant);
+		savePotionVariantPref(styleKeyFor(CombatStyle.MAGIC), variant);
 		rankAndRender();
 	}
 
 	CombatIcons.BoostPotion magicPotionVariantForTest()
 	{
-		return magicPotionVariant;
+		return magicPotionVariantForCalc();
+	}
+
+	/** Simulates right-clicking the potion toggle and picking {@code variant} for {@code style} from the swap menu. */
+	void pickPotionVariantForTest(CombatStyle style, CombatIcons.BoostPotion variant)
+	{
+		String key = styleKeyFor(style);
+		potionVariantByStyle.put(key, variant);
+		savePotionVariantPref(key, variant);
+		rankAndRender();
+	}
+
+	/** The currently-picked variant for {@code style} (falls back to the style's default, same as the toggle icon). */
+	CombatIcons.BoostPotion potionVariantForTest(CombatStyle style)
+	{
+		return effectivePotionFor(style);
+	}
+
+	/** Rebuilds and returns the right-click swap menu's current item labels for the currently selected style (test seam — mirrors what a real right-click would show). */
+	List<String> potionVariantPopupLabelsForTest()
+	{
+		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+		populatePotionVariantPopup(menu);
+		List<String> labels = new ArrayList<>();
+		for (java.awt.Component c : menu.getComponents())
+		{
+			if (c instanceof javax.swing.JMenuItem)
+			{
+				labels.add(((javax.swing.JMenuItem) c).getText());
+			}
+		}
+		return labels;
 	}
 
 	JToggleButton onSlayerTaskToggleForTest()
