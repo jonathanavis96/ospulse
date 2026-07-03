@@ -48,6 +48,7 @@ public final class SessionSection extends CollapsibleSection
 	private final JLabel profitPerHourValue;
 	private final JLabel netWorthDeltaValue;
 	private final JLabel geRealizedPnlValue;
+	private final JLabel unrealizedPnlValue;
 
 	private final CategorySectionSupport categorySupport;
 
@@ -78,6 +79,14 @@ public final class SessionSection extends CollapsibleSection
 			categorySupport.buildMenu(CAT_NET_WORTH_DELTA, null));
 		geRealizedPnlValue = PanelWidgets.statRow(body(), "GE flip P&L",
 			categorySupport.buildMenu(CAT_GE_PNL, null));
+		// Display-only duplicate of the Unrealized P/L figure that already
+		// lives at the top of the Holdings section (see HoldingsSection).
+		// Shown here too, directly below GE flip P&L, purely as a readout —
+		// it carries no category menu/reset/pause (there's nothing to
+		// reset independently; it always mirrors the live snapshot value)
+		// and is never folded into profit, net worth, or any other
+		// computation, so it cannot double-count.
+		unrealizedPnlValue = PanelWidgets.statRow(body(), "Unrealized P/L");
 
 		categorySupport.setLinesSupplier(CAT_PROFIT, () -> List.of(
 			new CategoryOverlay.Line("Profit", GpFormat.format(displayedProfit))));
@@ -92,6 +101,7 @@ public final class SessionSection extends CollapsibleSection
 		long rawProfitPerHour = snapshot.getProfitPerHour();
 		long rawNetWorthDelta = snapshot.getNetWorthDelta();
 		long rawGePnl = snapshot.getGeRealizedPnl();
+		long rawUnrealizedPnl = snapshot.getUnrealizedPnl();
 
 		if (!categorySupport.controller().isPaused(CAT_ELAPSED))
 		{
@@ -121,6 +131,9 @@ public final class SessionSection extends CollapsibleSection
 		{
 			PanelWidgets.setSignedGpLabel(geRealizedPnlValue, rawGePnl - gePnlBaseline);
 		}
+		// Read-only mirror of the snapshot's unrealized P/L: always shows the
+		// live figure directly, no baseline/pause — see the field javadoc.
+		PanelWidgets.setSignedGpLabel(unrealizedPnlValue, rawUnrealizedPnl);
 
 		rebaseIfJustReset(CAT_PROFIT, rawProfit, v -> profitBaseline = v);
 		rebaseIfJustReset(CAT_SUPPLIES, rawSuppliesUsed, v -> suppliesBaseline = v);
