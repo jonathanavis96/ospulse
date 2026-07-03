@@ -68,6 +68,13 @@ public final class XpSection extends CollapsibleSection
 	public static final String KEY = "xp";
 
 	private static final int ICON_SIZE = 28;
+	/**
+	 * Icon render size used only inside {@link #skillCard}'s icon-row — smaller
+	 * than {@link #ICON_SIZE} so the 2x2 stat grid beside it has enough
+	 * horizontal room that value labels (e.g. XP/hr) don't get cropped at the
+	 * panel's fixed width.
+	 */
+	private static final int CARD_ICON_SIZE = 18;
 
 	private final JPanel breakdownPanel;
 	private final SkillIconManager skillIconManager;
@@ -258,9 +265,15 @@ public final class XpSection extends CollapsibleSection
 		JLabel iconLabel = new JLabel();
 		if (iconImage != null)
 		{
-			iconLabel.setIcon(new javax.swing.ImageIcon(iconImage));
+			// Re-scaled down from the already-{@value #ICON_SIZE}px icon just
+			// for this card's icon-row, so the stat grid to its right gets
+			// enough width that the XP/hr and XP-left values don't crop —
+			// ICON_SIZE itself stays untouched since other rows rely on it.
+			Image cardIcon = iconImage.getScaledInstance(CARD_ICON_SIZE, CARD_ICON_SIZE, Image.SCALE_SMOOTH);
+			iconLabel.setIcon(new javax.swing.ImageIcon(cardIcon));
 		}
 		iconLabel.setVerticalAlignment(SwingConstants.CENTER);
+		iconLabel.setPreferredSize(new Dimension(CARD_ICON_SIZE, CARD_ICON_SIZE));
 		top.add(iconLabel, BorderLayout.WEST);
 		top.add(statGrid(view, maxed), BorderLayout.CENTER);
 		top.setMaximumSize(new Dimension(Integer.MAX_VALUE, top.getPreferredSize().height));
