@@ -16,13 +16,16 @@ import com.ospulse.combat.Stance;
 import com.ospulse.combat.WeaponCategory;
 import com.ospulse.combat.WeaponCategoryRepository;
 import com.ospulse.combat.WeaponStyle;
+import com.ospulse.combat.optimizer.GearOptimizer;
 import com.ospulse.combat.optimizer.LoadoutOverride;
 import com.ospulse.combat.optimizer.WhatIfLoadout;
+import com.ospulse.model.ItemStack;
 import com.ospulse.session.GearMapper;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
+import com.ospulse.wealth.WealthSnapshot;
 
 import net.runelite.api.Skill;
 import net.runelite.client.game.ItemManager;
@@ -275,6 +278,20 @@ public final class GearSection extends CollapsibleSection
 	private final JLabel whatIfDeltaValue;
 	private JPanel whatIfRow;
 	private boolean suppressItemListEvents;
+
+	// -------------------------------------------- Phase 3: optimiser ("Best Setup")
+	/** Owned-item values (worn + top holdings incl. bank), refreshed each {@link #apply}; source for the optimiser's owned pool + GE prices. */
+	private WealthSnapshot lastWealth;
+	private final javax.swing.JTextField budgetField;
+	private final JButton findBestSetupButton;
+	private final JLabel optimizerStatusLabel;
+	private final JPanel optimizerResultPanel;
+	private final JLabel optimizerResultDps;
+	private final JLabel optimizerResultDelta;
+	private final JLabel optimizerResultSpend;
+	private final JLabel optimizerResultDpsPerGp;
+	private final JButton applyOptimizerResultButton;
+	private GearOptimizer.Result lastOptimizerResult;
 
 	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager)
 	{
@@ -597,6 +614,75 @@ public final class GearSection extends CollapsibleSection
 		whatIfRow.setVisible(false);
 		this.whatIfRow = whatIfRow;
 		body().add(whatIfRow);
+		body().add(Box.createRigidArea(new Dimension(0, 6)));
+
+		// ------------------------------------- Phase 3: optimiser ("Best Setup")
+		// Owned pool = worn gear (always free) + WealthSnapshot.topHoldings (worn
+		// + inventory + bank, already GE-priced client-thread-side by
+		// SessionTracker — see lastWealth/apply) filtered to equippable items;
+		// budget = extra gp allowed for GE purchases beyond that pool. Search runs
+		// off the EDT (SwingWorker) per the design spec's <500ms-in-a-side-panel
+		// target — a pruned search over ~3000 items can still take tens of ms.
+		JLabel optimizerHeading = PanelWidgets.emptyRowLabel("Best setup for this target");
+		optimizerHeading.setForeground(ColorScheme.BRAND_ORANGE);
+		optimizerHeading.setToolTipText("Searches your owned gear (worn + bank/inventory) plus anything "
+			+ "affordable within the budget below for the highest-DPS loadout against your selected target");
+		body().add(optimizerHeading);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
+
+		JPanel budgetRow = new JPanel(new BorderLayout(4, 0));
+		budgetRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		budgetRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JLabel budgetLabel = new JLabel("Budget");
+		budgetLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		budgetLabel.setFont(FontManager.getRunescapeSmallFont());
+		budgetField = new javax.swing.JTextField("0");
+		budgetField.setToolTipText("Extra GP to spend on upgrades, e.g. '10m' or '500k' (blank/0 = owned gear only)");
+		budgetField.setFont(FontManager.getRunescapeSmallFont());
+		budgetField.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		budgetField.setForeground(java.awt.Color.WHITE);
+		budgetRow.add(budgetLabel, BorderLayout.WEST);
+		budgetRow.add(budgetField, BorderLayout.CENTER);
+		budgetRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		body().add(budgetRow);
+		body().add(Box.createRigidArea(new Dimension(0, 4)));
+
+		findBestSetupButton = new JButton("Find best setup");
+		findBestSetupButton.setFont(FontManager.getRunescapeSmallFont());
+		findBestSetupButton.setFocusPainted(false);
+		findBestSetupButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+		findBestSetupButton.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		findBestSetupButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		findBestSetupButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, findBestSetupButton.getPreferredSize().height));
+		findBestSetupButton.addActionListener(e -> runOptimizer());
+		body().add(findBestSetupButton);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
+
+		optimizerStatusLabel = PanelWidgets.emptyRowLabel("");
+		optimizerStatusLabel.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+		optimizerStatusLabel.setVisible(false);
+		body().add(optimizerStatusLabel);
+
+		optimizerResultPanel = new JPanel();
+		optimizerResultPanel.setLayout(new BoxLayout(optimizerResultPanel, BoxLayout.Y_AXIS));
+		optimizerResultPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		optimizerResultPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		optimizerResultDps = PanelWidgets.statRow(optimizerResultPanel, "Best DPS found");
+		optimizerResultDelta = PanelWidgets.statRow(optimizerResultPanel, "vs owned-only");
+		optimizerResultSpend = PanelWidgets.statRow(optimizerResultPanel, "Total spend");
+		optimizerResultDpsPerGp = PanelWidgets.statRow(optimizerResultPanel, "DPS per gp spent");
+		applyOptimizerResultButton = new JButton("Apply to readout (what-if)");
+		applyOptimizerResultButton.setFont(FontManager.getRunescapeSmallFont());
+		applyOptimizerResultButton.setFocusPainted(false);
+		applyOptimizerResultButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+		applyOptimizerResultButton.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		applyOptimizerResultButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		applyOptimizerResultButton.setToolTipText("Loads this result into the what-if slots above (real gear unaffected)");
+		applyOptimizerResultButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, applyOptimizerResultButton.getPreferredSize().height));
+		applyOptimizerResultButton.addActionListener(e -> applyOptimizerResultToOverride());
+		optimizerResultPanel.add(applyOptimizerResultButton);
+		optimizerResultPanel.setVisible(false);
+		body().add(optimizerResultPanel);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
 
 		// Show the full monster list, but with NO pre-selected target — the
@@ -1686,12 +1772,213 @@ public final class GearSection extends CollapsibleSection
 		whatIfRow.setVisible(true);
 	}
 
+	// ------------------------------------------------- Phase 3: optimiser
+
+	/**
+	 * Parses a budget string with an optional trailing k/m unit (design spec:
+	 * "numeric + K/M unit toggle" — a suffix is a lighter-weight equivalent for
+	 * a text field than a separate toggle button and reads naturally,
+	 * matching how players already type prices in-game, e.g. GE search).
+	 * Blank/unparseable input is treated as 0 (owned-only search) rather than
+	 * rejected, since a budget field is not a validated form control here.
+	 */
+	static long parseBudget(String text)
+	{
+		if (text == null)
+		{
+			return 0L;
+		}
+		String trimmed = text.trim().toLowerCase(Locale.ROOT).replace(",", "");
+		if (trimmed.isEmpty())
+		{
+			return 0L;
+		}
+		double multiplier = 1.0;
+		if (trimmed.endsWith("m"))
+		{
+			multiplier = 1_000_000.0;
+			trimmed = trimmed.substring(0, trimmed.length() - 1);
+		}
+		else if (trimmed.endsWith("k"))
+		{
+			multiplier = 1_000.0;
+			trimmed = trimmed.substring(0, trimmed.length() - 1);
+		}
+		try
+		{
+			double value = Double.parseDouble(trimmed.trim());
+			return value <= 0 ? 0L : Math.round(value * multiplier);
+		}
+		catch (NumberFormatException e)
+		{
+			return 0L;
+		}
+	}
+
+	/**
+	 * The owned-item pool + GE prices for the optimiser: every worn item
+	 * (always owned, price irrelevant) plus {@link WealthSnapshot#getTopHoldings()}
+	 * (worn + inventory + bank — see {@link #lastWealth}) filtered to items the
+	 * {@link EquipmentIndexRepository} actually indexes (so the optimiser never
+	 * tries to equip e.g. raw materials). Built fresh per search so it always
+	 * reflects the latest snapshot.
+	 */
+	private java.util.Map<Integer, Long> ownedPriceMap()
+	{
+		java.util.Map<Integer, Long> prices = new HashMap<>();
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		if (lastGear != null)
+		{
+			for (int id : lastGear.equippedItemIds())
+			{
+				if (id > 0 && index.entryFor(id) != null)
+				{
+					prices.put(id, 0L);
+				}
+			}
+		}
+		if (lastWealth != null)
+		{
+			for (ItemStack stack : lastWealth.getTopHoldings())
+			{
+				if (index.entryFor(stack.getId()) != null)
+				{
+					prices.merge(stack.getId(), Math.max(0L, stack.getUnitValue()), Math::min);
+				}
+			}
+		}
+		return prices;
+	}
+
+	/** Runs {@link GearOptimizer} off the EDT and publishes the result back via {@link #onOptimizerResult}. */
+	private void runOptimizer()
+	{
+		if (lastGear == null || selectedMonster == null)
+		{
+			optimizerStatusLabel.setText("Pick a target above first");
+			optimizerStatusLabel.setVisible(true);
+			optimizerResultPanel.setVisible(false);
+			return;
+		}
+
+		findBestSetupButton.setEnabled(false);
+		optimizerStatusLabel.setText("Searching...");
+		optimizerStatusLabel.setVisible(true);
+		optimizerResultPanel.setVisible(false);
+
+		long budget = parseBudget(budgetField.getText());
+		java.util.Map<Integer, Long> ownedPrices = ownedPriceMap();
+		int[] liveIds = lastGear.equippedItemIds();
+		Monster target = selectedMonster;
+		PlayerCombat.Builder template = PlayerCombat.builder()
+			.attack(lastGear.baseAttack(), lastGear.boostedAttack())
+			.strength(lastGear.baseStrength(), lastGear.boostedStrength())
+			.defence(lastGear.baseDefence(), lastGear.boostedDefence())
+			.ranged(lastGear.baseRanged(), lastGear.boostedRanged())
+			.magic(lastGear.baseMagic(), lastGear.boostedMagic())
+			.prayer(lastGear.basePrayer(), lastGear.boostedPrayer())
+			.hitpoints(lastGear.baseHitpoints(), lastGear.boostedHitpoints())
+			.activePrayers(lastGear.activePrayers())
+			.assumeBestPotion(bestPotionToggle.isSelected())
+			.assumeBestPrayer(bestPrayerToggle.isSelected())
+			.onSlayerTask(onSlayerTaskToggle.isSelected());
+
+		GearOptimizer.Request request = GearOptimizer.Request
+			.builder(liveIds, target, template)
+			.budget(budget)
+			.owned(ownedPrices.keySet())
+			.priceSource(id -> ownedPrices.getOrDefault(id, Long.MAX_VALUE))
+			.build();
+
+		new javax.swing.SwingWorker<GearOptimizer.Result, Void>()
+		{
+			@Override
+			protected GearOptimizer.Result doInBackground()
+			{
+				return GearOptimizer.optimize(request);
+			}
+
+			@Override
+			protected void done()
+			{
+				try
+				{
+					onOptimizerResult(get());
+				}
+				catch (java.util.concurrent.ExecutionException | InterruptedException e)
+				{
+					optimizerStatusLabel.setText("Search failed");
+					findBestSetupButton.setEnabled(true);
+				}
+			}
+		}.execute();
+	}
+
+	/** Renders a completed {@link GearOptimizer.Result} — called on the EDT by the {@code SwingWorker} above. */
+	private void onOptimizerResult(GearOptimizer.Result result)
+	{
+		findBestSetupButton.setEnabled(true);
+		optimizerStatusLabel.setVisible(false);
+		lastOptimizerResult = result;
+
+		optimizerResultDps.setText(String.format(Locale.ROOT, "%.2f", result.dps().dps()));
+		double delta = result.deltaDps();
+		String arrow = delta > 1e-9 ? " ▲" : delta < -1e-9 ? " ▼" : "";
+		optimizerResultDelta.setText(String.format(Locale.ROOT, "%+.2f%s", delta, arrow));
+		optimizerResultSpend.setText(formatGp(result.totalSpend()));
+		optimizerResultDpsPerGp.setText(result.totalSpend() > 0
+			? String.format(Locale.ROOT, "%.6f", result.dpsPerGp())
+			: "-");
+		optimizerResultPanel.setVisible(true);
+		optimizerResultPanel.revalidate();
+		body().revalidate();
+		body().repaint();
+	}
+
+	/** "1.2m" / "350k" / "0" — compact gp formatting for the spend readout. */
+	private static String formatGp(long gp)
+	{
+		if (gp >= 1_000_000)
+		{
+			return String.format(Locale.ROOT, "%.1fm", gp / 1_000_000.0);
+		}
+		if (gp >= 1_000)
+		{
+			return String.format(Locale.ROOT, "%.0fk", gp / 1000.0);
+		}
+		return String.valueOf(gp);
+	}
+
+	/**
+	 * Loads the last optimizer result into the what-if overrides (design
+	 * spec's "apply to readout" handoff) — every slot the result touches
+	 * becomes a {@link LoadoutOverride}, so the existing Phase 2 readout
+	 * (styles/spells ranking, DPS/TTK/etc, delta-vs-worn-gear row) picks it up
+	 * unchanged. Real gear is never touched.
+	 */
+	private void applyOptimizerResultToOverride()
+	{
+		if (lastOptimizerResult == null)
+		{
+			return;
+		}
+		LoadoutOverride next = LoadoutOverride.empty();
+		for (GearOptimizer.SlotChoice choice : lastOptimizerResult.loadout())
+		{
+			next = next.withSlot(choice.slotOrdinal(), choice.itemId());
+		}
+		override = next;
+		updateGearGrid(lastGear);
+		rankAndRender();
+	}
+
 	// ------------------------------------------------------------- compute
 
 	@Override
 	public void apply(SessionSnapshot snapshot)
 	{
 		lastGear = snapshot.getGear();
+		lastWealth = snapshot.getWealth();
 		updateGearGrid(lastGear);
 		autoToggleSlayerFromGear();
 		rankAndRender();
@@ -1896,6 +2183,82 @@ public final class GearSection extends CollapsibleSection
 	int renderedSlotIdForTest(int slotOrdinal)
 	{
 		return renderedSlotIds[slotOrdinal];
+	}
+
+	// --------------------------------------- Phase 3 optimiser test seams
+
+	void setBudgetTextForTest(String text)
+	{
+		budgetField.setText(text);
+	}
+
+	/**
+	 * Runs the optimizer SYNCHRONOUSLY for tests (bypassing the real
+	 * {@code SwingWorker}, whose background thread + {@code invokeLater}
+	 * hand-off is awkward to await deterministically in a headless test) by
+	 * building the same {@link GearOptimizer.Request} {@link #runOptimizer}
+	 * would and calling {@link #onOptimizerResult} directly on the calling
+	 * (EDT) thread.
+	 */
+	void runOptimizerSyncForTest()
+	{
+		long budget = parseBudget(budgetField.getText());
+		java.util.Map<Integer, Long> ownedPrices = ownedPriceMap();
+		int[] liveIds = lastGear.equippedItemIds();
+		PlayerCombat.Builder template = PlayerCombat.builder()
+			.attack(lastGear.baseAttack(), lastGear.boostedAttack())
+			.strength(lastGear.baseStrength(), lastGear.boostedStrength())
+			.defence(lastGear.baseDefence(), lastGear.boostedDefence())
+			.ranged(lastGear.baseRanged(), lastGear.boostedRanged())
+			.magic(lastGear.baseMagic(), lastGear.boostedMagic())
+			.prayer(lastGear.basePrayer(), lastGear.boostedPrayer())
+			.hitpoints(lastGear.baseHitpoints(), lastGear.boostedHitpoints())
+			.activePrayers(lastGear.activePrayers())
+			.assumeBestPotion(bestPotionToggle.isSelected())
+			.assumeBestPrayer(bestPrayerToggle.isSelected())
+			.onSlayerTask(onSlayerTaskToggle.isSelected());
+		GearOptimizer.Request request = GearOptimizer.Request
+			.builder(liveIds, selectedMonster, template)
+			.budget(budget)
+			.owned(ownedPrices.keySet())
+			.priceSource(id -> ownedPrices.getOrDefault(id, Long.MAX_VALUE))
+			.build();
+		onOptimizerResult(GearOptimizer.optimize(request));
+	}
+
+	GearOptimizer.Result lastOptimizerResultForTest()
+	{
+		return lastOptimizerResult;
+	}
+
+	boolean optimizerResultVisibleForTest()
+	{
+		return optimizerResultPanel.isVisible();
+	}
+
+	String optimizerResultDpsTextForTest()
+	{
+		return optimizerResultDps.getText();
+	}
+
+	String optimizerResultSpendTextForTest()
+	{
+		return optimizerResultSpend.getText();
+	}
+
+	void clickApplyOptimizerResultForTest()
+	{
+		applyOptimizerResultToOverride();
+	}
+
+	JButton findBestSetupButtonForTest()
+	{
+		return findBestSetupButton;
+	}
+
+	String optimizerStatusTextForTest()
+	{
+		return optimizerStatusLabel.getText();
 	}
 
 	JList<String> monsterListForTest()
