@@ -425,20 +425,38 @@ public final class GearOptimizer {
         int[] current = request.liveItemIds.clone();
         applyForcedIncludes(current, request, index);
 
-        // Greedy seed: independently pick each slot's best candidate (weapon
-        // slot evaluated at its own best style — see class javadoc), holding
-        // every other slot at its CURRENT (live) value. This purposefully
-        // ignores slot interactions; local search below fixes that.
+        // Greedy seed: independently pick each slot's best OWNED candidate
+        // (weapon slot evaluated at its own best style — see class javadoc),
+        // holding every other slot at its CURRENT (live) value. Seeding from
+        // owned-only candidates (price 0) guarantees the seed's total spend
+        // is always 0 <= budget, so the loadout the budget-guarded local
+        // search below starts from is always feasible; a slot with no owned
+        // candidate is left at its current/live value, same as before. This
+        // purposefully ignores slot interactions; local search below fixes
+        // that (within the budget).
         for (int i = 0; i < slotForIndex.length; i++) {
             int slot = slotForIndex[i];
             if (request.include.contains(current[slot])) {
                 continue; // forced include already applied (incl. the weapon slot) — never second-guessed here
             }
-            current = bestSingleSlotChoice(current, slot, candidatesBySlot.get(i), request);
+            List<Candidate> ownedForSlot = new ArrayList<>();
+            for (Candidate c : candidatesBySlot.get(i)) {
+                if (c.owned()) {
+                    ownedForSlot.add(c);
+                }
+            }
+            if (!ownedForSlot.isEmpty()) {
+                current = bestSingleSlotChoice(current, slot, ownedForSlot, request);
+            }
         }
 
         // Local search: repeat full passes over every slot, applying the first
-        // improving single-slot swap found, until a pass makes no change.
+        // improving single-slot swap found, until a pass makes no change. A
+        // swap is only accepted if it BOTH improves the objective AND keeps
+        // the loadout's total (non-owned) spend within budget — this is what
+        // bounds cumulative spend across slots (the per-item price check in
+        // buildCandidatesForSlot only rules out items that could never be
+        // affordable alone; it does not bound the sum across multiple slots).
         Evaluation currentEval = evaluate(current, request);
         for (int pass = 0; pass < MAX_LOCAL_SEARCH_PASSES; pass++) {
             boolean improved = false;
@@ -452,6 +470,9 @@ public final class GearOptimizer {
                         continue;
                     }
                     int[] trial = applySlotChoice(current, slot, c.itemId());
+                    if (!withinBudget(trial, request)) {
+                        continue; // would push cumulative spend over budget — reject regardless of DPS
+                    }
                     Evaluation trialEval = evaluate(trial, request);
                     if (trialEval != null && (currentEval == null || trialEval.dps.dps() > currentEval.dps.dps() + 1e-9)) {
                         current = trial;
@@ -496,6 +517,44 @@ public final class GearOptimizer {
     private static long priceOf(int itemId, Request request) {
         long price = request.priceSource.priceFor(itemId);
         return Math.max(0L, price);
+    }
+
+    /**
+     * Total GE spend of every non-owned, non-empty slot in {@code itemIds} —
+     * the same accounting {@link #optimize} uses to build the final
+     * {@link Result#totalSpend()}, exposed here so the local search can
+     * reject any swap that would push cumulative spend over budget (see
+     * {@link #withinBudget}). Owned items are always 0 regardless of price.
+     */
+    private static long totalSpendOf(int[] itemIds, Request request) {
+        long total = 0L;
+        for (int slot : SEARCHABLE_SLOTS) {
+            int itemId = slot < itemIds.length ? itemIds[slot] : -1;
+            if (itemId <= 0 || request.owned.contains(itemId)) {
+                continue;
+            }
+            total += priceOf(itemId, request);
+            if (total < 0) {
+                // Overflow guard: an absurd combination of prices summed past
+                // Long.MAX_VALUE would wrap negative — clamp to MAX_VALUE so
+                // the budget comparison below still correctly reads "over".
+                return Long.MAX_VALUE;
+            }
+        }
+        return total;
+    }
+
+    /**
+     * True when {@code itemIds}' cumulative non-owned spend fits within
+     * {@code request.budget}. Compares via subtraction-free addition (see
+     * {@link #totalSpendOf}'s overflow guard) rather than assuming both sides
+     * fit safely in a {@code long} sum, so an unbounded/very large budget
+     * (e.g. {@code Long.MAX_VALUE}, however unlikely given
+     * {@link Request.Builder#budget} clamps to non-negative) never
+     * overflows into a false rejection.
+     */
+    private static boolean withinBudget(int[] itemIds, Request request) {
+        return totalSpendOf(itemIds, request) <= request.budget;
     }
 
     private static int[] applySlotChoice(int[] itemIds, int slot, int itemId) {
