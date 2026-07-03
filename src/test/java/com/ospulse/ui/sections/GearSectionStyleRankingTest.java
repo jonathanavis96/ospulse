@@ -219,6 +219,109 @@ public class GearSectionStyleRankingTest
 			{
 				assertEquals(CombatStyle.SLASH, s.type());
 			}
+			// A pure-melee weapon never shows the spell picker.
+			assertTrue("melee weapon must not show the spell picker",
+				!section.spellPickerForTest().isVisible());
+		});
+	}
+
+	// ---- magic: spell picker + powered staves ------------------------------------------
+
+	private static GearSnapshot gearWithMagicWeapon(int weaponId, com.ospulse.combat.PoweredStaff poweredStaff)
+	{
+		EquipmentStats stats = EquipmentStats.builder()
+			.add(0, 0, 0, 60, 0,
+				0, 0, 0, 0, 0,
+				0, 0, 0.0, 0)
+			.weaponSpeedTicks(4)
+			.poweredStaff(poweredStaff)
+			.build();
+		return GearSnapshot.builder()
+			.equippedItemIds(weaponSlot(weaponId))
+			.attack(99, 99)
+			.strength(99, 99)
+			.defence(99, 99)
+			.ranged(99, 99)
+			.magic(99, 99)
+			.prayer(77, 77)
+			.hitpoints(99, 99)
+			.equipmentStats(stats)
+			.build();
+	}
+
+	@Test
+	public void autocastStaffShowsSpellPickerAndRanksARealMagicRow()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			// Staff of fire 1387 -> "Staff" category: 3 crush styles + a Spell (magic) style.
+			GearSnapshot gear = gearWithMagicWeapon(1387, com.ospulse.combat.PoweredStaff.NONE);
+			section.apply(snapshotWith(gear));
+			pickCerberus(section);
+
+			assertTrue("spell picker must show for an autocast-capable weapon",
+				section.spellPickerForTest().isVisible());
+
+			List<WeaponStyle> ranked = section.rankedStylesForTest();
+			assertEquals("staff exposes 3 crush styles + 1 magic style", 4, ranked.size());
+			WeaponStyle magicRow = null;
+			for (WeaponStyle s : ranked)
+			{
+				if (s.type() == CombatStyle.MAGIC)
+				{
+					magicRow = s;
+				}
+			}
+			assertTrue("a magic row must be present in the ranking", magicRow != null);
+
+			// The magic row computes the picked spell (default Fire Surge, base 24)
+			// through the real engine — lock the readout to it and verify.
+			section.clickStyleRowForTest(section.rankedStylesForTest().indexOf(magicRow));
+			assertEquals("24", section.maxHitTextForTest());
+
+			// Switching the spell recomputes: Ice Barrage base 30.
+			section.spellPickerForTest().setSelectedItem(com.ospulse.combat.Spell.ICE_BARRAGE);
+			section.clickStyleRowForTest(section.rankedStylesForTest().indexOf(magicRow));
+			assertEquals("30", section.maxHitTextForTest());
+		});
+	}
+
+	@Test
+	public void poweredStaffDerivesMaxHitFromMagicLevelAndHidesPicker()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			// Trident of the seas 11907 -> powered staff; at 99 magic: floor(99/3)-5 = 28.
+			GearSnapshot gear = gearWithMagicWeapon(11907,
+				com.ospulse.combat.PoweredStaff.TRIDENT_OF_THE_SEAS);
+			section.apply(snapshotWith(gear));
+			pickCerberus(section);
+
+			assertTrue("powered staff needs no spell picker",
+				!section.spellPickerForTest().isVisible());
+
+			List<WeaponStyle> ranked = section.rankedStylesForTest();
+			assertTrue("powered staff exposes magic styles", ranked.size() >= 1);
+			assertEquals(CombatStyle.MAGIC, ranked.get(0).type());
+			assertEquals("28", section.maxHitTextForTest());
+		});
+	}
+
+	@Test
+	public void overkillIsSurfacedInTheReadout()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			GearSnapshot gear = gearWithWeapon(22324);
+			section.apply(snapshotWith(gear));
+			pickCerberus(section);
+
+			String overkill = section.overkillTextForTest();
+			assertTrue("overkill must be a number once a target is picked, got: " + overkill,
+				overkill.matches("\\d+\\.\\d"));
 		});
 	}
 }

@@ -7,7 +7,8 @@ import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.Monster;
 import com.ospulse.combat.MonsterRepository;
 import com.ospulse.combat.PlayerCombat;
-import com.ospulse.combat.Stance;
+import com.ospulse.combat.PoweredStaff;
+import com.ospulse.combat.Spell;
 import com.ospulse.combat.WeaponCategoryRepository;
 import com.ospulse.combat.WeaponStyle;
 import com.ospulse.session.GearMapper;
@@ -74,10 +75,10 @@ import java.util.Locale;
  * are icon buttons with tooltips; the target is picked via a search box over a
  * fully scrollable {@link MonsterRepository} result list.
  *
- * <p>Magic styles are intentionally excluded from the ranking for now (magic
- * max hit still uses a placeholder base spell — see
- * {@link #DEFAULT_MAGIC_BASE_MAX_HIT}); a weapon whose only styles are magic
- * (powered staff/wand) falls back to a single magic placeholder row.
+ * <p>Magic styles rank with REAL numbers: a worn powered staff's built-in
+ * spell max hit is derived from the boosted Magic level automatically, and any
+ * other autocast-capable weapon gets a spell picker whose chosen {@link Spell}
+ * feeds the magic computation (5-tick autocast speed).
  *
  * <p>Deferred to a later phase (see the design spec): live opponent
  * auto-detection, favourites, magic spell picker, and gear upgrade suggestions
@@ -94,14 +95,6 @@ import java.util.Locale;
 public final class GearSection extends CollapsibleSection
 {
 	public static final String KEY = "gear";
-
-	/**
-	 * TODO Tier-A/magic simplification: Phase 1 has no spellbook UI, so magic
-	 * DPS uses a placeholder base spell max hit (roughly a mid-tier
-	 * standard-spellbook bolt spell) rather than the player's actually-selected
-	 * spell. Revisit once a spell picker exists.
-	 */
-	private static final int DEFAULT_MAGIC_BASE_MAX_HIT = 20;
 
 	/** {@code EquipmentInventorySlot.WEAPON} ordinal — index into {@link GearSnapshot#equippedItemIds()}. */
 	private static final int WEAPON_SLOT = 3;
@@ -157,6 +150,7 @@ public final class GearSection extends CollapsibleSection
 	private final JLabel stylesHeading;
 	private final JPanel stylesPanel;
 	private final List<StyleRow> styleRows = new ArrayList<>();
+	private final javax.swing.JComboBox<Spell> spellPicker;
 
 	private final IconTextField monsterSearchField;
 	private final JScrollPane listScroll;
@@ -171,6 +165,7 @@ public final class GearSection extends CollapsibleSection
 	private final JLabel avgHitValue;
 	private final JLabel dpsValue;
 	private final JLabel ttkValue;
+	private final JLabel overkillValue;
 	private final JLabel baseEstimateNote;
 
 	private List<Monster> filteredMonsters = Collections.emptyList();
@@ -216,6 +211,22 @@ public final class GearSection extends CollapsibleSection
 		stylesPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		stylesPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		body().add(stylesPanel);
+		body().add(Box.createRigidArea(new Dimension(0, 6)));
+
+		// ------------------------------------------------- spell picker
+		// Shown only when the equipped weapon can autocast and is NOT a powered
+		// staff (whose built-in spell needs no picking) — see rankAndRender.
+		spellPicker = new javax.swing.JComboBox<>(Spell.values());
+		spellPicker.setSelectedItem(Spell.FIRE_SURGE);
+		spellPicker.setFont(FontManager.getRunescapeSmallFont());
+		spellPicker.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		spellPicker.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		spellPicker.setToolTipText("The spell being autocast — its base max hit drives the Magic row");
+		spellPicker.setAlignmentX(Component.LEFT_ALIGNMENT);
+		spellPicker.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		spellPicker.setVisible(false);
+		spellPicker.addActionListener(e -> rankAndRender());
+		body().add(spellPicker);
 		body().add(Box.createRigidArea(new Dimension(0, 6)));
 
 		// ------------------------------------------------- boost toggles
@@ -325,8 +336,10 @@ public final class GearSection extends CollapsibleSection
 		avgHitValue = PanelWidgets.statRow(body(), "Avg hit");
 		dpsValue = PanelWidgets.statRow(body(), "DPS");
 		ttkValue = PanelWidgets.statRow(body(), "Time to kill");
+		overkillValue = PanelWidgets.statRow(body(), "Overkill");
+		overkillValue.setToolTipText("Expected damage wasted on the killing blow (rolled past the target's remaining HP)");
 
-		baseEstimateNote = PanelWidgets.emptyRowLabel("~ base estimate (some effects not yet modelled)");
+		baseEstimateNote = PanelWidgets.emptyRowLabel("~ approx — an unmodelled effect is present");
 		baseEstimateNote.setVisible(false);
 		body().add(baseEstimateNote);
 
@@ -496,14 +509,24 @@ public final class GearSection extends CollapsibleSection
 			userPickedStyle = false;
 		}
 		List<WeaponStyle> styles = new ArrayList<>(weaponRepo.stylesForItem(weaponId));
-		// Magic max hit is a placeholder until a spell picker exists, so magic
-		// styles would rank on fictional numbers — drop them from the ranking.
-		styles.removeIf(s -> s.type() == CombatStyle.MAGIC);
-		if (styles.isEmpty())
+
+		// Magic rows compute real numbers now: a worn powered staff derives its
+		// built-in spell max hit from the boosted Magic level, anything else
+		// autocast-capable uses the picked Spell. The picker is only relevant
+		// (and visible) in the latter case.
+		boolean hasMagicStyle = false;
+		for (WeaponStyle style : styles)
 		{
-			// Pure-magic weapon (powered staff/wand): keep a single placeholder so
-			// the readout still works, honestly flagged as a base estimate.
-			styles.add(new WeaponStyle("Magic", CombatStyle.MAGIC, Stance.STANDARD));
+			hasMagicStyle |= style.type() == CombatStyle.MAGIC;
+		}
+		PoweredStaff poweredStaff = lastGear != null && lastGear.equipmentStats() != null
+			? lastGear.equipmentStats().poweredStaff()
+			: PoweredStaff.NONE;
+		boolean pickerRelevant = hasMagicStyle && !poweredStaff.applies();
+		if (spellPicker.isVisible() != pickerRelevant)
+		{
+			spellPicker.setVisible(pickerRelevant);
+			body().revalidate();
 		}
 
 		boolean canRank = lastGear != null && selectedMonster != null && lastGear.equipmentStats() != null;
@@ -580,7 +603,20 @@ public final class GearSection extends CollapsibleSection
 		EquipmentStats gearStats = lastGear.equipmentStats();
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, style.stance(),
 			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected());
-		return DpsCalculator.compute(gearStats, player, style.type(), selectedMonster, DEFAULT_MAGIC_BASE_MAX_HIT);
+		if (style.type() == CombatStyle.MAGIC)
+		{
+			// Spell-aware path: a worn powered staff wins automatically; otherwise
+			// the picked spell's base max hit is autocast at 5 ticks.
+			return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, currentSpell());
+		}
+		return DpsCalculator.compute(gearStats, player, style.type(), selectedMonster, 0);
+	}
+
+	/** The spell currently picked in the selector (never {@code null} — the model always has a selection). */
+	private Spell currentSpell()
+	{
+		Spell picked = (Spell) spellPicker.getSelectedItem();
+		return picked != null ? picked : Spell.FIRE_SURGE;
 	}
 
 	// ------------------------------------------------------- target picker
@@ -709,9 +745,8 @@ public final class GearSection extends CollapsibleSection
 		lastDps = result.dps();
 		dpsValue.setText(String.format(Locale.ROOT, "%.2f", lastDps));
 		ttkValue.setText(formatTtk(result.ttkSeconds()));
-		// A magic placeholder row (pure-magic weapon) is always a base estimate.
-		baseEstimateNote.setVisible(result.baseEstimate()
-			|| (selectedStyle != null && selectedStyle.type() == CombatStyle.MAGIC));
+		overkillValue.setText(String.format(Locale.ROOT, "%.1f", result.overkillPerKill()));
+		baseEstimateNote.setVisible(result.baseEstimate());
 
 		refreshSummary();
 	}
@@ -723,6 +758,7 @@ public final class GearSection extends CollapsibleSection
 		avgHitValue.setText("-");
 		dpsValue.setText("-");
 		ttkValue.setText("-");
+		overkillValue.setText("-");
 		baseEstimateNote.setVisible(false);
 		lastDps = 0.0;
 	}
@@ -863,6 +899,16 @@ public final class GearSection extends CollapsibleSection
 	String ttkTextForTest()
 	{
 		return ttkValue.getText();
+	}
+
+	String overkillTextForTest()
+	{
+		return overkillValue.getText();
+	}
+
+	javax.swing.JComboBox<Spell> spellPickerForTest()
+	{
+		return spellPicker;
 	}
 
 	String targetTextForTest()
