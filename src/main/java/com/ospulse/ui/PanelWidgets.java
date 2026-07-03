@@ -33,6 +33,17 @@ public final class PanelWidgets
 	 */
 	public static JLabel statRow(JPanel container, String labelText)
 	{
+		return statRow(container, labelText, null);
+	}
+
+	/**
+	 * Same as {@link #statRow(JPanel, String)}, but also attaches {@code
+	 * popupMenu} to the row (via {@code setComponentPopupMenu}) when
+	 * non-null, e.g. for an XP-Tracker-style right-click reset/pause/canvas
+	 * menu on a per-stat basis.
+	 */
+	public static JLabel statRow(JPanel container, String labelText, javax.swing.JPopupMenu popupMenu)
+	{
 		JPanel row = new JPanel(new BorderLayout());
 		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		row.setBorder(new EmptyBorder(1, 0, 1, 0));
@@ -49,6 +60,11 @@ public final class PanelWidgets
 
 		row.add(label, BorderLayout.WEST);
 		row.add(value, BorderLayout.EAST);
+		if (popupMenu != null)
+		{
+			row.setComponentPopupMenu(popupMenu);
+			value.setComponentPopupMenu(popupMenu);
+		}
 		container.add(row);
 		return value;
 	}
@@ -124,6 +140,17 @@ public final class PanelWidgets
 	 */
 	public static JPanel iconRow(Image image, String leftText, String rightText, Color leftColor)
 	{
+		return iconRow(image, leftText, rightText, leftColor, null);
+	}
+
+	/**
+	 * Same as {@link #iconRow(Image, String, String, Color)}, but also
+	 * attaches {@code popupMenu} to the row when non-null, e.g. for an
+	 * XP-Tracker-style right-click reset/pause/canvas menu.
+	 */
+	public static JPanel iconRow(Image image, String leftText, String rightText, Color leftColor,
+		javax.swing.JPopupMenu popupMenu)
+	{
 		JPanel row = new JPanel(new BorderLayout(4, 0));
 		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		row.setBorder(new EmptyBorder(1, 0, 1, 0));
@@ -147,6 +174,12 @@ public final class PanelWidgets
 		row.add(rightLabel, BorderLayout.EAST);
 
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		if (popupMenu != null)
+		{
+			row.setComponentPopupMenu(popupMenu);
+			textLabel.setComponentPopupMenu(popupMenu);
+			rightLabel.setComponentPopupMenu(popupMenu);
+		}
 		return row;
 	}
 

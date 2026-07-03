@@ -5,19 +5,25 @@ import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.GpFormat;
 import com.ospulse.ui.PanelWidgets;
 import com.ospulse.ui.ThinProgressBar;
+import com.ospulse.ui.category.CategoryOverlay;
+import com.ospulse.ui.category.CategorySectionSupport;
 import com.ospulse.xp.VirtualLevelTable;
 import com.ospulse.xp.XpSkillView;
 
+import net.runelite.api.Client;
 import net.runelite.api.Skill;
 import net.runelite.client.game.SkillIconManager;
+import net.runelite.client.plugins.Plugin;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.SkillColor;
+import net.runelite.client.ui.overlay.OverlayManager;
 
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.SwingConstants;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -26,6 +32,7 @@ import java.awt.Dimension;
 import java.awt.GridLayout;
 import java.awt.Image;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -43,6 +50,18 @@ import java.util.Map;
  *
  * <p>Falls back to the plain gained-per-skill list when the snapshot carries
  * no {@link XpSkillView}s (e.g. one produced via the older constructors).
+ *
+ * <p>Each skill card carries an XP-Tracker-style right-click menu (see
+ * {@code com.ospulse.ui.category.CategoryContextMenu}, ported from RuneLite's
+ * own XP Tracker plugin's {@code XpInfoBox}), including its "Open Wise Old
+ * Man" link (using the skill name as the WOM gained-metric) and "Add to
+ * canvas" (a positionable game overlay via {@code
+ * com.ospulse.ui.category.CategoryOverlay}, ported from {@code
+ * XpInfoBoxOverlay}). "Pause" freezes a skill's card at its last-seen {@link
+ * XpSkillView} rather than stopping the underlying XP tracking; "Reset"/
+ * "Reset others"/"Reset all" hide the skill's card from this section's list
+ * (a UI-level filter) since XP totals here are read from the single tracker
+ * rather than each skill owning independent, clearable state.
  */
 public final class XpSection extends CollapsibleSection
 {
@@ -52,19 +71,34 @@ public final class XpSection extends CollapsibleSection
 
 	private final JPanel breakdownPanel;
 	private final SkillIconManager skillIconManager;
+	private final CategorySectionSupport categorySupport;
+
+	/** Last-seen view per skill category id, so a paused card keeps showing its frozen figures. */
+	private final Map<String, XpSkillView> lastSeenBySkill = new HashMap<>();
+	/** Skills hidden via "Reset"/"Reset others"/"Reset all". */
+	private final java.util.Set<String> hiddenSkills = new java.util.HashSet<>();
+	/** Reset-epoch last observed per category id, so a "Reset" click is detected exactly once. */
+	private final Map<String, Integer> lastSeenEpoch = new HashMap<>();
 
 	private long xpTotal;
 	private long elapsedMs;
 
-	public XpSection(CollapseStore store, SkillIconManager skillIconManager)
+	public XpSection(CollapseStore store, SkillIconManager skillIconManager,
+		Plugin plugin, Client client, OverlayManager overlayManager)
 	{
 		super(KEY, "XP gained", store);
 		this.skillIconManager = skillIconManager;
+		this.categorySupport = new CategorySectionSupport(plugin, client, overlayManager);
 		breakdownPanel = new JPanel();
 		breakdownPanel.setLayout(new BoxLayout(breakdownPanel, BoxLayout.Y_AXIS));
 		breakdownPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		breakdownPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		body().add(breakdownPanel);
+	}
+
+	private static String categoryId(String skillName)
+	{
+		return "xp:" + skillName;
 	}
 
 	@Override
@@ -89,15 +123,40 @@ public final class XpSection extends CollapsibleSection
 		refreshSummary();
 	}
 
-	/** "Overall" summary row + one compact card per skill. */
+	/** "Overall" summary row + one compact card per skill (paused skills frozen, reset skills hidden). */
 	private void renderSkillViews(List<XpSkillView> skills, long overallXpPerHour)
 	{
 		breakdownPanel.add(PanelWidgets.listRow("Overall XP",
 			GpFormat.format(xpTotal) + " · " + GpFormat.format(overallXpPerHour) + " xp/hr"));
 		breakdownPanel.add(PanelWidgets.spacer());
 
+		List<XpSkillView> display = new ArrayList<>();
+		for (XpSkillView view : skills)
+		{
+			String catId = categoryId(view.getSkillName());
+			detectReset(catId);
+			categorySupport.setLinesSupplier(catId, () -> canvasLines(catId));
+
+			if (categorySupport.controller().isPaused(catId))
+			{
+				display.add(lastSeenBySkill.getOrDefault(catId, view));
+			}
+			else
+			{
+				lastSeenBySkill.put(catId, view);
+				if (!hiddenSkills.contains(catId))
+				{
+					display.add(view);
+				}
+			}
+		}
+		// A paused-but-also-reset skill was already excluded via hiddenSkills
+		// before pausing froze it; filter here too so a reset always hides
+		// the card regardless of pause order.
+		display.removeIf(v -> hiddenSkills.contains(categoryId(v.getSkillName())));
+
 		boolean first = true;
-		for (XpSkillView skill : skills)
+		for (XpSkillView skill : display)
 		{
 			if (!first)
 			{
@@ -106,6 +165,36 @@ public final class XpSection extends CollapsibleSection
 			first = false;
 			breakdownPanel.add(skillCard(skill));
 		}
+	}
+
+	/** Marks {@code catId} hidden the moment its reset epoch advances (a "Reset"/"Reset others"/"Reset all" click). */
+	private void detectReset(String catId)
+	{
+		int epoch = categorySupport.controller().resetEpoch(catId);
+		Integer lastEpoch = lastSeenEpoch.get(catId);
+		if (lastEpoch == null)
+		{
+			lastSeenEpoch.put(catId, epoch);
+			return;
+		}
+		if (epoch != lastEpoch)
+		{
+			hiddenSkills.add(catId);
+			lastSeenEpoch.put(catId, epoch);
+		}
+	}
+
+	private List<CategoryOverlay.Line> canvasLines(String catId)
+	{
+		XpSkillView view = lastSeenBySkill.get(catId);
+		if (view == null)
+		{
+			return List.of();
+		}
+		return List.of(
+			new CategoryOverlay.Line("Lvl", String.valueOf(view.getCurrentLevel())),
+			new CategoryOverlay.Line("XP gained", GpFormat.format(view.getGained())),
+			new CategoryOverlay.Line("XP/hr", GpFormat.format(view.getXpPerHour())));
 	}
 
 	/**
@@ -128,7 +217,10 @@ public final class XpSection extends CollapsibleSection
 		card.setAlignmentX(Component.LEFT_ALIGNMENT);
 
 		String name = prettySkillName(view.getSkillName());
-		card.add(PanelWidgets.iconRow(skillIcon(skill), name, "Lvl " + view.getCurrentLevel(), accent));
+		String catId = categoryId(view.getSkillName());
+		JPopupMenu popupMenu = categorySupport.buildMenu(catId, view.getSkillName());
+		card.add(PanelWidgets.iconRow(skillIcon(skill), name, "Lvl " + view.getCurrentLevel(), accent,
+			popupMenu));
 
 		card.add(rigidSpacer(3));
 		card.add(statGrid(view, maxed));
@@ -298,6 +390,12 @@ public final class XpSection extends CollapsibleSection
 			return 0;
 		}
 		return xpTotal * 3_600_000L / elapsedMs;
+	}
+
+	@Override
+	public void removeAllCategoryOverlays()
+	{
+		categorySupport.removeAllOverlays();
 	}
 
 	@Override

@@ -5,6 +5,19 @@ Plugin code: BSD-2-Clause (see LICENSE). Compiled against the RuneLite client
 API — RuneLite is BSD-2-Clause, Copyright (c) RuneLite contributors
 (https://github.com/runelite/runelite).
 
+0. src/main/java/com/ospulse/ui/category/{CategoryState,CategoryController,
+   CategoryContextMenu,CategoryOverlay,CategorySectionSupport}.java
+   Adapted from RuneLite's own XP Tracker plugin
+   (net.runelite.client.plugins.xptracker, BSD-2-Clause, Copyright (c) 2017-2020
+   Cameron, Psikoi, Adam, Levi, Jasper Ketelaar, Anthony and other RuneLite
+   contributors, https://github.com/runelite/runelite): the per-skill
+   resettable/pausable state pattern (XpStateSingle), the right-click
+   reset/reset-others/reset-all/pause/pause-all/"Add to canvas" JPopupMenu
+   (XpInfoBox) and the movable canvas overlay (XpInfoBoxOverlay), generalised
+   from "one instance per Skill" to "one instance per arbitrary panel
+   category" so the same pattern backs session-stat rows, loot-source rows
+   and XP-skill rows in this plugin.
+
 Bundled data:
 
 1. src/main/resources/com/ospulse/combat/monsters.min.json

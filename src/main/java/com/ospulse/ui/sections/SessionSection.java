@@ -4,8 +4,15 @@ import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.GpFormat;
 import com.ospulse.ui.PanelWidgets;
+import com.ospulse.ui.category.CategoryOverlay;
+import com.ospulse.ui.category.CategorySectionSupport;
+
+import net.runelite.api.Client;
+import net.runelite.client.plugins.Plugin;
+import net.runelite.client.ui.overlay.OverlayManager;
 
 import javax.swing.JLabel;
+import java.util.List;
 
 /**
  * Session summary: elapsed, profit, supplies used, profit/hr, net-worth delta
@@ -13,10 +20,26 @@ import javax.swing.JLabel;
  * alongside it as a separate spent/negative-styled readout so consumables
  * burned through this session are visible at a glance instead of silently
  * eating into profit. Collapsed summary shows elapsed + profit.
+ *
+ * <p>Each stat row carries an XP-Tracker-style right-click menu (see {@code
+ * com.ospulse.ui.category.CategoryContextMenu}, ported from RuneLite's XP
+ * Tracker plugin). Since these stats are read straight off the single {@link
+ * com.ospulse.session.SessionEngine} accumulator rather than each having
+ * their own independent counter, "Reset" here rebases the displayed figure
+ * to zero from that point (subtracting a captured baseline) rather than
+ * clearing any engine-level state; "Pause" freezes the row's displayed value
+ * rather than stopping the engine from tracking it.
  */
 public final class SessionSection extends CollapsibleSection
 {
 	public static final String KEY = "session";
+
+	private static final String CAT_ELAPSED = "session:elapsed";
+	private static final String CAT_PROFIT = "session:profit";
+	private static final String CAT_SUPPLIES = "session:supplies";
+	private static final String CAT_PROFIT_PER_HOUR = "session:profitPerHour";
+	private static final String CAT_NET_WORTH_DELTA = "session:netWorthDelta";
+	private static final String CAT_GE_PNL = "session:gePnl";
 
 	private final JLabel elapsedValue;
 	private final JLabel profitValue;
@@ -25,42 +48,116 @@ public final class SessionSection extends CollapsibleSection
 	private final JLabel netWorthDeltaValue;
 	private final JLabel geRealizedPnlValue;
 
-	private long elapsedMs;
-	private long profit;
+	private final CategorySectionSupport categorySupport;
 
-	public SessionSection(CollapseStore store)
+	/** Baselines captured at "Reset" time (raw engine value when reset was clicked), keyed by category id. */
+	private long profitBaseline;
+	private long suppliesBaseline;
+	private long profitPerHourBaseline;
+	private long netWorthDeltaBaseline;
+	private long gePnlBaseline;
+
+	private long elapsedMs;
+	private long displayedProfit;
+
+	public SessionSection(CollapseStore store, Plugin plugin, Client client, OverlayManager overlayManager)
 	{
 		super(KEY, "Session", store);
-		elapsedValue = PanelWidgets.statRow(body(), "Elapsed");
-		profitValue = PanelWidgets.statRow(body(), "Profit");
-		suppliesUsedValue = PanelWidgets.statRow(body(), "Supplies used");
-		profitPerHourValue = PanelWidgets.statRow(body(), "Profit/hr");
-		netWorthDeltaValue = PanelWidgets.statRow(body(), "Net worth Δ");
-		geRealizedPnlValue = PanelWidgets.statRow(body(), "GE flip P&L");
+		categorySupport = new CategorySectionSupport(plugin, client, overlayManager);
+
+		elapsedValue = PanelWidgets.statRow(body(), "Elapsed",
+			categorySupport.buildMenu(CAT_ELAPSED, null));
+		profitValue = PanelWidgets.statRow(body(), "Profit",
+			categorySupport.buildMenu(CAT_PROFIT, null));
+		suppliesUsedValue = PanelWidgets.statRow(body(), "Supplies used",
+			categorySupport.buildMenu(CAT_SUPPLIES, null));
+		profitPerHourValue = PanelWidgets.statRow(body(), "Profit/hr",
+			categorySupport.buildMenu(CAT_PROFIT_PER_HOUR, null));
+		netWorthDeltaValue = PanelWidgets.statRow(body(), "Net worth Δ",
+			categorySupport.buildMenu(CAT_NET_WORTH_DELTA, null));
+		geRealizedPnlValue = PanelWidgets.statRow(body(), "GE flip P&L",
+			categorySupport.buildMenu(CAT_GE_PNL, null));
+
+		categorySupport.setLinesSupplier(CAT_PROFIT, () -> List.of(
+			new CategoryOverlay.Line("Profit", GpFormat.format(displayedProfit))));
 	}
 
 	@Override
 	public void apply(SessionSnapshot snapshot)
 	{
 		elapsedMs = snapshot.getElapsedMs();
-		profit = snapshot.getProfit();
-		long suppliesUsed = snapshot.getSuppliesUsed();
+		long rawProfit = snapshot.getProfit();
+		long rawSuppliesUsed = snapshot.getSuppliesUsed();
+		long rawProfitPerHour = snapshot.getProfitPerHour();
+		long rawNetWorthDelta = snapshot.getNetWorthDelta();
+		long rawGePnl = snapshot.getGeRealizedPnl();
 
-		elapsedValue.setText(PanelWidgets.formatElapsed(elapsedMs));
-		PanelWidgets.setSignedGpLabel(profitValue, profit);
-		// Supplies used is always a spend, never a gain — render it as a
-		// negative-style figure (like a cost) regardless of sign so it reads
-		// consistently as "gp burned", not as profit/loss.
-		PanelWidgets.setSignedGpLabel(suppliesUsedValue, -suppliesUsed);
-		PanelWidgets.setSignedGpLabel(profitPerHourValue, snapshot.getProfitPerHour());
-		PanelWidgets.setSignedGpLabel(netWorthDeltaValue, snapshot.getNetWorthDelta());
-		PanelWidgets.setSignedGpLabel(geRealizedPnlValue, snapshot.getGeRealizedPnl());
+		if (!categorySupport.controller().isPaused(CAT_ELAPSED))
+		{
+			elapsedValue.setText(PanelWidgets.formatElapsed(elapsedMs));
+		}
+		if (!categorySupport.controller().isPaused(CAT_PROFIT))
+		{
+			displayedProfit = rawProfit - profitBaseline;
+			PanelWidgets.setSignedGpLabel(profitValue, displayedProfit);
+		}
+		if (!categorySupport.controller().isPaused(CAT_SUPPLIES))
+		{
+			// Supplies used is always a spend, never a gain — render it as a
+			// negative-style figure (like a cost) regardless of sign so it
+			// reads consistently as "gp burned", not as profit/loss.
+			PanelWidgets.setSignedGpLabel(suppliesUsedValue, -(rawSuppliesUsed - suppliesBaseline));
+		}
+		if (!categorySupport.controller().isPaused(CAT_PROFIT_PER_HOUR))
+		{
+			PanelWidgets.setSignedGpLabel(profitPerHourValue, rawProfitPerHour - profitPerHourBaseline);
+		}
+		if (!categorySupport.controller().isPaused(CAT_NET_WORTH_DELTA))
+		{
+			PanelWidgets.setSignedGpLabel(netWorthDeltaValue, rawNetWorthDelta - netWorthDeltaBaseline);
+		}
+		if (!categorySupport.controller().isPaused(CAT_GE_PNL))
+		{
+			PanelWidgets.setSignedGpLabel(geRealizedPnlValue, rawGePnl - gePnlBaseline);
+		}
+
+		rebaseIfJustReset(CAT_PROFIT, rawProfit, v -> profitBaseline = v);
+		rebaseIfJustReset(CAT_SUPPLIES, rawSuppliesUsed, v -> suppliesBaseline = v);
+		rebaseIfJustReset(CAT_PROFIT_PER_HOUR, rawProfitPerHour, v -> profitPerHourBaseline = v);
+		rebaseIfJustReset(CAT_NET_WORTH_DELTA, rawNetWorthDelta, v -> netWorthDeltaBaseline = v);
+		rebaseIfJustReset(CAT_GE_PNL, rawGePnl, v -> gePnlBaseline = v);
+
 		refreshSummary();
+	}
+
+	/** Reset-epoch tracking per category, so a baseline is captured exactly once per "Reset" click. */
+	private final java.util.Map<String, Integer> lastSeenEpoch = new java.util.HashMap<>();
+
+	private void rebaseIfJustReset(String categoryId, long rawValue, java.util.function.LongConsumer setBaseline)
+	{
+		int epoch = categorySupport.controller().resetEpoch(categoryId);
+		Integer lastEpoch = lastSeenEpoch.get(categoryId);
+		if (lastEpoch == null)
+		{
+			lastSeenEpoch.put(categoryId, epoch);
+			return;
+		}
+		if (epoch != lastEpoch)
+		{
+			setBaseline.accept(rawValue);
+			lastSeenEpoch.put(categoryId, epoch);
+		}
+	}
+
+	@Override
+	public void removeAllCategoryOverlays()
+	{
+		categorySupport.removeAllOverlays();
 	}
 
 	@Override
 	protected String summaryText()
 	{
-		return PanelWidgets.formatElapsed(elapsedMs) + "  " + GpFormat.format(profit);
+		return PanelWidgets.formatElapsed(elapsedMs) + "  " + GpFormat.format(displayedProfit);
 	}
 }

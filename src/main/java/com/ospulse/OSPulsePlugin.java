@@ -28,6 +28,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.loottracker.LootReceived;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ImageUtil;
 import okhttp3.OkHttpClient;
 
@@ -78,6 +79,9 @@ public class OSPulsePlugin extends Plugin
 	@Inject
 	private net.runelite.client.game.SpriteManager spriteManager;
 
+	@Inject
+	private OverlayManager overlayManager;
+
 	private SessionTracker tracker;
 	private OSPulsePanel panel;
 	private DashboardSyncService syncService;
@@ -96,7 +100,7 @@ public class OSPulsePlugin extends Plugin
 		priceTrendService = new PriceTrendService(okHttpClient, config, gson);
 
 		panel = new OSPulsePanel(config, itemManager, configManager, priceTrendService, skillIconManager,
-			spriteManager);
+			spriteManager, this, client, overlayManager);
 		panel.setResetCallback(tracker::resetSession);
 		tracker.addListener(panel);
 
@@ -130,6 +134,12 @@ public class OSPulsePlugin extends Plugin
 		{
 			clientToolbar.removeNavigation(navButton);
 			navButton = null;
+		}
+		if (panel != null)
+		{
+			// Drop any category overlays the user added to the canvas so a
+			// plugin toggle doesn't leak stale XP-Tracker-style overlays.
+			panel.removeAllCategoryOverlays();
 		}
 		if (tracker != null)
 		{

@@ -123,6 +123,17 @@ public abstract class CollapsibleSection extends JPanel
 	/** Refresh this section's labels from a new snapshot. */
 	public abstract void apply(SessionSnapshot snapshot);
 
+	/**
+	 * Removes any game-canvas overlays this section's categories may have
+	 * added (see {@code com.ospulse.ui.category.CategoryController}'s
+	 * "Add to canvas" action). No-op by default; sections that wire up
+	 * per-category canvas overlays override this so a plugin toggle or
+	 * shutdown doesn't leak overlays. Called from the Swing EDT.
+	 */
+	public void removeAllCategoryOverlays()
+	{
+	}
+
 	/** Subclasses MUST call this at the end of {@link #apply}. */
 	protected final void refreshSummary()
 	{
