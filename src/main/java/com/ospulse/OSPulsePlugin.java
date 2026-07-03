@@ -160,6 +160,9 @@ public class OSPulsePlugin extends Plugin
 			// Drop any category overlays the user added to the canvas so a
 			// plugin toggle doesn't leak stale XP-Tracker-style overlays.
 			panel.removeAllCategoryOverlays();
+			// Flush HoldingsSection's Unrealized P/L snapshot so "since last
+			// login" has the freshest possible baseline next time.
+			panel.persistState();
 		}
 		if (tracker != null)
 		{

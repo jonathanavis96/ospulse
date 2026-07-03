@@ -10,6 +10,7 @@ import com.ospulse.ui.GpFormat;
 import com.ospulse.ui.PanelWidgets;
 import com.ospulse.wealth.WealthSnapshot;
 
+import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
@@ -28,6 +29,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalDouble;
+import java.util.OptionalLong;
 
 /**
  * Top holdings: the most valuable items in the player's wealth. Collapsed
@@ -46,15 +48,26 @@ import java.util.OptionalDouble;
  * amount each holding has drifted since acquisition — with the cost basis in
  * the row tooltip. Realised profit lives in the Session section; price drift
  * only ever shows up here.
+ *
+ * <p>The Unrealized P/L value is also persisted to the RuneLite config (see
+ * {@link #UNREALIZED_PNL_CONFIG_KEY}) on every update and on shutdown, so
+ * that on the player's next login it can show a "since last login: +X / -Y"
+ * delta badge next to the current value. First-ever login (no stored value
+ * yet) shows no delta.
  */
 public final class HoldingsSection extends CollapsibleSection
 {
 	public static final String KEY = "holdings";
+
+	/** Raw config key (not declared on {@link OSPulseConfig}) storing the last-seen Unrealized P/L. */
+	static final String UNREALIZED_PNL_CONFIG_KEY = "lastUnrealizedPnl";
+
 	private static final int DEFAULT_PAGE_SIZE = 5;
 
 	private final ItemManager itemManager;
 	private final OSPulseConfig config;
 	private final PriceTrendService priceTrendService;
+	private final ConfigManager configManager;
 
 	private final JLabel unrealizedValue;
 	private final JPanel holdingsListPanel;
@@ -67,16 +80,31 @@ public final class HoldingsSection extends CollapsibleSection
 	private long lastUnrealizedPnl;
 	private long total;
 	private int visibleCount;
-	private String aggregateTrendText;
+	/** Colored (green/red) HTML {@code <font>} span for the value-weighted aggregate trend badge, or null. */
+	private String aggregateTrendBadgeHtml;
+
+	/** The Unrealized P/L stored from the player's previous login, if any. */
+	private final OptionalLong previousLoginUnrealizedPnl;
 
 	public HoldingsSection(CollapseStore store, ItemManager itemManager, OSPulseConfig config,
 		PriceTrendService priceTrendService)
+	{
+		this(store, itemManager, config, priceTrendService, null);
+	}
+
+	public HoldingsSection(CollapseStore store, ItemManager itemManager, OSPulseConfig config,
+		PriceTrendService priceTrendService, ConfigManager configManager)
 	{
 		super(KEY, "Top holdings", store);
 		this.itemManager = itemManager;
 		this.config = config;
 		this.priceTrendService = priceTrendService;
+		this.configManager = configManager;
 		this.visibleCount = pageSize();
+		this.previousLoginUnrealizedPnl = configManager == null
+			? OptionalLong.empty()
+			: UnrealizedPnlHistory.parseStored(
+				configManager.getConfiguration(OSPulseConfig.GROUP, UNREALIZED_PNL_CONFIG_KEY));
 
 		unrealizedValue = PanelWidgets.statRow(body(), "Unrealized P/L");
 
@@ -134,14 +162,52 @@ public final class HoldingsSection extends CollapsibleSection
 		{
 			visibleCount = pageSize();
 		}
+		persistUnrealizedPnl();
 		render();
 	}
 
+	/**
+	 * Writes the current Unrealized P/L to the RuneLite config so it survives
+	 * a client restart and can be compared against on the next login (feature
+	 * 7). Called on every snapshot update (cheap: a single config write) and
+	 * again from {@link #shutdown()} so the very latest value is always the
+	 * one read back next time, even if the last {@link #apply} predates a
+	 * late price move.
+	 */
+	private void persistUnrealizedPnl()
+	{
+		if (configManager != null)
+		{
+			configManager.setConfiguration(OSPulseConfig.GROUP, UNREALIZED_PNL_CONFIG_KEY,
+				Long.toString(lastUnrealizedPnl));
+		}
+	}
+
+	/** Call on plugin shutdown so the last-known value is persisted even without a final snapshot. */
+	public void shutdown()
+	{
+		persistUnrealizedPnl();
+	}
+
+	/**
+	 * Collapsed-header summary: "Top holdings" value formatted compactly
+	 * (e.g. {@code 2.1B} / {@code 950M}), plus - when a value-weighted trend
+	 * is available - a separate colored (green up / red down) percentage
+	 * badge with its arrow. Rendered as HTML in a plain (non-wrapping,
+	 * non-HTML by default) {@code JLabel}: without the {@code <html>} wrapper
+	 * long concatenated plain text just gets silently clipped by the header's
+	 * fixed-width {@code BorderLayout.EAST} slot, which is what caused the
+	 * value and trend badge to run together and overflow off the panel edge.
+	 */
 	@Override
 	protected String summaryText()
 	{
-		String base = GpFormat.format(total);
-		return aggregateTrendText == null ? base : base + "  " + aggregateTrendText;
+		String base = HoldingsFormat.compact(total);
+		if (aggregateTrendBadgeHtml == null)
+		{
+			return "<html>" + base + "</html>";
+		}
+		return "<html>" + base + "&nbsp;&nbsp;" + aggregateTrendBadgeHtml + "</html>";
 	}
 
 	private void render()
@@ -149,6 +215,11 @@ public final class HoldingsSection extends CollapsibleSection
 		holdingsListPanel.removeAll();
 
 		PanelWidgets.setSignedGpLabel(unrealizedValue, lastUnrealizedPnl);
+		OptionalLong delta = UnrealizedPnlHistory.delta(lastUnrealizedPnl, previousLoginUnrealizedPnl);
+		unrealizedValue.setText("<html><div style='text-align:right'>"
+			+ GpFormat.format(lastUnrealizedPnl)
+			+ "<br>" + sinceLastLoginHtml(delta)
+			+ "</div></html>");
 
 		boolean trendsOn = config != null && config.priceTrendEnabled();
 		total = 0L;
@@ -212,8 +283,8 @@ public final class HoldingsSection extends CollapsibleSection
 			}
 		}
 
-		aggregateTrendText = weightedValueSum > 0
-			? trendText(weightedTrendSum / weightedValueSum)
+		aggregateTrendBadgeHtml = weightedValueSum > 0
+			? trendBadgeHtml(OptionalDouble.of(weightedTrendSum / weightedValueSum))
 			: null;
 
 		boolean canShowMore = lastHoldings.size() > visibleCount;
@@ -238,6 +309,22 @@ public final class HoldingsSection extends CollapsibleSection
 	private static String signedGp(long value)
 	{
 		return (value > 0 ? "+" : "") + GpFormat.format(value);
+	}
+
+	/**
+	 * The small "since last login: +X / -Y" delta line shown under the
+	 * Unrealized P/L stat row (feature 7), colored green/red, or a plain
+	 * "—" when there's no prior-login value yet (first-ever login).
+	 */
+	private static String sinceLastLoginHtml(OptionalLong delta)
+	{
+		String text = UnrealizedPnlHistory.label(delta);
+		if (delta.isEmpty())
+		{
+			return "<font size='-1' color='" + toHex(ColorScheme.LIGHT_GRAY_COLOR) + "'>" + text + "</font>";
+		}
+		Color color = delta.getAsLong() >= 0 ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.PROGRESS_ERROR_COLOR;
+		return "<font size='-1' color='" + toHex(color) + "'>" + text + "</font>";
 	}
 
 	/**
