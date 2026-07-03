@@ -534,8 +534,13 @@ public class SessionEngineTest
 		assertEquals(50_000L, paper.getUnrealizedPnl());
 
 		// Sold the lot at 1.5k: coins in, item out. The paper gain is realised.
+		// Nature runes match SupplyClassifier's rune pattern, so — matching
+		// how GeReconciler really behaves for a GE sale — this interval's
+		// update() call must mark the item GE-attributed; otherwise the item
+		// vanishing entirely from tracked items would be indistinguishable
+		// from the whole stack being used up (see the supplies-used tests).
 		WealthSnapshot afterSale = snap(150_000L, Collections.emptyMap(), 0L, false, 2000L);
-		engine.update(afterSale, Collections.emptySet(), 2000L);
+		engine.update(afterSale, Collections.singleton(RUNE_ITEM), 2000L);
 
 		SessionSnapshot result = engine.snapshot(afterSale, 0L, Collections.emptyMap(), 0L, 2000L);
 		assertEquals("sale converts the paper gain into realised profit",
@@ -678,6 +683,8 @@ public class SessionEngineTest
 
 	private static final int PRAYER_POTION = 2434;
 	private static final int ADAMANT_ARROW = 890;
+	private static final int SHARK = 385;
+	private static final int COOKED_KARAMBWAN = 3144;
 
 	@Test
 	public void consumingPotionDosesIncreasesSuppliesUsed()
@@ -698,6 +705,71 @@ public class SessionEngineTest
 
 		assertEquals(3_000L, result.getSuppliesUsed());
 		assertEquals(3_000L, engine.getSuppliesUsed());
+		// Regression: drinking a potion dose must not itself register as a
+		// profit loss — the spend belongs in suppliesUsed only.
+		assertEquals("drinking a potion dose must not reduce profit",
+			0L, result.getProfit());
+	}
+
+	@Test
+	public void eatingASharkCountsAsSuppliesUsedNotProfitLoss()
+	{
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(SHARK, new ItemStack(SHARK, "Shark", 5L, 800L));
+		WealthSnapshot initial = snap(4_000L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Ate one shark from the inventory (5 -> 4) while away from the bank.
+		Map<Integer, ItemStack> afterTracked = new LinkedHashMap<>();
+		afterTracked.put(SHARK, new ItemStack(SHARK, "Shark", 4L, 800L));
+		WealthSnapshot current = snap(3_200L, afterTracked, 0L, false, 1000L);
+
+		engine.update(current, Collections.emptySet(), 1000L);
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+
+		assertEquals("eating a shark must count as supplies used", 800L, result.getSuppliesUsed());
+		assertEquals("eating a shark must not register as a profit loss", 0L, result.getProfit());
+	}
+
+	@Test
+	public void eatingACookedKarambwanCountsAsSuppliesUsedNotProfitLoss()
+	{
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(COOKED_KARAMBWAN, new ItemStack(COOKED_KARAMBWAN, "Cooked karambwan", 10L, 400L));
+		WealthSnapshot initial = snap(4_000L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Ate one cooked karambwan (10 -> 9) while away from the bank.
+		Map<Integer, ItemStack> afterTracked = new LinkedHashMap<>();
+		afterTracked.put(COOKED_KARAMBWAN, new ItemStack(COOKED_KARAMBWAN, "Cooked karambwan", 9L, 400L));
+		WealthSnapshot current = snap(3_600L, afterTracked, 0L, false, 1000L);
+
+		engine.update(current, Collections.emptySet(), 1000L);
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+
+		assertEquals("eating a karambwan must count as supplies used", 400L, result.getSuppliesUsed());
+		assertEquals("eating a karambwan must not register as a profit loss", 0L, result.getProfit());
+	}
+
+	@Test
+	public void drinkingASinglePrayerPotionDoseCountsAsSuppliesUsedNotProfitLoss()
+	{
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(PRAYER_POTION, new ItemStack(PRAYER_POTION, "Prayer potion(4)", 1L, 1_000L));
+		WealthSnapshot initial = snap(1_000L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Drank the final dose: the stack disappears from the inventory
+		// entirely (quantity drops to zero / item removed from tracked
+		// items), mirroring a 4->empty potion transition in-client.
+		Map<Integer, ItemStack> afterTracked = new LinkedHashMap<>();
+		WealthSnapshot current = snap(0L, afterTracked, 0L, false, 1000L);
+
+		engine.update(current, Collections.emptySet(), 1000L);
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+
+		assertEquals("drinking the last dose must count as supplies used", 1_000L, result.getSuppliesUsed());
+		assertEquals("drinking the last dose must not register as a profit loss", 0L, result.getProfit());
 	}
 
 	@Test
