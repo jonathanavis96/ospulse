@@ -192,10 +192,16 @@ public final class GearSection extends CollapsibleSection
 	private final JLabel[] slotLabels = new JLabel[GearSnapshot.EQUIPMENT_SLOT_COUNT];
 	private final int[] renderedSlotIds = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
 
+	/** Fixed row height (row content + the 2px inter-row gap) used to size {@link #stylesScroll}'s viewport. */
+	private static final int STYLE_ROW_HEIGHT = 22;
+	/** How many attack-style/spell rows are visible before {@link #stylesScroll} scrolls (design: ~5 rows). */
+	private static final int STYLES_VISIBLE_ROWS = 5;
+
 	private final JLabel stylesHeading;
 	private final JPanel bookTabsPanel;
 	private final JToggleButton[] bookTabButtons = new JToggleButton[BookTab.values().length];
 	private final JPanel stylesPanel;
+	private final JScrollPane stylesScroll;
 	private final List<StyleRow> styleRows = new ArrayList<>();
 	private final List<SpellRow> spellRows = new ArrayList<>();
 	/** Per-sprite-id spell icon cache — each spellbook sprite is fetched (async) at most once. */
@@ -424,7 +430,21 @@ public final class GearSection extends CollapsibleSection
 		stylesPanel.setLayout(new BoxLayout(stylesPanel, BoxLayout.Y_AXIS));
 		stylesPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		stylesPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-		body().add(stylesPanel);
+
+		// Capped-height, scrollable viewport (design: ~5 rows) — the magic view's
+		// Standard book alone has ~25 spell rows, which used to render in full and
+		// push the whole panel taller; melee/ranged style lists (3-4 rows) simply
+		// never need to scroll within the same fixed-height viewport.
+		stylesScroll = new JScrollPane(stylesPanel);
+		stylesScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+		stylesScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+		stylesScroll.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
+		stylesScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+		stylesScroll.getVerticalScrollBar().setUnitIncrement(STYLE_ROW_HEIGHT);
+		int viewportHeight = STYLE_ROW_HEIGHT * STYLES_VISIBLE_ROWS;
+		stylesScroll.setPreferredSize(new Dimension(0, viewportHeight));
+		stylesScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, viewportHeight));
+		body().add(stylesScroll);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
 
 		// -------------------------------- primary/secondary cast readout
@@ -900,6 +920,8 @@ public final class GearSection extends CollapsibleSection
 
 		stylesPanel.revalidate();
 		stylesPanel.repaint();
+		stylesScroll.revalidate();
+		stylesScroll.repaint();
 		body().revalidate();
 		body().repaint();
 
