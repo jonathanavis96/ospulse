@@ -1,6 +1,8 @@
 package com.ospulse.session;
 
 import com.ospulse.combat.DemonbaneWeapon;
+import com.ospulse.combat.DragonHunterWeapon;
+import com.ospulse.combat.PoweredStaff;
 import com.ospulse.combat.SalveType;
 import com.ospulse.combat.SlayerHeadgear;
 import com.ospulse.combat.VoidSet;
@@ -244,14 +246,99 @@ final class GearVariants
 	 */
 	private static final int EMBERLIGHT = 29589;
 
+	/**
+	 * Rest of the melee sword line. Ids are the OSRS Wiki infobox values for
+	 * these long-stable pre-migration items (Silverlight 2402, Darklight 6746,
+	 * Arclight 19675) — same live-cache cross-check caveat as the class
+	 * javadoc; dyed Silverlight variants and Burning claws are TODO. The
+	 * ranged Scorching bow (id 29591, +30%/+30% vs demons) is deliberately
+	 * NOT wired: the wiki documents its damage bonus stacking ADDITIVELY with
+	 * the slayer helm (i) (30+15=45%), which doesn't fit the current
+	 * highest-wins slot — it needs its own additive path (and a GearScape
+	 * parity check) before wiring.
+	 */
+	private static final int SILVERLIGHT = 2402;
+	private static final int DARKLIGHT = 6746;
+	private static final int ARCLIGHT = 19675;
+
 	/** Maps a worn WEAPON-slot item id to the {@link DemonbaneWeapon} it is ({@link DemonbaneWeapon#NONE} if not demonbane). */
 	static DemonbaneWeapon demonbaneWeaponFor(int weaponItemId)
 	{
-		if (weaponItemId == EMBERLIGHT)
+		switch (weaponItemId)
 		{
-			return DemonbaneWeapon.EMBERLIGHT;
+			case EMBERLIGHT:
+				return DemonbaneWeapon.EMBERLIGHT;
+			case ARCLIGHT:
+				return DemonbaneWeapon.ARCLIGHT;
+			case DARKLIGHT:
+				return DemonbaneWeapon.DARKLIGHT;
+			case SILVERLIGHT:
+				return DemonbaneWeapon.SILVERLIGHT;
+			default:
+				return DemonbaneWeapon.NONE;
 		}
-		return DemonbaneWeapon.NONE;
+	}
+
+	// ==== Dragon Hunter (dragonbane) weapons + Twisted bow ================================
+
+	/**
+	 * Dragon hunter crossbow 21012 and Dragon hunter lance 22978, both
+	 * verified against the OSRS Wiki infobox 2026-07-03 (dragon-hunter
+	 * crossbow (b)/(t) cosmetic variants and the Dragon hunter wand — whose
+	 * exact vs-dragon %s are still unverified — are TODO). Twisted bow 20997.
+	 */
+	private static final int DRAGON_HUNTER_CROSSBOW = 21012;
+	private static final int DRAGON_HUNTER_LANCE = 22978;
+	private static final int TWISTED_BOW = 20997;
+
+	/** Maps a worn WEAPON-slot item id to its {@link DragonHunterWeapon} ({@link DragonHunterWeapon#NONE} if not dragonbane). */
+	static DragonHunterWeapon dragonHunterWeaponFor(int weaponItemId)
+	{
+		switch (weaponItemId)
+		{
+			case DRAGON_HUNTER_LANCE:
+				return DragonHunterWeapon.LANCE;
+			case DRAGON_HUNTER_CROSSBOW:
+				return DragonHunterWeapon.CROSSBOW;
+			default:
+				return DragonHunterWeapon.NONE;
+		}
+	}
+
+	/** True when the worn weapon is the Twisted bow. */
+	static boolean isTwistedBow(int weaponItemId)
+	{
+		return weaponItemId == TWISTED_BOW;
+	}
+
+	// ==== Powered staves ==================================================================
+
+	/**
+	 * Powered staves whose built-in spell scales with Magic level (see
+	 * {@link PoweredStaff}). Charged-variant ids from the OSRS Wiki infobox
+	 * (same cross-check caveat): Trident of the seas 11905 (full)/11907,
+	 * Trident of the swamp 12899, Sanguinesti staff 22323 (+ Holy 25731),
+	 * Tumeken's shadow 27275. Uncharged variants can't attack and are
+	 * deliberately excluded; the enhanced "(e)" tridents and Accursed/Warped
+	 * sceptres are TODO pending id + formula verification.
+	 */
+	static PoweredStaff poweredStaffFor(int weaponItemId)
+	{
+		switch (weaponItemId)
+		{
+			case 11905:
+			case 11907:
+				return PoweredStaff.TRIDENT_OF_THE_SEAS;
+			case 12899:
+				return PoweredStaff.TRIDENT_OF_THE_SWAMP;
+			case 22323:
+			case 25731:
+				return PoweredStaff.SANGUINESTI_STAFF;
+			case 27275:
+				return PoweredStaff.TUMEKENS_SHADOW;
+			default:
+				return PoweredStaff.NONE;
+		}
 	}
 
 	private static Set<Integer> setOf(int... ids)

@@ -119,9 +119,13 @@ public final class GearMapper
 			}
 		}
 
+		int weaponItemId = slotItemId(equippedItemIds, weaponSlotIndex);
 		builder.salveType(GearVariants.salveTypeFor(slotItemId(equippedItemIds, SLOT_AMULET)));
 		builder.slayerHeadgear(GearVariants.slayerHeadgearFor(slotItemId(equippedItemIds, SLOT_HEAD)));
-		builder.demonbaneWeapon(GearVariants.demonbaneWeaponFor(slotItemId(equippedItemIds, weaponSlotIndex)));
+		builder.demonbaneWeapon(GearVariants.demonbaneWeaponFor(weaponItemId));
+		builder.dragonHunterWeapon(GearVariants.dragonHunterWeaponFor(weaponItemId));
+		builder.twistedBow(GearVariants.isTwistedBow(weaponItemId));
+		builder.poweredStaff(GearVariants.poweredStaffFor(weaponItemId));
 		builder.voidSet(GearVariants.voidSetFor(
 			slotItemId(equippedItemIds, SLOT_HEAD),
 			slotItemId(equippedItemIds, SLOT_BODY),

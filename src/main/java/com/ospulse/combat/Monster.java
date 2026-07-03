@@ -116,6 +116,11 @@ public final class Monster {
         return attributes.contains(MonsterAttribute.DEMON);
     }
 
+    /** True for draconic creatures (dragons, hydras, wyverns, Great Olm) — gates Dragon Hunter and similar dragonbane effects. */
+    public boolean isDragon() {
+        return attributes.contains(MonsterAttribute.DRAGON);
+    }
+
     /** Attack speed in ticks, if known (not always present in the source data). */
     public Integer attackSpeedTicks() {
         return attackSpeedTicks;

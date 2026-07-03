@@ -30,6 +30,9 @@ public final class EquipmentStats {
     private final SlayerHeadgear slayerHeadgear;
     private final VoidSet voidSet;
     private final DemonbaneWeapon demonbaneWeapon;
+    private final DragonHunterWeapon dragonHunterWeapon;
+    private final boolean twistedBow;
+    private final PoweredStaff poweredStaff;
 
     private EquipmentStats(Builder b) {
         this.astab = b.astab;
@@ -52,6 +55,9 @@ public final class EquipmentStats {
         this.slayerHeadgear = b.slayerHeadgear;
         this.voidSet = b.voidSet;
         this.demonbaneWeapon = b.demonbaneWeapon;
+        this.dragonHunterWeapon = b.dragonHunterWeapon;
+        this.twistedBow = b.twistedBow;
+        this.poweredStaff = b.poweredStaff;
     }
 
     public int astab() {
@@ -152,6 +158,19 @@ public final class EquipmentStats {
         return demonbaneWeapon;
     }
 
+    public DragonHunterWeapon dragonHunterWeapon() {
+        return dragonHunterWeapon;
+    }
+
+    /** True when the worn weapon is the Twisted bow (its vs-target magic scaling applies to ranged attacks). */
+    public boolean twistedBow() {
+        return twistedBow;
+    }
+
+    public PoweredStaff poweredStaff() {
+        return poweredStaff;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -177,6 +196,9 @@ public final class EquipmentStats {
         private SlayerHeadgear slayerHeadgear = SlayerHeadgear.NONE;
         private VoidSet voidSet = VoidSet.NONE;
         private DemonbaneWeapon demonbaneWeapon = DemonbaneWeapon.NONE;
+        private DragonHunterWeapon dragonHunterWeapon = DragonHunterWeapon.NONE;
+        private boolean twistedBow;
+        private PoweredStaff poweredStaff = PoweredStaff.NONE;
 
         private Builder() {
         }
@@ -236,6 +258,21 @@ public final class EquipmentStats {
 
         public Builder demonbaneWeapon(DemonbaneWeapon value) {
             this.demonbaneWeapon = value;
+            return this;
+        }
+
+        public Builder dragonHunterWeapon(DragonHunterWeapon value) {
+            this.dragonHunterWeapon = value;
+            return this;
+        }
+
+        public Builder twistedBow(boolean value) {
+            this.twistedBow = value;
+            return this;
+        }
+
+        public Builder poweredStaff(PoweredStaff value) {
+            this.poweredStaff = value;
             return this;
         }
 

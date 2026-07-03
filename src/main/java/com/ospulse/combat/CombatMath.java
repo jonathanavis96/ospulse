@@ -157,4 +157,72 @@ final class CombatMath {
         }
         return (int) new Fraction(23, 20).applyFloor(primaryDamage); // +15%
     }
+
+    // ---- Twisted bow ----------------------------------------------------------------------
+
+    /**
+     * Twisted bow accuracy modifier (percent), per the published formula on the
+     * <a href="https://oldschool.runescape.wiki/w/Twisted_bow">Twisted bow</a> page:
+     * <pre>
+     * Accuracy% = 140 + (10*(3*Magic/10) - 10)/100 - ((3*Magic/10 - 100)^2)/100,  clamped to [0, 140]
+     * </pre>
+     * where {@code Magic} is the target's magic level (or magic attack bonus if
+     * higher — the bundled monster data has no magic attack bonus field, so the
+     * level alone is used), capped at 250 outside the Chambers of Xeric (the
+     * CoX 350 cap is not modelled — Tier C). Integer-step truncation matches the
+     * weirdgloop reference implementation, our parity oracle.
+     */
+    static int twistedBowAccuracyPercent(int targetMagic) {
+        int m = Math.min(Math.max(targetMagic, 0), 250);
+        int t = (3 * m) / 10;
+        int pct = 140 + (10 * t - 10) / 100 - ((t - 100) * (t - 100)) / 100;
+        return Math.max(0, Math.min(140, pct));
+    }
+
+    /**
+     * Twisted bow damage modifier (percent), same source/shape as
+     * {@link #twistedBowAccuracyPercent}:
+     * <pre>
+     * Damage% = 250 + (10*(3*Magic/10) - 14)/100 - ((3*Magic/10 - 140)^2)/100,  clamped to [0, 250]
+     * </pre>
+     */
+    static int twistedBowDamagePercent(int targetMagic) {
+        int m = Math.min(Math.max(targetMagic, 0), 250);
+        int t = (3 * m) / 10;
+        int pct = 250 + (10 * t - 14) / 100 - ((t - 140) * (t - 140)) / 100;
+        return Math.max(0, Math.min(250, pct));
+    }
+
+    // ---- Overkill ---------------------------------------------------------------------------
+
+    /**
+     * Expected damage wasted on the killing blow (damage rolled beyond the
+     * target's remaining hitpoints), in hitpoints per kill.
+     *
+     * <p>Model: exact dynamic programme over remaining-HP states using the same
+     * per-attack damage distribution as {@link #averageDamagePerAttack} — a
+     * successful hit rolls uniform 0..maxHit with a rolled 0 bumped to 1 (so 1
+     * has probability 2/(maxHit+1), each of 2..maxHit has 1/(maxHit+1)); a miss
+     * deals 0. Misses don't change the HP state, so they cancel out of the
+     * recursion algebraically and the result is independent of hit chance:
+     * <pre>
+     * O[h] = sum over successful damage d of P(d) * (d &gt;= h ? d - h : O[h - d])
+     * </pre>
+     * O(hp * maxHit) time — trivially fast at OSRS scales.
+     */
+    static double expectedOverkill(int maxHit, int targetHitpoints) {
+        if (maxHit <= 0 || targetHitpoints <= 0) {
+            return 0.0;
+        }
+        double[] over = new double[targetHitpoints + 1];
+        for (int h = 1; h <= targetHitpoints; h++) {
+            double sum = 0.0;
+            for (int d = 1; d <= maxHit; d++) {
+                double p = (d == 1 ? 2.0 : 1.0) / (maxHit + 1);
+                sum += p * (d >= h ? (d - h) : over[h - d]);
+            }
+            over[h] = sum;
+        }
+        return over[targetHitpoints];
+    }
 }

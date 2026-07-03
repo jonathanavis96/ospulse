@@ -8,21 +8,58 @@ package com.ospulse.combat;
  * Tier-A effects modelled (each isolated below, with an "applies when"
  * predicate, per the design doc): offensive prayers, best-potion boosts,
  * Slayer helm(i)/black mask(i) on-task bonus, Salve amulet variants vs
- * Undead, Void/Elite Void. Unknown/unmodelled effects (Tier B/C: dragon
- * hunter gear, twisted bow scaling, scythe multi-hit, special attacks,
- * elemental weakness, Avarice, Tomes, ...) are simply not applied — extend
- * this class (and {@link CombatMath}) to add them, gated behind their own
- * "applies when" predicate, without touching the Tier-A paths.
+ * Undead, Void/Elite Void. Tier-B effects: demonbane melee weapons
+ * (accuracy/damage split, sharing the highest-wins target slot), Dragon
+ * Hunter lance/crossbow vs dragons and the Twisted bow's vs-target-magic
+ * scaling (both separate multiplicative steps — they stack with the target
+ * slot), powered-staff built-in spells and real {@link Spell} max hits for
+ * autocast. Unknown/unmodelled effects (scythe multi-hit, special attacks,
+ * elemental weakness, Avarice, Tomes, Tumeken's 3x gear multiplier, ...)
+ * are simply not applied — extend this class (and {@link CombatMath}) to add
+ * them, gated behind their own "applies when" predicate.
  */
 public final class DpsCalculator {
     private DpsCalculator() {
     }
 
+    /**
+     * Legacy/simple entry point: magic uses {@code baseSpellMaxHit} verbatim
+     * with the weapon's own attack speed (no powered-staff or spell logic).
+     * Prefer {@link #compute(EquipmentStats, PlayerCombat, CombatStyle, Monster, Spell)}
+     * for magic with a real spell, which also auto-detects powered staves.
+     */
     public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
                                      Monster target, int baseSpellMaxHit) {
         if (style == CombatStyle.MAGIC) {
-            return computeMagic(gear, player, target, baseSpellMaxHit);
+            return computeMagic(gear, player, target, baseSpellMaxHit, gear.weaponSpeedTicks(), false);
         }
+        return computeNonMagic(gear, player, style, target);
+    }
+
+    /**
+     * Spell-aware entry point. For {@link CombatStyle#MAGIC}: a worn powered
+     * staff (detected on {@code gear}) takes precedence — its built-in spell's
+     * max hit is derived from the (boosted) Magic level at the weapon's own
+     * speed; otherwise the given {@link Spell}'s base max hit is cast at the
+     * fixed {@link Spell#CAST_SPEED_TICKS} autocast speed. A {@code null}
+     * spell with no powered staff yields a zero-damage result rather than a
+     * guess.
+     */
+    public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                     Monster target, Spell spell) {
+        if (style != CombatStyle.MAGIC) {
+            return computeNonMagic(gear, player, style, target);
+        }
+        if (gear.poweredStaff().applies()) {
+            // Base max hit derives from the boosted level inside computeMagic.
+            return computeMagic(gear, player, target, POWERED_STAFF_SENTINEL, gear.weaponSpeedTicks(),
+                    gear.poweredStaff().approximate());
+        }
+        int baseMaxHit = spell == null ? 0 : spell.baseMaxHit();
+        return computeMagic(gear, player, target, baseMaxHit, Spell.CAST_SPEED_TICKS, false);
+    }
+
+    private static DpsResult computeNonMagic(EquipmentStats gear, PlayerCombat player, CombatStyle style, Monster target) {
         if (style == CombatStyle.RANGED) {
             return computeRanged(gear, player, target);
         }
@@ -52,13 +89,22 @@ public final class DpsCalculator {
         int effStr = CombatMath.effectiveMeleeOrRangedLevel(boostedStr, prayerStrMult, styleBonusStr, 8, voidMult);
         int effAtt = CombatMath.effectiveMeleeOrRangedLevel(boostedAtt, prayerAttMult, styleBonusAtt, 8, voidMult);
 
-        Fraction targetGearBonus = meleeOrRangedTargetGearBonus(style, gear, target, player);
+        TargetBonus targetGearBonus = meleeOrRangedTargetGearBonus(style, gear, target, player);
 
-        int maxHit = CombatMath.meleeOrRangedMaxHit(effStr, gear.str(), targetGearBonus);
-        int attackRoll = CombatMath.meleeOrRangedAttackRoll(effAtt, gear.attackBonus(style), targetGearBonus);
+        int maxHit = CombatMath.meleeOrRangedMaxHit(effStr, gear.str(), targetGearBonus.damage);
+        int attackRoll = CombatMath.meleeOrRangedAttackRoll(effAtt, gear.attackBonus(style), targetGearBonus.accuracy);
+
+        // Dragon Hunter lance: the weapon's own vs-dragon passive — a SEPARATE
+        // multiplicative floor step, stacking with the salve/slayer/demonbane slot.
+        DragonHunterWeapon dh = gear.dragonHunterWeapon();
+        if (target.isDragon() && dh.appliesTo(style)) {
+            maxHit = (int) dh.damageMult().applyFloor(maxHit);
+            attackRoll = (int) dh.accuracyMult().applyFloor(attackRoll);
+        }
+
         int defenceRoll = CombatMath.npcDefenceRoll(target.defenceLevel(), target.defenceBonus(style));
 
-        return finish(maxHit, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
+        return finish(maxHit, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints(), false);
     }
 
     // ---- Ranged -----------------------------------------------------------------------
@@ -82,25 +128,51 @@ public final class DpsCalculator {
         int effStr = CombatMath.effectiveMeleeOrRangedLevel(boostedRanged, prayerStrMult, styleBonus, 8, voidMult);
         int effAtt = CombatMath.effectiveMeleeOrRangedLevel(boostedRanged, prayerAttMult, styleBonus, 8, voidMult);
 
-        Fraction targetGearBonus = meleeOrRangedTargetGearBonus(CombatStyle.RANGED, gear, target, player);
+        TargetBonus targetGearBonus = meleeOrRangedTargetGearBonus(CombatStyle.RANGED, gear, target, player);
 
-        int maxHit = CombatMath.meleeOrRangedMaxHit(effStr, gear.rstr(), targetGearBonus);
-        int attackRoll = CombatMath.meleeOrRangedAttackRoll(effAtt, gear.arange(), targetGearBonus);
+        int maxHit = CombatMath.meleeOrRangedMaxHit(effStr, gear.rstr(), targetGearBonus.damage);
+        int attackRoll = CombatMath.meleeOrRangedAttackRoll(effAtt, gear.arange(), targetGearBonus.accuracy);
+
+        // Dragon Hunter crossbow — separate multiplicative step (see computeMelee).
+        DragonHunterWeapon dh = gear.dragonHunterWeapon();
+        if (target.isDragon() && dh.appliesTo(CombatStyle.RANGED)) {
+            maxHit = (int) dh.damageMult().applyFloor(maxHit);
+            attackRoll = (int) dh.accuracyMult().applyFloor(attackRoll);
+        }
+
+        // Twisted bow: the weapon's own scaling with the TARGET's magic level —
+        // also its own multiplicative step (stacks with everything above).
+        if (gear.twistedBow()) {
+            int accPct = CombatMath.twistedBowAccuracyPercent(target.magicLevel());
+            int dmgPct = CombatMath.twistedBowDamagePercent(target.magicLevel());
+            attackRoll = (int) new Fraction(accPct, 100).applyFloor(attackRoll);
+            maxHit = (int) new Fraction(dmgPct, 100).applyFloor(maxHit);
+        }
+
         int defenceRoll = CombatMath.npcDefenceRoll(target.defenceLevel(), target.drange());
 
         // Rapid attack style reduces the weapon's attack speed by 1 tick.
         int weaponSpeedTicks = gear.weaponSpeedTicks() - (player.stance() == Stance.RAPID ? 1 : 0);
         weaponSpeedTicks = Math.max(1, weaponSpeedTicks);
 
-        return finish(maxHit, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints());
+        return finish(maxHit, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints(), false);
     }
 
     // ---- Magic --------------------------------------------------------------------------
 
-    private static DpsResult computeMagic(EquipmentStats gear, PlayerCombat player, Monster target, int baseSpellMaxHit) {
+    /** Marker for "derive the base max hit from the worn powered staff at the boosted Magic level". */
+    private static final int POWERED_STAFF_SENTINEL = -1;
+
+    private static DpsResult computeMagic(EquipmentStats gear, PlayerCombat player, Monster target,
+                                          int baseSpellMaxHit, int castSpeedTicks, boolean approximate) {
         int boostedMagic = player.assumeBestPotion()
                 ? PotionBoosts.bestMagicBoostedLevel(player.baseMagic())
                 : player.boostedMagic();
+
+        if (baseSpellMaxHit == POWERED_STAFF_SENTINEL) {
+            // Powered staff: built-in spell max hit scales with the boosted level.
+            baseSpellMaxHit = gear.poweredStaff().maxHitAt(boostedMagic);
+        }
 
         double prayerAccMult = player.assumeBestPrayer() ? OffensivePrayer.AUGURY.magicAccuracyMult()
                 : maxOf(player, OffensivePrayer::magicAccuracyMult);
@@ -130,49 +202,78 @@ public final class DpsCalculator {
         boolean slayerPreHitRollApplies = slayerOnTaskImbued && !salveVsUndead;
         int maxHit = CombatMath.magicPreHitRoll(primaryDamage, slayerPreHitRollApplies);
 
-        return finish(maxHit, accuracyRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
+        return finish(maxHit, accuracyRoll, defenceRoll, castSpeedTicks, target.hitpoints(), approximate);
     }
 
     // ---- Shared helpers -----------------------------------------------------------------
 
+    /** The single highest-wins target-specific gear-bonus slot, split into its accuracy and damage components. */
+    private static final class TargetBonus {
+        static final TargetBonus NONE = new TargetBonus(Fraction.ONE, Fraction.ONE);
+
+        final Fraction accuracy;
+        final Fraction damage;
+
+        TargetBonus(Fraction accuracy, Fraction damage) {
+            this.accuracy = accuracy;
+            this.damage = damage;
+        }
+    }
+
     /**
-     * Target-specific gear-bonus fraction shared by max hit and attack roll for melee/ranged
-     * (per the wiki: "Gear bonus is the same as in Step Two/Two"). Salve (vs Undead) and the
-     * on-task Slayer helm(i)/black mask(i) bonus never stack; Salve wins when both would apply.
+     * Target-specific gear-bonus slot shared by max hit and attack roll for melee/ranged.
+     * ONE "target-specific gear bonus" slot: Salve (vs undead), the on-task Slayer
+     * helm/black mask, and melee demonbane (vs demons) all live here and DO NOT
+     * stack — the strongest effect wins and contributes BOTH its accuracy and its
+     * damage component (matching GearScape / the wiki DPS calc; e.g. an Emberlight
+     * (1.7/1.7) on a demon overrides the slayer-helm 7/6 rather than multiplying on
+     * top of it; Salve already dominates the slayer value numerically, preserving
+     * the documented "salve wins over slayer").
+     *
+     * <p>"Strongest" = highest damage multiplier (accuracy breaks ties). For the
+     * damage-only Silverlight/Darklight (1.0 acc / 1.6 dmg) worn on-task against
+     * an undead demon this means the sword's damage bonus is taken INSTEAD of the
+     * slayer helm's symmetric 7/6 — the wiki doesn't document that corner
+     * explicitly; GearScape-parity TODO before trusting it to the last percent.
+     *
+     * <p>Dragon Hunter weapons and the Twisted bow deliberately do NOT live in
+     * this slot — they're the weapon's own passive, applied as a separate
+     * multiplicative step in computeMelee/computeRanged (they stack with this
+     * slot). The ranged demonbane Scorching bow is not wired yet: its bonus is
+     * documented as stacking ADDITIVELY with the slayer helm (i), which fits
+     * neither this slot nor a separate multiplicative step (see GearVariants).
      */
-    private static Fraction meleeOrRangedTargetGearBonus(CombatStyle style, EquipmentStats gear, Monster target, PlayerCombat player) {
-        // ONE "target-specific gear bonus" slot: Salve (vs undead), the on-task
-        // Slayer helm/black mask, and demonbane (vs demons) all live here and DO
-        // NOT stack — the highest multiplier wins. Matches GearScape and the wiki
-        // DPS calc: e.g. an Emberlight (1.7) on a demon overrides the slayer-helm
-        // 7/6 rather than multiplying on top of it. Salve already dominates the
-        // slayer value numerically, so taking the max preserves the documented
-        // "salve wins over slayer".
-        Fraction best = Fraction.ONE;
+    private static TargetBonus meleeOrRangedTargetGearBonus(CombatStyle style, EquipmentStats gear, Monster target, PlayerCombat player) {
+        TargetBonus best = TargetBonus.NONE;
 
         if (target.isUndead()) {
             Fraction salve = style.isMelee() ? gear.salveType().meleeBonus() : gear.salveType().rangedBonus();
-            best = higher(best, salve);
+            best = stronger(best, new TargetBonus(salve, salve));
         }
         if (player.onSlayerTask() && gear.slayerHeadgear().wornAtAll()) {
             Fraction slayer = style.isMelee()
                     ? new Fraction(7, 6)
                     : (gear.slayerHeadgear().isImbued() ? new Fraction(23, 20) : Fraction.ONE); // ranged: imbued only
-            best = higher(best, slayer);
+            best = stronger(best, new TargetBonus(slayer, slayer));
         }
         if (style.isMelee() && target.isDemon() && gear.demonbaneWeapon().applies()) {
-            // Only the symmetric sword-line demonbane (Emberlight/Arclight, equal
-            // accuracy & damage) is wired today, so this single shared fraction is
-            // exact for both max hit and the attack roll. Damage-only Silverlight/
-            // Darklight — and ranged demonbane (Scorching bow) — need a separate
-            // accuracy/damage split before wiring (see DemonbaneWeapon).
-            best = higher(best, gear.demonbaneWeapon().damageMult());
+            best = stronger(best, new TargetBonus(
+                    gear.demonbaneWeapon().accuracyMult(), gear.demonbaneWeapon().damageMult()));
         }
         return best;
     }
 
-    private static Fraction higher(Fraction a, Fraction b) {
-        return b.asDouble() > a.asDouble() ? b : a;
+    /** The stronger of two slot candidates: higher damage multiplier wins, accuracy breaks ties. */
+    private static TargetBonus stronger(TargetBonus a, TargetBonus b) {
+        double da = a.damage.asDouble();
+        double db = b.damage.asDouble();
+        if (db > da) {
+            return b;
+        }
+        if (db == da && b.accuracy.asDouble() > a.accuracy.asDouble()) {
+            return b;
+        }
+        return a;
     }
 
     private static double maxOf(PlayerCombat player, java.util.function.ToDoubleFunction<OffensivePrayer> extractor) {
@@ -183,16 +284,14 @@ public final class DpsCalculator {
         return best;
     }
 
-    private static DpsResult finish(int maxHit, int attackRoll, int defenceRoll, int weaponSpeedTicks, int targetHitpoints) {
+    private static DpsResult finish(int maxHit, int attackRoll, int defenceRoll, int weaponSpeedTicks,
+                                    int targetHitpoints, boolean baseEstimate) {
         double hitChance = CombatMath.hitChance(attackRoll, defenceRoll);
         double avgDamage = CombatMath.averageDamagePerAttack(hitChance, maxHit);
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
         // avgDamage is the expected damage per attack (misses included) — GearScape's "Avg Hit".
         double ttkSeconds = dps > 0 ? targetHitpoints / dps : 0.0;
-        // Tier-A only: no unmodelled-effect detection signal exists in the current input
-        // model, so baseEstimate is always false for now. Future tiers that add gear
-        // signals for e.g. twisted bow / scythe / special attacks should set this true
-        // whenever such a signal is present but not (yet) accounted for above.
-        return new DpsResult(maxHit, hitChance, dps, avgDamage, ttkSeconds, false);
+        double overkill = CombatMath.expectedOverkill(maxHit, targetHitpoints);
+        return new DpsResult(maxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, baseEstimate);
     }
 }
