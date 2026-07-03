@@ -181,8 +181,15 @@ public final class GearSection extends CollapsibleSection
 	private static final int ITEM_SATURATED_HEART = 27641;
 	private static final int ITEM_ANCIENT_BREW = 26340; // Ancient brew(4)
 
-	/** Small side length for the style-aware prayer/potion indicator icons. */
-	private static final int INDICATOR_ICON_SIZE = 18;
+	/**
+	 * Side length for the style-aware prayer indicator icon. Matches the
+	 * rendered footprint of the potion/slayer-helm indicator icons, which are
+	 * native item sprites (~32px, unscaled — see {@link #iconToggle}) inside
+	 * the same {@link #SLOT_H}-tall toggle button; previously this was 18,
+	 * which made the prayer icon look tiny with excess whitespace next to
+	 * those two.
+	 */
+	private static final int INDICATOR_ICON_SIZE = 32;
 
 	/** Side length for the attack-style-row and spell-row icons. */
 	private static final int STYLE_ICON_SIZE = 18;
@@ -2517,7 +2524,13 @@ public final class GearSection extends CollapsibleSection
 		overkillValue.setText("-");
 		baseEstimateNote.setVisible(false);
 		lastDps = 0.0;
-		updateBoostIndicators(null);
+		// DPS itself isn't computable without a target (that's why we're here),
+		// but the boost indicators (prayer/potion) are purely a function of the
+		// EQUIPPED weapon's own best style, which rankAndRender() already
+		// resolved into selectedStyle regardless of target — so still refresh
+		// them here instead of blanking them, letting the potion icon track a
+		// weapon swap even with no monster picked yet.
+		updateBoostIndicators(selectedStyle != null ? selectedStyle.type() : null);
 		whatIfRow.setVisible(false);
 		resetAllButton.setVisible(!override.isEmpty());
 	}
