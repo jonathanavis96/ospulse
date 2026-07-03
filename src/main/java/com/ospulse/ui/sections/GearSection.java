@@ -4,6 +4,7 @@ import com.ospulse.combat.CombatIcons;
 import com.ospulse.combat.CombatStyle;
 import com.ospulse.combat.DpsCalculator;
 import com.ospulse.combat.DpsResult;
+import com.ospulse.combat.EquipmentIndexRepository;
 import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.Monster;
 import com.ospulse.combat.MonsterRepository;
@@ -15,11 +16,16 @@ import com.ospulse.combat.Stance;
 import com.ospulse.combat.WeaponCategory;
 import com.ospulse.combat.WeaponCategoryRepository;
 import com.ospulse.combat.WeaponStyle;
+import com.ospulse.combat.optimizer.GearOptimizer;
+import com.ospulse.combat.optimizer.LoadoutOverride;
+import com.ospulse.combat.optimizer.WhatIfLoadout;
+import com.ospulse.model.ItemStack;
 import com.ospulse.session.GearMapper;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
+import com.ospulse.wealth.WealthSnapshot;
 
 import net.runelite.api.Skill;
 import net.runelite.client.game.ItemManager;
@@ -35,6 +41,7 @@ import javax.swing.Box;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.ImageIcon;
+import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JPanel;
@@ -248,6 +255,44 @@ public final class GearSection extends CollapsibleSection
 	/** Last observed "slayer helm / black mask worn" state — drives edge-triggered auto-tick. */
 	private boolean lastSlayerHeadgearWorn;
 
+	// ---------------------------------------------- Phase 2: what-if overrides
+	/**
+	 * The current per-slot what-if state (design spec section 2) — NOT part of
+	 * the live snapshot, purely UI state. Empty means every slot shows real
+	 * worn gear; a non-empty override recomputes the readout from
+	 * {@code liveLoadout} &#8746; overrides via {@link WhatIfLoadout}, entirely
+	 * off bundled data so no {@code ItemManager} call is needed on the EDT.
+	 */
+	private LoadoutOverride override = LoadoutOverride.empty();
+	/** DPS computed from the live (non-overridden) loadout, refreshed alongside every recompute. */
+	private double baselineDps;
+	/** The equipment slot ordinal the item-search panel below the grid is currently scoped to, or -1 if closed. */
+	private int searchOpenForSlot = -1;
+	private final IconTextField itemSearchField;
+	private final JScrollPane itemListScroll;
+	private final JList<String> itemList;
+	private final ItemListModel itemListModel = new ItemListModel();
+	private List<EquipmentIndexRepository.Entry> filteredItems = Collections.emptyList();
+	private final JButton resetAllButton;
+	private final JLabel whatIfLabel;
+	private final JLabel whatIfDeltaValue;
+	private JPanel whatIfRow;
+	private boolean suppressItemListEvents;
+
+	// -------------------------------------------- Phase 3: optimiser ("Best Setup")
+	/** Owned-item values (worn + top holdings incl. bank), refreshed each {@link #apply}; source for the optimiser's owned pool + GE prices. */
+	private WealthSnapshot lastWealth;
+	private final javax.swing.JTextField budgetField;
+	private final JButton findBestSetupButton;
+	private final JLabel optimizerStatusLabel;
+	private final JPanel optimizerResultPanel;
+	private final JLabel optimizerResultDps;
+	private final JLabel optimizerResultDelta;
+	private final JLabel optimizerResultSpend;
+	private final JLabel optimizerResultDpsPerGp;
+	private final JButton applyOptimizerResultButton;
+	private GearOptimizer.Result lastOptimizerResult;
+
 	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager)
 	{
 		this(store, itemManager, skillIconManager, null);
@@ -270,7 +315,86 @@ public final class GearSection extends CollapsibleSection
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
 
 		body().add(buildGearGrid());
-		body().add(Box.createRigidArea(new Dimension(0, 6)));
+		body().add(Box.createRigidArea(new Dimension(0, 4)));
+
+		// --------------------------------- Phase 2: what-if item search + reset
+		// Clicking a slot cell above opens this search (see toggleItemSearch),
+		// scoped to that slot via searchOpenForSlot. Mirrors the monster
+		// search's search-field + collapsible-result-list UX for consistency.
+		itemSearchField = new IconTextField();
+		itemSearchField.setIcon(IconTextField.Icon.SEARCH);
+		itemSearchField.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		itemSearchField.setHoverBackgroundColor(ColorScheme.DARK_GRAY_HOVER_COLOR);
+		itemSearchField.setAlignmentX(Component.LEFT_ALIGNMENT);
+		itemSearchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		itemSearchField.setPreferredSize(new Dimension(100, 24));
+		itemSearchField.setVisible(false);
+		itemSearchField.getDocument().addDocumentListener(new DocumentListener()
+		{
+			@Override
+			public void insertUpdate(DocumentEvent e)
+			{
+				populateItemList();
+			}
+
+			@Override
+			public void removeUpdate(DocumentEvent e)
+			{
+				populateItemList();
+			}
+
+			@Override
+			public void changedUpdate(DocumentEvent e)
+			{
+				populateItemList();
+			}
+		});
+		body().add(itemSearchField);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
+
+		itemList = new JList<>(itemListModel);
+		itemList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+		itemList.setFont(FontManager.getRunescapeSmallFont());
+		itemList.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		itemList.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		itemList.setSelectionBackground(ColorScheme.BRAND_ORANGE);
+		itemList.setSelectionForeground(ColorScheme.DARK_GRAY_COLOR);
+		itemList.setVisibleRowCount(6);
+		itemList.setPrototypeCellValue("Ancient godsword (or)");
+		itemList.addListSelectionListener(e ->
+		{
+			if (suppressItemListEvents || e.getValueIsAdjusting())
+			{
+				return;
+			}
+			int index = itemList.getSelectedIndex();
+			if (index >= 0 && index < filteredItems.size() && searchOpenForSlot >= 0)
+			{
+				applyOverride(searchOpenForSlot, filteredItems.get(index).itemId());
+				closeItemSearch();
+			}
+		});
+		itemListScroll = new JScrollPane(itemList);
+		itemListScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+		itemListScroll.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
+		itemListScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+		itemListScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, itemListScroll.getPreferredSize().height));
+		itemListScroll.setVisible(false);
+		body().add(itemListScroll);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
+
+		resetAllButton = new JButton("Reset all to worn gear");
+		resetAllButton.setFont(FontManager.getRunescapeSmallFont());
+		resetAllButton.setFocusPainted(false);
+		resetAllButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+		resetAllButton.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		resetAllButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		resetAllButton.setToolTipText("Clear every what-if slot swap and go back to your real worn gear");
+		resetAllButton.setVisible(false);
+		resetAllButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, resetAllButton.getPreferredSize().height));
+		resetAllButton.addActionListener(e -> resetAllOverrides());
+		body().add(resetAllButton);
+		body().add(Box.createRigidArea(new Dimension(0, 4)));
 
 		// --------------------------------------- ranked attack-style picker
 		stylesHeading = PanelWidgets.emptyRowLabel("Attack styles (best DPS first)");
@@ -470,11 +594,96 @@ public final class GearSection extends CollapsibleSection
 		baseEstimateNote.setVisible(false);
 		body().add(baseEstimateNote);
 
-		JLabel comingSoon = PanelWidgets.emptyRowLabel("Gear upgrade suggestions — coming soon");
-		comingSoon.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
-		comingSoon.setFont(FontManager.getRunescapeSmallFont().deriveFont(Font.ITALIC));
+		// ------------------------------------- Phase 2: what-if delta readout
+		// Only shown once at least one slot is overridden (see updateWhatIfDelta) —
+		// compares the current (possibly-overridden) DPS above against the DPS
+		// your REAL worn gear would get, so a swap's value is obvious at a glance.
+		whatIfDeltaValue = new JLabel("-");
+		whatIfDeltaValue.setFont(FontManager.getRunescapeSmallFont());
+		whatIfDeltaValue.setHorizontalAlignment(SwingConstants.RIGHT);
+		JPanel whatIfRow = new JPanel(new BorderLayout());
+		whatIfRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		whatIfRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		whatIfRow.setToolTipText("DPS with your what-if swap(s) vs your real worn gear");
+		whatIfLabel = new JLabel("vs worn gear");
+		whatIfLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		whatIfLabel.setFont(FontManager.getRunescapeSmallFont());
+		whatIfRow.add(whatIfLabel, BorderLayout.WEST);
+		whatIfRow.add(whatIfDeltaValue, BorderLayout.EAST);
+		whatIfRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, whatIfRow.getPreferredSize().height));
+		whatIfRow.setVisible(false);
+		this.whatIfRow = whatIfRow;
+		body().add(whatIfRow);
+		body().add(Box.createRigidArea(new Dimension(0, 6)));
+
+		// ------------------------------------- Phase 3: optimiser ("Best Setup")
+		// Owned pool = worn gear (always free) + WealthSnapshot.topHoldings (worn
+		// + inventory + bank, already GE-priced client-thread-side by
+		// SessionTracker — see lastWealth/apply) filtered to equippable items;
+		// budget = extra gp allowed for GE purchases beyond that pool. Search runs
+		// off the EDT (SwingWorker) per the design spec's <500ms-in-a-side-panel
+		// target — a pruned search over ~3000 items can still take tens of ms.
+		JLabel optimizerHeading = PanelWidgets.emptyRowLabel("Best setup for this target");
+		optimizerHeading.setForeground(ColorScheme.BRAND_ORANGE);
+		optimizerHeading.setToolTipText("Searches your owned gear (worn + bank/inventory) plus anything "
+			+ "affordable within the budget below for the highest-DPS loadout against your selected target");
+		body().add(optimizerHeading);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
+
+		JPanel budgetRow = new JPanel(new BorderLayout(4, 0));
+		budgetRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		budgetRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JLabel budgetLabel = new JLabel("Budget");
+		budgetLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		budgetLabel.setFont(FontManager.getRunescapeSmallFont());
+		budgetField = new javax.swing.JTextField("0");
+		budgetField.setToolTipText("Extra GP to spend on upgrades, e.g. '10m' or '500k' (blank/0 = owned gear only)");
+		budgetField.setFont(FontManager.getRunescapeSmallFont());
+		budgetField.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		budgetField.setForeground(java.awt.Color.WHITE);
+		budgetRow.add(budgetLabel, BorderLayout.WEST);
+		budgetRow.add(budgetField, BorderLayout.CENTER);
+		budgetRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		body().add(budgetRow);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
-		body().add(comingSoon);
+
+		findBestSetupButton = new JButton("Find best setup");
+		findBestSetupButton.setFont(FontManager.getRunescapeSmallFont());
+		findBestSetupButton.setFocusPainted(false);
+		findBestSetupButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+		findBestSetupButton.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		findBestSetupButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		findBestSetupButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, findBestSetupButton.getPreferredSize().height));
+		findBestSetupButton.addActionListener(e -> runOptimizer());
+		body().add(findBestSetupButton);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
+
+		optimizerStatusLabel = PanelWidgets.emptyRowLabel("");
+		optimizerStatusLabel.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+		optimizerStatusLabel.setVisible(false);
+		body().add(optimizerStatusLabel);
+
+		optimizerResultPanel = new JPanel();
+		optimizerResultPanel.setLayout(new BoxLayout(optimizerResultPanel, BoxLayout.Y_AXIS));
+		optimizerResultPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		optimizerResultPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		optimizerResultDps = PanelWidgets.statRow(optimizerResultPanel, "Best DPS found");
+		optimizerResultDelta = PanelWidgets.statRow(optimizerResultPanel, "vs owned-only");
+		optimizerResultSpend = PanelWidgets.statRow(optimizerResultPanel, "Total spend");
+		optimizerResultDpsPerGp = PanelWidgets.statRow(optimizerResultPanel, "DPS per gp spent");
+		applyOptimizerResultButton = new JButton("Apply to readout (what-if)");
+		applyOptimizerResultButton.setFont(FontManager.getRunescapeSmallFont());
+		applyOptimizerResultButton.setFocusPainted(false);
+		applyOptimizerResultButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+		applyOptimizerResultButton.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		applyOptimizerResultButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		applyOptimizerResultButton.setToolTipText("Loads this result into the what-if slots above (real gear unaffected)");
+		applyOptimizerResultButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, applyOptimizerResultButton.getPreferredSize().height));
+		applyOptimizerResultButton.addActionListener(e -> applyOptimizerResultToOverride());
+		optimizerResultPanel.add(applyOptimizerResultButton);
+		optimizerResultPanel.setVisible(false);
+		body().add(optimizerResultPanel);
+		body().add(Box.createRigidArea(new Dimension(0, 4)));
 
 		// Show the full monster list, but with NO pre-selected target — the
 		// user must explicitly pick one before any numbers are shown (see
@@ -509,9 +718,19 @@ public final class GearSection extends CollapsibleSection
 			cell.setHorizontalAlignment(SwingConstants.CENTER);
 			cell.setVerticalAlignment(SwingConstants.CENTER);
 			cell.setPreferredSize(new Dimension(SLOT_W, SLOT_H));
-			cell.setToolTipText(SLOT_NAMES[slotOrdinal] + " slot (live)");
+			cell.setToolTipText(SLOT_NAMES[slotOrdinal] + " slot (live) — click to try a different item");
+			cell.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 			slotLabels[slotOrdinal] = cell;
 			renderedSlotIds[slotOrdinal] = Integer.MIN_VALUE;
+			int clickedSlot = slotOrdinal;
+			cell.addMouseListener(new MouseAdapter()
+			{
+				@Override
+				public void mousePressed(MouseEvent e)
+				{
+					toggleItemSearch(clickedSlot);
+				}
+			});
 			grid.add(cell);
 		}
 
@@ -524,7 +743,14 @@ public final class GearSection extends CollapsibleSection
 		return wrapper;
 	}
 
-	/** Diff-updates the worn-gear icon grid; only touched slots reload their sprite. */
+	/** Thin orange border marking a slot that currently shows a Phase 2 what-if override, not real worn gear. */
+	private static final Border OVERRIDE_BORDER = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE, 2);
+
+	/**
+	 * Diff-updates the worn-gear icon grid; only touched slots reload their
+	 * sprite. Shows the what-if override's item (with an orange border) in any
+	 * overridden slot instead of the real worn item — see {@link #override}.
+	 */
 	private void updateGearGrid(GearSnapshot gear)
 	{
 		int[] ids = gear == null ? null : gear.equippedItemIds();
@@ -535,7 +761,10 @@ public final class GearSection extends CollapsibleSection
 			{
 				continue;
 			}
-			int id = ids == null || slot >= ids.length ? -1 : ids[slot];
+			boolean overridden = override.hasOverride(slot);
+			int liveId = ids == null || slot >= ids.length ? -1 : ids[slot];
+			int id = overridden ? override.itemIdFor(slot) : liveId;
+			cell.setBorder(overridden ? OVERRIDE_BORDER : null);
 			if (id == renderedSlotIds[slot])
 			{
 				continue;
@@ -630,7 +859,10 @@ public final class GearSection extends CollapsibleSection
 		spellRows.clear();
 		stylesPanel.removeAll();
 
-		int weaponId = lastGear == null ? -1 : lastGear.itemIdAt(WEAPON_SLOT);
+		// effectiveWeaponId() honours a what-if weapon-slot swap (Phase 2) so a
+		// hypothetical weapon re-ranks its own real styles/spells exactly like
+		// equipping it for real would.
+		int weaponId = effectiveWeaponId();
 		if (weaponId != lastRankedWeaponId)
 		{
 			// A different weapon: its styles/spells differ, so any prior manual
@@ -649,10 +881,9 @@ public final class GearSection extends CollapsibleSection
 		}
 
 		List<WeaponStyle> styles = new ArrayList<>(weaponRepo.stylesForItem(weaponId));
-		PoweredStaff poweredStaff = lastGear != null && lastGear.equipmentStats() != null
-			? lastGear.equipmentStats().poweredStaff()
-			: PoweredStaff.NONE;
-		boolean canRank = lastGear != null && selectedMonster != null && lastGear.equipmentStats() != null;
+		EquipmentStats effectiveStats = effectiveEquipmentStats();
+		PoweredStaff poweredStaff = effectiveStats != null ? effectiveStats.poweredStaff() : PoweredStaff.NONE;
+		boolean canRank = lastGear != null && selectedMonster != null && effectiveStats != null;
 
 		magicView = isMagicWeapon(weaponId, styles, poweredStaff);
 		if (magicView)
@@ -1041,14 +1272,15 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private DpsResult computeSpell(Spell spell)
 	{
-		if (lastGear == null || selectedMonster == null || lastGear.equipmentStats() == null || spell == null)
+		EquipmentStats gearStats = effectiveEquipmentStats();
+		if (lastGear == null || selectedMonster == null || gearStats == null || spell == null)
 		{
 			return null;
 		}
 		Stance stance = magicCastStyle != null ? magicCastStyle.stance() : Stance.STANDARD;
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, stance,
 			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected());
-		return DpsCalculator.compute(lastGear.equipmentStats(), player, CombatStyle.MAGIC, selectedMonster, spell);
+		return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell);
 	}
 
 	/**
@@ -1252,14 +1484,28 @@ public final class GearSection extends CollapsibleSection
 		updateOutputs();
 	}
 
-	/** DPS for one style against the current target + gear + toggles, or {@code null} if not computable. */
+	/**
+	 * DPS for one style against the current target + gear (overrides applied,
+	 * see {@link #effectiveEquipmentStats}) + toggles, or {@code null} if not
+	 * computable.
+	 */
 	private DpsResult computeFor(WeaponStyle style)
 	{
-		if (lastGear == null || selectedMonster == null || lastGear.equipmentStats() == null || style == null)
+		return computeAgainst(effectiveEquipmentStats(), style);
+	}
+
+	/**
+	 * DPS for one style against the current target + toggles, using the given
+	 * {@link EquipmentStats} rather than always the live/overridden one — lets
+	 * {@link #updateWhatIfDelta} compute the SAME style against real worn gear
+	 * for the baseline comparison. {@code null} if not computable.
+	 */
+	private DpsResult computeAgainst(EquipmentStats gearStats, WeaponStyle style)
+	{
+		if (lastGear == null || selectedMonster == null || gearStats == null || style == null)
 		{
 			return null;
 		}
-		EquipmentStats gearStats = lastGear.equipmentStats();
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, style.stance(),
 			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected());
 		if (style.type() == CombatStyle.MAGIC)
@@ -1360,12 +1606,379 @@ public final class GearSection extends CollapsibleSection
 			: java.awt.Color.WHITE);
 	}
 
+	// ------------------------------------------------- Phase 2: what-if swaps
+
+	/**
+	 * Opens the item search scoped to {@code slotOrdinal} (closing it if that
+	 * same slot's search was already open — a second click toggles it shut,
+	 * matching the monster-list collapse UX).
+	 */
+	private void toggleItemSearch(int slotOrdinal)
+	{
+		if (searchOpenForSlot == slotOrdinal)
+		{
+			closeItemSearch();
+			return;
+		}
+		searchOpenForSlot = slotOrdinal;
+		itemSearchField.setText("");
+		itemSearchField.setVisible(true);
+		itemSearchField.setToolTipText("Search " + SLOT_NAMES[slotOrdinal] + " items to try (what-if — your real gear is unaffected)");
+		itemSearchField.requestFocusInWindow();
+		populateItemList();
+		body().revalidate();
+		body().repaint();
+	}
+
+	private void closeItemSearch()
+	{
+		searchOpenForSlot = -1;
+		itemSearchField.setVisible(false);
+		itemListScroll.setVisible(false);
+		body().revalidate();
+		body().repaint();
+	}
+
+	/** Refilters {@link #searchOpenForSlot}'s candidate items by the search box's text. */
+	private void populateItemList()
+	{
+		if (searchOpenForSlot < 0)
+		{
+			return;
+		}
+		filteredItems = EquipmentIndexRepository.getInstance().searchSlot(searchOpenForSlot, itemSearchField.getText());
+		suppressItemListEvents = true;
+		itemListModel.setItems(filteredItems);
+		itemList.clearSelection();
+		suppressItemListEvents = false;
+		itemListScroll.setVisible(!filteredItems.isEmpty());
+		itemListScroll.revalidate();
+		body().revalidate();
+		body().repaint();
+	}
+
+	/**
+	 * Sets a what-if override for {@code slotOrdinal} to {@code itemId},
+	 * enforcing 2H/shield exclusivity for the weapon and shield slots (see
+	 * {@link WhatIfLoadout#equipWeapon}/{@link WhatIfLoadout#equipShield}) and
+	 * recomputing the whole readout from the new override.
+	 */
+	private void applyOverride(int slotOrdinal, int itemId)
+	{
+		int[] liveIds = lastGear == null ? new int[GearSnapshot.EQUIPMENT_SLOT_COUNT] : lastGear.equippedItemIds();
+		if (slotOrdinal == WhatIfLoadout.WEAPON_SLOT)
+		{
+			override = WhatIfLoadout.equipWeapon(override, itemId);
+		}
+		else if (slotOrdinal == WhatIfLoadout.SHIELD_SLOT)
+		{
+			override = WhatIfLoadout.equipShield(override, liveIds, itemId);
+		}
+		else
+		{
+			override = override.withSlot(slotOrdinal, itemId);
+		}
+		// A weapon swap changes the available attack styles/spells entirely —
+		// re-rank exactly like a real weapon change (rankAndRender already
+		// re-defaults the style/spell selection whenever the effective weapon
+		// id it sees changes, since it reads lastGear.itemIdAt(WEAPON_SLOT) —
+		// see effectiveWeaponId()).
+		updateGearGrid(lastGear);
+		rankAndRender();
+	}
+
+	/** Clears every what-if override — every slot (and the readout) reverts to real worn gear. */
+	private void resetAllOverrides()
+	{
+		override = LoadoutOverride.empty();
+		closeItemSearch();
+		updateGearGrid(lastGear);
+		rankAndRender();
+	}
+
+	/** Clears a single slot's override (the gear-grid cell's right-click / the future per-slot reset affordance). */
+	private void resetSlotOverride(int slotOrdinal)
+	{
+		override = override.withoutSlot(slotOrdinal);
+		updateGearGrid(lastGear);
+		rankAndRender();
+	}
+
+	/**
+	 * The weapon item id the readout should actually use: the override's
+	 * weapon if set, else the live worn weapon. {@link #rankAndRender} keys its
+	 * "did the weapon change" re-ranking logic off this instead of the raw live
+	 * id, so a what-if weapon swap re-ranks styles/spells exactly like a real
+	 * weapon change would.
+	 */
+	private int effectiveWeaponId()
+	{
+		if (override.hasOverride(WhatIfLoadout.WEAPON_SLOT))
+		{
+			return override.itemIdFor(WhatIfLoadout.WEAPON_SLOT);
+		}
+		return lastGear == null ? -1 : lastGear.itemIdAt(WEAPON_SLOT);
+	}
+
+	/**
+	 * The {@link EquipmentStats} the readout should compute against: the
+	 * override-applied what-if loadout when any slot is overridden, otherwise
+	 * the live snapshot's precomputed stats unchanged (zero behaviour change
+	 * with no overrides active).
+	 */
+	private EquipmentStats effectiveEquipmentStats()
+	{
+		if (lastGear == null)
+		{
+			return null;
+		}
+		if (override.isEmpty())
+		{
+			return lastGear.equipmentStats();
+		}
+		return WhatIfLoadout.buildEquipmentStats(lastGear.equippedItemIds(), override);
+	}
+
+	/**
+	 * Refreshes the what-if delta row: hidden with no overrides active: shown
+	 * comparing the current (possibly-overridden) DPS against what the SAME
+	 * style/spell selection would do on real worn gear. Guards a style/spell
+	 * that only exists on the what-if weapon (e.g. switched from melee to a
+	 * bow) by falling back to "-" rather than a misleading comparison.
+	 */
+	private void updateWhatIfDelta()
+	{
+		if (override.isEmpty() || lastGear == null || selectedMonster == null)
+		{
+			whatIfRow.setVisible(false);
+			resetAllButton.setVisible(!override.isEmpty());
+			return;
+		}
+		resetAllButton.setVisible(true);
+
+		DpsResult baseline = computeAgainst(lastGear.equipmentStats(), selectedStyle);
+		if (baseline == null)
+		{
+			whatIfRow.setVisible(false);
+			return;
+		}
+		baselineDps = baseline.dps();
+		double delta = lastDps - baselineDps;
+		String arrow = delta > 1e-9 ? " ▲" : delta < -1e-9 ? " ▼" : "";
+		java.awt.Color color = delta > 1e-9 ? new java.awt.Color(0x3D, 0xC7, 0x54)
+			: delta < -1e-9 ? new java.awt.Color(0xE0, 0x5A, 0x5A) : java.awt.Color.WHITE;
+		whatIfDeltaValue.setForeground(color);
+		whatIfDeltaValue.setText(String.format(Locale.ROOT, "%.2f -> %.2f%s", baselineDps, lastDps, arrow));
+		whatIfRow.setVisible(true);
+	}
+
+	// ------------------------------------------------- Phase 3: optimiser
+
+	/**
+	 * Parses a budget string with an optional trailing k/m unit (design spec:
+	 * "numeric + K/M unit toggle" — a suffix is a lighter-weight equivalent for
+	 * a text field than a separate toggle button and reads naturally,
+	 * matching how players already type prices in-game, e.g. GE search).
+	 * Blank/unparseable input is treated as 0 (owned-only search) rather than
+	 * rejected, since a budget field is not a validated form control here.
+	 */
+	static long parseBudget(String text)
+	{
+		if (text == null)
+		{
+			return 0L;
+		}
+		String trimmed = text.trim().toLowerCase(Locale.ROOT).replace(",", "");
+		if (trimmed.isEmpty())
+		{
+			return 0L;
+		}
+		double multiplier = 1.0;
+		if (trimmed.endsWith("m"))
+		{
+			multiplier = 1_000_000.0;
+			trimmed = trimmed.substring(0, trimmed.length() - 1);
+		}
+		else if (trimmed.endsWith("k"))
+		{
+			multiplier = 1_000.0;
+			trimmed = trimmed.substring(0, trimmed.length() - 1);
+		}
+		try
+		{
+			double value = Double.parseDouble(trimmed.trim());
+			return value <= 0 ? 0L : Math.round(value * multiplier);
+		}
+		catch (NumberFormatException e)
+		{
+			return 0L;
+		}
+	}
+
+	/**
+	 * The owned-item pool + GE prices for the optimiser: every worn item
+	 * (always owned, price irrelevant) plus {@link WealthSnapshot#getTopHoldings()}
+	 * (worn + inventory + bank — see {@link #lastWealth}) filtered to items the
+	 * {@link EquipmentIndexRepository} actually indexes (so the optimiser never
+	 * tries to equip e.g. raw materials). Built fresh per search so it always
+	 * reflects the latest snapshot.
+	 */
+	private java.util.Map<Integer, Long> ownedPriceMap()
+	{
+		java.util.Map<Integer, Long> prices = new HashMap<>();
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		if (lastGear != null)
+		{
+			for (int id : lastGear.equippedItemIds())
+			{
+				if (id > 0 && index.entryFor(id) != null)
+				{
+					prices.put(id, 0L);
+				}
+			}
+		}
+		if (lastWealth != null)
+		{
+			for (ItemStack stack : lastWealth.getTopHoldings())
+			{
+				if (index.entryFor(stack.getId()) != null)
+				{
+					prices.merge(stack.getId(), Math.max(0L, stack.getUnitValue()), Math::min);
+				}
+			}
+		}
+		return prices;
+	}
+
+	/** Runs {@link GearOptimizer} off the EDT and publishes the result back via {@link #onOptimizerResult}. */
+	private void runOptimizer()
+	{
+		if (lastGear == null || selectedMonster == null)
+		{
+			optimizerStatusLabel.setText("Pick a target above first");
+			optimizerStatusLabel.setVisible(true);
+			optimizerResultPanel.setVisible(false);
+			return;
+		}
+
+		findBestSetupButton.setEnabled(false);
+		optimizerStatusLabel.setText("Searching...");
+		optimizerStatusLabel.setVisible(true);
+		optimizerResultPanel.setVisible(false);
+
+		long budget = parseBudget(budgetField.getText());
+		java.util.Map<Integer, Long> ownedPrices = ownedPriceMap();
+		int[] liveIds = lastGear.equippedItemIds();
+		Monster target = selectedMonster;
+		PlayerCombat.Builder template = PlayerCombat.builder()
+			.attack(lastGear.baseAttack(), lastGear.boostedAttack())
+			.strength(lastGear.baseStrength(), lastGear.boostedStrength())
+			.defence(lastGear.baseDefence(), lastGear.boostedDefence())
+			.ranged(lastGear.baseRanged(), lastGear.boostedRanged())
+			.magic(lastGear.baseMagic(), lastGear.boostedMagic())
+			.prayer(lastGear.basePrayer(), lastGear.boostedPrayer())
+			.hitpoints(lastGear.baseHitpoints(), lastGear.boostedHitpoints())
+			.activePrayers(lastGear.activePrayers())
+			.assumeBestPotion(bestPotionToggle.isSelected())
+			.assumeBestPrayer(bestPrayerToggle.isSelected())
+			.onSlayerTask(onSlayerTaskToggle.isSelected());
+
+		GearOptimizer.Request request = GearOptimizer.Request
+			.builder(liveIds, target, template)
+			.budget(budget)
+			.owned(ownedPrices.keySet())
+			.priceSource(id -> ownedPrices.getOrDefault(id, Long.MAX_VALUE))
+			.build();
+
+		new javax.swing.SwingWorker<GearOptimizer.Result, Void>()
+		{
+			@Override
+			protected GearOptimizer.Result doInBackground()
+			{
+				return GearOptimizer.optimize(request);
+			}
+
+			@Override
+			protected void done()
+			{
+				try
+				{
+					onOptimizerResult(get());
+				}
+				catch (java.util.concurrent.ExecutionException | InterruptedException e)
+				{
+					optimizerStatusLabel.setText("Search failed");
+					findBestSetupButton.setEnabled(true);
+				}
+			}
+		}.execute();
+	}
+
+	/** Renders a completed {@link GearOptimizer.Result} — called on the EDT by the {@code SwingWorker} above. */
+	private void onOptimizerResult(GearOptimizer.Result result)
+	{
+		findBestSetupButton.setEnabled(true);
+		optimizerStatusLabel.setVisible(false);
+		lastOptimizerResult = result;
+
+		optimizerResultDps.setText(String.format(Locale.ROOT, "%.2f", result.dps().dps()));
+		double delta = result.deltaDps();
+		String arrow = delta > 1e-9 ? " ▲" : delta < -1e-9 ? " ▼" : "";
+		optimizerResultDelta.setText(String.format(Locale.ROOT, "%+.2f%s", delta, arrow));
+		optimizerResultSpend.setText(formatGp(result.totalSpend()));
+		optimizerResultDpsPerGp.setText(result.totalSpend() > 0
+			? String.format(Locale.ROOT, "%.6f", result.dpsPerGp())
+			: "-");
+		optimizerResultPanel.setVisible(true);
+		optimizerResultPanel.revalidate();
+		body().revalidate();
+		body().repaint();
+	}
+
+	/** "1.2m" / "350k" / "0" — compact gp formatting for the spend readout. */
+	private static String formatGp(long gp)
+	{
+		if (gp >= 1_000_000)
+		{
+			return String.format(Locale.ROOT, "%.1fm", gp / 1_000_000.0);
+		}
+		if (gp >= 1_000)
+		{
+			return String.format(Locale.ROOT, "%.0fk", gp / 1000.0);
+		}
+		return String.valueOf(gp);
+	}
+
+	/**
+	 * Loads the last optimizer result into the what-if overrides (design
+	 * spec's "apply to readout" handoff) — every slot the result touches
+	 * becomes a {@link LoadoutOverride}, so the existing Phase 2 readout
+	 * (styles/spells ranking, DPS/TTK/etc, delta-vs-worn-gear row) picks it up
+	 * unchanged. Real gear is never touched.
+	 */
+	private void applyOptimizerResultToOverride()
+	{
+		if (lastOptimizerResult == null)
+		{
+			return;
+		}
+		LoadoutOverride next = LoadoutOverride.empty();
+		for (GearOptimizer.SlotChoice choice : lastOptimizerResult.loadout())
+		{
+			next = next.withSlot(choice.slotOrdinal(), choice.itemId());
+		}
+		override = next;
+		updateGearGrid(lastGear);
+		rankAndRender();
+	}
+
 	// ------------------------------------------------------------- compute
 
 	@Override
 	public void apply(SessionSnapshot snapshot)
 	{
 		lastGear = snapshot.getGear();
+		lastWealth = snapshot.getWealth();
 		updateGearGrid(lastGear);
 		autoToggleSlayerFromGear();
 		rankAndRender();
@@ -1414,6 +2027,7 @@ public final class GearSection extends CollapsibleSection
 		overkillValue.setText(String.format(Locale.ROOT, "%.1f", result.overkillPerKill()));
 		baseEstimateNote.setVisible(result.baseEstimate());
 		updateBoostIndicators(selectedStyle != null ? selectedStyle.type() : null);
+		updateWhatIfDelta();
 
 		refreshSummary();
 	}
@@ -1429,6 +2043,8 @@ public final class GearSection extends CollapsibleSection
 		baseEstimateNote.setVisible(false);
 		lastDps = 0.0;
 		updateBoostIndicators(null);
+		whatIfRow.setVisible(false);
+		resetAllButton.setVisible(!override.isEmpty());
 	}
 
 	/** Formats a time-to-kill (seconds) as "12.3s" or "1:05" for a minute or more; "-" when non-positive. */
@@ -1507,6 +2123,142 @@ public final class GearSection extends CollapsibleSection
 	IconTextField searchFieldForTest()
 	{
 		return monsterSearchField;
+	}
+
+	// --------------------------------------- Phase 2 what-if test seams
+
+	/** Simulates a click on a gear-grid slot cell, opening/closing its item search. */
+	void clickSlotForTest(int slotOrdinal)
+	{
+		toggleItemSearch(slotOrdinal);
+	}
+
+	IconTextField itemSearchFieldForTest()
+	{
+		return itemSearchField;
+	}
+
+	int searchOpenForSlotForTest()
+	{
+		return searchOpenForSlot;
+	}
+
+	List<EquipmentIndexRepository.Entry> filteredItemsForTest()
+	{
+		return filteredItems;
+	}
+
+	/** Simulates picking the item at {@code index} in the currently-open item search result list. */
+	void pickItemForTest(int index)
+	{
+		applyOverride(searchOpenForSlot, filteredItems.get(index).itemId());
+		closeItemSearch();
+	}
+
+	void clickResetAllForTest()
+	{
+		resetAllOverrides();
+	}
+
+	LoadoutOverride overrideForTest()
+	{
+		return override;
+	}
+
+	boolean whatIfRowVisibleForTest()
+	{
+		return whatIfRow.isVisible();
+	}
+
+	String whatIfDeltaTextForTest()
+	{
+		return whatIfDeltaValue.getText();
+	}
+
+	double baselineDpsForTest()
+	{
+		return baselineDps;
+	}
+
+	int renderedSlotIdForTest(int slotOrdinal)
+	{
+		return renderedSlotIds[slotOrdinal];
+	}
+
+	// --------------------------------------- Phase 3 optimiser test seams
+
+	void setBudgetTextForTest(String text)
+	{
+		budgetField.setText(text);
+	}
+
+	/**
+	 * Runs the optimizer SYNCHRONOUSLY for tests (bypassing the real
+	 * {@code SwingWorker}, whose background thread + {@code invokeLater}
+	 * hand-off is awkward to await deterministically in a headless test) by
+	 * building the same {@link GearOptimizer.Request} {@link #runOptimizer}
+	 * would and calling {@link #onOptimizerResult} directly on the calling
+	 * (EDT) thread.
+	 */
+	void runOptimizerSyncForTest()
+	{
+		long budget = parseBudget(budgetField.getText());
+		java.util.Map<Integer, Long> ownedPrices = ownedPriceMap();
+		int[] liveIds = lastGear.equippedItemIds();
+		PlayerCombat.Builder template = PlayerCombat.builder()
+			.attack(lastGear.baseAttack(), lastGear.boostedAttack())
+			.strength(lastGear.baseStrength(), lastGear.boostedStrength())
+			.defence(lastGear.baseDefence(), lastGear.boostedDefence())
+			.ranged(lastGear.baseRanged(), lastGear.boostedRanged())
+			.magic(lastGear.baseMagic(), lastGear.boostedMagic())
+			.prayer(lastGear.basePrayer(), lastGear.boostedPrayer())
+			.hitpoints(lastGear.baseHitpoints(), lastGear.boostedHitpoints())
+			.activePrayers(lastGear.activePrayers())
+			.assumeBestPotion(bestPotionToggle.isSelected())
+			.assumeBestPrayer(bestPrayerToggle.isSelected())
+			.onSlayerTask(onSlayerTaskToggle.isSelected());
+		GearOptimizer.Request request = GearOptimizer.Request
+			.builder(liveIds, selectedMonster, template)
+			.budget(budget)
+			.owned(ownedPrices.keySet())
+			.priceSource(id -> ownedPrices.getOrDefault(id, Long.MAX_VALUE))
+			.build();
+		onOptimizerResult(GearOptimizer.optimize(request));
+	}
+
+	GearOptimizer.Result lastOptimizerResultForTest()
+	{
+		return lastOptimizerResult;
+	}
+
+	boolean optimizerResultVisibleForTest()
+	{
+		return optimizerResultPanel.isVisible();
+	}
+
+	String optimizerResultDpsTextForTest()
+	{
+		return optimizerResultDps.getText();
+	}
+
+	String optimizerResultSpendTextForTest()
+	{
+		return optimizerResultSpend.getText();
+	}
+
+	void clickApplyOptimizerResultForTest()
+	{
+		applyOptimizerResultToOverride();
+	}
+
+	JButton findBestSetupButtonForTest()
+	{
+		return findBestSetupButton;
+	}
+
+	String optimizerStatusTextForTest()
+	{
+		return optimizerStatusLabel.getText();
 	}
 
 	JList<String> monsterListForTest()
@@ -1838,6 +2590,43 @@ public final class GearSection extends CollapsibleSection
 		public String getElementAt(int index)
 		{
 			return monsters.get(index).name();
+		}
+	}
+
+	/**
+	 * A {@link JList} model over the current filtered {@link EquipmentIndexRepository.Entry}
+	 * list for the Phase 2 what-if item search — same coarse-refresh pattern as
+	 * {@link MonsterListModel} (swap-the-backing-list, two events) for the same
+	 * per-keystroke responsiveness reason.
+	 */
+	private static final class ItemListModel extends AbstractListModel<String>
+	{
+		private List<EquipmentIndexRepository.Entry> items = Collections.emptyList();
+
+		void setItems(List<EquipmentIndexRepository.Entry> newItems)
+		{
+			int oldSize = items.size();
+			items = newItems == null ? Collections.emptyList() : newItems;
+			if (oldSize > 0)
+			{
+				fireIntervalRemoved(this, 0, oldSize - 1);
+			}
+			if (!items.isEmpty())
+			{
+				fireIntervalAdded(this, 0, items.size() - 1);
+			}
+		}
+
+		@Override
+		public int getSize()
+		{
+			return items.size();
+		}
+
+		@Override
+		public String getElementAt(int index)
+		{
+			return items.get(index).name();
 		}
 	}
 }
