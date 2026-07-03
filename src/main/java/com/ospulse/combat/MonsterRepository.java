@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.UncheckedIOException;
@@ -15,17 +16,20 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
 
 /**
  * Loads the bundled monster combat-stat snapshot
- * ({@code /com/ospulse/combat/monsters.min.json}, see the accompanying
+ * ({@code /com/ospulse/combat/monsters.min.json.gz}, see the accompanying
  * README in that resource directory for provenance/licensing/regeneration)
- * and serves in-memory lookups. RuneLite bundles Gson (transitively, via
- * {@code net.runelite:client}; see {@code build.gradle}), so no extra
+ * and serves in-memory lookups. The resource is gzip-compressed to shrink
+ * the shipped jar (~560KB -> ~50KB) and transparently decompressed with
+ * {@link GZIPInputStream} at load time. RuneLite bundles Gson (transitively,
+ * via {@code net.runelite:client}; see {@code build.gradle}), so no extra
  * dependency is needed at runtime.
  */
 public final class MonsterRepository {
-    private static final String RESOURCE_PATH = "/com/ospulse/combat/monsters.min.json";
+    private static final String RESOURCE_PATH = "/com/ospulse/combat/monsters.min.json.gz";
 
     private static volatile MonsterRepository instance;
 
@@ -49,10 +53,16 @@ public final class MonsterRepository {
         return result;
     }
 
-    /** Loads a repository from an arbitrary classpath resource (mainly for tests). */
+    /**
+     * Loads a repository from an arbitrary gzip-compressed classpath resource
+     * (mainly for tests). The resource is expected to be a gzip stream
+     * wrapping the same JSON array shape as {@code monsters.min.json}.
+     */
     static MonsterRepository loadFromResource(String resourcePath) {
         Gson gson = new Gson();
-        try (Reader reader = new InputStreamReader(requireResource(resourcePath), StandardCharsets.UTF_8)) {
+        try (InputStream raw = requireResource(resourcePath);
+             InputStream gunzipped = new GZIPInputStream(raw);
+             Reader reader = new InputStreamReader(gunzipped, StandardCharsets.UTF_8)) {
             Type listType = new TypeToken<List<MonsterDto>>() {
             }.getType();
             List<MonsterDto> dtos = gson.fromJson(reader, listType);
@@ -66,8 +76,8 @@ public final class MonsterRepository {
         }
     }
 
-    private static java.io.InputStream requireResource(String resourcePath) {
-        java.io.InputStream in = MonsterRepository.class.getResourceAsStream(resourcePath);
+    private static InputStream requireResource(String resourcePath) {
+        InputStream in = MonsterRepository.class.getResourceAsStream(resourcePath);
         if (in == null) {
             throw new IllegalStateException("Bundled resource not found on classpath: " + resourcePath);
         }
