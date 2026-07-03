@@ -32,6 +32,7 @@ public final class EquipmentStats {
     private final DemonbaneWeapon demonbaneWeapon;
     private final DragonHunterWeapon dragonHunterWeapon;
     private final boolean twistedBow;
+    private final boolean osmumtensFang;
     private final PoweredStaff poweredStaff;
 
     private EquipmentStats(Builder b) {
@@ -57,6 +58,7 @@ public final class EquipmentStats {
         this.demonbaneWeapon = b.demonbaneWeapon;
         this.dragonHunterWeapon = b.dragonHunterWeapon;
         this.twistedBow = b.twistedBow;
+        this.osmumtensFang = b.osmumtensFang;
         this.poweredStaff = b.poweredStaff;
     }
 
@@ -167,6 +169,16 @@ public final class EquipmentStats {
         return twistedBow;
     }
 
+    /**
+     * True when the worn weapon is Osmumten's fang (or its "(or)" cosmetic
+     * variant / the Fang of the hound re-skin) — its double-accuracy-roll and
+     * compressed-damage-roll passives apply to STAB attacks; see
+     * {@link DpsCalculator#computeMelee}.
+     */
+    public boolean osmumtensFang() {
+        return osmumtensFang;
+    }
+
     public PoweredStaff poweredStaff() {
         return poweredStaff;
     }
@@ -198,6 +210,7 @@ public final class EquipmentStats {
         private DemonbaneWeapon demonbaneWeapon = DemonbaneWeapon.NONE;
         private DragonHunterWeapon dragonHunterWeapon = DragonHunterWeapon.NONE;
         private boolean twistedBow;
+        private boolean osmumtensFang;
         private PoweredStaff poweredStaff = PoweredStaff.NONE;
 
         private Builder() {
@@ -268,6 +281,11 @@ public final class EquipmentStats {
 
         public Builder twistedBow(boolean value) {
             this.twistedBow = value;
+            return this;
+        }
+
+        public Builder osmumtensFang(boolean value) {
+            this.osmumtensFang = value;
             return this;
         }
 

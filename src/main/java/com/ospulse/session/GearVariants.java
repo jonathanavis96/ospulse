@@ -305,6 +305,15 @@ final class GearVariants
 	private static final int DRAGON_HUNTER_WAND = 30070;
 	private static final int TWISTED_BOW = 20997;
 
+	/**
+	 * Osmumten's fang 26219, the "(or)" cosmetic variant 27246, and the
+	 * Fang of the hound re-skin 33249 — all identical mechanically, verified
+	 * against the OSRS Wiki 2026-07-04.
+	 */
+	private static final int OSMUMTENS_FANG = 26219;
+	private static final int OSMUMTENS_FANG_OR = 27246;
+	private static final int FANG_OF_THE_HOUND = 33249;
+
 	/** Maps a worn WEAPON-slot item id to its {@link DragonHunterWeapon} ({@link DragonHunterWeapon#NONE} if not dragonbane). */
 	static DragonHunterWeapon dragonHunterWeaponFor(int weaponItemId)
 	{
@@ -325,6 +334,12 @@ final class GearVariants
 	static boolean isTwistedBow(int weaponItemId)
 	{
 		return weaponItemId == TWISTED_BOW;
+	}
+
+	/** True when the worn weapon is Osmumten's fang (either cosmetic variant, or the Fang of the hound re-skin). */
+	static boolean isOsmumtensFang(int weaponItemId)
+	{
+		return weaponItemId == OSMUMTENS_FANG || weaponItemId == OSMUMTENS_FANG_OR || weaponItemId == FANG_OF_THE_HOUND;
 	}
 
 	// ==== Powered staves ==================================================================

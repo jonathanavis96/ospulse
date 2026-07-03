@@ -22,7 +22,13 @@ package com.ospulse.combat;
  * autocast, and elemental weakness (a monster's {@code weaknessElement}/
  * {@code weaknessSeverity} adds straight into the magic-damage percent when
  * the cast {@link Spell}'s {@link Spell.Element} matches - see
- * computeMagic). Unknown/unmodelled effects (scythe multi-hit, special
+ * computeMagic), and Osmumten's fang's two STAB-only passives (double
+ * accuracy roll + compressed 15%-85%-of-max-hit damage roll — its own
+ * hitChance/avgDamage formulas replace the generic ones entirely rather than
+ * being a multiplicative step on maxHit/attackRoll — see computeMelee /
+ * finishFang / {@link CombatMath#fangHitChance} /
+ * {@link CombatMath#fangAverageDamagePerAttack}). Unknown/unmodelled effects
+ * (scythe multi-hit, special
  * attacks, Avarice, Tomes, Tumeken's 3x gear multiplier, ...) are simply not
  * applied — extend this class (and {@link CombatMath}) to add them, gated
  * behind their own "applies when" predicate.
@@ -127,6 +133,17 @@ public final class DpsCalculator {
         }
 
         int defenceRoll = CombatMath.npcDefenceRoll(target.defenceLevel(), target.defenceBonus(style));
+
+        // Osmumten's fang (and re-skins/cosmetics): two passives, STAB style
+        // only (the double-accuracy-roll passive was restricted to Stab by the
+        // 17 Jan 2024 update — see CombatMath.fangHitChance/fangAverageDamagePerAttack
+        // for the exact formulas + citation). Neither passive changes maxHit or
+        // attackRoll themselves — they change how hitChance/avgDamage are
+        // derived from them, so this bypasses the generic finish() path.
+        boolean fangApplies = gear.osmumtensFang() && style == CombatStyle.STAB;
+        if (fangApplies) {
+            return finishFang(maxHit, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
+        }
 
         return finish(maxHit, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints(), false);
     }
@@ -430,5 +447,30 @@ public final class DpsCalculator {
         // HP/DPS understates it (e.g. Cerberus 57.3s vs GearScape's overkill-aware 59s).
         double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
         return new DpsResult(maxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, baseEstimate);
+    }
+
+    /**
+     * Osmumten's fang variant of {@link #finish}: uses the fang's own
+     * double-accuracy-roll hit chance and compressed-damage-roll average
+     * damage (see {@link CombatMath#fangHitChance} /
+     * {@link CombatMath#fangAverageDamagePerAttack} for the formulas +
+     * citation). {@code maxHit} in the returned {@link DpsResult} is left as
+     * the TRUE (unshrunk) max hit, matching how the wiki/GearScape display it
+     * — only the roll range feeding avgDamage is compressed.
+     *
+     * <p>Overkill/TTK reuse the generic uniform-0..maxHit overkill model on
+     * the true max hit (not the shrunk range) as an approximation — modelling
+     * overkill exactly for the fang's compressed distribution is out of scope
+     * here (Tier B, not requested); this only matters for the very last hit
+     * of a kill and the effect is small.
+     */
+    private static DpsResult finishFang(int maxHit, int attackRoll, int defenceRoll, int weaponSpeedTicks,
+                                        int targetHitpoints) {
+        double hitChance = CombatMath.fangHitChance(attackRoll, defenceRoll);
+        double avgDamage = CombatMath.fangAverageDamagePerAttack(hitChance, maxHit);
+        double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
+        double overkill = CombatMath.expectedOverkill(maxHit, targetHitpoints);
+        double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
+        return new DpsResult(maxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, false);
     }
 }

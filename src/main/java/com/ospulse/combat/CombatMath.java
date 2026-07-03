@@ -193,6 +193,57 @@ final class CombatMath {
         return Math.max(0, Math.min(250, pct));
     }
 
+    // ---- Osmumten's fang ------------------------------------------------------------------
+
+    /**
+     * Osmumten's fang hit chance for STAB attacks only (its double-accuracy-roll
+     * passive: two independent accuracy rolls are made and the attack succeeds
+     * if EITHER beats the defence roll), per the
+     * <a href="https://oldschool.runescape.wiki/w/Osmumten%27s_fang">OSRS Wiki</a>
+     * and cross-checked against the weirdgloop DPS calc's {@code getFangAccuracyRoll}
+     * (our parity oracle elsewhere in this package):
+     * <pre>
+     * a &gt; d:  1 - (d+2)(2d+3) / (6*(a+1)^2)
+     * a &lt;= d: a(4a+5) / (6*(a+1)*(d+1))
+     * </pre>
+     * where {@code a} = attack roll, {@code d} = defence roll. NOT the naive
+     * {@code 1-(1-p)^2} (that formula is only used inside Tombs of Amascut,
+     * out of scope here). Only wired for STAB (per the 17 Jan 2024 update that
+     * restricted the passive to Stab styles).
+     */
+    static double fangHitChance(int attackRoll, int defenceRoll) {
+        double a = attackRoll;
+        double d = defenceRoll;
+        if (attackRoll > defenceRoll) {
+            return 1.0 - (d + 2.0) * (2.0 * d + 3.0) / (6.0 * (a + 1.0) * (a + 1.0));
+        }
+        return a * (4.0 * a + 5.0) / (6.0 * (a + 1.0) * (d + 1.0));
+    }
+
+    /**
+     * Osmumten's fang average damage per attack, for its compressed damage
+     * roll: instead of a uniform 0..maxHit roll, the fang always deals between
+     * 15% and 85% of the true max hit (rounded down), per the
+     * <a href="https://oldschool.runescape.wiki/w/Osmumten%27s_fang">OSRS Wiki</a>
+     * ("if the fang's true max hit was 60, it would roll between 9 and 51") and
+     * the weirdgloop DPS calc ({@code shrink = trunc(maxHit * 3/20); minHit =
+     * shrink; maxHit -= shrink}). This does not change the expected damage vs a
+     * normal 0..maxHit roll (only its variance) EXCEPT for the small "rolled 0
+     * is bumped to 1" correction, which only matters when the shrunk min is
+     * itself 0 (true max hit &lt;= 6).
+     */
+    static double fangAverageDamagePerAttack(double hitChance, int trueMaxHit) {
+        int shrink = trueMaxHit * 3 / 20; // truncating integer division, matches Math.trunc(maxHit * 3/20)
+        int shrunkMin = shrink;
+        int shrunkMax = trueMaxHit - shrink;
+        if (shrunkMin <= 0) {
+            // Degenerate low-level case: falls back to the standard 0..maxHit
+            // "rolled 0 -> 1" correction since the shrunk range still touches 0.
+            return averageDamagePerAttack(hitChance, shrunkMax);
+        }
+        return hitChance * (shrunkMin + shrunkMax) / 2.0;
+    }
+
     // ---- Overkill ---------------------------------------------------------------------------
 
     /**
