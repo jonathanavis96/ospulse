@@ -3,6 +3,7 @@ package com.ospulse.ui.sections;
 import com.ospulse.OSPulseConfig;
 import com.ospulse.integration.PriceTrendService;
 import com.ospulse.model.ItemStack;
+import com.ospulse.session.HoldingPnl;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.GpFormat;
@@ -15,6 +16,7 @@ import net.runelite.client.ui.FontManager;
 
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import java.awt.Color;
@@ -22,7 +24,9 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalDouble;
 
 /**
@@ -35,6 +39,13 @@ import java.util.OptionalDouble;
  * (▲/▼ X.X%) sourced from {@link PriceTrendService}. Trend data is entirely
  * opt-in and off by default: with it disabled this section behaves exactly
  * as the plain holdings list did before, just paginated.
+ *
+ * <p>Also owns the "Unrealized P/L" line: total paper gain/loss across the
+ * session's tracked holdings (live value vs session cost basis, see
+ * {@link HoldingPnl}) as a stat row, plus a per-row breakdown badge — the
+ * amount each holding has drifted since acquisition — with the cost basis in
+ * the row tooltip. Realised profit lives in the Session section; price drift
+ * only ever shows up here.
  */
 public final class HoldingsSection extends CollapsibleSection
 {
@@ -45,12 +56,15 @@ public final class HoldingsSection extends CollapsibleSection
 	private final OSPulseConfig config;
 	private final PriceTrendService priceTrendService;
 
+	private final JLabel unrealizedValue;
 	private final JPanel holdingsListPanel;
 	private final JPanel pagerRow;
 	private final JButton moreButton;
 	private final JButton lessButton;
 
 	private List<ItemStack> lastHoldings = List.of();
+	private Map<Integer, HoldingPnl> lastPnls = Map.of();
+	private long lastUnrealizedPnl;
 	private long total;
 	private int visibleCount;
 	private String aggregateTrendText;
@@ -63,6 +77,8 @@ public final class HoldingsSection extends CollapsibleSection
 		this.config = config;
 		this.priceTrendService = priceTrendService;
 		this.visibleCount = pageSize();
+
+		unrealizedValue = PanelWidgets.statRow(body(), "Unrealized P/L");
 
 		holdingsListPanel = new JPanel();
 		holdingsListPanel.setLayout(new BoxLayout(holdingsListPanel, BoxLayout.Y_AXIS));
@@ -105,6 +121,13 @@ public final class HoldingsSection extends CollapsibleSection
 	{
 		WealthSnapshot wealth = snapshot.getWealth();
 		lastHoldings = wealth == null ? List.of() : wealth.getTopHoldings();
+		lastUnrealizedPnl = snapshot.getUnrealizedPnl();
+		Map<Integer, HoldingPnl> pnls = new HashMap<>();
+		for (HoldingPnl pnl : snapshot.getHoldingPnls())
+		{
+			pnls.put(pnl.getItemId(), pnl);
+		}
+		lastPnls = pnls;
 		// Never shrink below a full page across a snapshot update, but do
 		// preserve however far the user has paged.
 		if (visibleCount < pageSize())
@@ -124,6 +147,8 @@ public final class HoldingsSection extends CollapsibleSection
 	private void render()
 	{
 		holdingsListPanel.removeAll();
+
+		PanelWidgets.setSignedGpLabel(unrealizedValue, lastUnrealizedPnl);
 
 		boolean trendsOn = config != null && config.priceTrendEnabled();
 		total = 0L;
@@ -157,14 +182,27 @@ public final class HoldingsSection extends CollapsibleSection
 				{
 					shownIds.add(stack.getId());
 
+					HoldingPnl pnl = lastPnls.get(stack.getId());
 					String label = stack.getName() + " x" + String.format("%,d", stack.getQuantity());
 					String value = GpFormat.format(stack.value());
-					String right = trendsOn
-						? "<html>" + value + "&nbsp;&nbsp;" + trendBadgeHtml(trend) + "</html>"
+					String unrlBadge = pnl != null && pnl.unrealized() != 0
+						? unrealizedBadgeHtml(pnl.unrealized())
+						: null;
+					String right = trendsOn || unrlBadge != null
+						? "<html>" + value
+							+ (unrlBadge == null ? "" : "&nbsp;&nbsp;" + unrlBadge)
+							+ (trendsOn ? "&nbsp;&nbsp;" + trendBadgeHtml(trend) : "")
+							+ "</html>"
 						: value;
 
-					holdingsListPanel.add(PanelWidgets.iconRow(itemManager, stack.getId(), label, right,
-						ColorScheme.LIGHT_GRAY_COLOR));
+					JPanel row = PanelWidgets.iconRow(itemManager, stack.getId(), label, right,
+						ColorScheme.LIGHT_GRAY_COLOR);
+					if (pnl != null)
+					{
+						row.setToolTipText("Cost basis: " + GpFormat.format(pnl.getCostBasis())
+							+ "  |  Unrealized: " + signedGp(pnl.unrealized()));
+					}
+					holdingsListPanel.add(row);
 				}
 			}
 
@@ -195,6 +233,22 @@ public final class HoldingsSection extends CollapsibleSection
 	private int pageSize()
 	{
 		return config == null ? DEFAULT_PAGE_SIZE : Math.max(1, config.holdingsPageSize());
+	}
+
+	private static String signedGp(long value)
+	{
+		return (value > 0 ? "+" : "") + GpFormat.format(value);
+	}
+
+	/**
+	 * Colored per-holding unrealized-drift badge (e.g. "+120k" / "-45k"):
+	 * how far this holding's live value has moved from its session cost
+	 * basis. Same visual idiom as the trend badge.
+	 */
+	private static String unrealizedBadgeHtml(long unrealized)
+	{
+		Color color = unrealized >= 0 ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.PROGRESS_ERROR_COLOR;
+		return "<font color='" + toHex(color) + "'>" + signedGp(unrealized) + "</font>";
 	}
 
 	private static String trendText(double pct)
