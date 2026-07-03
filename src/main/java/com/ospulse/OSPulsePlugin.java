@@ -99,18 +99,32 @@ public class OSPulsePlugin extends Plugin
 		priceTrendService = new PriceTrendService(okHttpClient, config, gson);
 
 		RuneLiteItemValuation valuation = new RuneLiteItemValuation(itemManager);
+		// Precomputes BOTH prices and tradeability on the client thread
+		// (ItemManager.getItemComposition/isTradeable assert it) into plain
+		// collections, so the background optimiser search never touches the
+		// ItemManager itself. Tradeability matters because getItemPrice
+		// "prices" some untradeables via ItemMapping's tradeable proxies
+		// (e.g. trouver-locked items cost the Trouver parchment's ~1m) — an
+		// unowned untradeable must be unpurchasable, whatever it "costs".
 		GearSection.OptimizerPriceResolver optimizerPriceResolver = (ids, cb) -> clientThread.invoke(() ->
 		{
 			java.util.Map<Integer, Long> m = new java.util.HashMap<>();
+			java.util.Set<Integer> untradeable = new java.util.HashSet<>();
 			for (int id : ids)
 			{
+				if (!valuation.isTradeable(id))
+				{
+					untradeable.add(id);
+					continue;
+				}
 				long v = valuation.unitValue(id);
 				if (v > 0)
 				{
 					m.put(id, v);
 				}
 			}
-			javax.swing.SwingUtilities.invokeLater(() -> cb.accept(m));
+			GearSection.PriceLookup lookup = new GearSection.PriceLookup(m, untradeable);
+			javax.swing.SwingUtilities.invokeLater(() -> cb.accept(lookup));
 		});
 
 		panel = new OSPulsePanel(config, itemManager, configManager, priceTrendService, skillIconManager,

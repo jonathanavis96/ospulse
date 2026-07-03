@@ -256,10 +256,10 @@ public class GearSectionOptimizerStyleTest
 
 	// ------------------------------------------------ owned vs not-owned rendering
 
-	/** A synchronous fake resolver — calls {@code onResolved} inline with a fixed price map, no threading involved. */
+	/** A synchronous fake resolver — calls {@code onResolved} inline with a fixed price map (everything tradeable), no threading involved. */
 	private static GearSection.OptimizerPriceResolver fakeResolver(java.util.Map<Integer, Long> prices)
 	{
-		return (ids, onResolved) -> onResolved.accept(prices);
+		return (ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(prices, java.util.Set.of()));
 	}
 
 	@Test

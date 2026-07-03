@@ -30,6 +30,17 @@ public final class WealthSnapshot
 	 * Does NOT include bank or GE-in-flight. Used for loot diffing.
 	 */
 	private final Map<Integer, ItemStack> trackedItems;
+	/**
+	 * Canonical itemId -> stack for EVERYTHING the player owns: inventory +
+	 * equipment + bank (live or restored from the per-account cache) +
+	 * pouches — the same complete item set the bank/net-worth valuation is
+	 * computed from. Unlike {@link #topHoldings} this is NEVER truncated or
+	 * sorted by value, so membership here is the authoritative "does the
+	 * player own this item at all?" answer — a 0-GE-value untradeable (e.g. a
+	 * fire cape in the bank) is present here even though it can never make a
+	 * top-N-by-value cut.
+	 */
+	private final Map<Integer, ItemStack> allHoldings;
 
 	public WealthSnapshot(
 		long inventoryValue,
@@ -41,6 +52,22 @@ public final class WealthSnapshot
 		long timestampMs,
 		List<ItemStack> topHoldings,
 		Map<Integer, ItemStack> trackedItems)
+	{
+		this(inventoryValue, equipmentValue, geInFlightValue, pouchValue, bankValue, bankKnown,
+			timestampMs, topHoldings, trackedItems, null);
+	}
+
+	public WealthSnapshot(
+		long inventoryValue,
+		long equipmentValue,
+		long geInFlightValue,
+		long pouchValue,
+		long bankValue,
+		boolean bankKnown,
+		long timestampMs,
+		List<ItemStack> topHoldings,
+		Map<Integer, ItemStack> trackedItems,
+		Map<Integer, ItemStack> allHoldings)
 	{
 		this.inventoryValue = inventoryValue;
 		this.equipmentValue = equipmentValue;
@@ -55,6 +82,9 @@ public final class WealthSnapshot
 		this.trackedItems = trackedItems == null
 			? Collections.emptyMap()
 			: Collections.unmodifiableMap(new LinkedHashMap<>(trackedItems));
+		this.allHoldings = allHoldings == null
+			? Collections.emptyMap()
+			: Collections.unmodifiableMap(new LinkedHashMap<>(allHoldings));
 	}
 
 	public static Builder builder()
@@ -108,6 +138,17 @@ public final class WealthSnapshot
 	}
 
 	/**
+	 * The COMPLETE owned-item map (inventory + equipment + bank + pouches) —
+	 * see the {@link #allHoldings} field javadoc. Empty when the snapshot was
+	 * built without it (legacy callers/tests); membership-based ownership
+	 * checks should fall back to {@link #getTopHoldings()} in that case.
+	 */
+	public Map<Integer, ItemStack> getAllHoldings()
+	{
+		return allHoldings;
+	}
+
+	/**
 	 * Wealth that can move without a bank visit: inventory + equipment +
 	 * GE-in-flight + pouches.
 	 */
@@ -137,6 +178,7 @@ public final class WealthSnapshot
 		private long timestampMs;
 		private List<ItemStack> topHoldings = Collections.emptyList();
 		private Map<Integer, ItemStack> trackedItems = Collections.emptyMap();
+		private Map<Integer, ItemStack> allHoldings = Collections.emptyMap();
 
 		public Builder inventoryValue(long inventoryValue)
 		{
@@ -192,6 +234,13 @@ public final class WealthSnapshot
 			return this;
 		}
 
+		/** The complete owned-item map — see {@link WealthSnapshot#getAllHoldings()}. */
+		public Builder allHoldings(Map<Integer, ItemStack> allHoldings)
+		{
+			this.allHoldings = allHoldings;
+			return this;
+		}
+
 		public WealthSnapshot build()
 		{
 			return new WealthSnapshot(
@@ -203,7 +252,8 @@ public final class WealthSnapshot
 				bankKnown,
 				timestampMs,
 				topHoldings,
-				trackedItems);
+				trackedItems,
+				allHoldings);
 		}
 	}
 }

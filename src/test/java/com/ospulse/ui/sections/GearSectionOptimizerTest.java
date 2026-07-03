@@ -152,9 +152,10 @@ public class GearSectionOptimizerTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 
 			// Player is wielding the bronze sword but has a dragon scimitar sitting
-			// in the bank — WealthSnapshot.topHoldings is the ONLY source that
-			// surfaces it (see GearSection.ownedPriceMap), so the optimizer should
-			// pick it up as a free (already-owned) upgrade with budget 0.
+			// in the bank. This snapshot carries only topHoldings (no allHoldings) —
+			// the legacy-fallback path in GearSection.ownedPriceMap — and the
+			// optimizer must still pick the scimitar up as a free (already-owned)
+			// upgrade with budget 0.
 			List<ItemStack> holdings = new ArrayList<>();
 			holdings.add(new ItemStack(DRAGON_SCIMITAR, "Dragon scimitar", 1, 100_000L));
 			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
@@ -177,6 +178,44 @@ public class GearSectionOptimizerTest
 				}
 			}
 			assertTrue("optimizer must pick up the bank-held scimitar as a free upgrade", foundScimitar);
+		});
+	}
+
+	/**
+	 * Ownership must be MEMBERSHIP-based, decoupled from GE value: an owned
+	 * 0-value untradeable (a fire cape in the bank) never makes the
+	 * top-50-BY-VALUE {@code topHoldings} cut, but it IS in the snapshot's
+	 * complete {@code allHoldings} map (the same full item set the bank
+	 * valuation uses) — and that is what {@code ownedPriceMap()} must read.
+	 */
+	@Test
+	public void zeroValueBankItem_inAllHoldings_countsAsOwned_evenWhenAbsentFromTopHoldings()
+	{
+		onEdt(() ->
+		{
+			final int fireCape = 6570;
+			GearSection section = new GearSection(NO_STORE, null, null);
+
+			// topHoldings: 50 valuable stacks, fire cape crowded out entirely.
+			List<ItemStack> top = new ArrayList<>();
+			for (int i = 0; i < 50; i++)
+			{
+				top.add(new ItemStack(2434 + i, "Valuable stack " + i, 1, 10_000_000L - i));
+			}
+			// allHoldings: the COMPLETE owned set — includes the 0-value cape.
+			java.util.Map<Integer, ItemStack> all = new java.util.LinkedHashMap<>();
+			for (ItemStack s : top)
+			{
+				all.put(s.getId(), s);
+			}
+			all.put(fireCape, new ItemStack(fireCape, "Fire cape", 1, 0L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(top).allHoldings(all).build();
+
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+
+			java.util.Map<Integer, Long> owned = section.ownedPriceMapForTest();
+			assertTrue("a 0-GE-value bank untradeable must count as owned via allHoldings",
+				owned.containsKey(fireCape));
 		});
 	}
 
@@ -281,10 +320,10 @@ public class GearSectionOptimizerTest
 
 	private static final int ABYSSAL_WHIP = 4151;
 
-	/** A synchronous fake resolver — calls {@code onResolved} inline with a fixed price map, no threading involved. */
+	/** A synchronous fake resolver — calls {@code onResolved} inline with a fixed price map (everything tradeable), no threading involved. */
 	private static GearSection.OptimizerPriceResolver fakeResolver(java.util.Map<Integer, Long> prices)
 	{
-		return (ids, onResolved) -> onResolved.accept(prices);
+		return (ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(prices, java.util.Set.of()));
 	}
 
 	/**

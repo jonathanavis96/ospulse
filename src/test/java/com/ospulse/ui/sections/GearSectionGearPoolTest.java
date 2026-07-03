@@ -33,9 +33,16 @@ import static org.junit.Assert.assertTrue;
  *       "(bh)", "(lms)", "(beta)" etc. marker) must never appear as optimiser
  *       candidates;</li>
  *   <li><b>D</b> — untradeable pricing: an unowned item with a resolved GE
- *       price &lt;= 0 must be treated as unaffordable (Long.MAX_VALUE), except
- *       for a small assembled-item -&gt; tradeable-component override (the
- *       Avernic defender -&gt; Avernic defender hilt).
+ *       price &lt;= 0 must be treated as unaffordable (Long.MAX_VALUE); and an
+ *       unowned item flagged UNTRADEABLE by the client-thread-precomputed
+ *       tradeability set must be unaffordable even when RuneLite reports a
+ *       positive price for it (ItemMapping "prices" trouver-locked
+ *       untradeables — e.g. Dragon defender (l)/Fire cape (l) — at the
+ *       Trouver parchment's ~1m GE cost);</li>
+ *   <li><b>Gauntlet-only tiers</b> — "Crystal/Corrupted X
+ *       (basic|attuned|perfected)" exist only inside The Gauntlet instance
+ *       and must never be optimiser candidates, while the suffix-less
+ *       main-game crystal armour stays in the pool.</li>
  * </ul>
  */
 public class GearSectionGearPoolTest
@@ -94,7 +101,14 @@ public class GearSectionGearPoolTest
 
 	private static final int AVERNIC_DEFENDER_L = 24186; // "Avernic defender" (assembled, untradeable)
 	private static final int AVERNIC_DEFENDER = 22322;   // "Avernic defender" (assembled, untradeable)
-	private static final int AVERNIC_DEFENDER_HILT = net.runelite.api.ItemID.AVERNIC_DEFENDER_HILT;
+
+	private static final int DRAGON_DEFENDER = 12954;
+	private static final int DRAGON_DEFENDER_L = 24143; // trouver-locked
+	private static final int FIRE_CAPE = 6570;
+	private static final int FIRE_CAPE_L = 24223;       // trouver-locked
+
+	private static final int CRYSTAL_LEGS_PERFECTED = 23894; // Gauntlet-instance-only
+	private static final int CRYSTAL_LEGS_PLAIN = 23979;     // real main-game crystal armour — must stay
 
 	private static int[] loadout(int weaponId)
 	{
@@ -312,7 +326,8 @@ public class GearSectionGearPoolTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 
-			GearOptimizer.PriceSource resolved = section.resolveOptimizerPriceSourceForTest(id -> 0L);
+			GearOptimizer.PriceSource resolved =
+				section.resolveOptimizerPriceSourceForTest(id -> 0L, java.util.Set.of());
 			// Some arbitrary unowned, non-special item — must be unaffordable when
 			// the raw resolved price is <= 0 (untradeable, not "free").
 			int arbitraryUnownedId = 4587; // Dragon scimitar
@@ -320,35 +335,164 @@ public class GearSectionGearPoolTest
 		});
 	}
 
+	/**
+	 * The general untradeable = unpurchasable rule: an id in the precomputed
+	 * untradeable set must resolve to Long.MAX_VALUE even when the raw price
+	 * lookup reports a positive cost for it — RuneLite's ItemMapping "prices"
+	 * every trouver-locked untradeable (Dragon defender (l), Fire cape (l), …)
+	 * at the tradeable Trouver parchment's ~1m, which used to make the
+	 * optimiser recommend "buying" items that cannot be bought.
+	 */
 	@Test
-	public void avernicDefenderAssembledIds_priceFromTheHiltComponent()
+	public void unownedUntradeableItem_resolvesToUnaffordable_evenWithAPositiveRawPrice()
 	{
 		onEdt(() ->
 		{
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 
-			long hiltPrice = 31_800_000L;
-			GearOptimizer.PriceSource resolved = section.resolveOptimizerPriceSourceForTest(id ->
-			{
-				if (id == AVERNIC_DEFENDER_HILT)
-				{
-					return hiltPrice;
-				}
-				return 0L; // the assembled/untradeable ids themselves resolve to 0 via the real GE lookup
-			});
+			java.util.Set<Integer> untradeable = java.util.Set.of(
+				DRAGON_DEFENDER, DRAGON_DEFENDER_L, FIRE_CAPE, FIRE_CAPE_L,
+				AVERNIC_DEFENDER, AVERNIC_DEFENDER_L);
+			GearOptimizer.PriceSource resolved =
+				section.resolveOptimizerPriceSourceForTest(id -> 1_000_000L, untradeable);
 
-			assertEquals("the assembled Avernic defender must price from the hilt component",
-				hiltPrice, resolved.priceFor(AVERNIC_DEFENDER_L));
-			assertEquals("both assembled ids must map to the same hilt component",
-				hiltPrice, resolved.priceFor(AVERNIC_DEFENDER));
+			for (int id : untradeable)
+			{
+				assertEquals("untradeable id " + id + " must be unpurchasable despite a raw ~1m price",
+					Long.MAX_VALUE, resolved.priceFor(id));
+			}
+			assertEquals("a tradeable id must keep its raw price",
+				1_000_000L, resolved.priceFor(4587 /* Dragon scimitar */));
 		});
+	}
+
+	/**
+	 * End-to-end (bugs 1 + 3): the player converted their dragon defender into
+	 * an Avernic defender (owned, sitting in the bank at 0 GE value). The
+	 * optimiser must (a) never suggest buying the untradeable dragon defender
+	 * or fire cape — whatever trouver-parchment price RuneLite reports for
+	 * them — and (b) use the owned Avernic defender in the shield slot instead.
+	 */
+	@Test
+	public void untradeableDefenderAndFireCape_neverRecommendedAsPurchases_ownedAvernicWins()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(DRAGON_DEFENDER, 1_000_000L);   // the ItemMapping/trouver-parchment leak
+			prices.put(DRAGON_DEFENDER_L, 1_000_000L);
+			prices.put(FIRE_CAPE, 1_000_000L);
+			prices.put(FIRE_CAPE_L, 1_000_000L);
+			java.util.Set<Integer> untradeable = java.util.Set.of(
+				DRAGON_DEFENDER, DRAGON_DEFENDER_L, FIRE_CAPE, FIRE_CAPE_L);
+
+			java.util.Map<Integer, com.ospulse.model.ItemStack> allHoldings = new java.util.HashMap<>();
+			allHoldings.put(AVERNIC_DEFENDER,
+				new com.ospulse.model.ItemStack(AVERNIC_DEFENDER, "Avernic defender", 1, 0L));
+			WealthSnapshot wealth = WealthSnapshot.builder().allHoldings(allHoldings).build();
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null,
+				fakeResolver(prices, untradeable));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+			section.setBudgetTextForTest("50m");
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			boolean avernicChosen = false;
+			for (GearOptimizer.SlotChoice choice : result.loadout())
+			{
+				assertFalse("the untradeable dragon defender must never be suggested",
+					choice.itemId() == DRAGON_DEFENDER || choice.itemId() == DRAGON_DEFENDER_L);
+				assertFalse("the untradeable fire cape must never be suggested",
+					choice.itemId() == FIRE_CAPE || choice.itemId() == FIRE_CAPE_L);
+				if (choice.itemId() == AVERNIC_DEFENDER)
+				{
+					avernicChosen = true;
+					assertTrue("the Avernic defender must be used as OWNED, not bought", choice.owned());
+				}
+			}
+			assertTrue("the owned Avernic defender must be picked for the shield slot", avernicChosen);
+			assertEquals("nothing purchasable here — no GP may be spent", 0L, result.totalSpend());
+		});
+	}
+
+	// ======================================================== Gauntlet-only tiers
+
+	@Test
+	public void isGauntletOnlyItem_matchesTheThreeTierSuffixes_andNothingElse()
+	{
+		assertTrue(GearSection.isGauntletOnlyItem("Crystal legs (perfected)"));
+		assertTrue(GearSection.isGauntletOnlyItem("Crystal helm (basic)"));
+		assertTrue(GearSection.isGauntletOnlyItem("Corrupted bow (attuned)"));
+		assertTrue(GearSection.isGauntletOnlyItem("Crystal dagger (perfected)"));
+		assertFalse("plain main-game crystal armour must not be excluded",
+			GearSection.isGauntletOnlyItem("Crystal legs"));
+		assertFalse(GearSection.isGauntletOnlyItem("Crystal body"));
+		assertFalse("the suffix must be at the END of the name",
+			GearSection.isGauntletOnlyItem("(perfected) oddity"));
+		assertFalse(GearSection.isGauntletOnlyItem("Abyssal whip"));
+		assertFalse(GearSection.isGauntletOnlyItem(null));
+	}
+
+	/**
+	 * End-to-end: even priced dirt cheap, a Gauntlet-instance-only tier
+	 * ("Crystal legs (perfected)") must never appear in the optimiser result —
+	 * it cannot exist outside the Gauntlet, so it can never be equipped
+	 * against a normal target.
+	 */
+	@Test
+	public void gauntletOnlyItem_isNeverSuggestedByTheOptimizer()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(CRYSTAL_LEGS_PERFECTED, 1L); // absurdly cheap — would dominate the legs slot if it were a candidate
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(section);
+			section.setBudgetTextForTest("50m");
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			for (GearOptimizer.SlotChoice choice : result.loadout())
+			{
+				assertFalse("a Gauntlet-only tier must never appear in the result",
+					choice.itemId() == CRYSTAL_LEGS_PERFECTED);
+			}
+		});
+	}
+
+	/**
+	 * The per-search exclusion id set (mode-locked + Gauntlet-only) must
+	 * contain every suffixed Gauntlet tier but NOT the suffix-less main-game
+	 * crystal armour — the ids are distinct in the bundled index (23894
+	 * "Crystal legs (perfected)" vs 23979 "Crystal legs"), and only the
+	 * former may be swept up.
+	 */
+	@Test
+	public void restrictedItemIds_excludeGauntletTiers_butKeepPlainCrystalArmour()
+	{
+		java.util.Set<Integer> restricted = GearSection.restrictedItemIds();
+		assertTrue("Crystal legs (perfected) must be excluded from the candidate pool",
+			restricted.contains(CRYSTAL_LEGS_PERFECTED));
+		assertFalse("plain main-game Crystal legs must survive the filter",
+			restricted.contains(CRYSTAL_LEGS_PLAIN));
 	}
 
 	/** A synchronous fake resolver — calls {@code onResolved} inline with a fixed price map, no threading involved. */
 	private static GearSection.OptimizerPriceResolver fakeResolver(java.util.Map<Integer, Long> prices)
 	{
-		return (ids, onResolved) -> onResolved.accept(prices);
+		return fakeResolver(prices, java.util.Set.of());
+	}
+
+	/** As above, with a fixed untradeable-id set mirroring the client-thread tradeability precompute. */
+	private static GearSection.OptimizerPriceResolver fakeResolver(java.util.Map<Integer, Long> prices,
+		java.util.Set<Integer> untradeableIds)
+	{
+		return (ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(prices, untradeableIds));
 	}
 
 	private static void pickCerberus(GearSection section)

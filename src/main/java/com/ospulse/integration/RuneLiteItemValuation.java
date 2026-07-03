@@ -50,6 +50,21 @@ public class RuneLiteItemValuation
 	}
 
 	/**
+	 * True if the item can be traded (GE/player trade), canonicalized first.
+	 * Calls {@link ItemManager#getItemComposition(int)}, which asserts it is
+	 * running on the RuneLite client thread — callers must never invoke this
+	 * from the Swing EDT or a background search thread; precompute the answers
+	 * into a plain map on the client thread instead (see
+	 * {@code OSPulsePlugin}'s optimizer price resolver).
+	 */
+	public boolean isTradeable(int itemId)
+	{
+		int canonicalId = itemManager.canonicalize(itemId);
+		ItemComposition comp = itemManager.getItemComposition(canonicalId);
+		return comp != null && comp.isTradeable();
+	}
+
+	/**
 	 * Per-unit High Alchemy price for the given item, canonicalized first, or
 	 * {@code -1} if no composition is available. Calls
 	 * {@link ItemManager#getItemComposition(int)}, which asserts it is running
