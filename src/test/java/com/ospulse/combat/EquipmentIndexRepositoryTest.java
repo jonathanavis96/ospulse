@@ -36,19 +36,31 @@ public class EquipmentIndexRepositoryTest {
     }
 
     @Test
-    public void abyssalWhip_nameAndWeaponSlot() {
+    public void abyssalWhip_nameAndWeaponSlot_oneHanded() {
         EquipmentIndexRepository.Entry e = EquipmentIndexRepository.getInstance().entryFor(4151);
         assertNotNull(e);
         assertEquals("Abyssal whip", e.name());
         assertEquals(3, e.slotOrdinal()); // WEAPON
+        assertTrue("whip is one-handed", !e.isTwoHanded());
     }
 
     @Test
-    public void twistedBow_nameAndWeaponSlot() {
+    public void twistedBow_nameAndWeaponSlot_twoHanded() {
         EquipmentIndexRepository.Entry e = EquipmentIndexRepository.getInstance().entryFor(20997);
         assertNotNull(e);
         assertEquals("Twisted bow", e.name());
         assertEquals(3, e.slotOrdinal());
+        assertTrue("twisted bow is two-handed", e.isTwoHanded());
+    }
+
+    @Test
+    public void nonWeaponSlotsAreNeverTwoHanded() {
+        EquipmentIndexRepository repo = EquipmentIndexRepository.getInstance();
+        for (int slot : new int[] {0, 1, 2, 4, 5, 7, 9, 10, 12, 13}) {
+            for (EquipmentIndexRepository.Entry e : repo.forSlot(slot)) {
+                assertTrue(e.name() + " in non-weapon slot must not be two-handed", !e.isTwoHanded());
+            }
+        }
     }
 
     @Test

@@ -90,7 +90,8 @@ public final class EquipmentIndexRepository {
                     if (nameEl == null || nameEl.isJsonNull() || slotEl == null || slotEl.isJsonNull()) {
                         continue;
                     }
-                    parsed.add(new Entry(itemId, nameEl.getAsString(), slotEl.getAsInt()));
+                    boolean isTwoHanded = row.size() > 2 && !row.get(2).isJsonNull() && row.get(2).getAsBoolean();
+                    parsed.add(new Entry(itemId, nameEl.getAsString(), slotEl.getAsInt(), isTwoHanded));
                 }
             }
             return new EquipmentIndexRepository(parsed);
@@ -148,16 +149,18 @@ public final class EquipmentIndexRepository {
         return out;
     }
 
-    /** One equippable item's display name and equipment-slot ordinal. Immutable. */
+    /** One equippable item's display name, equipment-slot ordinal and two-handedness. Immutable. */
     public static final class Entry {
         private final int itemId;
         private final String name;
         private final int slotOrdinal;
+        private final boolean twoHanded;
 
-        Entry(int itemId, String name, int slotOrdinal) {
+        Entry(int itemId, String name, int slotOrdinal, boolean twoHanded) {
             this.itemId = itemId;
             this.name = name;
             this.slotOrdinal = slotOrdinal;
+            this.twoHanded = twoHanded;
         }
 
         public int itemId() {
@@ -171,6 +174,16 @@ public final class EquipmentIndexRepository {
         /** {@code net.runelite.api.EquipmentInventorySlot} ordinal this item is worn in. */
         public int slotOrdinal() {
             return slotOrdinal;
+        }
+
+        /**
+         * True for a two-handed weapon (weapon-slot entries only — always
+         * {@code false} for every other slot). Lets the EDT-only what-if
+         * picker enforce shield exclusivity without an {@code ItemManager}
+         * call (see the resource README).
+         */
+        public boolean isTwoHanded() {
+            return twoHanded;
         }
     }
 }
