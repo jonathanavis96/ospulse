@@ -1,6 +1,5 @@
 package com.ospulse.ui.sections;
 
-import com.ospulse.combat.CombatStyle;
 import com.ospulse.combat.DpsCalculator;
 import com.ospulse.combat.DpsResult;
 import com.ospulse.combat.EquipmentStats;
@@ -8,7 +7,7 @@ import com.ospulse.combat.Monster;
 import com.ospulse.combat.MonsterRepository;
 import com.ospulse.combat.PlayerCombat;
 import com.ospulse.combat.SlayerHeadgear;
-import com.ospulse.combat.Stance;
+import com.ospulse.combat.WeaponStyle;
 import com.ospulse.session.GearMapper;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.SessionSnapshot;
@@ -190,12 +189,13 @@ public class GearSectionTargetWiringTest
 			assertEquals("Target: Cerberus", section.targetTextForTest());
 
 			// The rendered numbers must equal an independent computation against
-			// the SAME monster the user picked (stab / aggressive / no toggles,
-			// the section's defaults).
+			// the SAME monster the user picked, using whichever attack style the
+			// ranked picker auto-selected (best DPS) with no toggles.
 			GearSnapshot gear = meleeGear();
-			PlayerCombat player = GearMapper.toPlayerCombat(gear, Stance.AGGRESSIVE, false, false, false);
+			WeaponStyle sel = section.selectedStyleForTest();
+			PlayerCombat player = GearMapper.toPlayerCombat(gear, sel.stance(), false, false, false);
 			DpsResult expected = DpsCalculator.compute(
-				gear.equipmentStats(), player, CombatStyle.STAB,
+				gear.equipmentStats(), player, sel.type(),
 				MonsterRepository.getInstance().byName("Cerberus").get(), 20);
 
 			assertEquals(String.format(Locale.ROOT, "%.2f", expected.dps()), section.dpsTextForTest());
@@ -241,9 +241,10 @@ public class GearSectionTargetWiringTest
 				maxHitOn > maxHitOff);
 
 			GearSnapshot gear = meleeGear();
-			PlayerCombat boosted = GearMapper.toPlayerCombat(gear, Stance.AGGRESSIVE, true, false, false);
+			WeaponStyle sel = section.selectedStyleForTest();
+			PlayerCombat boosted = GearMapper.toPlayerCombat(gear, sel.stance(), true, false, false);
 			DpsResult expected = DpsCalculator.compute(
-				gear.equipmentStats(), boosted, CombatStyle.STAB,
+				gear.equipmentStats(), boosted, sel.type(),
 				MonsterRepository.getInstance().byName("Cerberus").get(), 20);
 			assertEquals(String.valueOf(expected.maxHit()), section.maxHitTextForTest());
 		});

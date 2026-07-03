@@ -8,6 +8,8 @@ import com.ospulse.combat.Monster;
 import com.ospulse.combat.MonsterRepository;
 import com.ospulse.combat.PlayerCombat;
 import com.ospulse.combat.Stance;
+import com.ospulse.combat.WeaponCategoryRepository;
+import com.ospulse.combat.WeaponStyle;
 import com.ospulse.session.GearMapper;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.SessionSnapshot;
@@ -25,7 +27,7 @@ import net.runelite.client.util.AsyncBufferedImage;
 import javax.swing.AbstractListModel;
 import javax.swing.Box;
 import javax.swing.BorderFactory;
-import javax.swing.ButtonGroup;
+import javax.swing.BoxLayout;
 import javax.swing.ImageIcon;
 import javax.swing.JLabel;
 import javax.swing.JList;
@@ -37,14 +39,20 @@ import javax.swing.SwingConstants;
 import javax.swing.border.Border;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.Insets;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
@@ -53,29 +61,35 @@ import java.util.Locale;
  * worn gear + boosted levels + active prayers (via {@link GearSnapshot}, fed
  * live by {@code SessionTracker} on the client thread) and computes max hit /
  * accuracy / DPS against a selected {@link Monster} using the
- * {@code com.ospulse.combat} engine, for a user-toggleable {@link CombatStyle}.
+ * {@code com.ospulse.combat} engine.
  *
  * <p>The section is always active (it makes no network calls). Its body leads
  * with a live equipment-tab-style grid of the player's worn item icons so it
- * is unmistakable that the numbers below refer to the CURRENT worn gear.
- * Combat style and the simulation toggles (best potion / best offensive
- * prayer / on Slayer task) are icon buttons with tooltips; the target is
- * picked via a search box over a fully scrollable {@link MonsterRepository}
- * result list.
+ * is unmistakable that the numbers below refer to the CURRENT worn gear. It
+ * then shows the equipped weapon's <b>real attack styles</b> (resolved from the
+ * weapon id via {@link WeaponCategoryRepository}), each computed and
+ * <b>ranked by DPS</b> against the picked target — the best is starred and
+ * selected by default, and clicking any row locks the readout to that style.
+ * The simulation toggles (best potion / best offensive prayer / on Slayer task)
+ * are icon buttons with tooltips; the target is picked via a search box over a
+ * fully scrollable {@link MonsterRepository} result list.
+ *
+ * <p>Magic styles are intentionally excluded from the ranking for now (magic
+ * max hit still uses a placeholder base spell — see
+ * {@link #DEFAULT_MAGIC_BASE_MAX_HIT}); a weapon whose only styles are magic
+ * (powered staff/wand) falls back to a single magic placeholder row.
  *
  * <p>Deferred to a later phase (see the design spec): live opponent
- * auto-detection, favourites, and gear upgrade suggestions.
+ * auto-detection, favourites, magic spell picker, and gear upgrade suggestions
+ * (the optimiser reuses this same weapon-id → styles path for weapons you do
+ * not yet own).
  *
  * <p><b>Threading:</b> this is an EDT Swing component. It never reads the
- * RuneLite {@code Client} directly and never calls any
- * {@code getBoostedSkillLevel}/{@code isPrayerActive}/{@code getItemContainer}
- * -style API — all of that happens in {@code SessionTracker} on the client
- * thread and is published as {@link GearSnapshot}, including the precomputed
- * {@link GearSnapshot#equipmentStats()}. The <b>only</b> {@code ItemManager}
- * method this class calls is {@code getImage(int)}, which is explicitly
- * EDT-safe (async sprite load); {@code ItemManager.getItemStats} /
- * {@code getItemComposition} assert the client thread internally and must
- * never be called from here.
+ * RuneLite {@code Client} directly. It reads only precomputed snapshot fields
+ * (including {@link GearSnapshot#equipmentStats()} and the equipped weapon id)
+ * and the bundled, pure {@link WeaponCategoryRepository}; the <b>only</b>
+ * {@code ItemManager} method it calls is {@code getImage(int)}, which is
+ * EDT-safe (async sprite load).
  */
 public final class GearSection extends CollapsibleSection
 {
@@ -88,6 +102,9 @@ public final class GearSection extends CollapsibleSection
 	 * spell. Revisit once a spell picker exists.
 	 */
 	private static final int DEFAULT_MAGIC_BASE_MAX_HIT = 20;
+
+	/** {@code EquipmentInventorySlot.WEAPON} ordinal — index into {@link GearSnapshot#equippedItemIds()}. */
+	private static final int WEAPON_SLOT = 3;
 
 	/** Native RuneLite item sprite size is 36x32; cells pad that slightly. */
 	private static final int SLOT_W = 38;
@@ -113,7 +130,7 @@ public final class GearSection extends CollapsibleSection
 		"", "Gloves", "Boots", "", "Ring", "Ammo",
 	};
 
-	// Representative item ids for the icon buttons (item images are the
+	// Representative item ids for the per-style type icons (item images are the
 	// EDT-safe icon source — see class javadoc). Ranged/Magic use the actual
 	// skill icons (via SkillIconManager) instead, since no single item reads as
 	// "the ranged/magic style" the way a stab weapon does.
@@ -124,14 +141,22 @@ public final class GearSection extends CollapsibleSection
 	private static final int ICON_PRAYER = 1718;   // Holy symbol
 	private static final int ICON_SLAYER = 11864;  // Slayer helmet
 
-	/** Skill-icon side length for the Ranged/Magic style buttons. */
-	private static final int STYLE_ICON_SIZE = 25;
+	/** Skill-icon side length for the Ranged/Magic type icons. */
+	private static final int STYLE_ICON_SIZE = 18;
 
 	private final ItemManager itemManager;
 	private final SkillIconManager skillIconManager;
+	private final WeaponCategoryRepository weaponRepo = WeaponCategoryRepository.getInstance();
+
+	/** Small per-{@link CombatStyle} type icon, index == {@code CombatStyle.ordinal()}; null-safe. */
+	private final ImageIcon[] typeIcons = new ImageIcon[CombatStyle.values().length];
 
 	private final JLabel[] slotLabels = new JLabel[GearSnapshot.EQUIPMENT_SLOT_COUNT];
 	private final int[] renderedSlotIds = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
+
+	private final JLabel stylesHeading;
+	private final JPanel stylesPanel;
+	private final List<StyleRow> styleRows = new ArrayList<>();
 
 	private final IconTextField monsterSearchField;
 	private final JScrollPane listScroll;
@@ -150,7 +175,11 @@ public final class GearSection extends CollapsibleSection
 
 	private List<Monster> filteredMonsters = Collections.emptyList();
 	private Monster selectedMonster;
-	private CombatStyle selectedStyle = CombatStyle.STAB;
+	private WeaponStyle selectedStyle;
+	/** True once the user clicks a specific style row — until then the readout follows the best-DPS style. */
+	private boolean userPickedStyle;
+	/** Weapon id the current ranking/selection was built for; a change re-defaults to the best style. */
+	private int lastRankedWeaponId = Integer.MIN_VALUE;
 	private GearSnapshot lastGear;
 	private double lastDps;
 	private boolean suppressListEvents;
@@ -162,6 +191,7 @@ public final class GearSection extends CollapsibleSection
 		super(KEY, "Gear DPS", store);
 		this.itemManager = itemManager;
 		this.skillIconManager = skillIconManager;
+		buildTypeIcons();
 
 		// ------------------------------------------------ worn-gear header
 		JLabel heading = PanelWidgets.emptyRowLabel("Live DPS · your worn gear");
@@ -173,9 +203,22 @@ public final class GearSection extends CollapsibleSection
 		body().add(buildGearGrid());
 		body().add(Box.createRigidArea(new Dimension(0, 6)));
 
-		// ------------------------------------------- style + boost toggles
-		body().add(buildStyleRow());
-		body().add(Box.createRigidArea(new Dimension(0, 3)));
+		// --------------------------------------- ranked attack-style picker
+		stylesHeading = PanelWidgets.emptyRowLabel("Attack styles (best DPS first)");
+		stylesHeading.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		stylesHeading.setToolTipText("Your equipped weapon's attack styles, ranked by DPS "
+			+ "against the selected target. Click one to lock the readout to it.");
+		body().add(stylesHeading);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
+
+		stylesPanel = new JPanel();
+		stylesPanel.setLayout(new BoxLayout(stylesPanel, BoxLayout.Y_AXIS));
+		stylesPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		stylesPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		body().add(stylesPanel);
+		body().add(Box.createRigidArea(new Dimension(0, 6)));
+
+		// ------------------------------------------------- boost toggles
 		JPanel boostRow = new JPanel(new GridLayout(1, 3, 2, 0));
 		boostRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		boostRow.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -189,13 +232,13 @@ public final class GearSection extends CollapsibleSection
 		boostRow.add(bestPotionToggle);
 		boostRow.add(bestPrayerToggle);
 		boostRow.add(onSlayerTaskToggle);
-		// The boost toggles must recompute whenever they change — on a user
-		// click OR the programmatic slayer-helm auto-tick. An ItemListener fires
-		// on both; an ActionListener would silently miss setSelected(), which is
-		// why ticking a boost previously left Max hit unchanged.
-		bestPotionToggle.addItemListener(e -> recompute());
-		bestPrayerToggle.addItemListener(e -> recompute());
-		onSlayerTaskToggle.addItemListener(e -> recompute());
+		// The boost toggles must re-rank whenever they change — on a user click OR
+		// the programmatic slayer-helm auto-tick. An ItemListener fires on both; an
+		// ActionListener would silently miss setSelected(). Boosts shift every
+		// style's DPS, so the whole ranking is recomputed, not just the readout.
+		bestPotionToggle.addItemListener(e -> rankAndRender());
+		bestPrayerToggle.addItemListener(e -> rankAndRender());
+		onSlayerTaskToggle.addItemListener(e -> rankAndRender());
 		boostRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, boostRow.getPreferredSize().height));
 		body().add(boostRow);
 		body().add(Box.createRigidArea(new Dimension(0, 6)));
@@ -254,7 +297,7 @@ public final class GearSection extends CollapsibleSection
 			{
 				selectedMonster = filteredMonsters.get(index);
 				updateTargetLabel();
-				recompute();
+				rankAndRender();
 				// Collapse the result list once a target is picked — the choice
 				// shows in the Target line below; typing in the search box again
 				// re-opens it (see onSearchChanged).
@@ -371,59 +414,32 @@ public final class GearSection extends CollapsibleSection
 		}
 	}
 
-	// ------------------------------------------------------- icon controls
+	// ------------------------------------------------- attack-style picker
 
-	/** Five exclusive icon buttons, one per {@link CombatStyle}, with tooltips. */
-	private JPanel buildStyleRow()
+	/** Precomputes a small icon per damage type for the ranked style rows. */
+	private void buildTypeIcons()
 	{
-		JPanel row = new JPanel(new GridLayout(1, 5, 2, 0));
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-		ButtonGroup group = new ButtonGroup();
-		CombatStyle[] styles = { CombatStyle.STAB, CombatStyle.SLASH, CombatStyle.CRUSH, CombatStyle.RANGED, CombatStyle.MAGIC };
-		String[] tooltips = { "Stab", "Slash", "Crush", "Ranged", "Magic" };
-		for (int i = 0; i < styles.length; i++)
-		{
-			CombatStyle style = styles[i];
-			JToggleButton button = styleToggle(style, tooltips[i] + " attack style");
-			button.setSelected(style == selectedStyle);
-			button.addActionListener(e ->
-			{
-				selectedStyle = style;
-				recompute();
-			});
-			group.add(button);
-			row.add(button);
-		}
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		typeIcons[CombatStyle.STAB.ordinal()] = itemIcon(ICON_STAB);
+		typeIcons[CombatStyle.SLASH.ordinal()] = itemIcon(ICON_SLASH);
+		typeIcons[CombatStyle.CRUSH.ordinal()] = itemIcon(ICON_CRUSH);
+		typeIcons[CombatStyle.RANGED.ordinal()] = skillIcon(Skill.RANGED);
+		typeIcons[CombatStyle.MAGIC.ordinal()] = skillIcon(Skill.MAGIC);
 	}
 
-	/**
-	 * The toggle for one attack style: a representative <em>item</em> icon for
-	 * the melee styles (Ghrazi rapier / Dragon scimitar / Dragon warhammer) and
-	 * the actual <em>skill</em> icon for Ranged / Magic.
-	 */
-	private JToggleButton styleToggle(CombatStyle style, String tooltip)
+	private ImageIcon itemIcon(int itemId)
 	{
-		switch (style)
+		if (itemManager == null)
 		{
-			case RANGED:
-				return iconToggle(skillImage(Skill.RANGED), tooltip);
-			case MAGIC:
-				return iconToggle(skillImage(Skill.MAGIC), tooltip);
-			case SLASH:
-				return iconToggle(ICON_SLASH, tooltip);
-			case CRUSH:
-				return iconToggle(ICON_CRUSH, tooltip);
-			default:
-				return iconToggle(ICON_STAB, tooltip);
+			return null;
 		}
+		AsyncBufferedImage image = itemManager.getImage(itemId);
+		ImageIcon icon = new ImageIcon(image.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH));
+		// Re-scale once the async sprite actually arrives.
+		image.onLoaded(() -> icon.setImage(image.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH)));
+		return icon;
 	}
 
-	/** A skill icon scaled to {@link #STYLE_ICON_SIZE}, or {@code null} if unavailable. */
-	private Image skillImage(Skill skill)
+	private ImageIcon skillIcon(Skill skill)
 	{
 		if (skillIconManager == null)
 		{
@@ -432,7 +448,8 @@ public final class GearSection extends CollapsibleSection
 		try
 		{
 			Image full = skillIconManager.getSkillImage(skill, false);
-			return full == null ? null : full.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH);
+			return full == null ? null
+				: new ImageIcon(full.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH));
 		}
 		catch (RuntimeException e)
 		{
@@ -440,59 +457,130 @@ public final class GearSection extends CollapsibleSection
 		}
 	}
 
-	/** Bare icon-toggle button (border/background styling, no icon yet). */
-	private JToggleButton newToggle(String tooltip)
+	private static String typeLabel(CombatStyle type)
 	{
-		JToggleButton button = new JToggleButton();
-		button.setToolTipText(tooltip);
-		button.setFocusPainted(false);
-		button.setMargin(new Insets(0, 0, 0, 0));
-		button.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		button.setPreferredSize(new Dimension(40, SLOT_H));
-
-		Border selectedBorder = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE);
-		Border unselectedBorder = BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR);
-		Runnable restyle = () ->
+		switch (type)
 		{
-			button.setBorder(button.isSelected() ? selectedBorder : unselectedBorder);
-			button.setBackground(button.isSelected()
-				? ColorScheme.MEDIUM_GRAY_COLOR
-				: ColorScheme.DARKER_GRAY_COLOR);
-		};
-		restyle.run();
-		button.addItemListener(e -> restyle.run());
-		return button;
+			case STAB:
+				return "Stab";
+			case SLASH:
+				return "Slash";
+			case CRUSH:
+				return "Crush";
+			case RANGED:
+				return "Ranged";
+			case MAGIC:
+				return "Magic";
+			default:
+				return type.name();
+		}
 	}
 
 	/**
-	 * An icon-only toggle button whose sprite loads via the async, EDT-safe
-	 * {@code ItemManager.getImage(int)}.
+	 * Recomputes the equipped weapon's attack-style ranking (DPS-desc against
+	 * the current target and boosts), rebuilds the clickable rows, re-selects
+	 * the best (or keeps the user's pick if it survives), and refreshes the
+	 * readout. The single entry point whenever gear, target or boosts change.
 	 */
-	private JToggleButton iconToggle(int itemId, String tooltip)
+	private void rankAndRender()
 	{
-		JToggleButton button = newToggle(tooltip);
-		if (itemManager != null)
+		styleRows.clear();
+		stylesPanel.removeAll();
+
+		int weaponId = lastGear == null ? -1 : lastGear.itemIdAt(WEAPON_SLOT);
+		if (weaponId != lastRankedWeaponId)
 		{
-			AsyncBufferedImage image = itemManager.getImage(itemId);
-			button.setIcon(new ImageIcon(image));
-			image.onLoaded(() ->
-			{
-				button.setIcon(new ImageIcon(image));
-				button.repaint();
-			});
+			// A different weapon: its styles differ, so any prior manual pick no
+			// longer applies — fall back to auto-selecting the best.
+			lastRankedWeaponId = weaponId;
+			userPickedStyle = false;
 		}
-		return button;
+		List<WeaponStyle> styles = new ArrayList<>(weaponRepo.stylesForItem(weaponId));
+		// Magic max hit is a placeholder until a spell picker exists, so magic
+		// styles would rank on fictional numbers — drop them from the ranking.
+		styles.removeIf(s -> s.type() == CombatStyle.MAGIC);
+		if (styles.isEmpty())
+		{
+			// Pure-magic weapon (powered staff/wand): keep a single placeholder so
+			// the readout still works, honestly flagged as a base estimate.
+			styles.add(new WeaponStyle("Magic", CombatStyle.MAGIC, Stance.STANDARD));
+		}
+
+		boolean canRank = lastGear != null && selectedMonster != null && lastGear.equipmentStats() != null;
+
+		// Compute each style's DPS (NaN when we cannot yet), then rank desc.
+		List<Ranked> ranked = new ArrayList<>(styles.size());
+		for (WeaponStyle style : styles)
+		{
+			DpsResult result = canRank ? computeFor(style) : null;
+			ranked.add(new Ranked(style, result));
+		}
+		if (canRank)
+		{
+			ranked.sort(Comparator.comparingDouble((Ranked r) -> r.result.dps()).reversed());
+		}
+
+		// Follow the best-DPS style (top of the ranking) by default; only honour a
+		// prior selection when the user explicitly clicked a row and it survives.
+		WeaponStyle keep = null;
+		if (userPickedStyle)
+		{
+			for (Ranked r : ranked)
+			{
+				if (r.style.equals(selectedStyle))
+				{
+					keep = r.style;
+					break;
+				}
+			}
+		}
+		selectedStyle = keep != null ? keep : (ranked.isEmpty() ? null : ranked.get(0).style);
+
+		for (int i = 0; i < ranked.size(); i++)
+		{
+			Ranked r = ranked.get(i);
+			boolean best = canRank && i == 0;
+			StyleRow row = new StyleRow(r.style, r.result, best);
+			styleRows.add(row);
+			stylesPanel.add(row);
+			stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+		}
+		highlightSelectedRow();
+		stylesPanel.revalidate();
+		stylesPanel.repaint();
+
+		updateOutputs();
 	}
 
-	/** An icon-only toggle button from an already-loaded {@link Image} (e.g. a skill icon). */
-	private JToggleButton iconToggle(Image image, String tooltip)
+	/** Applies the selected-row border/background to whichever row matches {@link #selectedStyle}. */
+	private void highlightSelectedRow()
 	{
-		JToggleButton button = newToggle(tooltip);
-		if (image != null)
+		for (StyleRow row : styleRows)
 		{
-			button.setIcon(new ImageIcon(image));
+			row.setSelected(row.style.equals(selectedStyle));
 		}
-		return button;
+	}
+
+	/** User clicked a style row: lock the readout to it (ranking order is unchanged). */
+	private void selectStyle(WeaponStyle style)
+	{
+		selectedStyle = style;
+		userPickedStyle = true;
+		highlightSelectedRow();
+		updateOutputs();
+	}
+
+	/** DPS for one style against the current target + gear + toggles, or {@code null} if not computable. */
+	private DpsResult computeFor(WeaponStyle style)
+	{
+		if (lastGear == null || selectedMonster == null || lastGear.equipmentStats() == null || style == null)
+		{
+			return null;
+		}
+		EquipmentStats gearStats = lastGear.equipmentStats();
+		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, style.stance(),
+			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected());
+		return DpsCalculator.compute(gearStats, player, style.type(), selectedMonster, DEFAULT_MAGIC_BASE_MAX_HIT);
 	}
 
 	// ------------------------------------------------------- target picker
@@ -557,7 +645,7 @@ public final class GearSection extends CollapsibleSection
 		}
 		suppressListEvents = false;
 		updateTargetLabel();
-		recompute();
+		rankAndRender();
 	}
 
 	private void updateTargetLabel()
@@ -578,7 +666,7 @@ public final class GearSection extends CollapsibleSection
 		lastGear = snapshot.getGear();
 		updateGearGrid(lastGear);
 		autoToggleSlayerFromGear();
-		recompute();
+		rankAndRender();
 		refreshSummary();
 	}
 
@@ -601,25 +689,19 @@ public final class GearSection extends CollapsibleSection
 		if (worn != lastSlayerHeadgearWorn)
 		{
 			lastSlayerHeadgearWorn = worn;
-			onSlayerTaskToggle.setSelected(worn); // fires ItemListener -> recompute + restyle
+			onSlayerTaskToggle.setSelected(worn); // fires ItemListener -> rankAndRender + restyle
 		}
 	}
 
-	/** Recomputes max hit / accuracy / DPS from the latest gear snapshot + current UI selections. */
-	private void recompute()
+	/** Updates the max hit / accuracy / DPS readout for the currently selected style. */
+	private void updateOutputs()
 	{
-		if (lastGear == null || selectedMonster == null || lastGear.equipmentStats() == null)
+		DpsResult result = computeFor(selectedStyle);
+		if (result == null)
 		{
 			clearOutputs();
 			return;
 		}
-
-		EquipmentStats gearStats = lastGear.equipmentStats();
-		Stance stance = defaultStanceFor(selectedStyle);
-		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, stance,
-			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected());
-
-		DpsResult result = DpsCalculator.compute(gearStats, player, selectedStyle, selectedMonster, DEFAULT_MAGIC_BASE_MAX_HIT);
 
 		maxHitValue.setText(String.valueOf(result.maxHit()));
 		accuracyValue.setText(String.format(Locale.ROOT, "%.1f%%", result.accuracy() * 100.0));
@@ -627,7 +709,9 @@ public final class GearSection extends CollapsibleSection
 		lastDps = result.dps();
 		dpsValue.setText(String.format(Locale.ROOT, "%.2f", lastDps));
 		ttkValue.setText(formatTtk(result.ttkSeconds()));
-		baseEstimateNote.setVisible(result.baseEstimate());
+		// A magic placeholder row (pure-magic weapon) is always a base estimate.
+		baseEstimateNote.setVisible(result.baseEstimate()
+			|| (selectedStyle != null && selectedStyle.type() == CombatStyle.MAGIC));
 
 		refreshSummary();
 	}
@@ -658,26 +742,6 @@ public final class GearSection extends CollapsibleSection
 		return String.format(Locale.ROOT, "%d:%02d", total / 60, total % 60);
 	}
 
-	/**
-	 * Default {@link Stance} per {@link CombatStyle}, since Phase 1 has no
-	 * combat-options-tab UI: Aggressive for melee (maximises sustained melee
-	 * DPS via the strength style bonus), Rapid for ranged (fastest attack
-	 * speed, the common sustained-DPS choice), and Standard for magic
-	 * (ordinary spell-casting has no style choice per {@link Stance}).
-	 */
-	private static Stance defaultStanceFor(CombatStyle style)
-	{
-		switch (style)
-		{
-			case RANGED:
-				return Stance.RAPID;
-			case MAGIC:
-				return Stance.STANDARD;
-			default:
-				return Stance.AGGRESSIVE;
-		}
-	}
-
 	@Override
 	protected String summaryText()
 	{
@@ -686,6 +750,52 @@ public final class GearSection extends CollapsibleSection
 			return "no target";
 		}
 		return "DPS " + String.format(Locale.ROOT, "%.2f", lastDps);
+	}
+
+	// ------------------------------------------------------- icon controls
+
+	/** Bare icon-toggle button (border/background styling, no icon yet). */
+	private JToggleButton newToggle(String tooltip)
+	{
+		JToggleButton button = new JToggleButton();
+		button.setToolTipText(tooltip);
+		button.setFocusPainted(false);
+		button.setMargin(new Insets(0, 0, 0, 0));
+		button.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		button.setPreferredSize(new Dimension(40, SLOT_H));
+
+		Border selectedBorder = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE);
+		Border unselectedBorder = BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR);
+		Runnable restyle = () ->
+		{
+			button.setBorder(button.isSelected() ? selectedBorder : unselectedBorder);
+			button.setBackground(button.isSelected()
+				? ColorScheme.MEDIUM_GRAY_COLOR
+				: ColorScheme.DARKER_GRAY_COLOR);
+		};
+		restyle.run();
+		button.addItemListener(e -> restyle.run());
+		return button;
+	}
+
+	/**
+	 * An icon-only toggle button whose sprite loads via the async, EDT-safe
+	 * {@code ItemManager.getImage(int)}.
+	 */
+	private JToggleButton iconToggle(int itemId, String tooltip)
+	{
+		JToggleButton button = newToggle(tooltip);
+		if (itemManager != null)
+		{
+			AsyncBufferedImage image = itemManager.getImage(itemId);
+			button.setIcon(new ImageIcon(image));
+			image.onLoaded(() ->
+			{
+				button.setIcon(new ImageIcon(image));
+				button.repaint();
+			});
+		}
+		return button;
 	}
 
 	// ------------------------------------------------- test seams (package)
@@ -703,6 +813,31 @@ public final class GearSection extends CollapsibleSection
 	Monster selectedMonsterForTest()
 	{
 		return selectedMonster;
+	}
+
+	WeaponStyle selectedStyleForTest()
+	{
+		return selectedStyle;
+	}
+
+	int styleRowCountForTest()
+	{
+		return styleRows.size();
+	}
+
+	List<WeaponStyle> rankedStylesForTest()
+	{
+		List<WeaponStyle> out = new ArrayList<>(styleRows.size());
+		for (StyleRow row : styleRows)
+		{
+			out.add(row.style);
+		}
+		return out;
+	}
+
+	void clickStyleRowForTest(int index)
+	{
+		selectStyle(styleRows.get(index).style);
 	}
 
 	String dpsTextForTest()
@@ -733,6 +868,77 @@ public final class GearSection extends CollapsibleSection
 	String targetTextForTest()
 	{
 		return targetLabel.getText();
+	}
+
+	/** A {@link WeaponStyle} paired with its computed DPS ({@code null} before a target is picked). */
+	private static final class Ranked
+	{
+		private final WeaponStyle style;
+		private final DpsResult result;
+
+		private Ranked(WeaponStyle style, DpsResult result)
+		{
+			this.style = style;
+			this.result = result;
+		}
+	}
+
+	/**
+	 * One clickable row in the ranked attack-style list: a type icon + the
+	 * style's name and damage type on the left, its DPS on the right, a leading
+	 * star for the best. Clicking locks the readout to this style.
+	 */
+	private final class StyleRow extends JPanel
+	{
+		private final WeaponStyle style;
+		private final Border selectedBorder = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE);
+		private final Border unselectedBorder = BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR);
+
+		private StyleRow(WeaponStyle style, DpsResult result, boolean best)
+		{
+			super(new BorderLayout(4, 0));
+			this.style = style;
+			setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			setAlignmentX(Component.LEFT_ALIGNMENT);
+			setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			setBorder(BorderFactory.createCompoundBorder(unselectedBorder,
+				BorderFactory.createEmptyBorder(2, 3, 2, 4)));
+
+			JLabel name = new JLabel((best ? "★ " : "") + style.name() + "  ·  " + typeLabel(style.type()));
+			name.setFont(FontManager.getRunescapeSmallFont());
+			name.setForeground(best ? ColorScheme.BRAND_ORANGE : ColorScheme.LIGHT_GRAY_COLOR);
+			ImageIcon icon = typeIcons[style.type().ordinal()];
+			if (icon != null)
+			{
+				name.setIcon(icon);
+				name.setIconTextGap(4);
+			}
+
+			JLabel dps = new JLabel(result == null ? "—" : String.format(Locale.ROOT, "%.2f", result.dps()));
+			dps.setFont(FontManager.getRunescapeSmallFont());
+			dps.setForeground(best ? ColorScheme.BRAND_ORANGE : java.awt.Color.WHITE);
+			dps.setToolTipText("DPS with this attack style");
+
+			add(name, BorderLayout.CENTER);
+			add(dps, BorderLayout.EAST);
+
+			setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
+			addMouseListener(new MouseAdapter()
+			{
+				@Override
+				public void mousePressed(MouseEvent e)
+				{
+					selectStyle(StyleRow.this.style);
+				}
+			});
+		}
+
+		private void setSelected(boolean selected)
+		{
+			setBorder(BorderFactory.createCompoundBorder(selected ? selectedBorder : unselectedBorder,
+				BorderFactory.createEmptyBorder(2, 3, 2, 4)));
+			setBackground(selected ? ColorScheme.MEDIUM_GRAY_COLOR : ColorScheme.DARKER_GRAY_COLOR);
+		}
 	}
 
 	/**
