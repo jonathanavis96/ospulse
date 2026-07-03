@@ -336,7 +336,7 @@ public class GearSectionStyleRankingTest
 	}
 
 	@Test
-	public void lunarTabHasNoOffensiveSpellsAndClearsTheReadout()
+	public void onlyStandardAndAncientBookTabsExist()
 	{
 		onEdt(() ->
 		{
@@ -345,10 +345,9 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			section.clickBookTabForTest(2); // Lunar
-			assertTrue("no offensive spells on Lunar", section.rankedSpellsForTest().isEmpty());
-			assertEquals("-", section.dpsTextForTest());
-			assertEquals("-", section.primaryTextForTest());
+			// Lunar/Arceuus have no offensive spells in OSRS, so they are not
+			// offered as tabs at all — only Standard(0) and Ancient(1).
+			assertEquals(2, com.ospulse.ui.sections.GearSection.BookTab.values().length);
 		});
 	}
 

@@ -2397,15 +2397,15 @@ public final class GearSection extends CollapsibleSection
 
 	/**
 	 * A spellbook tab of the magic view's segmented control. Lunar and Arceuus
-	 * carry no offensive {@link Spell}s (OSRS has none there), so their
-	 * {@link #book()} is {@code null} and the tab renders an empty-book note.
+	 * are deliberately absent — OSRS has no offensive spells on either book, so
+	 * they would only ever render an empty "no offensive spells" tab; only
+	 * Standard and Ancient (which both have real offensive spells to rank) are
+	 * offered.
 	 */
 	enum BookTab
 	{
 		STANDARD("Standard", Spell.SpellBook.STANDARD),
-		ANCIENT("Ancient", Spell.SpellBook.ANCIENT),
-		LUNAR("Lunar", null),
-		ARCEUUS("Arceuus", null);
+		ANCIENT("Ancient", Spell.SpellBook.ANCIENT);
 
 		private final String label;
 		private final Spell.SpellBook book;
