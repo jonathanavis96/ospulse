@@ -66,6 +66,7 @@ import java.awt.Image;
 import java.awt.Insets;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -186,6 +187,11 @@ public final class GearSection extends CollapsibleSection
 	/** Side length for the attack-style-row and spell-row icons. */
 	private static final int STYLE_ICON_SIZE = 18;
 
+	/** Columns in the item-picker icon grid (design ask: "4 icons per row"). */
+	private static final int ITEM_GRID_COLUMNS = 4;
+	/** One grid cell's square side length — matches the worn-gear grid's slot size so the two grids read consistently. */
+	private static final int ITEM_GRID_CELL_SIZE = SLOT_H;
+
 	private final ItemManager itemManager;
 	private final SkillIconManager skillIconManager;
 	private final SpriteManager spriteManager;
@@ -292,15 +298,17 @@ public final class GearSection extends CollapsibleSection
 	/** The equipment slot ordinal the item-search panel below the grid is currently scoped to, or -1 if closed. */
 	private int searchOpenForSlot = -1;
 	private final IconTextField itemSearchField;
-	private final JScrollPane itemListScroll;
-	private final JList<String> itemList;
-	private final ItemListModel itemListModel = new ItemListModel();
+	private final JButton closeItemSearchButton;
+	/** The search-field + close-button row — shown/hidden together as one unit (see {@link #toggleItemSearch}/{@link #closeItemSearch}). */
+	private final JPanel itemSearchRow;
+	/** 4-columns-wide scrollable icon grid of {@link #filteredItems} — see {@link #populateItemList}/{@link #ItemGridCell}. */
+	private final JPanel itemGridPanel;
+	private final JScrollPane itemGridScroll;
 	private List<EquipmentIndexRepository.Entry> filteredItems = Collections.emptyList();
 	private final JButton resetAllButton;
 	private final JLabel whatIfLabel;
 	private final JLabel whatIfDeltaValue;
 	private JPanel whatIfRow;
-	private boolean suppressItemListEvents;
 
 	// -------------------------------------------- Phase 3: optimiser ("Best Setup")
 	/** Owned-item values (worn + top holdings incl. bank), refreshed each {@link #apply}; source for the optimiser's owned pool + GE prices. */
@@ -353,15 +361,20 @@ public final class GearSection extends CollapsibleSection
 		// --------------------------------- Phase 2: what-if item search + reset
 		// Clicking a slot cell above opens this search (see toggleItemSearch),
 		// scoped to that slot via searchOpenForSlot. Mirrors the monster
-		// search's search-field + collapsible-result-list UX for consistency.
+		// search's search-field + collapsible-result-list UX for consistency,
+		// but renders candidates as a 4-columns-wide scrollable ICON grid
+		// (populateItemList/ItemGridCell) instead of a text JList — a picker
+		// full of item names all cost the user a squint-and-read; icons are
+		// recognisable at a glance and match how the equipment tab itself
+		// looks. The text search box is kept alongside for filtering by name.
+		JPanel searchRow = new JPanel(new BorderLayout(4, 0));
+		searchRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		searchRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 		itemSearchField = new IconTextField();
 		itemSearchField.setIcon(IconTextField.Icon.SEARCH);
 		itemSearchField.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		itemSearchField.setHoverBackgroundColor(ColorScheme.DARK_GRAY_HOVER_COLOR);
-		itemSearchField.setAlignmentX(Component.LEFT_ALIGNMENT);
-		itemSearchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
 		itemSearchField.setPreferredSize(new Dimension(100, 24));
-		itemSearchField.setVisible(false);
 		itemSearchField.getDocument().addDocumentListener(new DocumentListener()
 		{
 			@Override
@@ -382,38 +395,42 @@ public final class GearSection extends CollapsibleSection
 				populateItemList();
 			}
 		});
-		body().add(itemSearchField);
+		// A dedicated close/X button — there was previously no way to dismiss
+		// the picker once open besides re-clicking the same gear-grid slot.
+		closeItemSearchButton = new JButton("✕");
+		closeItemSearchButton.setToolTipText("Close item picker");
+		closeItemSearchButton.setFont(FontManager.getRunescapeSmallFont());
+		closeItemSearchButton.setFocusPainted(false);
+		closeItemSearchButton.setMargin(new Insets(0, 6, 0, 6));
+		closeItemSearchButton.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		closeItemSearchButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		closeItemSearchButton.addActionListener(e -> closeItemSearch());
+		searchRow.add(itemSearchField, BorderLayout.CENTER);
+		searchRow.add(closeItemSearchButton, BorderLayout.EAST);
+		searchRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		searchRow.setVisible(false);
+		body().add(searchRow);
 		body().add(Box.createRigidArea(new Dimension(0, 2)));
+		this.itemSearchRow = searchRow;
 
-		itemList = new JList<>(itemListModel);
-		itemList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-		itemList.setFont(FontManager.getRunescapeSmallFont());
-		itemList.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		itemList.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		itemList.setSelectionBackground(ColorScheme.BRAND_ORANGE);
-		itemList.setSelectionForeground(ColorScheme.DARK_GRAY_COLOR);
-		itemList.setVisibleRowCount(6);
-		itemList.setPrototypeCellValue("Ancient godsword (or)");
-		itemList.addListSelectionListener(e ->
-		{
-			if (suppressItemListEvents || e.getValueIsAdjusting())
-			{
-				return;
-			}
-			int index = itemList.getSelectedIndex();
-			if (index >= 0 && index < filteredItems.size() && searchOpenForSlot >= 0)
-			{
-				applyOverride(searchOpenForSlot, filteredItems.get(index).itemId());
-				closeItemSearch();
-			}
-		});
-		itemListScroll = new JScrollPane(itemList);
-		itemListScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-		itemListScroll.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
-		itemListScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
-		itemListScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, itemListScroll.getPreferredSize().height));
-		itemListScroll.setVisible(false);
-		body().add(itemListScroll);
+		itemGridPanel = new JPanel(new GridLayout(0, ITEM_GRID_COLUMNS, 2, 2));
+		itemGridPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		itemGridPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		itemGridScroll = new JScrollPane(itemGridPanel);
+		itemGridScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+		itemGridScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+		itemGridScroll.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
+		itemGridScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+		itemGridScroll.getVerticalScrollBar().setUnitIncrement(ITEM_GRID_CELL_SIZE);
+		// Capped-height viewport (design: compact in the narrow side panel) —
+		// enough for a couple of rows before it scrolls, matching the
+		// attack-style list's STYLES_VISIBLE_ROWS pattern.
+		int gridViewportHeight = ITEM_GRID_CELL_SIZE * 2 + 4;
+		itemGridScroll.setPreferredSize(new Dimension(0, gridViewportHeight));
+		itemGridScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, gridViewportHeight));
+		itemGridScroll.setVisible(false);
+		body().add(itemGridScroll);
 		body().add(Box.createRigidArea(new Dimension(0, 2)));
 
 		resetAllButton = new JButton("Reset all to worn gear");
@@ -1862,7 +1879,7 @@ public final class GearSection extends CollapsibleSection
 		}
 		searchOpenForSlot = slotOrdinal;
 		itemSearchField.setText("");
-		itemSearchField.setVisible(true);
+		itemSearchRow.setVisible(true);
 		itemSearchField.setToolTipText("Search " + SLOT_NAMES[slotOrdinal] + " items to try (what-if — your real gear is unaffected)");
 		itemSearchField.requestFocusInWindow();
 		populateItemList();
@@ -1870,16 +1887,17 @@ public final class GearSection extends CollapsibleSection
 		body().repaint();
 	}
 
+	/** Closes the item picker (search row + icon grid) — the X button, re-clicking the same slot, or picking an item all route here. */
 	private void closeItemSearch()
 	{
 		searchOpenForSlot = -1;
-		itemSearchField.setVisible(false);
-		itemListScroll.setVisible(false);
+		itemSearchRow.setVisible(false);
+		itemGridScroll.setVisible(false);
 		body().revalidate();
 		body().repaint();
 	}
 
-	/** Refilters {@link #searchOpenForSlot}'s candidate items by the search box's text. */
+	/** Refilters {@link #searchOpenForSlot}'s candidate items by the search box's text and rebuilds the icon grid. */
 	private void populateItemList()
 	{
 		if (searchOpenForSlot < 0)
@@ -1887,14 +1905,67 @@ public final class GearSection extends CollapsibleSection
 			return;
 		}
 		filteredItems = EquipmentIndexRepository.getInstance().searchSlot(searchOpenForSlot, itemSearchField.getText());
-		suppressItemListEvents = true;
-		itemListModel.setItems(filteredItems);
-		itemList.clearSelection();
-		suppressItemListEvents = false;
-		itemListScroll.setVisible(!filteredItems.isEmpty());
-		itemListScroll.revalidate();
+		renderItemGrid();
+		itemGridScroll.setVisible(!filteredItems.isEmpty());
+		itemGridScroll.revalidate();
 		body().revalidate();
 		body().repaint();
+	}
+
+	/**
+	 * Rebuilds the icon grid ({@link #itemGridPanel}, {@link #ITEM_GRID_COLUMNS}
+	 * per row) from {@link #filteredItems} — one {@link ItemGridCell} per
+	 * candidate: icon via the EDT-safe async {@code ItemManager.getImage(int)},
+	 * tooltip = item name, click applies the override (same
+	 * {@link #applyOverride} path the old text list used) and closes the
+	 * picker.
+	 */
+	private void renderItemGrid()
+	{
+		itemGridPanel.removeAll();
+		for (EquipmentIndexRepository.Entry entry : filteredItems)
+		{
+			itemGridPanel.add(new ItemGridCell(entry));
+		}
+		itemGridPanel.revalidate();
+		itemGridPanel.repaint();
+	}
+
+	/**
+	 * One clickable icon cell in the item-picker grid — icon only (no text
+	 * label, to stay compact at {@link #ITEM_GRID_COLUMNS} per row in the
+	 * narrow side panel), tooltip = the item's display name, click applies it
+	 * as a what-if override for {@link #searchOpenForSlot} and closes the
+	 * picker.
+	 */
+	private final class ItemGridCell extends JLabel
+	{
+		private ItemGridCell(EquipmentIndexRepository.Entry entry)
+		{
+			setOpaque(true);
+			setBackground(ColorScheme.DARK_GRAY_COLOR);
+			setHorizontalAlignment(SwingConstants.CENTER);
+			setVerticalAlignment(SwingConstants.CENTER);
+			setPreferredSize(new Dimension(ITEM_GRID_CELL_SIZE, ITEM_GRID_CELL_SIZE));
+			setToolTipText(entry.name());
+			setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
+			if (itemManager != null)
+			{
+				// EDT-safe: getImage is async (AsyncBufferedImage), the same
+				// pattern used by the worn-gear grid and boost toggles.
+				itemManager.getImage(entry.itemId()).addTo(this);
+			}
+			addMouseListener(new MouseAdapter()
+			{
+				@Override
+				public void mousePressed(MouseEvent e)
+				{
+					applyOverride(searchOpenForSlot, entry.itemId());
+					closeItemSearch();
+				}
+			});
+		}
 	}
 
 	/**
@@ -2616,6 +2687,38 @@ public final class GearSection extends CollapsibleSection
 		closeItemSearch();
 	}
 
+	/** Number of icon cells currently rendered in the item-picker grid — mirrors {@link #filteredItems}' size once populated. */
+	int itemGridCellCountForTest()
+	{
+		return itemGridPanel.getComponentCount();
+	}
+
+	/** Simulates a real mouse click on the icon cell at {@code index} in the item-picker grid (exercises {@link ItemGridCell}'s own click handler, not just the {@link #filteredItems} seam). */
+	void clickItemGridCellForTest(int index)
+	{
+		Component cell = itemGridPanel.getComponent(index);
+		for (MouseListener listener : cell.getMouseListeners())
+		{
+			listener.mousePressed(new MouseEvent(cell, MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), 0, 0, 0, 1, false));
+		}
+	}
+
+	boolean itemGridVisibleForTest()
+	{
+		return itemGridScroll.isVisible();
+	}
+
+	boolean itemSearchRowVisibleForTest()
+	{
+		return itemSearchRow.isVisible();
+	}
+
+	/** Simulates clicking the item picker's close (X) button. */
+	void clickCloseItemSearchForTest()
+	{
+		closeItemSearchButton.doClick();
+	}
+
 	void clickResetAllForTest()
 	{
 		resetAllOverrides();
@@ -3109,40 +3212,4 @@ public final class GearSection extends CollapsibleSection
 		}
 	}
 
-	/**
-	 * A {@link JList} model over the current filtered {@link EquipmentIndexRepository.Entry}
-	 * list for the Phase 2 what-if item search — same coarse-refresh pattern as
-	 * {@link MonsterListModel} (swap-the-backing-list, two events) for the same
-	 * per-keystroke responsiveness reason.
-	 */
-	private static final class ItemListModel extends AbstractListModel<String>
-	{
-		private List<EquipmentIndexRepository.Entry> items = Collections.emptyList();
-
-		void setItems(List<EquipmentIndexRepository.Entry> newItems)
-		{
-			int oldSize = items.size();
-			items = newItems == null ? Collections.emptyList() : newItems;
-			if (oldSize > 0)
-			{
-				fireIntervalRemoved(this, 0, oldSize - 1);
-			}
-			if (!items.isEmpty())
-			{
-				fireIntervalAdded(this, 0, items.size() - 1);
-			}
-		}
-
-		@Override
-		public int getSize()
-		{
-			return items.size();
-		}
-
-		@Override
-		public String getElementAt(int index)
-		{
-			return items.get(index).name();
-		}
-	}
 }
