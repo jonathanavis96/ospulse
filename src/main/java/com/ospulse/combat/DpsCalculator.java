@@ -350,8 +350,12 @@ public final class DpsCalculator {
         double avgDamage = CombatMath.averageDamagePerAttack(hitChance, maxHit);
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
         // avgDamage is the expected damage per attack (misses included) — GearScape's "Avg Hit".
-        double ttkSeconds = dps > 0 ? targetHitpoints / dps : 0.0;
         double overkill = CombatMath.expectedOverkill(maxHit, targetHitpoints);
+        // TTK must account for overkill: the killing blow rolls past 0 HP, wasting
+        // `overkill` HP of damage, so effective damage per kill is HP + overkill.
+        // By Wald's identity E[TTK] = (HP + E[overkill]) / DPS exactly — the naive
+        // HP/DPS understates it (e.g. Cerberus 57.3s vs GearScape's overkill-aware 59s).
+        double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
         return new DpsResult(maxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, baseEstimate);
     }
 }

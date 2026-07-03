@@ -84,5 +84,12 @@ public class ScorchingBowCerberusParityTest {
         assertEquals("max hit (GearScape 58 = base 40 * (23+6)/20)", 58, result.maxHit());
         assertEquals("accuracy (GearScape 86.67%)", 0.866748, result.accuracy(), 5e-5);
         assertEquals("DPS (GearScape 10.479)", 10.479, result.dps(), 2e-3);
+
+        // TTK must fold in overkill: the killing blow wastes ~19 HP of rolled
+        // damage, so effective damage is HP + overkill = 600 + ~19 = ~619, and
+        // TTK = 619 / 10.479 ~ 59.1s. GearScape shows 59s. The pre-fix plugin
+        // used naive HP/DPS = 600/10.479 = 57.3s (overkill omitted).
+        assertEquals("overkill wasted per kill (~19 HP)", 18.99, result.overkillPerKill(), 0.1);
+        assertEquals("TTK folds in overkill (GearScape ~59s)", 59.07, result.ttkSeconds(), 0.2);
     }
 }
