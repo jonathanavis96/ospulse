@@ -11,8 +11,9 @@ import static org.junit.Assert.assertTrue;
 /**
  * Emberlight's +70% vs-demon accuracy/damage bonus: it must (1) raise max hit
  * to exactly floor(base * 17/10) and raise DPS against a demon, (2) do nothing
- * against a non-demon, and (3) stack multiplicatively with the on-task slayer
- * helm bonus (both apply — unlike salve vs slayer, which don't stack).
+ * against a non-demon, and (3) STACK with the on-task slayer helm bonus as a
+ * separate sequential floor step (per the wiki DPS calc — unlike salve vs
+ * slayer, which are one non-stacking slot).
  *
  * <p>Regression for the GearScape mismatch on Cerberus: the engine previously
  * ignored demonbane entirely, so an Emberlight loadout underestimated DPS.
@@ -76,18 +77,22 @@ public class DemonbaneEffectTest {
     }
 
     @Test
-    public void emberlight_doesNotStackWithSlayerHelm_demonbaneWins() {
+    public void emberlight_stacksWithSlayerHelm_sequentialFloorSteps() {
         Monster demon = monster(EnumSet.of(MonsterAttribute.DEMON));
-        // Demonbane and the slayer helm share the single non-stacking target
-        // bonus slot; the higher (demonbane 1.7 > slayer 7/6) wins, so on-task
-        // with a slayer helm must give the SAME numbers as demonbane alone —
-        // NOT base * 7/6 * 1.7. (Matches GearScape's Cerberus figures.)
-        DpsResult demonbaneOnly = compute(gear(DemonbaneWeapon.EMBERLIGHT, SlayerHeadgear.NONE), player(false), demon);
+        // Per the wiki DPS calculator (weirdgloop PlayerVsNPCCalc.ts), melee
+        // demonbane is the weapon's OWN passive, applied as a separate floor
+        // step AFTER the salve/slayer target-bonus slot — it stacks with the
+        // on-task slayer helm: floor(floor(base * 7/6) * 17/10).
+        DpsResult noBonuses = compute(gear(DemonbaneWeapon.NONE, SlayerHeadgear.NONE), player(false), demon);
         DpsResult withSlayerToo = compute(gear(DemonbaneWeapon.EMBERLIGHT, SlayerHeadgear.STANDARD), player(true), demon);
 
-        assertEquals("slayer helm must not stack on top of demonbane",
-                demonbaneOnly.maxHit(), withSlayerToo.maxHit());
-        assertEquals("slayer helm must not stack on top of demonbane",
-                demonbaneOnly.dps(), withSlayerToo.dps(), 1e-9);
+        long slotStep = new Fraction(7, 6).applyFloor(noBonuses.maxHit());
+        int expected = (int) new Fraction(17, 10).applyFloor(slotStep);
+        assertEquals("slayer helm 7/6 then demonbane 17/10, each its own floor",
+                expected, withSlayerToo.maxHit());
+
+        DpsResult demonbaneOnly = compute(gear(DemonbaneWeapon.EMBERLIGHT, SlayerHeadgear.NONE), player(false), demon);
+        assertTrue("adding the on-task helm must strictly raise DPS over demonbane alone",
+                withSlayerToo.dps() > demonbaneOnly.dps());
     }
 }

@@ -1,5 +1,6 @@
 package com.ospulse.session;
 
+import com.ospulse.combat.DemonbaneWeapon;
 import com.ospulse.combat.SalveType;
 import com.ospulse.combat.SlayerHeadgear;
 import com.ospulse.combat.VoidSet;
@@ -191,5 +192,20 @@ public class GearVariantsTest
 	{
 		assertEquals(VoidSet.NONE,
 			GearVariants.voidSetFor(RANDOM_NON_VOID_ITEM, VOID_TOP, RANDOM_NON_VOID_ITEM, VOID_GLOVES));
+	}
+
+	// ==== Demonbane weapons ===============================================================
+
+	@Test
+	public void demonbaneWeaponFor_scorchingBow()
+	{
+		assertEquals(DemonbaneWeapon.SCORCHING_BOW, GearVariants.demonbaneWeaponFor(29591));
+	}
+
+	@Test
+	public void demonbaneWeaponFor_nonDemonbane_returnsNone()
+	{
+		assertEquals(DemonbaneWeapon.NONE, GearVariants.demonbaneWeaponFor(20997)); // Twisted bow
+		assertEquals(DemonbaneWeapon.NONE, GearVariants.demonbaneWeaponFor(-1)); // empty slot
 	}
 }

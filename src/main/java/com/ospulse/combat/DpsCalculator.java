@@ -8,11 +8,14 @@ package com.ospulse.combat;
  * Tier-A effects modelled (each isolated below, with an "applies when"
  * predicate, per the design doc): offensive prayers, best-potion boosts,
  * Slayer helm(i)/black mask(i) on-task bonus, Salve amulet variants vs
- * Undead, Void/Elite Void. Tier-B effects: demonbane melee weapons
- * (accuracy/damage split, sharing the highest-wins target slot), Dragon
- * Hunter lance/crossbow vs dragons and the Twisted bow's vs-target-magic
- * scaling (both separate multiplicative steps — they stack with the target
- * slot), powered-staff built-in spells and real {@link Spell} max hits for
+ * Undead, Void/Elite Void. Tier-B effects: demonbane weapons (melee sword
+ * line + ranged Scorching bow; accuracy/damage split, applied as the weapon's
+ * own step stacking with the salve/slayer slot, with the ranged max hit
+ * folding additively into an on-task imbued helm — see computeRanged), Dragon
+ * Hunter lance/crossbow/wand vs dragons and the Twisted bow's vs-target-magic
+ * scaling (separate multiplicative steps — they stack with the target
+ * slot, with the same ranged-max-hit additive fold for the DHCB),
+ * powered-staff built-in spells and real {@link Spell} max hits for
  * autocast. Unknown/unmodelled effects (scythe multi-hit, special attacks,
  * elemental weakness, Avarice, Tomes, Tumeken's 3x gear multiplier, ...)
  * are simply not applied — extend this class (and {@link CombatMath}) to add
@@ -89,13 +92,22 @@ public final class DpsCalculator {
         int effStr = CombatMath.effectiveMeleeOrRangedLevel(boostedStr, prayerStrMult, styleBonusStr, 8, voidMult);
         int effAtt = CombatMath.effectiveMeleeOrRangedLevel(boostedAtt, prayerAttMult, styleBonusAtt, 8, voidMult);
 
-        TargetBonus targetGearBonus = meleeOrRangedTargetGearBonus(style, gear, target, player);
+        TargetBonus targetGearBonus = salveOrSlayerTargetBonus(style, gear, target, player);
 
         int maxHit = CombatMath.meleeOrRangedMaxHit(effStr, gear.str(), targetGearBonus.damage);
         int attackRoll = CombatMath.meleeOrRangedAttackRoll(effAtt, gear.attackBonus(style), targetGearBonus.accuracy);
 
+        // Melee demonbane (Silverlight line): the weapon's own vs-demon passive —
+        // a SEPARATE multiplicative floor step AFTER the salve/slayer slot, so it
+        // STACKS with the on-task slayer helm (per the wiki DPS calc).
+        DemonbaneWeapon demonbane = gear.demonbaneWeapon();
+        if (target.isDemon() && demonbane.appliesTo(style)) {
+            maxHit = (int) demonbane.damageMult().applyFloor(maxHit);
+            attackRoll = (int) demonbane.accuracyMult().applyFloor(attackRoll);
+        }
+
         // Dragon Hunter lance: the weapon's own vs-dragon passive — a SEPARATE
-        // multiplicative floor step, stacking with the salve/slayer/demonbane slot.
+        // multiplicative floor step, stacking with the salve/slayer slot.
         DragonHunterWeapon dh = gear.dragonHunterWeapon();
         if (target.isDragon() && dh.appliesTo(style)) {
             maxHit = (int) dh.damageMult().applyFloor(maxHit);
@@ -128,16 +140,47 @@ public final class DpsCalculator {
         int effStr = CombatMath.effectiveMeleeOrRangedLevel(boostedRanged, prayerStrMult, styleBonus, 8, voidMult);
         int effAtt = CombatMath.effectiveMeleeOrRangedLevel(boostedRanged, prayerAttMult, styleBonus, 8, voidMult);
 
-        TargetBonus targetGearBonus = meleeOrRangedTargetGearBonus(CombatStyle.RANGED, gear, target, player);
+        TargetBonus targetGearBonus = salveOrSlayerTargetBonus(CombatStyle.RANGED, gear, target, player);
 
-        int maxHit = CombatMath.meleeOrRangedMaxHit(effStr, gear.rstr(), targetGearBonus.damage);
+        DemonbaneWeapon demonbane = gear.demonbaneWeapon();
+        boolean demonbaneApplies = target.isDemon() && demonbane.appliesTo(CombatStyle.RANGED);
+        DragonHunterWeapon dh = gear.dragonHunterWeapon();
+        boolean dragonbaneApplies = target.isDragon() && dh.appliesTo(CombatStyle.RANGED);
+
+        // MAX HIT ONLY (per the wiki DPS calc's "these are additive with slayer
+        // only"): when the on-task IMBUED slayer helm/black mask wins the target
+        // slot, the ranged demonbane (Scorching bow +30% -> +6/20) and dragonbane
+        // (DHCB +25% -> +5/20) damage bonuses fold ADDITIVELY into its 23/20 step
+        // — ONE floor of (23+5+6)/20 — instead of applying as separate steps.
+        // E.g. Cerberus on-task with a Scorching bow: floor(40 * 29/20) = 58
+        // (the wiki's "total damage boost of 45%"), not floor(46 * 13/10) = 59.
+        Fraction damageSlot = targetGearBonus.damage;
+        boolean foldIntoSlayer = targetGearBonus.imbuedSlayer && (demonbaneApplies || dragonbaneApplies);
+        if (foldIntoSlayer) {
+            long numerator = 23
+                    + (dragonbaneApplies ? additiveTwentieths(dh.damageMult()) : 0)
+                    + (demonbaneApplies ? additiveTwentieths(demonbane.damageMult()) : 0);
+            damageSlot = new Fraction(numerator, 20);
+        }
+
+        int maxHit = CombatMath.meleeOrRangedMaxHit(effStr, gear.rstr(), damageSlot);
         int attackRoll = CombatMath.meleeOrRangedAttackRoll(effAtt, gear.arange(), targetGearBonus.accuracy);
 
-        // Dragon Hunter crossbow — separate multiplicative step (see computeMelee).
-        DragonHunterWeapon dh = gear.dragonHunterWeapon();
-        if (target.isDragon() && dh.appliesTo(CombatStyle.RANGED)) {
-            maxHit = (int) dh.damageMult().applyFloor(maxHit);
+        // Dragon Hunter crossbow — the accuracy side is ALWAYS its own separate
+        // multiplicative step; the damage side only when not folded above.
+        if (dragonbaneApplies) {
+            if (!foldIntoSlayer) {
+                maxHit = (int) dh.damageMult().applyFloor(maxHit);
+            }
             attackRoll = (int) dh.accuracyMult().applyFloor(attackRoll);
+        }
+
+        // Scorching bow (ranged demonbane) — same shape as dragonbane above.
+        if (demonbaneApplies) {
+            if (!foldIntoSlayer) {
+                maxHit = (int) demonbane.damageMult().applyFloor(maxHit);
+            }
+            attackRoll = (int) demonbane.accuracyMult().applyFloor(attackRoll);
         }
 
         // Twisted bow: the weapon's own scaling with the TARGET's magic level —
@@ -215,60 +258,69 @@ public final class DpsCalculator {
 
     // ---- Shared helpers -----------------------------------------------------------------
 
-    /** The single highest-wins target-specific gear-bonus slot, split into its accuracy and damage components. */
+    /**
+     * The single non-stacking salve/slayer target-bonus slot, split into its
+     * accuracy and damage components. {@code imbuedSlayer} records that the
+     * WINNER is the on-task imbued slayer helm/black mask — the only case the
+     * ranged max hit folds demonbane/dragonbane additively into (see
+     * computeRanged).
+     */
     private static final class TargetBonus {
-        static final TargetBonus NONE = new TargetBonus(Fraction.ONE, Fraction.ONE);
+        static final TargetBonus NONE = new TargetBonus(Fraction.ONE, Fraction.ONE, false);
 
         final Fraction accuracy;
         final Fraction damage;
+        final boolean imbuedSlayer;
 
-        TargetBonus(Fraction accuracy, Fraction damage) {
+        TargetBonus(Fraction accuracy, Fraction damage, boolean imbuedSlayer) {
             this.accuracy = accuracy;
             this.damage = damage;
+            this.imbuedSlayer = imbuedSlayer;
         }
     }
 
     /**
-     * Target-specific gear-bonus slot shared by max hit and attack roll for melee/ranged.
-     * ONE "target-specific gear bonus" slot: Salve (vs undead), the on-task Slayer
-     * helm/black mask, and melee demonbane (vs demons) all live here and DO NOT
-     * stack — the strongest effect wins and contributes BOTH its accuracy and its
-     * damage component (matching GearScape / the wiki DPS calc; e.g. an Emberlight
-     * (1.7/1.7) on a demon overrides the slayer-helm 7/6 rather than multiplying on
-     * top of it; Salve already dominates the slayer value numerically, preserving
-     * the documented "salve wins over slayer").
+     * Target-specific gear-bonus slot shared by max hit and attack roll for
+     * melee/ranged. ONE non-stacking slot holding Salve (vs undead) and the
+     * on-task Slayer helm/black mask — the strongest effect wins (matching the
+     * wiki DPS calc's if/else chain, where Salve takes precedence over the
+     * helm; Salve's fractions also dominate numerically, so highest-wins and
+     * the documented "salve wins over slayer" coincide).
      *
-     * <p>"Strongest" = highest damage multiplier (accuracy breaks ties). For the
-     * damage-only Silverlight/Darklight (1.0 acc / 1.6 dmg) worn on-task against
-     * an undead demon this means the sword's damage bonus is taken INSTEAD of the
-     * slayer helm's symmetric 7/6 — the wiki doesn't document that corner
-     * explicitly; GearScape-parity TODO before trusting it to the last percent.
-     *
-     * <p>Dragon Hunter weapons and the Twisted bow deliberately do NOT live in
-     * this slot — they're the weapon's own passive, applied as a separate
-     * multiplicative step in computeMelee/computeRanged (they stack with this
-     * slot). The ranged demonbane Scorching bow is not wired yet: its bonus is
-     * documented as stacking ADDITIVELY with the slayer helm (i), which fits
-     * neither this slot nor a separate multiplicative step (see GearVariants).
+     * <p>Demonbane, Dragon Hunter weapons and the Twisted bow do NOT live in
+     * this slot — each is the weapon's own passive, applied as a separate
+     * multiplicative floor step in computeMelee/computeRanged (stacking with
+     * this slot), with one exception: the ranged MAX HIT folds demonbane/
+     * dragonbane damage additively into an on-task imbued helm's 23/20 (see
+     * computeRanged; wiki calc: "these are additive with slayer only").
      */
-    private static TargetBonus meleeOrRangedTargetGearBonus(CombatStyle style, EquipmentStats gear, Monster target, PlayerCombat player) {
+    private static TargetBonus salveOrSlayerTargetBonus(CombatStyle style, EquipmentStats gear, Monster target, PlayerCombat player) {
         TargetBonus best = TargetBonus.NONE;
 
         if (target.isUndead()) {
             Fraction salve = style.isMelee() ? gear.salveType().meleeBonus() : gear.salveType().rangedBonus();
-            best = stronger(best, new TargetBonus(salve, salve));
+            best = stronger(best, new TargetBonus(salve, salve, false));
         }
         if (player.onSlayerTask() && gear.slayerHeadgear().wornAtAll()) {
+            boolean imbued = gear.slayerHeadgear().isImbued();
             Fraction slayer = style.isMelee()
                     ? new Fraction(7, 6)
-                    : (gear.slayerHeadgear().isImbued() ? new Fraction(23, 20) : Fraction.ONE); // ranged: imbued only
-            best = stronger(best, new TargetBonus(slayer, slayer));
-        }
-        if (style.isMelee() && target.isDemon() && gear.demonbaneWeapon().applies()) {
-            best = stronger(best, new TargetBonus(
-                    gear.demonbaneWeapon().accuracyMult(), gear.demonbaneWeapon().damageMult()));
+                    : (imbued ? new Fraction(23, 20) : Fraction.ONE); // ranged: imbued only
+            best = stronger(best, new TargetBonus(slayer, slayer, imbued && !slayer.isOne()));
         }
         return best;
+    }
+
+    /**
+     * A bonus fraction's additive contribution to the imbued slayer helm's
+     * numerator, in twentieths: e.g. the Scorching bow's 13/10 (+30%) is +6,
+     * the DHCB's 5/4 (+25%) is +5 — exactly the wiki calc's
+     * {@code numerator += 5/6} constants on top of the helm's 23/20. Exact for
+     * every wired bonus (both divide evenly); revisit if a bonus whose percent
+     * is not a multiple of 5 ever needs folding.
+     */
+    private static long additiveTwentieths(Fraction bonus) {
+        return (bonus.numerator - bonus.denominator) * 20 / bonus.denominator;
     }
 
     /** The stronger of two slot candidates: higher damage multiplier wins, accuracy breaks ties. */

@@ -237,12 +237,8 @@ final class GearVariants
 	 * Emberlight — the Arclight upgrade; +70% accuracy AND damage vs demons.
 	 * Live id 29589 verified against the OSRS Wiki infobox (client-current).
 	 *
-	 * <p>TODO: extend to the rest of the demonbane line once each live id (and,
-	 * for the ranged weapons, its exact vs-demon %) is cross-checked the same
-	 * way the salve/slayer ids above were — Arclight, Darklight, Silverlight
-	 * (melee sword line; {@link DemonbaneWeapon} constants already defined),
-	 * Burning claws (melee), and Scorching bow (ranged — needs the ranged
-	 * application path in {@code DpsCalculator} too).
+	 * <p>TODO: Burning claws (melee, +5%) and dyed Silverlight variants are
+	 * still unwired.
 	 */
 	private static final int EMBERLIGHT = 29589;
 
@@ -250,16 +246,21 @@ final class GearVariants
 	 * Rest of the melee sword line. Ids are the OSRS Wiki infobox values for
 	 * these long-stable pre-migration items (Silverlight 2402, Darklight 6746,
 	 * Arclight 19675) — same live-cache cross-check caveat as the class
-	 * javadoc; dyed Silverlight variants and Burning claws are TODO. The
-	 * ranged Scorching bow (id 29591, +30%/+30% vs demons) is deliberately
-	 * NOT wired: the wiki documents its damage bonus stacking ADDITIVELY with
-	 * the slayer helm (i) (30+15=45%), which doesn't fit the current
-	 * highest-wins slot — it needs its own additive path (and a GearScape
-	 * parity check) before wiring.
+	 * javadoc.
 	 */
 	private static final int SILVERLIGHT = 2402;
 	private static final int DARKLIGHT = 6746;
 	private static final int ARCLIGHT = 19675;
+
+	/**
+	 * Scorching bow — the RANGED demonbane weapon; +30% accuracy AND damage vs
+	 * demons, the damage side stacking ADDITIVELY with the slayer helm (i)
+	 * (30+15=45% — handled by {@code DpsCalculator}'s ranged fold). Id 29591
+	 * from the OSRS Wiki infobox, cross-checked against the bundled live-cache
+	 * {@code equipment_stats.min.json} (29591 = arange +124 / rstr +40 /
+	 * 5-tick, exactly the bow's published stats).
+	 */
+	private static final int SCORCHING_BOW = 29591;
 
 	/** Maps a worn WEAPON-slot item id to the {@link DemonbaneWeapon} it is ({@link DemonbaneWeapon#NONE} if not demonbane). */
 	static DemonbaneWeapon demonbaneWeaponFor(int weaponItemId)
@@ -274,6 +275,8 @@ final class GearVariants
 				return DemonbaneWeapon.DARKLIGHT;
 			case SILVERLIGHT:
 				return DemonbaneWeapon.SILVERLIGHT;
+			case SCORCHING_BOW:
+				return DemonbaneWeapon.SCORCHING_BOW;
 			default:
 				return DemonbaneWeapon.NONE;
 		}

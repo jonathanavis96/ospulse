@@ -10,13 +10,14 @@ package com.ospulse.combat;
  * wyverns and Great Olm; Elvarg/revenant-dragon exceptions are not in the
  * monster set).
  *
- * <p><b>Stacking:</b> unlike salve/slayer/demonbane (one highest-wins slot),
- * dragonbane is the weapon's own passive and is applied as a SEPARATE
- * multiplicative floor step on top of that slot (per the approved design).
- * The wiki notes the crossbow's bonus stacks "additively with the Slayer helm
- * (i)" for ranged — a small divergence from this multiplicative model when
- * both apply (1.30×1.15 vs 1+0.30+0.15 on accuracy); GearScape-parity
- * TODO before trusting on-task-vs-dragon numbers to the last percent.
+ * <p><b>Stacking (per the wiki DPS calculator, weirdgloop
+ * {@code PlayerVsNPCCalc.ts}):</b> dragonbane is the weapon's own passive and
+ * is applied as a SEPARATE multiplicative floor step on top of the
+ * salve/slayer slot — with one exception: the ranged MAX HIT folds the DHCB's
+ * +25% damage additively into an on-task IMBUED slayer helm's 23/20 step
+ * ((23+5)/20, one floor — the wiki's "additive with the Slayer helm (i)");
+ * DHCB accuracy always stays its own separate ×13/10 step. See
+ * {@code DpsCalculator.computeRanged}.
  *
  * <p>Dragon hunter wand (magic): grants +75% magic accuracy and +40% magic
  * damage vs draconic creatures, per the OSRS Wiki (verified 2026-07-03).

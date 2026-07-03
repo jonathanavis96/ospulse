@@ -94,6 +94,31 @@ public class TierBEffectsTest {
     }
 
     @Test
+    public void dragonHunterCrossbow_maxHitFoldsAdditivelyIntoImbuedSlayerHelm() {
+        // Per the wiki DPS calc (weirdgloop PlayerVsNPCCalc.ts, "these are
+        // additive with slayer only"): DHCB's +25% ranged damage folds into
+        // the on-task imbued helm's 23/20 as (23+5)/20 with ONE floor —
+        // floor(40 * 28/20) = 56, not floor(floor(40*23/20) * 5/4) = 57.
+        Monster dragonTask = monster(200).attributes(EnumSet.of(MonsterAttribute.DRAGON)).build();
+        // +168 rstr with 99 ranged on ACCURATE: effStr 110, base max hit 40.
+        EquipmentStats dhcbAndHelm = EquipmentStats.builder()
+                .add(0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 168, 0.0, 0)
+                .weaponSpeedTicks(4)
+                .dragonHunterWeapon(DragonHunterWeapon.CROSSBOW)
+                .slayerHeadgear(SlayerHeadgear.IMBUED)
+                .build();
+        PlayerCombat onTask = PlayerCombat.builder()
+                .attack(99, 99).strength(99, 99).ranged(99, 99)
+                .stance(Stance.ACCURATE)
+                .onSlayerTask(true)
+                .build();
+
+        DpsResult result = DpsCalculator.compute(dhcbAndHelm, onTask, CombatStyle.RANGED, dragonTask, 0);
+
+        assertEquals(56, result.maxHit());
+    }
+
+    @Test
     public void dragonHunterCrossbow_asymmetricPercentages() {
         Monster dragon = monster(200).attributes(EnumSet.of(MonsterAttribute.DRAGON)).build();
         EquipmentStats dhcb = plainRangedGear().dragonHunterWeapon(DragonHunterWeapon.CROSSBOW).build();
