@@ -1350,6 +1350,15 @@ public final class GearSection extends CollapsibleSection
 	 * as {@link #spellIcon}). Returns a transparent placeholder-backed icon
 	 * immediately so layout is stable before the sprite arrives; {@code null}
 	 * without a SpriteManager (headless tests).
+	 *
+	 * <p>Prayer sprites are NOT all drawn on the same native canvas size —
+	 * newer prayers (e.g. Augury, added long after the original prayer book)
+	 * have different baked-in transparent padding than the classic icons, so a
+	 * uniform scale-to-{@link #INDICATOR_ICON_SIZE} of the raw sprite makes
+	 * some prayers (Augury in particular) render visibly smaller than the
+	 * others. {@link #cropToOpaqueBounds} normalizes every sprite to its actual
+	 * ink content before scaling so every prayer icon fills the same visual
+	 * footprint.
 	 */
 	private ImageIcon prayerIcon(OffensivePrayer prayer)
 	{
@@ -1365,11 +1374,74 @@ public final class GearSection extends CollapsibleSection
 			spriteManager.getSpriteAsync(id, 0, sprite ->
 				SwingUtilities.invokeLater(() ->
 				{
-					icon.setImage(sprite.getScaledInstance(INDICATOR_ICON_SIZE, INDICATOR_ICON_SIZE, Image.SCALE_SMOOTH));
+					BufferedImage cropped = cropToOpaqueBounds(sprite);
+					icon.setImage(cropped.getScaledInstance(INDICATOR_ICON_SIZE, INDICATOR_ICON_SIZE, Image.SCALE_SMOOTH));
 					bestPrayerToggle.repaint();
 				}));
 			return icon;
 		});
+	}
+
+	/**
+	 * Crops {@code source} to the bounding box of its non-fully-transparent
+	 * pixels, so sprites with inconsistent baked-in padding (see
+	 * {@link #prayerIcon}) all scale to the same visual size afterwards.
+	 * Returns {@code source} unchanged if it has no alpha channel or is
+	 * entirely transparent (nothing sensible to crop to).
+	 */
+	private static BufferedImage cropToOpaqueBounds(BufferedImage source)
+	{
+		int width = source.getWidth();
+		int height = source.getHeight();
+		if (!source.getColorModel().hasAlpha())
+		{
+			return source;
+		}
+
+		int minX = width;
+		int minY = height;
+		int maxX = -1;
+		int maxY = -1;
+		for (int y = 0; y < height; y++)
+		{
+			for (int x = 0; x < width; x++)
+			{
+				int alpha = (source.getRGB(x, y) >>> 24) & 0xFF;
+				if (alpha != 0)
+				{
+					if (x < minX)
+					{
+						minX = x;
+					}
+					if (x > maxX)
+					{
+						maxX = x;
+					}
+					if (y < minY)
+					{
+						minY = y;
+					}
+					if (y > maxY)
+					{
+						maxY = y;
+					}
+				}
+			}
+		}
+
+		if (maxX < minX || maxY < minY)
+		{
+			// Fully transparent sprite (shouldn't normally happen) — nothing to crop to.
+			return source;
+		}
+		int cropWidth = maxX - minX + 1;
+		int cropHeight = maxY - minY + 1;
+		if (minX == 0 && minY == 0 && cropWidth == width && cropHeight == height)
+		{
+			// Already tight — avoid an unnecessary copy.
+			return source;
+		}
+		return source.getSubimage(minX, minY, cropWidth, cropHeight);
 	}
 
 	/** Item id backing a {@link CombatIcons.BoostPotion}'s icon (rendered via {@code ItemManager.getImage}). */
