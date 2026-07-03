@@ -20,6 +20,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -198,6 +199,42 @@ public class GearSectionOptimizerTest
 
 			assertEquals(DRAGON_SCIMITAR, section.overrideForTest().itemIdFor(WhatIfLoadout.WEAPON_SLOT));
 			assertTrue(section.whatIfRowVisibleForTest());
+		});
+	}
+
+	/**
+	 * Regression for the reported "clicked reset, nothing happened" bug: after
+	 * applying an optimiser result (the what-if preview + the visible result
+	 * panel/"highlight"), a single reset must clear BOTH — the overrides (so
+	 * the readout goes back to real worn gear) AND the optimiser result panel
+	 * (so no stale "Apply to readout" affordance lingers looking unchanged).
+	 */
+	@Test
+	public void resetAfterApplyingOptimizerResult_clearsOverridesAndTheResultPanel()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(DRAGON_SCIMITAR, "Dragon scimitar", 1, 100_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+			section.clickApplyOptimizerResultForTest();
+			assertFalse(section.overrideForTest().isEmpty());
+			assertTrue(section.optimizerResultVisibleForTest());
+
+			section.clickResetAllForTest();
+
+			assertTrue("overrides must be cleared", section.overrideForTest().isEmpty());
+			assertEquals(BRONZE_SWORD, section.renderedSlotIdForTest(WhatIfLoadout.WEAPON_SLOT));
+			assertEquals(null, section.lastOptimizerResultForTest());
+			assertFalse("the stale optimiser result panel must be hidden by reset",
+				section.optimizerResultVisibleForTest());
 		});
 	}
 

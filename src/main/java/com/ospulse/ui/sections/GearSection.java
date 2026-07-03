@@ -1770,10 +1770,27 @@ public final class GearSection extends CollapsibleSection
 		rankAndRender();
 	}
 
-	/** Clears every what-if override — every slot (and the readout) reverts to real worn gear. */
+	/**
+	 * Clears every what-if override AND any optimiser-applied preview/highlight
+	 * — the single "undo everything, go back to what I'm actually wearing"
+	 * action (design spec section 3's "Clear preview"/"Revert" reuses this same
+	 * method). Previously this only cleared {@link #override}, leaving the
+	 * optimiser result panel (and its stale "Apply to readout" button) visible
+	 * — from the user's perspective nothing appeared to happen, since the
+	 * lingering panel looked identical to a still-applied preview. Also drops
+	 * any manual style/spell lock so the readout re-defaults to the best style
+	 * for whatever weapon the player is ACTUALLY wearing, rather than
+	 * potentially "keeping" a style selection that happens to satisfy
+	 * {@link WeaponStyle#equals} (type+stance only) on the real weapon too.
+	 */
 	private void resetAllOverrides()
 	{
 		override = LoadoutOverride.empty();
+		lastOptimizerResult = null;
+		optimizerResultPanel.setVisible(false);
+		optimizerStatusLabel.setVisible(false);
+		userPickedStyle = false;
+		userPickedSpell = false;
 		closeItemSearch();
 		updateGearGrid(lastGear);
 		rankAndRender();
