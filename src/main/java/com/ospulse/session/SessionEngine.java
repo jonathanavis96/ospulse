@@ -70,6 +70,27 @@ public final class SessionEngine
 	 * latest snapshot's tracked items by {@link #syncCostBasis}.
 	 */
 	private final Map<Integer, Basis> costBasis = new LinkedHashMap<>();
+	/**
+	 * Figures from the previous {@link #snapshot} call, kept only so the
+	 * per-snapshot debug log can report a delta. {@code null} until the first
+	 * snapshot is produced. Never affects profit/unrealized computation.
+	 */
+	private DebugFigures lastLoggedFigures;
+
+	/** Immutable bundle of the debug-loggable figures from one snapshot. */
+	private static final class DebugFigures
+	{
+		final long netWorthDelta;
+		final long profit;
+		final long unrealizedPnl;
+
+		DebugFigures(long netWorthDelta, long profit, long unrealizedPnl)
+		{
+			this.netWorthDelta = netWorthDelta;
+			this.profit = profit;
+			this.unrealizedPnl = unrealizedPnl;
+		}
+	}
 
 	/** Mutable per-item cost-basis accumulator (quantity held + total cost). */
 	private static final class Basis
@@ -95,6 +116,7 @@ public final class SessionEngine
 		this.bankValueAtOpenKnown = false;
 		this.lootTotals.clear();
 		this.costBasis.clear();
+		this.lastLoggedFigures = null;
 		// Holdings present at session start enter at their live price, so
 		// unrealized P/L starts the session at zero.
 		syncCostBasis(initial);
@@ -395,13 +417,22 @@ public final class SessionEngine
 		if (log.isDebugEnabled())
 		{
 			// Guarded wealth breakdown so a "profit jumped for no reason"
-			// report can be fact-checked from client.log.
+			// report can be fact-checked from client.log. Includes the delta
+			// vs the previous snapshot's realised/unrealized/net-worth figures
+			// so a suspicious jump is visible without diffing log lines by hand.
+			DebugFigures prev = lastLoggedFigures;
+			long profitDelta = prev == null ? 0L : profit - prev.profit;
+			long unrealizedDelta = prev == null ? 0L : unrealizedPnl - prev.unrealizedPnl;
+			long netWorthDeltaDelta = prev == null ? 0L : netWorthDelta - prev.netWorthDelta;
 			log.debug("wealth: tracked={} (inv={} equip={} ge={} pouch={}) bank={}/known={} "
-					+ "bankOpen={} transferOffset={} baseline={} m2m={} realised={} unrealized={} netWorthDelta={}",
+					+ "bankOpen={} transferOffset={} baseline={} m2m={} realised={} unrealized={} netWorthDelta={} "
+					+ "| Δrealised={} Δunrealized={} ΔnetWorthDelta={}",
 				current.tracked(), current.getInventoryValue(), current.getEquipmentValue(),
 				current.getGeInFlightValue(), current.getPouchValue(),
 				current.getBankValue(), current.isBankKnown(),
-				bankOpen, transferOffset, baseline, markToMarket, profit, unrealizedPnl, netWorthDelta);
+				bankOpen, transferOffset, baseline, markToMarket, profit, unrealizedPnl, netWorthDelta,
+				profitDelta, unrealizedDelta, netWorthDeltaDelta);
+			lastLoggedFigures = new DebugFigures(netWorthDelta, profit, unrealizedPnl);
 		}
 
 		return new SessionSnapshot(
