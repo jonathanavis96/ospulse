@@ -11,14 +11,19 @@ import com.ospulse.xp.XpSkillView;
 import net.runelite.api.Skill;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.ui.ColorScheme;
+import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.SkillColor;
 
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.SwingConstants;
+import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.GridLayout;
 import java.awt.Image;
 import java.util.ArrayList;
 import java.util.List;
@@ -87,8 +92,8 @@ public final class XpSection extends CollapsibleSection
 	/** "Overall" summary row + one compact card per skill. */
 	private void renderSkillViews(List<XpSkillView> skills, long overallXpPerHour)
 	{
-		breakdownPanel.add(PanelWidgets.listRow("Overall",
-			GpFormat.format(xpTotal) + " · " + GpFormat.format(overallXpPerHour) + "/hr"));
+		breakdownPanel.add(PanelWidgets.listRow("Overall XP",
+			GpFormat.format(xpTotal) + " · " + GpFormat.format(overallXpPerHour) + " xp/hr"));
 		breakdownPanel.add(PanelWidgets.spacer());
 
 		boolean first = true;
@@ -104,48 +109,107 @@ public final class XpSection extends CollapsibleSection
 	}
 
 	/**
-	 * One skill's own compact card: icon + name + level (left) with XP gained
-	 * (right), a skill-coloured {@link ThinProgressBar}, then a detail row of
-	 * XP/hr and actions-to-next-level. Deliberately its own layout rather than
-	 * RuneLite's XpInfoBox 2x2 stat grid.
+	 * One skill's own compact card: an icon + name/level header, a labelled 2x2
+	 * stat grid (XP Gained / XP/hr / XP left / Actions), then a skill-coloured
+	 * {@link ThinProgressBar} annotated below with current level · % complete ·
+	 * next level. The four stats are labelled inline (rather than bare numbers)
+	 * so each figure is self-describing; the 2x2 grid keeps them on-screen at
+	 * the fixed ~215px side-panel width where a single labelled row would clip.
 	 */
 	private JPanel skillCard(XpSkillView view)
 	{
 		Skill skill = parseSkill(view.getSkillName());
 		Color accent = skill != null ? SkillColor.find(skill).getColor() : ColorScheme.BRAND_ORANGE;
+		boolean maxed = view.getCurrentLevel() >= VirtualLevelTable.MAX_LEVEL;
 
 		JPanel card = new JPanel();
 		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
 		card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		card.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		String name = prettySkillName(view.getSkillName()) + "  Lvl " + view.getCurrentLevel();
-		card.add(PanelWidgets.iconRow(skillIcon(skill), name, "+" + GpFormat.format(view.getGained()), accent));
+		String name = prettySkillName(view.getSkillName());
+		card.add(PanelWidgets.iconRow(skillIcon(skill), name, "Lvl " + view.getCurrentLevel(), accent));
 
-		card.add(rigidSpacer(2));
+		card.add(rigidSpacer(3));
+		card.add(statGrid(view, maxed));
+		card.add(rigidSpacer(3));
+
 		ThinProgressBar bar = new ThinProgressBar();
 		bar.setForeground(accent);
 		bar.setProgress(view.getProgressToNextLevel());
 		bar.setAlignmentX(Component.LEFT_ALIGNMENT);
 		card.add(bar);
-		card.add(rigidSpacer(2));
-
-		card.add(PanelWidgets.listRow("   " + GpFormat.format(view.getXpPerHour()) + "/hr", nextLevelText(view)));
+		card.add(rigidSpacer(1));
+		card.add(barAnnotation(view, maxed));
 
 		card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
 		return card;
 	}
 
-	/** "N to Lvl X" (actions still needed at the last action's xp size), or "Maxed" at 126. */
-	private static String nextLevelText(XpSkillView view)
+	/** Labelled 2x2 grid: XP Gained / XP/hr on the first row, XP left / Actions on the second. */
+	private static JPanel statGrid(XpSkillView view, boolean maxed)
 	{
-		if (view.getCurrentLevel() >= VirtualLevelTable.MAX_LEVEL)
-		{
-			return "Maxed";
-		}
-		int nextLevel = view.getCurrentLevel() + 1;
-		String actions = view.getActionsLeft() < 0 ? "?" : String.format("%,d", view.getActionsLeft());
-		return actions + " to Lvl " + nextLevel;
+		JPanel grid = new JPanel(new GridLayout(2, 2, 8, 1));
+		grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		String xpLeft = maxed ? "0" : GpFormat.format(view.getXpLeft());
+		String actions = maxed ? "Maxed"
+			: view.getActionsLeft() < 0 ? "?" : String.format(Locale.ROOT, "%,d", view.getActionsLeft());
+
+		grid.add(statCell("XP Gained", GpFormat.format(view.getGained())));
+		grid.add(statCell("XP/hr", GpFormat.format(view.getXpPerHour())));
+		grid.add(statCell("XP left", xpLeft));
+		grid.add(statCell("Actions", actions));
+
+		grid.setMaximumSize(new Dimension(Integer.MAX_VALUE, grid.getPreferredSize().height));
+		return grid;
+	}
+
+	/** A "Label value" cell: grey label pinned left, white value pinned right. */
+	private static JPanel statCell(String label, String value)
+	{
+		JPanel cell = new JPanel(new BorderLayout(4, 0));
+		cell.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+
+		JLabel labelLabel = new JLabel(label);
+		labelLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		labelLabel.setFont(FontManager.getRunescapeSmallFont());
+
+		JLabel valueLabel = new JLabel(value);
+		valueLabel.setForeground(Color.WHITE);
+		valueLabel.setFont(FontManager.getRunescapeSmallFont());
+		valueLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+
+		cell.add(labelLabel, BorderLayout.WEST);
+		cell.add(valueLabel, BorderLayout.CENTER);
+		return cell;
+	}
+
+	/** Under-bar annotation row: current level (left) · % complete (centre) · next level or "Max" (right). */
+	private static JPanel barAnnotation(XpSkillView view, boolean maxed)
+	{
+		JPanel row = new JPanel(new BorderLayout());
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		JLabel current = miniLabel(String.valueOf(view.getCurrentLevel()), SwingConstants.LEFT);
+		JLabel percent = miniLabel(Math.round(view.getProgressToNextLevel() * 100.0) + "%", SwingConstants.CENTER);
+		JLabel next = miniLabel(maxed ? "Max" : String.valueOf(view.getCurrentLevel() + 1), SwingConstants.RIGHT);
+
+		row.add(current, BorderLayout.WEST);
+		row.add(percent, BorderLayout.CENTER);
+		row.add(next, BorderLayout.EAST);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		return row;
+	}
+
+	private static JLabel miniLabel(String text, int alignment)
+	{
+		JLabel label = new JLabel(text, alignment);
+		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		label.setFont(FontManager.getRunescapeSmallFont());
+		return label;
 	}
 
 	private static Component rigidSpacer(int height)
@@ -239,6 +303,6 @@ public final class XpSection extends CollapsibleSection
 	@Override
 	protected String summaryText()
 	{
-		return GpFormat.format(xpTotal) + " · " + GpFormat.format(xpPerHour()) + "/hr";
+		return GpFormat.format(xpTotal) + " · " + GpFormat.format(xpPerHour()) + " xp/hr";
 	}
 }
