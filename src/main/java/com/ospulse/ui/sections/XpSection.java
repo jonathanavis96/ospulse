@@ -67,7 +67,7 @@ public final class XpSection extends CollapsibleSection
 {
 	public static final String KEY = "xp";
 
-	private static final int ICON_SIZE = 22;
+	private static final int ICON_SIZE = 28;
 
 	private final JPanel breakdownPanel;
 	private final SkillIconManager skillIconManager;
@@ -160,11 +160,25 @@ public final class XpSection extends CollapsibleSection
 		{
 			if (!first)
 			{
-				breakdownPanel.add(PanelWidgets.spacer());
+				breakdownPanel.add(rigidSpacer(4));
+				breakdownPanel.add(skillSeparator());
+				breakdownPanel.add(rigidSpacer(4));
 			}
 			first = false;
 			breakdownPanel.add(skillCard(skill));
 		}
+	}
+
+	/** A thin 1px full-width divider so adjacent skill cards don't visually merge. */
+	private static JPanel skillSeparator()
+	{
+		JPanel line = new JPanel();
+		line.setBackground(ColorScheme.MEDIUM_GRAY_COLOR);
+		line.setAlignmentX(Component.LEFT_ALIGNMENT);
+		line.setPreferredSize(new Dimension(0, 1));
+		line.setMinimumSize(new Dimension(0, 1));
+		line.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
+		return line;
 	}
 
 	/** Marks {@code catId} hidden the moment its reset epoch advances (a "Reset"/"Reset others"/"Reset all" click). */
@@ -198,12 +212,21 @@ public final class XpSection extends CollapsibleSection
 	}
 
 	/**
-	 * One skill's own compact card: an icon + name/level header, a labelled 2x2
-	 * stat grid (XP Gained / XP/hr / XP left / Actions), then a skill-coloured
-	 * {@link ThinProgressBar} annotated below with current level · % complete ·
-	 * next level. The four stats are labelled inline (rather than bare numbers)
-	 * so each figure is self-describing; the 2x2 grid keeps them on-screen at
-	 * the fixed ~215px side-panel width where a single labelled row would clip.
+	 * One skill's own compact card, mirroring RuneLite's native XP Tracker
+	 * {@code XpInfoBox} layout: the skill icon pinned left with the labelled
+	 * 2x2 stat grid (XP Gained / XP/hr / XP left / Actions) to its right, a
+	 * skill-coloured {@link ThinProgressBar} below, then an annotation row
+	 * below the bar with current level · % complete · next level. There's no
+	 * skill-name text — the icon alone identifies the skill, exactly as
+	 * XpInfoBox does — and the current level appears exactly once, on the
+	 * bar annotation, rather than duplicated in a header. The four stats are
+	 * labelled inline (rather than bare numbers) so each figure is
+	 * self-describing.
+	 *
+	 * <p>The same right-click popup is attached to every component in the
+	 * card (not just the icon row) via {@link #attachPopupRecursively}, so
+	 * right-clicking anywhere on the card opens the Pause/Reset/Add-to-canvas
+	 * menu.
 	 */
 	private JPanel skillCard(XpSkillView view)
 	{
@@ -216,14 +239,25 @@ public final class XpSection extends CollapsibleSection
 		card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		card.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		String name = prettySkillName(view.getSkillName());
 		String catId = categoryId(view.getSkillName());
 		JPopupMenu popupMenu = categorySupport.buildMenu(catId, view.getSkillName());
-		card.add(PanelWidgets.iconRow(skillIcon(skill), name, "Lvl " + view.getCurrentLevel(), accent,
-			popupMenu));
 
-		card.add(rigidSpacer(3));
-		card.add(statGrid(view, maxed));
+		JPanel top = new JPanel(new BorderLayout(6, 0));
+		top.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		top.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		Image iconImage = skillIcon(skill);
+		JLabel iconLabel = new JLabel();
+		if (iconImage != null)
+		{
+			iconLabel.setIcon(new javax.swing.ImageIcon(iconImage));
+		}
+		iconLabel.setVerticalAlignment(SwingConstants.CENTER);
+		top.add(iconLabel, BorderLayout.WEST);
+		top.add(statGrid(view, maxed), BorderLayout.CENTER);
+		top.setMaximumSize(new Dimension(Integer.MAX_VALUE, top.getPreferredSize().height));
+		card.add(top);
+
 		card.add(rigidSpacer(3));
 
 		ThinProgressBar bar = new ThinProgressBar();
@@ -235,7 +269,30 @@ public final class XpSection extends CollapsibleSection
 		card.add(barAnnotation(view, maxed));
 
 		card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
+		attachPopupRecursively(card, popupMenu);
 		return card;
+	}
+
+	/**
+	 * Attaches {@code popupMenu} to {@code component} and every descendant,
+	 * since Swing's {@code setComponentPopupMenu} only fires for the exact
+	 * component under the mouse and doesn't inherit to children — so without
+	 * walking the tree, right-clicking a JLabel nested inside the card would
+	 * show no menu at all.
+	 */
+	private static void attachPopupRecursively(Component component, JPopupMenu popupMenu)
+	{
+		if (component instanceof javax.swing.JComponent)
+		{
+			((javax.swing.JComponent) component).setComponentPopupMenu(popupMenu);
+		}
+		if (component instanceof java.awt.Container)
+		{
+			for (Component child : ((java.awt.Container) component).getComponents())
+			{
+				attachPopupRecursively(child, popupMenu);
+			}
+		}
 	}
 
 	/** Labelled 2x2 grid: XP Gained / XP/hr on the first row, XP left / Actions on the second. */
