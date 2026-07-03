@@ -114,12 +114,33 @@ public final class CombatIcons {
         return null;
     }
 
-    /** The style-appropriate boosting potion to show as the style's icon. */
+    /**
+     * The style-appropriate boosting potion to show as the style's icon.
+     *
+     * <p>Melee's three variants (Super combat / Super strength / Super attack)
+     * all resolve to the exact same {@link PotionBoosts#bestMeleeBoostedLevel}
+     * boost, and Ranged's two variants (Ranging / Bastion) both resolve to
+     * {@link PotionBoosts#bestRangedBoostedLevel} — real OSRS potions differ
+     * there only in which stat(s) they boost (Super attack: Attack only;
+     * Super strength: Strength only; Super combat/Bastion: both at once), and
+     * since the DPS calculator already applies "best" to whichever levels the
+     * active style actually reads, the choice between them is cosmetic
+     * (icon/inventory-item only), unlike Magic's three variants which genuinely
+     * differ in Magic-level boost.
+     */
     public enum BoostPotion {
-        /** Super combat potion (also covers plain super attack/strength) — {@link PotionBoosts#bestMeleeBoostedLevel}. */
+        /** Super combat potion — the default melee pick (both Attack and Strength boosted at once). */
         SUPER_COMBAT,
-        /** Ranging potion / Bastion potion — {@link PotionBoosts#bestRangedBoostedLevel}. */
+        /** Super strength potion — melee variant, Strength-boost flavour only (same {@link PotionBoosts#bestMeleeBoostedLevel} boost). */
+        SUPER_STRENGTH,
+        /** Super attack potion — melee variant, Attack-boost flavour only (same {@link PotionBoosts#bestMeleeBoostedLevel} boost). */
+        SUPER_ATTACK,
+        /** Ranging potion — the default ranged pick. */
         RANGING,
+        /** Bastion potion — ranged variant (same {@link PotionBoosts#bestRangedBoostedLevel} boost as Ranging). */
+        BASTION,
+        /** Divine ranging potion — ranged variant (same {@link PotionBoosts#bestRangedBoostedLevel} boost; in-game its real edge is auto-reapplying on expiry, not modelled here). */
+        DIVINE_RANGING,
         /** Imbued heart (Invigorate) — {@link PotionBoosts#imbuedHeartBoostedLevel}. The default magic pick. */
         IMBUED_HEART,
         /** Saturated heart (upgraded Imbued heart) — {@link PotionBoosts#saturatedHeartBoostedLevel}, the highest magic-level boost. */
@@ -137,7 +158,34 @@ public final class CombatIcons {
         BoostPotion.SATURATED_HEART, BoostPotion.IMBUED_HEART, BoostPotion.ANCIENT_BREW,
     };
 
-    /** The boosting potion the calculator's {@code assumeBestPotion} branch applies for {@code style}. */
+    /** The melee-style potion variants offered by the potion toggle's right-click swap menu (default first). */
+    public static final BoostPotion[] MELEE_POTION_VARIANTS = {
+        BoostPotion.SUPER_COMBAT, BoostPotion.SUPER_STRENGTH, BoostPotion.SUPER_ATTACK,
+    };
+
+    /** The ranged-style potion variants offered by the potion toggle's right-click swap menu (default first). */
+    public static final BoostPotion[] RANGED_POTION_VARIANTS = {
+        BoostPotion.RANGING, BoostPotion.BASTION, BoostPotion.DIVINE_RANGING,
+    };
+
+    /** The right-click swap menu's variant list for {@code style} (melee/ranged/magic), or an empty array if {@code style} has no swappable variants. */
+    public static BoostPotion[] variantsFor(CombatStyle style) {
+        if (style == null) {
+            return new BoostPotion[0];
+        }
+        if (style.isMelee()) {
+            return MELEE_POTION_VARIANTS;
+        }
+        if (style == CombatStyle.RANGED) {
+            return RANGED_POTION_VARIANTS;
+        }
+        if (style == CombatStyle.MAGIC) {
+            return MAGIC_POTION_VARIANTS;
+        }
+        return new BoostPotion[0];
+    }
+
+    /** The boosting potion the calculator's {@code assumeBestPotion} branch applies for {@code style} — the style's DEFAULT variant. */
     public static BoostPotion bestPotion(CombatStyle style) {
         if (style == null) {
             return null;
@@ -152,5 +200,15 @@ public final class CombatIcons {
             return BoostPotion.IMBUED_HEART;
         }
         return null;
+    }
+
+    /** True for a melee-flavour variant (Super combat/strength/attack) — used to normalize the DPS boost math, which is identical across all three. */
+    public static boolean isMeleeVariant(BoostPotion potion) {
+        return potion == BoostPotion.SUPER_COMBAT || potion == BoostPotion.SUPER_STRENGTH || potion == BoostPotion.SUPER_ATTACK;
+    }
+
+    /** True for a ranged-flavour variant (Ranging/Bastion/Divine ranging) — used to normalize the DPS boost math, which is identical across all three. */
+    public static boolean isRangedVariant(BoostPotion potion) {
+        return potion == BoostPotion.RANGING || potion == BoostPotion.BASTION || potion == BoostPotion.DIVINE_RANGING;
     }
 }

@@ -1,5 +1,6 @@
 package com.ospulse.ui.sections;
 
+import com.ospulse.OSPulseConfig;
 import com.ospulse.combat.AttackStyleIcons;
 import com.ospulse.combat.CombatIcons;
 import com.ospulse.combat.CombatStyle;
@@ -28,6 +29,7 @@ import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
 import com.ospulse.wealth.WealthSnapshot;
 
+import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.game.SpriteManager;
@@ -64,6 +66,7 @@ import java.awt.Image;
 import java.awt.Insets;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -169,7 +172,11 @@ public final class GearSection extends CollapsibleSection
 	// ItemManager.getImage, same as the boost toggles above) — one per
 	// CombatIcons.BoostPotion value.
 	private static final int ITEM_SUPER_COMBAT_POTION = 12695;
+	private static final int ITEM_SUPER_STRENGTH_POTION = 2440; // Super strength potion(4)
+	private static final int ITEM_SUPER_ATTACK_POTION = 2436;   // Super attack potion(4)
 	private static final int ITEM_RANGING_POTION = 2444;
+	private static final int ITEM_BASTION_POTION = 22461;       // Bastion potion(4)
+	private static final int ITEM_DIVINE_RANGING_POTION = 23733; // Divine ranging potion(4)
 	private static final int ITEM_IMBUED_HEART = 20724;
 	private static final int ITEM_SATURATED_HEART = 27641;
 	private static final int ITEM_ANCIENT_BREW = 26340; // Ancient brew(4)
@@ -180,9 +187,16 @@ public final class GearSection extends CollapsibleSection
 	/** Side length for the attack-style-row and spell-row icons. */
 	private static final int STYLE_ICON_SIZE = 18;
 
+	/** Columns in the item-picker icon grid (design ask: "4 icons per row"). */
+	private static final int ITEM_GRID_COLUMNS = 4;
+	/** One grid cell's square side length — matches the worn-gear grid's slot size so the two grids read consistently. */
+	private static final int ITEM_GRID_CELL_SIZE = SLOT_H;
+
 	private final ItemManager itemManager;
 	private final SkillIconManager skillIconManager;
 	private final SpriteManager spriteManager;
+	/** {@code null} in tests that don't exercise persistence (see the no-config-manager constructors) — every read/write of it is guarded. */
+	private final ConfigManager configManager;
 	private final WeaponCategoryRepository weaponRepo = WeaponCategoryRepository.getInstance();
 
 	private final JLabel[] slotLabels = new JLabel[GearSnapshot.EQUIPMENT_SLOT_COUNT];
@@ -219,7 +233,7 @@ public final class GearSection extends CollapsibleSection
 	private final JList<String> monsterList;
 	private final MonsterListModel monsterListModel = new MonsterListModel();
 	private final JLabel targetLabel;
-	private final JToggleButton bestPotionToggle;
+	private final HintableToggleButton bestPotionToggle;
 	private final JToggleButton bestPrayerToggle;
 	private final JToggleButton onSlayerTaskToggle;
 	private final JLabel maxHitValue;
@@ -257,13 +271,18 @@ public final class GearSection extends CollapsibleSection
 	/** Last observed "slayer helm / black mask worn" state — drives edge-triggered auto-tick. */
 	private boolean lastSlayerHeadgearWorn;
 	/**
-	 * The magic-style potion variant the potion toggle's right-click swap menu
-	 * has picked ({@code null} = follow {@link CombatIcons#bestPotion} as
-	 * before — Imbued heart for Magic). Melee/Ranged styles ignore this; only
-	 * fed to {@link DpsCalculator} via {@link PlayerCombat#magicPotionVariant()}
-	 * when the active style is Magic.
+	 * The potion variant the right-click swap menu has picked, PER combat
+	 * style ({@code CombatStyle.MELEE_KEY}/{@code RANGED}/{@code MAGIC} — see
+	 * {@link #styleKeyFor}), persisted to RuneLite config (see
+	 * {@link #loadPotionVariantPrefs}/{@link #savePotionVariantPref}) so a
+	 * choice like "Saturated heart on Magic" survives a client restart. Absent
+	 * = follow {@link CombatIcons#bestPotion} (the style's default variant).
+	 * Only the MAGIC entry actually reaches {@link DpsCalculator} (via
+	 * {@link PlayerCombat#magicPotionVariant()}) since melee/ranged variants
+	 * are cosmetic-only (see {@link CombatIcons.BoostPotion} javadoc) — the
+	 * melee/ranged entries only drive which icon/tooltip is shown.
 	 */
-	private CombatIcons.BoostPotion magicPotionVariant;
+	private final Map<String, CombatIcons.BoostPotion> potionVariantByStyle = new HashMap<>();
 
 	// ---------------------------------------------- Phase 2: what-if overrides
 	/**
@@ -279,15 +298,17 @@ public final class GearSection extends CollapsibleSection
 	/** The equipment slot ordinal the item-search panel below the grid is currently scoped to, or -1 if closed. */
 	private int searchOpenForSlot = -1;
 	private final IconTextField itemSearchField;
-	private final JScrollPane itemListScroll;
-	private final JList<String> itemList;
-	private final ItemListModel itemListModel = new ItemListModel();
+	private final JButton closeItemSearchButton;
+	/** The search-field + close-button row — shown/hidden together as one unit (see {@link #toggleItemSearch}/{@link #closeItemSearch}). */
+	private final JPanel itemSearchRow;
+	/** 4-columns-wide scrollable icon grid of {@link #filteredItems} — see {@link #populateItemList}/{@link #ItemGridCell}. */
+	private final JPanel itemGridPanel;
+	private final JScrollPane itemGridScroll;
 	private List<EquipmentIndexRepository.Entry> filteredItems = Collections.emptyList();
 	private final JButton resetAllButton;
 	private final JLabel whatIfLabel;
 	private final JLabel whatIfDeltaValue;
 	private JPanel whatIfRow;
-	private boolean suppressItemListEvents;
 
 	// -------------------------------------------- Phase 3: optimiser ("Best Setup")
 	/** Owned-item values (worn + top holdings incl. bank), refreshed each {@link #apply}; source for the optimiser's owned pool + GE prices. */
@@ -300,21 +321,32 @@ public final class GearSection extends CollapsibleSection
 	private final JLabel optimizerResultDelta;
 	private final JLabel optimizerResultSpend;
 	private final JLabel optimizerResultDpsPerGp;
+	/** One row per proposed slot swap ("Slot: current -> suggested (+X DPS)") — see {@link #renderOptimizerSwapList}. */
+	private final JPanel optimizerSwapList;
 	private final JButton applyOptimizerResultButton;
+	private final JButton clearOptimizerPreviewButton;
 	private GearOptimizer.Result lastOptimizerResult;
 
 	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager)
 	{
-		this(store, itemManager, skillIconManager, null);
+		this(store, itemManager, skillIconManager, null, null);
 	}
 
 	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager,
 		SpriteManager spriteManager)
 	{
+		this(store, itemManager, skillIconManager, spriteManager, null);
+	}
+
+	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager,
+		SpriteManager spriteManager, ConfigManager configManager)
+	{
 		super(KEY, "Gear DPS", store);
 		this.itemManager = itemManager;
 		this.skillIconManager = skillIconManager;
 		this.spriteManager = spriteManager;
+		this.configManager = configManager;
+		loadPotionVariantPrefs();
 
 		// ------------------------------------------------ worn-gear header
 		JLabel heading = PanelWidgets.emptyRowLabel("Live DPS · your worn gear");
@@ -329,15 +361,20 @@ public final class GearSection extends CollapsibleSection
 		// --------------------------------- Phase 2: what-if item search + reset
 		// Clicking a slot cell above opens this search (see toggleItemSearch),
 		// scoped to that slot via searchOpenForSlot. Mirrors the monster
-		// search's search-field + collapsible-result-list UX for consistency.
+		// search's search-field + collapsible-result-list UX for consistency,
+		// but renders candidates as a 4-columns-wide scrollable ICON grid
+		// (populateItemList/ItemGridCell) instead of a text JList — a picker
+		// full of item names all cost the user a squint-and-read; icons are
+		// recognisable at a glance and match how the equipment tab itself
+		// looks. The text search box is kept alongside for filtering by name.
+		JPanel searchRow = new JPanel(new BorderLayout(4, 0));
+		searchRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		searchRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 		itemSearchField = new IconTextField();
 		itemSearchField.setIcon(IconTextField.Icon.SEARCH);
 		itemSearchField.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		itemSearchField.setHoverBackgroundColor(ColorScheme.DARK_GRAY_HOVER_COLOR);
-		itemSearchField.setAlignmentX(Component.LEFT_ALIGNMENT);
-		itemSearchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
 		itemSearchField.setPreferredSize(new Dimension(100, 24));
-		itemSearchField.setVisible(false);
 		itemSearchField.getDocument().addDocumentListener(new DocumentListener()
 		{
 			@Override
@@ -358,38 +395,42 @@ public final class GearSection extends CollapsibleSection
 				populateItemList();
 			}
 		});
-		body().add(itemSearchField);
+		// A dedicated close/X button — there was previously no way to dismiss
+		// the picker once open besides re-clicking the same gear-grid slot.
+		closeItemSearchButton = new JButton("✕");
+		closeItemSearchButton.setToolTipText("Close item picker");
+		closeItemSearchButton.setFont(FontManager.getRunescapeSmallFont());
+		closeItemSearchButton.setFocusPainted(false);
+		closeItemSearchButton.setMargin(new Insets(0, 6, 0, 6));
+		closeItemSearchButton.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		closeItemSearchButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		closeItemSearchButton.addActionListener(e -> closeItemSearch());
+		searchRow.add(itemSearchField, BorderLayout.CENTER);
+		searchRow.add(closeItemSearchButton, BorderLayout.EAST);
+		searchRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		searchRow.setVisible(false);
+		body().add(searchRow);
 		body().add(Box.createRigidArea(new Dimension(0, 2)));
+		this.itemSearchRow = searchRow;
 
-		itemList = new JList<>(itemListModel);
-		itemList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-		itemList.setFont(FontManager.getRunescapeSmallFont());
-		itemList.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		itemList.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		itemList.setSelectionBackground(ColorScheme.BRAND_ORANGE);
-		itemList.setSelectionForeground(ColorScheme.DARK_GRAY_COLOR);
-		itemList.setVisibleRowCount(6);
-		itemList.setPrototypeCellValue("Ancient godsword (or)");
-		itemList.addListSelectionListener(e ->
-		{
-			if (suppressItemListEvents || e.getValueIsAdjusting())
-			{
-				return;
-			}
-			int index = itemList.getSelectedIndex();
-			if (index >= 0 && index < filteredItems.size() && searchOpenForSlot >= 0)
-			{
-				applyOverride(searchOpenForSlot, filteredItems.get(index).itemId());
-				closeItemSearch();
-			}
-		});
-		itemListScroll = new JScrollPane(itemList);
-		itemListScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-		itemListScroll.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
-		itemListScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
-		itemListScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, itemListScroll.getPreferredSize().height));
-		itemListScroll.setVisible(false);
-		body().add(itemListScroll);
+		itemGridPanel = new JPanel(new GridLayout(0, ITEM_GRID_COLUMNS, 2, 2));
+		itemGridPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		itemGridPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		itemGridScroll = new JScrollPane(itemGridPanel);
+		itemGridScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+		itemGridScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+		itemGridScroll.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
+		itemGridScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+		itemGridScroll.getVerticalScrollBar().setUnitIncrement(ITEM_GRID_CELL_SIZE);
+		// Capped-height viewport (design: compact in the narrow side panel) —
+		// enough for a couple of rows before it scrolls, matching the
+		// attack-style list's STYLES_VISIBLE_ROWS pattern.
+		int gridViewportHeight = ITEM_GRID_CELL_SIZE * 2 + 4;
+		itemGridScroll.setPreferredSize(new Dimension(0, gridViewportHeight));
+		itemGridScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, gridViewportHeight));
+		itemGridScroll.setVisible(false);
+		body().add(itemGridScroll);
 		body().add(Box.createRigidArea(new Dimension(0, 2)));
 
 		resetAllButton = new JButton("Reset all to worn gear");
@@ -490,8 +531,14 @@ public final class GearSection extends CollapsibleSection
 		// Prayer level; see CombatIcons), refreshed in updateBoostIndicators
 		// (called from updateOutputs) so it always matches whatever prayer/
 		// potion DpsCalculator is actually applying. Right-clicking the potion
-		// button opens a swap menu for the magic-style potion variant (Imbued
-		// heart / Saturated heart / Ancient brew) — see potionVariantPopup.
+		// button opens a swap menu filtered to whatever style is CURRENTLY
+		// selected (melee: Super combat/strength/attack; ranged: Ranging/
+		// Bastion/Divine ranging; magic: Saturated heart/Imbued heart/Ancient
+		// brew — see CombatIcons.variantsFor/buildPotionVariantPopup), each
+		// choice persisted per-style to config (loadPotionVariantPrefs/
+		// savePotionVariantPref) so it survives a client restart. The small
+		// orange "*" painted in the icon's corner (HintableToggleButton) hints
+		// that right-click has more options.
 		JPanel boostRow = new JPanel(new GridLayout(1, 3, 2, 0));
 		boostRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		boostRow.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -681,16 +728,56 @@ public final class GearSection extends CollapsibleSection
 		optimizerResultDelta = PanelWidgets.statRow(optimizerResultPanel, "vs owned-only");
 		optimizerResultSpend = PanelWidgets.statRow(optimizerResultPanel, "Total spend");
 		optimizerResultDpsPerGp = PanelWidgets.statRow(optimizerResultPanel, "DPS per gp spent");
-		applyOptimizerResultButton = new JButton("Apply to readout (what-if)");
+
+		// The proposed swaps themselves — "Slot: current -> suggested (+X DPS)" —
+		// so the user sees exactly what the optimiser is suggesting instead of
+		// only an aggregate DPS number (design ask: results clarity).
+		optimizerResultPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+		JLabel swapListHeading = PanelWidgets.emptyRowLabel("Suggested swaps");
+		swapListHeading.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		optimizerResultPanel.add(swapListHeading);
+		optimizerSwapList = new JPanel();
+		optimizerSwapList.setLayout(new BoxLayout(optimizerSwapList, BoxLayout.Y_AXIS));
+		optimizerSwapList.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		optimizerSwapList.setAlignmentX(Component.LEFT_ALIGNMENT);
+		optimizerResultPanel.add(optimizerSwapList);
+		optimizerResultPanel.add(Box.createRigidArea(new Dimension(0, 4)));
+
+		// "Preview these swaps" (was the unclear "Apply to readout (what-if)")
+		// plus a one-line explanation of exactly what it does — it only loads
+		// the suggestion into the what-if readout below as a preview; it never
+		// touches the player's real worn gear.
+		JLabel previewExplanation = PanelWidgets.emptyRowLabel(
+			"Loads these swaps into the readout above as a preview — your real gear is not changed.");
+		previewExplanation.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+		previewExplanation.setFont(FontManager.getRunescapeSmallFont().deriveFont(Font.ITALIC));
+		optimizerResultPanel.add(previewExplanation);
+		applyOptimizerResultButton = new JButton("Preview these swaps");
 		applyOptimizerResultButton.setFont(FontManager.getRunescapeSmallFont());
 		applyOptimizerResultButton.setFocusPainted(false);
 		applyOptimizerResultButton.setAlignmentX(Component.LEFT_ALIGNMENT);
 		applyOptimizerResultButton.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		applyOptimizerResultButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		applyOptimizerResultButton.setToolTipText("Loads this result into the what-if slots above (real gear unaffected)");
+		applyOptimizerResultButton.setToolTipText("Loads this result into the what-if slots above as a preview — your real gear is unaffected");
 		applyOptimizerResultButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, applyOptimizerResultButton.getPreferredSize().height));
 		applyOptimizerResultButton.addActionListener(e -> applyOptimizerResultToOverride());
 		optimizerResultPanel.add(applyOptimizerResultButton);
+
+		// The preview is otherwise sticky with no way to cancel it — this
+		// reuses the same resetAllOverrides() the "Reset all to worn gear"
+		// button uses, so it clears the overrides AND hides this whole panel.
+		clearOptimizerPreviewButton = new JButton("Clear preview / revert to worn gear");
+		clearOptimizerPreviewButton.setFont(FontManager.getRunescapeSmallFont());
+		clearOptimizerPreviewButton.setFocusPainted(false);
+		clearOptimizerPreviewButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+		clearOptimizerPreviewButton.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		clearOptimizerPreviewButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		clearOptimizerPreviewButton.setToolTipText("Cancels the preview above and any what-if swaps, going back to your real worn gear");
+		clearOptimizerPreviewButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, clearOptimizerPreviewButton.getPreferredSize().height));
+		clearOptimizerPreviewButton.addActionListener(e -> resetAllOverrides());
+		optimizerResultPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+		optimizerResultPanel.add(clearOptimizerPreviewButton);
+
 		optimizerResultPanel.setVisible(false);
 		body().add(optimizerResultPanel);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
@@ -1257,7 +1344,7 @@ public final class GearSection extends CollapsibleSection
 		Stance stance = magicCastStyle != null ? magicCastStyle.stance() : Stance.STANDARD;
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, stance,
 			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected(),
-			magicPotionVariant);
+			magicPotionVariantForCalc());
 		return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell);
 	}
 
@@ -1355,6 +1442,15 @@ public final class GearSection extends CollapsibleSection
 	 * as {@link #spellIcon}). Returns a transparent placeholder-backed icon
 	 * immediately so layout is stable before the sprite arrives; {@code null}
 	 * without a SpriteManager (headless tests).
+	 *
+	 * <p>Prayer sprites are NOT all drawn on the same native canvas size —
+	 * newer prayers (e.g. Augury, added long after the original prayer book)
+	 * have different baked-in transparent padding than the classic icons, so a
+	 * uniform scale-to-{@link #INDICATOR_ICON_SIZE} of the raw sprite makes
+	 * some prayers (Augury in particular) render visibly smaller than the
+	 * others. {@link #cropToOpaqueBounds} normalizes every sprite to its actual
+	 * ink content before scaling so every prayer icon fills the same visual
+	 * footprint.
 	 */
 	private ImageIcon prayerIcon(OffensivePrayer prayer)
 	{
@@ -1370,11 +1466,74 @@ public final class GearSection extends CollapsibleSection
 			spriteManager.getSpriteAsync(id, 0, sprite ->
 				SwingUtilities.invokeLater(() ->
 				{
-					icon.setImage(sprite.getScaledInstance(INDICATOR_ICON_SIZE, INDICATOR_ICON_SIZE, Image.SCALE_SMOOTH));
+					BufferedImage cropped = cropToOpaqueBounds(sprite);
+					icon.setImage(cropped.getScaledInstance(INDICATOR_ICON_SIZE, INDICATOR_ICON_SIZE, Image.SCALE_SMOOTH));
 					bestPrayerToggle.repaint();
 				}));
 			return icon;
 		});
+	}
+
+	/**
+	 * Crops {@code source} to the bounding box of its non-fully-transparent
+	 * pixels, so sprites with inconsistent baked-in padding (see
+	 * {@link #prayerIcon}) all scale to the same visual size afterwards.
+	 * Returns {@code source} unchanged if it has no alpha channel or is
+	 * entirely transparent (nothing sensible to crop to).
+	 */
+	private static BufferedImage cropToOpaqueBounds(BufferedImage source)
+	{
+		int width = source.getWidth();
+		int height = source.getHeight();
+		if (!source.getColorModel().hasAlpha())
+		{
+			return source;
+		}
+
+		int minX = width;
+		int minY = height;
+		int maxX = -1;
+		int maxY = -1;
+		for (int y = 0; y < height; y++)
+		{
+			for (int x = 0; x < width; x++)
+			{
+				int alpha = (source.getRGB(x, y) >>> 24) & 0xFF;
+				if (alpha != 0)
+				{
+					if (x < minX)
+					{
+						minX = x;
+					}
+					if (x > maxX)
+					{
+						maxX = x;
+					}
+					if (y < minY)
+					{
+						minY = y;
+					}
+					if (y > maxY)
+					{
+						maxY = y;
+					}
+				}
+			}
+		}
+
+		if (maxX < minX || maxY < minY)
+		{
+			// Fully transparent sprite (shouldn't normally happen) — nothing to crop to.
+			return source;
+		}
+		int cropWidth = maxX - minX + 1;
+		int cropHeight = maxY - minY + 1;
+		if (minX == 0 && minY == 0 && cropWidth == width && cropHeight == height)
+		{
+			// Already tight — avoid an unnecessary copy.
+			return source;
+		}
+		return source.getSubimage(minX, minY, cropWidth, cropHeight);
 	}
 
 	/** Item id backing a {@link CombatIcons.BoostPotion}'s icon (rendered via {@code ItemManager.getImage}). */
@@ -1383,7 +1542,11 @@ public final class GearSection extends CollapsibleSection
 		switch (potion)
 		{
 			case SUPER_COMBAT: return ITEM_SUPER_COMBAT_POTION;
+			case SUPER_STRENGTH: return ITEM_SUPER_STRENGTH_POTION;
+			case SUPER_ATTACK: return ITEM_SUPER_ATTACK_POTION;
 			case RANGING: return ITEM_RANGING_POTION;
+			case BASTION: return ITEM_BASTION_POTION;
+			case DIVINE_RANGING: return ITEM_DIVINE_RANGING_POTION;
 			case IMBUED_HEART: return ITEM_IMBUED_HEART;
 			case SATURATED_HEART: return ITEM_SATURATED_HEART;
 			case ANCIENT_BREW: return ITEM_ANCIENT_BREW;
@@ -1417,18 +1580,99 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
-	 * The magic potion variant the potion toggle should show/apply for the
-	 * current style: the user's right-click swap pick when the style is Magic
-	 * (defaulting to Imbued heart if none chosen yet), or {@link CombatIcons#bestPotion}
-	 * unchanged for every other style (melee/ranged are not swappable).
+	 * The potion variant the potion toggle should show/apply for {@code style}:
+	 * the user's right-click swap pick for that style if one was ever made
+	 * (restored from config at startup — see {@link #loadPotionVariantPrefs}),
+	 * else {@link CombatIcons#bestPotion}'s default for that style.
 	 */
 	private CombatIcons.BoostPotion effectivePotionFor(CombatStyle style)
 	{
+		String key = styleKeyFor(style);
+		if (key == null)
+		{
+			return null;
+		}
+		CombatIcons.BoostPotion picked = potionVariantByStyle.get(key);
+		return picked != null ? picked : CombatIcons.bestPotion(style);
+	}
+
+	/**
+	 * The MAGIC-only variant actually fed to {@link DpsCalculator} — see
+	 * {@link PlayerCombat#magicPotionVariant()}. Melee/Ranged variants never
+	 * reach the calculator since their boost math is identical regardless of
+	 * which variant is picked (see {@link CombatIcons.BoostPotion} javadoc).
+	 */
+	private CombatIcons.BoostPotion magicPotionVariantForCalc()
+	{
+		return potionVariantByStyle.get(styleKeyFor(CombatStyle.MAGIC));
+	}
+
+	/** Stable config-key fragment per style ("melee"/"ranged"/"magic"), or {@code null} for a style with no swappable variant. */
+	private static String styleKeyFor(CombatStyle style)
+	{
+		if (style == null)
+		{
+			return null;
+		}
+		if (style.isMelee())
+		{
+			return "melee";
+		}
+		if (style == CombatStyle.RANGED)
+		{
+			return "ranged";
+		}
 		if (style == CombatStyle.MAGIC)
 		{
-			return magicPotionVariant != null ? magicPotionVariant : CombatIcons.BoostPotion.IMBUED_HEART;
+			return "magic";
 		}
-		return CombatIcons.bestPotion(style);
+		return null;
+	}
+
+	/** Config key for a style's persisted potion-variant pick (raw key, not declared on {@link OSPulseConfig}). */
+	private static String potionVariantConfigKey(String styleKey)
+	{
+		return "potionVariant." + styleKey;
+	}
+
+	/**
+	 * Restores each style's potion-variant pick from config (see
+	 * {@link #savePotionVariantPref}) so a choice like "Saturated heart on
+	 * Magic" survives a client restart. No-ops without a {@link ConfigManager}
+	 * (headless tests / the no-config-manager constructor).
+	 */
+	private void loadPotionVariantPrefs()
+	{
+		if (configManager == null)
+		{
+			return;
+		}
+		for (String styleKey : new String[] {"melee", "ranged", "magic"})
+		{
+			String raw = configManager.getConfiguration(OSPulseConfig.GROUP, potionVariantConfigKey(styleKey));
+			if (raw == null || raw.isEmpty())
+			{
+				continue;
+			}
+			try
+			{
+				potionVariantByStyle.put(styleKey, CombatIcons.BoostPotion.valueOf(raw));
+			}
+			catch (IllegalArgumentException e)
+			{
+				// Stale/unknown enum name (e.g. an older plugin version) — ignore, fall back to the style default.
+			}
+		}
+	}
+
+	/** Persists one style's potion-variant pick to config so it survives a client restart. */
+	private void savePotionVariantPref(String styleKey, CombatIcons.BoostPotion variant)
+	{
+		if (configManager == null)
+		{
+			return;
+		}
+		configManager.setConfiguration(OSPulseConfig.GROUP, potionVariantConfigKey(styleKey), variant.name());
 	}
 
 	/**
@@ -1459,9 +1703,11 @@ public final class GearSection extends CollapsibleSection
 		CombatIcons.BoostPotion potion = effectivePotionFor(style);
 		if (potion != null)
 		{
+			boolean swappable = CombatIcons.variantsFor(style).length > 0;
 			bestPotionToggle.setIcon(potionIcon(potion));
 			bestPotionToggle.setToolTipText("Boosting potion applied: " + displayName(potion)
-				+ (style == CombatStyle.MAGIC ? " (right-click to swap)" : ""));
+				+ (swappable ? " (right-click to swap)" : ""));
+			bestPotionToggle.setRightClickHint(swappable);
 		}
 	}
 
@@ -1523,7 +1769,7 @@ public final class GearSection extends CollapsibleSection
 		}
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, style.stance(),
 			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected(),
-			magicPotionVariant);
+			magicPotionVariantForCalc());
 		if (style.type() == CombatStyle.MAGIC)
 		{
 			// Spell-aware path: a worn powered staff wins automatically; otherwise
@@ -1638,7 +1884,7 @@ public final class GearSection extends CollapsibleSection
 		}
 		searchOpenForSlot = slotOrdinal;
 		itemSearchField.setText("");
-		itemSearchField.setVisible(true);
+		itemSearchRow.setVisible(true);
 		itemSearchField.setToolTipText("Search " + SLOT_NAMES[slotOrdinal] + " items to try (what-if — your real gear is unaffected)");
 		itemSearchField.requestFocusInWindow();
 		populateItemList();
@@ -1646,16 +1892,17 @@ public final class GearSection extends CollapsibleSection
 		body().repaint();
 	}
 
+	/** Closes the item picker (search row + icon grid) — the X button, re-clicking the same slot, or picking an item all route here. */
 	private void closeItemSearch()
 	{
 		searchOpenForSlot = -1;
-		itemSearchField.setVisible(false);
-		itemListScroll.setVisible(false);
+		itemSearchRow.setVisible(false);
+		itemGridScroll.setVisible(false);
 		body().revalidate();
 		body().repaint();
 	}
 
-	/** Refilters {@link #searchOpenForSlot}'s candidate items by the search box's text. */
+	/** Refilters {@link #searchOpenForSlot}'s candidate items by the search box's text and rebuilds the icon grid. */
 	private void populateItemList()
 	{
 		if (searchOpenForSlot < 0)
@@ -1663,14 +1910,67 @@ public final class GearSection extends CollapsibleSection
 			return;
 		}
 		filteredItems = EquipmentIndexRepository.getInstance().searchSlot(searchOpenForSlot, itemSearchField.getText());
-		suppressItemListEvents = true;
-		itemListModel.setItems(filteredItems);
-		itemList.clearSelection();
-		suppressItemListEvents = false;
-		itemListScroll.setVisible(!filteredItems.isEmpty());
-		itemListScroll.revalidate();
+		renderItemGrid();
+		itemGridScroll.setVisible(!filteredItems.isEmpty());
+		itemGridScroll.revalidate();
 		body().revalidate();
 		body().repaint();
+	}
+
+	/**
+	 * Rebuilds the icon grid ({@link #itemGridPanel}, {@link #ITEM_GRID_COLUMNS}
+	 * per row) from {@link #filteredItems} — one {@link ItemGridCell} per
+	 * candidate: icon via the EDT-safe async {@code ItemManager.getImage(int)},
+	 * tooltip = item name, click applies the override (same
+	 * {@link #applyOverride} path the old text list used) and closes the
+	 * picker.
+	 */
+	private void renderItemGrid()
+	{
+		itemGridPanel.removeAll();
+		for (EquipmentIndexRepository.Entry entry : filteredItems)
+		{
+			itemGridPanel.add(new ItemGridCell(entry));
+		}
+		itemGridPanel.revalidate();
+		itemGridPanel.repaint();
+	}
+
+	/**
+	 * One clickable icon cell in the item-picker grid — icon only (no text
+	 * label, to stay compact at {@link #ITEM_GRID_COLUMNS} per row in the
+	 * narrow side panel), tooltip = the item's display name, click applies it
+	 * as a what-if override for {@link #searchOpenForSlot} and closes the
+	 * picker.
+	 */
+	private final class ItemGridCell extends JLabel
+	{
+		private ItemGridCell(EquipmentIndexRepository.Entry entry)
+		{
+			setOpaque(true);
+			setBackground(ColorScheme.DARK_GRAY_COLOR);
+			setHorizontalAlignment(SwingConstants.CENTER);
+			setVerticalAlignment(SwingConstants.CENTER);
+			setPreferredSize(new Dimension(ITEM_GRID_CELL_SIZE, ITEM_GRID_CELL_SIZE));
+			setToolTipText(entry.name());
+			setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
+			if (itemManager != null)
+			{
+				// EDT-safe: getImage is async (AsyncBufferedImage), the same
+				// pattern used by the worn-gear grid and boost toggles.
+				itemManager.getImage(entry.itemId()).addTo(this);
+			}
+			addMouseListener(new MouseAdapter()
+			{
+				@Override
+				public void mousePressed(MouseEvent e)
+				{
+					applyOverride(searchOpenForSlot, entry.itemId());
+					closeItemSearch();
+				}
+			});
+		}
 	}
 
 	/**
@@ -1703,10 +2003,27 @@ public final class GearSection extends CollapsibleSection
 		rankAndRender();
 	}
 
-	/** Clears every what-if override — every slot (and the readout) reverts to real worn gear. */
+	/**
+	 * Clears every what-if override AND any optimiser-applied preview/highlight
+	 * — the single "undo everything, go back to what I'm actually wearing"
+	 * action (design spec section 3's "Clear preview"/"Revert" reuses this same
+	 * method). Previously this only cleared {@link #override}, leaving the
+	 * optimiser result panel (and its stale "Apply to readout" button) visible
+	 * — from the user's perspective nothing appeared to happen, since the
+	 * lingering panel looked identical to a still-applied preview. Also drops
+	 * any manual style/spell lock so the readout re-defaults to the best style
+	 * for whatever weapon the player is ACTUALLY wearing, rather than
+	 * potentially "keeping" a style selection that happens to satisfy
+	 * {@link WeaponStyle#equals} (type+stance only) on the real weapon too.
+	 */
 	private void resetAllOverrides()
 	{
 		override = LoadoutOverride.empty();
+		lastOptimizerResult = null;
+		optimizerResultPanel.setVisible(false);
+		optimizerStatusLabel.setVisible(false);
+		userPickedStyle = false;
+		userPickedSpell = false;
 		closeItemSearch();
 		updateGearGrid(lastGear);
 		rankAndRender();
@@ -1898,7 +2215,7 @@ public final class GearSection extends CollapsibleSection
 			.assumeBestPotion(bestPotionToggle.isSelected())
 			.assumeBestPrayer(bestPrayerToggle.isSelected())
 			.onSlayerTask(onSlayerTaskToggle.isSelected())
-			.magicPotionVariant(magicPotionVariant);
+			.magicPotionVariant(magicPotionVariantForCalc());
 
 		GearOptimizer.Request request = GearOptimizer.Request
 			.builder(liveIds, target, template)
@@ -1935,8 +2252,21 @@ public final class GearSection extends CollapsibleSection
 	private void onOptimizerResult(GearOptimizer.Result result)
 	{
 		findBestSetupButton.setEnabled(true);
-		optimizerStatusLabel.setVisible(false);
 		lastOptimizerResult = result;
+
+		boolean anyChange = hasAnySlotChange(result);
+		if (!anyChange)
+		{
+			// Fix 5: say so explicitly instead of leaving the user staring at a
+			// "Best DPS found" panel that matches their current loadout with no
+			// indication of whether that's a bug or just "you're already best".
+			optimizerStatusLabel.setText("No upgrade found within budget / owned + affordable pool");
+			optimizerStatusLabel.setVisible(true);
+		}
+		else
+		{
+			optimizerStatusLabel.setVisible(false);
+		}
 
 		optimizerResultDps.setText(String.format(Locale.ROOT, "%.2f", result.dps().dps()));
 		double delta = result.deltaDps();
@@ -1946,10 +2276,81 @@ public final class GearSection extends CollapsibleSection
 		optimizerResultDpsPerGp.setText(result.totalSpend() > 0
 			? String.format(Locale.ROOT, "%.6f", result.dpsPerGp())
 			: "-");
+		renderOptimizerSwapList(result);
+		// Nothing to preview/clear when the suggestion equals what's already worn.
+		applyOptimizerResultButton.setVisible(anyChange);
+		clearOptimizerPreviewButton.setVisible(anyChange);
 		optimizerResultPanel.setVisible(true);
 		optimizerResultPanel.revalidate();
 		body().revalidate();
 		body().repaint();
+	}
+
+	/** True if the optimiser's proposed loadout differs from the currently worn gear in at least one slot. */
+	private boolean hasAnySlotChange(GearOptimizer.Result result)
+	{
+		int[] liveIds = lastGear == null ? new int[GearSnapshot.EQUIPMENT_SLOT_COUNT] : lastGear.equippedItemIds();
+		for (GearOptimizer.SlotChoice choice : result.loadout())
+		{
+			int liveId = choice.slotOrdinal() < liveIds.length ? liveIds[choice.slotOrdinal()] : -1;
+			if (liveId != choice.itemId())
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Renders "Slot: current item -&gt; suggested item" for every slot the
+	 * optimiser actually wants to change (slots where the suggestion matches
+	 * what's already worn are omitted — nothing to show there) — design ask:
+	 * show the actual swaps, not just an aggregate "Best DPS found" number.
+	 */
+	private void renderOptimizerSwapList(GearOptimizer.Result result)
+	{
+		optimizerSwapList.removeAll();
+		int[] liveIds = lastGear == null ? new int[GearSnapshot.EQUIPMENT_SLOT_COUNT] : lastGear.equippedItemIds();
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		boolean anyRow = false;
+		for (GearOptimizer.SlotChoice choice : result.loadout())
+		{
+			int liveId = choice.slotOrdinal() < liveIds.length ? liveIds[choice.slotOrdinal()] : -1;
+			if (liveId == choice.itemId())
+			{
+				continue; // unchanged — nothing to report for this slot
+			}
+			anyRow = true;
+			String slotName = choice.slotOrdinal() >= 0 && choice.slotOrdinal() < SLOT_NAMES.length
+				&& !SLOT_NAMES[choice.slotOrdinal()].isEmpty()
+				? SLOT_NAMES[choice.slotOrdinal()] : ("Slot " + choice.slotOrdinal());
+			String currentName = itemDisplayName(index, liveId);
+			String suggestedName = itemDisplayName(index, choice.itemId());
+			String spend = choice.owned() ? "owned" : formatGp(choice.price());
+
+			JLabel row = new JLabel(slotName + ": " + currentName + " -> " + suggestedName + " (" + spend + ")");
+			row.setFont(FontManager.getRunescapeSmallFont());
+			row.setForeground(java.awt.Color.WHITE);
+			row.setAlignmentX(Component.LEFT_ALIGNMENT);
+			optimizerSwapList.add(row);
+		}
+		if (!anyRow)
+		{
+			JLabel none = PanelWidgets.emptyRowLabel("No slot changes — your current loadout is already best");
+			none.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+			optimizerSwapList.add(none);
+		}
+	}
+
+	/** Display name for an item id via the bundled equipment index, or a placeholder for an empty/unindexed slot. */
+	private static String itemDisplayName(EquipmentIndexRepository index, int itemId)
+	{
+		if (itemId <= 0)
+		{
+			return "(empty)";
+		}
+		EquipmentIndexRepository.Entry entry = index.entryFor(itemId);
+		return entry != null ? entry.name() : ("item " + itemId);
 	}
 
 	/** "1.2m" / "350k" / "0" — compact gp formatting for the spend readout. */
@@ -2091,10 +2492,63 @@ public final class GearSection extends CollapsibleSection
 
 	// ------------------------------------------------------- icon controls
 
-	/** Bare icon-toggle button (border/background styling, no icon yet). */
-	private JToggleButton newToggle(String tooltip)
+	/**
+	 * An icon-toggle button that can paint a small "*" in its top-right corner
+	 * as a "more options on right-click" hint (see {@link #setRightClickHint}) —
+	 * used by the potion (and, if it ever gains options, prayer) boost toggle
+	 * so the right-click swap menu is discoverable instead of hidden.
+	 */
+	private static final class HintableToggleButton extends JToggleButton
 	{
-		JToggleButton button = new JToggleButton();
+		private boolean rightClickHint;
+
+		void setRightClickHint(boolean hint)
+		{
+			if (hint != rightClickHint)
+			{
+				rightClickHint = hint;
+				repaint();
+			}
+		}
+
+		@Override
+		protected void paintComponent(java.awt.Graphics g)
+		{
+			super.paintComponent(g);
+			if (!rightClickHint)
+			{
+				return;
+			}
+			java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+			try
+			{
+				g2.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+					java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+				g2.setColor(ColorScheme.BRAND_ORANGE);
+				Font markerFont = FontManager.getRunescapeBoldFont().deriveFont(11f);
+				g2.setFont(markerFont);
+				String marker = "*";
+				java.awt.FontMetrics fm = g2.getFontMetrics();
+				int x = getWidth() - fm.stringWidth(marker) - 2;
+				int y = fm.getAscent();
+				// A thin dark outline keeps the marker legible over a bright item icon.
+				g2.setColor(ColorScheme.DARKER_GRAY_COLOR);
+				g2.drawString(marker, x - 1, y);
+				g2.drawString(marker, x + 1, y);
+				g2.setColor(ColorScheme.BRAND_ORANGE);
+				g2.drawString(marker, x, y);
+			}
+			finally
+			{
+				g2.dispose();
+			}
+		}
+	}
+
+	/** Bare icon-toggle button (border/background styling, no icon yet). */
+	private HintableToggleButton newToggle(String tooltip)
+	{
+		HintableToggleButton button = new HintableToggleButton();
 		button.setToolTipText(tooltip);
 		button.setFocusPainted(false);
 		button.setMargin(new Insets(0, 0, 0, 0));
@@ -2119,9 +2573,9 @@ public final class GearSection extends CollapsibleSection
 	 * An icon-only toggle button whose sprite loads via the async, EDT-safe
 	 * {@code ItemManager.getImage(int)}.
 	 */
-	private JToggleButton iconToggle(int itemId, String tooltip)
+	private HintableToggleButton iconToggle(int itemId, String tooltip)
 	{
-		JToggleButton button = newToggle(tooltip);
+		HintableToggleButton button = newToggle(tooltip);
 		if (itemManager != null)
 		{
 			AsyncBufferedImage image = itemManager.getImage(itemId);
@@ -2136,28 +2590,69 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
-	 * The potion toggle's right-click swap menu: one item per magic-style
-	 * potion variant ({@link CombatIcons#MAGIC_POTION_VARIANTS} — Saturated
-	 * heart / Imbued heart / Ancient brew), each setting {@link #magicPotionVariant}
-	 * and re-ranking so the swap immediately feeds {@link DpsCalculator} via
-	 * {@link PlayerCombat#magicPotionVariant()}. Melee/Ranged prayer/potion
-	 * picks are calculator-fixed "best" and have nothing to swap, so only the
-	 * potion toggle gets this menu (the prayer toggle does not).
+	 * The potion toggle's right-click swap menu — rebuilt on every open (via
+	 * the {@code PopupMenuListener} below) from {@link CombatIcons#variantsFor}
+	 * for whatever combat style is CURRENTLY selected, so right-clicking on
+	 * melee offers Super combat/strength/attack, ranged offers Ranging/
+	 * Bastion/Divine ranging, and magic offers Saturated heart/Imbued heart/
+	 * Ancient brew — never a style-inappropriate list (the original bug: the
+	 * menu always showed the magic variants regardless of style). Picking an
+	 * item sets that style's entry in {@link #potionVariantByStyle}, persists
+	 * it to config (see {@link #savePotionVariantPref}) so it survives a
+	 * client restart, and re-ranks so the swap immediately feeds
+	 * {@link DpsCalculator} (Magic only — see {@link #magicPotionVariantForCalc}).
 	 */
 	private javax.swing.JPopupMenu buildPotionVariantPopup()
 	{
 		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
-		for (CombatIcons.BoostPotion variant : CombatIcons.MAGIC_POTION_VARIANTS)
+		menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener()
+		{
+			@Override
+			public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e)
+			{
+				populatePotionVariantPopup(menu);
+			}
+
+			@Override
+			public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e)
+			{
+			}
+
+			@Override
+			public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e)
+			{
+			}
+		});
+		return menu;
+	}
+
+	/** Rebuilds {@code menu}'s items from {@link CombatIcons#variantsFor} for the currently selected combat style. */
+	private void populatePotionVariantPopup(javax.swing.JPopupMenu menu)
+	{
+		menu.removeAll();
+		CombatStyle style = selectedStyle != null ? selectedStyle.type() : null;
+		String styleKey = styleKeyFor(style);
+		CombatIcons.BoostPotion[] variants = CombatIcons.variantsFor(style);
+		for (CombatIcons.BoostPotion variant : variants)
 		{
 			javax.swing.JMenuItem item = new javax.swing.JMenuItem(displayName(variant));
 			item.addActionListener(e ->
 			{
-				magicPotionVariant = variant;
+				if (styleKey != null)
+				{
+					potionVariantByStyle.put(styleKey, variant);
+					savePotionVariantPref(styleKey, variant);
+				}
 				rankAndRender();
 			});
 			menu.add(item);
 		}
-		return menu;
+		if (variants.length == 0)
+		{
+			javax.swing.JMenuItem none = new javax.swing.JMenuItem("Pick a target/style first");
+			none.setEnabled(false);
+			menu.add(none);
+		}
 	}
 
 	// ------------------------------------------------- test seams (package)
@@ -2195,6 +2690,38 @@ public final class GearSection extends CollapsibleSection
 	{
 		applyOverride(searchOpenForSlot, filteredItems.get(index).itemId());
 		closeItemSearch();
+	}
+
+	/** Number of icon cells currently rendered in the item-picker grid — mirrors {@link #filteredItems}' size once populated. */
+	int itemGridCellCountForTest()
+	{
+		return itemGridPanel.getComponentCount();
+	}
+
+	/** Simulates a real mouse click on the icon cell at {@code index} in the item-picker grid (exercises {@link ItemGridCell}'s own click handler, not just the {@link #filteredItems} seam). */
+	void clickItemGridCellForTest(int index)
+	{
+		Component cell = itemGridPanel.getComponent(index);
+		for (MouseListener listener : cell.getMouseListeners())
+		{
+			listener.mousePressed(new MouseEvent(cell, MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), 0, 0, 0, 1, false));
+		}
+	}
+
+	boolean itemGridVisibleForTest()
+	{
+		return itemGridScroll.isVisible();
+	}
+
+	boolean itemSearchRowVisibleForTest()
+	{
+		return itemSearchRow.isVisible();
+	}
+
+	/** Simulates clicking the item picker's close (X) button. */
+	void clickCloseItemSearchForTest()
+	{
+		closeItemSearchButton.doClick();
 	}
 
 	void clickResetAllForTest()
@@ -2259,7 +2786,7 @@ public final class GearSection extends CollapsibleSection
 			.assumeBestPotion(bestPotionToggle.isSelected())
 			.assumeBestPrayer(bestPrayerToggle.isSelected())
 			.onSlayerTask(onSlayerTaskToggle.isSelected())
-			.magicPotionVariant(magicPotionVariant);
+			.magicPotionVariant(magicPotionVariantForCalc());
 		GearOptimizer.Request request = GearOptimizer.Request
 			.builder(liveIds, selectedMonster, template)
 			.budget(budget)
@@ -2362,13 +2889,45 @@ public final class GearSection extends CollapsibleSection
 	/** Simulates right-clicking the potion toggle and picking a magic potion variant from the swap menu. */
 	void pickMagicPotionVariantForTest(CombatIcons.BoostPotion variant)
 	{
-		magicPotionVariant = variant;
+		potionVariantByStyle.put(styleKeyFor(CombatStyle.MAGIC), variant);
+		savePotionVariantPref(styleKeyFor(CombatStyle.MAGIC), variant);
 		rankAndRender();
 	}
 
 	CombatIcons.BoostPotion magicPotionVariantForTest()
 	{
-		return magicPotionVariant;
+		return magicPotionVariantForCalc();
+	}
+
+	/** Simulates right-clicking the potion toggle and picking {@code variant} for {@code style} from the swap menu. */
+	void pickPotionVariantForTest(CombatStyle style, CombatIcons.BoostPotion variant)
+	{
+		String key = styleKeyFor(style);
+		potionVariantByStyle.put(key, variant);
+		savePotionVariantPref(key, variant);
+		rankAndRender();
+	}
+
+	/** The currently-picked variant for {@code style} (falls back to the style's default, same as the toggle icon). */
+	CombatIcons.BoostPotion potionVariantForTest(CombatStyle style)
+	{
+		return effectivePotionFor(style);
+	}
+
+	/** Rebuilds and returns the right-click swap menu's current item labels for the currently selected style (test seam — mirrors what a real right-click would show). */
+	List<String> potionVariantPopupLabelsForTest()
+	{
+		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+		populatePotionVariantPopup(menu);
+		List<String> labels = new ArrayList<>();
+		for (java.awt.Component c : menu.getComponents())
+		{
+			if (c instanceof javax.swing.JMenuItem)
+			{
+				labels.add(((javax.swing.JMenuItem) c).getText());
+			}
+		}
+		return labels;
 	}
 
 	JToggleButton onSlayerTaskToggleForTest()
@@ -2658,40 +3217,4 @@ public final class GearSection extends CollapsibleSection
 		}
 	}
 
-	/**
-	 * A {@link JList} model over the current filtered {@link EquipmentIndexRepository.Entry}
-	 * list for the Phase 2 what-if item search — same coarse-refresh pattern as
-	 * {@link MonsterListModel} (swap-the-backing-list, two events) for the same
-	 * per-keystroke responsiveness reason.
-	 */
-	private static final class ItemListModel extends AbstractListModel<String>
-	{
-		private List<EquipmentIndexRepository.Entry> items = Collections.emptyList();
-
-		void setItems(List<EquipmentIndexRepository.Entry> newItems)
-		{
-			int oldSize = items.size();
-			items = newItems == null ? Collections.emptyList() : newItems;
-			if (oldSize > 0)
-			{
-				fireIntervalRemoved(this, 0, oldSize - 1);
-			}
-			if (!items.isEmpty())
-			{
-				fireIntervalAdded(this, 0, items.size() - 1);
-			}
-		}
-
-		@Override
-		public int getSize()
-		{
-			return items.size();
-		}
-
-		@Override
-		public String getElementAt(int index)
-		{
-			return items.get(index).name();
-		}
-	}
 }
