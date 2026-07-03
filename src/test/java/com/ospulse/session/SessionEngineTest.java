@@ -864,6 +864,245 @@ public class SessionEngineTest
 		assertEquals(-500_000L, result.getProfit());
 	}
 
+	// ------------------------------------------------- equip / unequip zero-sum
+
+	private static final int WHIP = 4151;
+	private static final int WORN_WHIP = 4152;
+	private static final int BLACK_CHIN = 11959;
+
+	private static WealthSnapshot snapInvEquip(long inventoryValue, long equipmentValue,
+		Map<Integer, ItemStack> trackedItems, long ts)
+	{
+		return WealthSnapshot.builder()
+			.inventoryValue(inventoryValue)
+			.equipmentValue(equipmentValue)
+			.geInFlightValue(0L)
+			.pouchValue(0L)
+			.bankValue(0L)
+			.bankKnown(false)
+			.timestampMs(ts)
+			.trackedItems(trackedItems)
+			.build();
+	}
+
+	@Test
+	public void equippingGearSameIdIsZeroProfit()
+	{
+		// An 11M item moves from the inventory component to the equipment
+		// component of tracked wealth. Same item id, same total — a pure
+		// internal transfer: zero profit, zero unrealized, no loot, no supplies.
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(WHIP, new ItemStack(WHIP, "Abyssal whip", 1L, 11_000_000L));
+		WealthSnapshot initial = snapInvEquip(11_000_000L, 0L, held, 0L);
+		engine.startSession(initial, 0L);
+
+		WealthSnapshot equipped = snapInvEquip(0L, 11_000_000L, held, 1000L);
+		engine.update(equipped, Collections.emptySet(), 1000L);
+
+		SessionSnapshot result = engine.snapshot(equipped, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("pure equip must be zero profit", 0L, result.getProfit());
+		assertEquals(0L, result.getUnrealizedPnl());
+		assertTrue("pure equip must not appear as loot", result.getLoot().isEmpty());
+		assertEquals(0L, result.getSuppliesUsed());
+	}
+
+	@Test
+	public void equipWithDifferentWornIdIsZeroProfitAndNotLoot()
+	{
+		// The worn form of the item has a DIFFERENT id than the inventory form
+		// (mapped to the same GE value): the delta map sees id A disappear and
+		// id B appear in the same interval. Still a pure transfer.
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(WHIP, new ItemStack(WHIP, "Abyssal whip", 1L, 11_000_000L));
+		WealthSnapshot initial = snapInvEquip(11_000_000L, 0L, held, 0L);
+		engine.startSession(initial, 0L);
+
+		Map<Integer, ItemStack> worn = new LinkedHashMap<>();
+		worn.put(WORN_WHIP, new ItemStack(WORN_WHIP, "Abyssal whip", 1L, 11_000_000L));
+		WealthSnapshot equipped = snapInvEquip(0L, 11_000_000L, worn, 1000L);
+		engine.update(equipped, Collections.emptySet(), 1000L);
+
+		SessionSnapshot result = engine.snapshot(equipped, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("id-swap equip must be zero profit", 0L, result.getProfit());
+		assertEquals(0L, result.getUnrealizedPnl());
+		assertTrue("id-swap equip must not appear as loot", result.getLoot().isEmpty());
+		assertEquals(0L, result.getSuppliesUsed());
+	}
+
+	@Test
+	public void equipConsumableStackWithDifferentWornIdIsZeroProfit()
+	{
+		// The reported phantom-11M bug, single-interval variant: an 11M stack
+		// of ammunition (name matches SupplyClassifier) whose worn id differs
+		// from the inventory id. Without a fix the vanish is charged as 11M
+		// supplies (baseline shifted down 11M) and the appearance is recorded
+		// as 11M loot — profit jumps by the full stack value.
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(BLACK_CHIN, new ItemStack(BLACK_CHIN, "Black chinchompa", 2750L, 4_000L));
+		WealthSnapshot initial = snapInvEquip(11_000_000L, 0L, held, 0L);
+		engine.startSession(initial, 0L);
+
+		Map<Integer, ItemStack> worn = new LinkedHashMap<>();
+		worn.put(BLACK_CHIN + 1, new ItemStack(BLACK_CHIN + 1, "Black chinchompa", 2750L, 4_000L));
+		WealthSnapshot equipped = snapInvEquip(0L, 11_000_000L, worn, 1000L);
+		engine.update(equipped, Collections.emptySet(), 1000L);
+
+		SessionSnapshot result = engine.snapshot(equipped, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("equipping ammo must not create phantom profit", 0L, result.getProfit());
+		assertEquals(0L, result.getUnrealizedPnl());
+		assertTrue(result.getLoot().isEmpty());
+		assertEquals("equipping ammo is not consumption", 0L, result.getSuppliesUsed());
+	}
+
+	@Test
+	public void equipTransientVanishThenReappearIsZeroProfit()
+	{
+		// The reported phantom-11M bug, two-event variant: RuneLite fires one
+		// ItemContainerChanged per container, so mid-equip the stack can be in
+		// NEITHER container for one refresh (inventory already updated,
+		// equipment not yet). The engine sees vanish (charged as 11M supplies,
+		// baseline shifted) then reappear (recorded as 11M loot) — profit ends
+		// +11M permanently even though wealth never moved.
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(BLACK_CHIN, new ItemStack(BLACK_CHIN, "Black chinchompa", 2750L, 4_000L));
+		WealthSnapshot initial = snapInvEquip(11_000_000L, 0L, held, 0L);
+		engine.startSession(initial, 0L);
+
+		// Refresh 1: stack in neither container.
+		WealthSnapshot gone = snapInvEquip(0L, 0L, Collections.emptyMap(), 1000L);
+		engine.update(gone, Collections.emptySet(), 1000L);
+
+		// Refresh 2 (same client tick, ms later): stack now worn.
+		WealthSnapshot equipped = snapInvEquip(0L, 11_000_000L, held, 1050L);
+		engine.update(equipped, Collections.emptySet(), 1050L);
+
+		SessionSnapshot result = engine.snapshot(equipped, 0L, Collections.emptyMap(), 0L, 1050L);
+		assertEquals("equip transient must not create phantom profit", 0L, result.getProfit());
+		assertEquals(0L, result.getUnrealizedPnl());
+		assertTrue("equip transient must not appear as loot", result.getLoot().isEmpty());
+		assertEquals("equip transient must not count as supplies used",
+			0L, result.getSuppliesUsed());
+	}
+
+	@Test
+	public void equipTransientDuplicateThenCorrectIsZeroProfit()
+	{
+		// Opposite event order: equipment container updates first, so for one
+		// refresh the stack is counted in BOTH components (quantity doubled),
+		// then the inventory event corrects it. The doubled reading is
+		// recorded as 11M loot and the correction as 11M supplies — profit
+		// again ends +11M permanently.
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(BLACK_CHIN, new ItemStack(BLACK_CHIN, "Black chinchompa", 2750L, 4_000L));
+		WealthSnapshot initial = snapInvEquip(11_000_000L, 0L, held, 0L);
+		engine.startSession(initial, 0L);
+
+		// Refresh 1: stack visible in both containers.
+		Map<Integer, ItemStack> doubled = new LinkedHashMap<>();
+		doubled.put(BLACK_CHIN, new ItemStack(BLACK_CHIN, "Black chinchompa", 5500L, 4_000L));
+		WealthSnapshot both = snapInvEquip(11_000_000L, 11_000_000L, doubled, 1000L);
+		engine.update(both, Collections.emptySet(), 1000L);
+
+		// Refresh 2: inventory catches up.
+		WealthSnapshot equipped = snapInvEquip(0L, 11_000_000L, held, 1050L);
+		engine.update(equipped, Collections.emptySet(), 1050L);
+
+		SessionSnapshot result = engine.snapshot(equipped, 0L, Collections.emptyMap(), 0L, 1050L);
+		assertEquals("equip transient must not create phantom profit", 0L, result.getProfit());
+		assertEquals(0L, result.getUnrealizedPnl());
+		assertTrue("equip transient must not leave a phantom loot row", result.getLoot().isEmpty());
+		assertEquals(0L, result.getSuppliesUsed());
+	}
+
+	@Test
+	public void equipWithDifferentWornIdPreservesUnrealizedDrift()
+	{
+		// A drifted holding keeps its paper gain across an id-swap equip: the
+		// cost basis must migrate to the worn id, not be re-entered at the
+		// live price (which would silently convert the drift into realised
+		// phantom profit).
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(WHIP, new ItemStack(WHIP, "Abyssal whip", 1L, 8_000_000L));
+		WealthSnapshot initial = snapInvEquip(8_000_000L, 0L, held, 0L);
+		engine.startSession(initial, 0L);
+
+		// Price drifts to 11M: +3M unrealized, no profit.
+		Map<Integer, ItemStack> drifted = new LinkedHashMap<>();
+		drifted.put(WHIP, new ItemStack(WHIP, "Abyssal whip", 1L, 11_000_000L));
+		WealthSnapshot afterDrift = snapInvEquip(11_000_000L, 0L, drifted, 1000L);
+		engine.update(afterDrift, Collections.emptySet(), 1000L);
+		assertEquals(3_000_000L,
+			engine.snapshot(afterDrift, 0L, Collections.emptyMap(), 0L, 1000L).getUnrealizedPnl());
+
+		// Equip: worn id differs, same value.
+		Map<Integer, ItemStack> worn = new LinkedHashMap<>();
+		worn.put(WORN_WHIP, new ItemStack(WORN_WHIP, "Abyssal whip", 1L, 11_000_000L));
+		WealthSnapshot equipped = snapInvEquip(0L, 11_000_000L, worn, 2000L);
+		engine.update(equipped, Collections.emptySet(), 2000L);
+
+		SessionSnapshot result = engine.snapshot(equipped, 0L, Collections.emptyMap(), 0L, 2000L);
+		assertEquals("drift must not be realised by an equip", 0L, result.getProfit());
+		assertEquals("paper gain must survive the equip", 3_000_000L, result.getUnrealizedPnl());
+		assertTrue(result.getLoot().isEmpty());
+	}
+
+	@Test
+	public void equipTransientPreservesUnrealizedDrift()
+	{
+		// Same drift-preservation guarantee for the two-event transient: the
+		// vanish/reappear flicker must not reset the cost basis to the live
+		// price (which converts the paper gain into realised phantom profit).
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(BLACK_CHIN, new ItemStack(BLACK_CHIN, "Black chinchompa", 2750L, 4_000L));
+		WealthSnapshot initial = snapInvEquip(11_000_000L, 0L, held, 0L);
+		engine.startSession(initial, 0L);
+
+		// Price drifts to 5k: +2.75M unrealized.
+		Map<Integer, ItemStack> drifted = new LinkedHashMap<>();
+		drifted.put(BLACK_CHIN, new ItemStack(BLACK_CHIN, "Black chinchompa", 2750L, 5_000L));
+		WealthSnapshot afterDrift = snapInvEquip(13_750_000L, 0L, drifted, 1000L);
+		engine.update(afterDrift, Collections.emptySet(), 1000L);
+		assertEquals(2_750_000L,
+			engine.snapshot(afterDrift, 0L, Collections.emptyMap(), 0L, 1000L).getUnrealizedPnl());
+
+		// Equip flicker: gone, then worn.
+		WealthSnapshot gone = snapInvEquip(0L, 0L, Collections.emptyMap(), 2000L);
+		engine.update(gone, Collections.emptySet(), 2000L);
+		WealthSnapshot equipped = snapInvEquip(0L, 13_750_000L, drifted, 2050L);
+		engine.update(equipped, Collections.emptySet(), 2050L);
+
+		SessionSnapshot result = engine.snapshot(equipped, 0L, Collections.emptyMap(), 0L, 2050L);
+		assertEquals("flicker must not realise the drift", 0L, result.getProfit());
+		assertEquals("paper gain must survive the flicker", 2_750_000L, result.getUnrealizedPnl());
+		assertTrue(result.getLoot().isEmpty());
+		assertEquals(0L, result.getSuppliesUsed());
+	}
+
+	@Test
+	public void genuineConsumptionAfterAnEquipStillCounts()
+	{
+		// Guard: the transient-reversal netting must not swallow genuine
+		// consumption that happens OUTSIDE the reversal window.
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(BLACK_CHIN, new ItemStack(BLACK_CHIN, "Black chinchompa", 2750L, 4_000L));
+		WealthSnapshot initial = snapInvEquip(11_000_000L, 0L, held, 0L);
+		engine.startSession(initial, 0L);
+
+		// Clean equip (single interval, same id).
+		WealthSnapshot equipped = snapInvEquip(0L, 11_000_000L, held, 1000L);
+		engine.update(equipped, Collections.emptySet(), 1000L);
+
+		// Much later: threw 750 chins at things.
+		Map<Integer, ItemStack> spent = new LinkedHashMap<>();
+		spent.put(BLACK_CHIN, new ItemStack(BLACK_CHIN, "Black chinchompa", 2000L, 4_000L));
+		WealthSnapshot afterThrowing = snapInvEquip(0L, 8_000_000L, spent, 60_000L);
+		engine.update(afterThrowing, Collections.emptySet(), 60_000L);
+
+		SessionSnapshot result = engine.snapshot(afterThrowing, 0L, Collections.emptyMap(), 0L, 60_000L);
+		assertEquals(750L * 4_000L, result.getSuppliesUsed());
+		assertEquals("consumption folds into supplies, not profit", 0L, result.getProfit());
+	}
+
 	@Test
 	public void suppliesUsedResetsOnNewSession()
 	{
