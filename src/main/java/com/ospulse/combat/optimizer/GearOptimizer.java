@@ -151,6 +151,8 @@ public final class GearOptimizer {
         private final int candidatesPerSlot;
         private final PlayerCombat.Builder playerTemplate;
         private final PriceSource priceSource;
+        private final int expensiveItemCount;
+        private final long expensiveItemThreshold;
 
         private Request(Builder b) {
             this.liveItemIds = b.liveItemIds.clone();
@@ -162,6 +164,8 @@ public final class GearOptimizer {
             this.candidatesPerSlot = b.candidatesPerSlot;
             this.playerTemplate = b.playerTemplate;
             this.priceSource = b.priceSource;
+            this.expensiveItemCount = b.expensiveItemCount;
+            this.expensiveItemThreshold = b.expensiveItemThreshold;
         }
 
         public static Builder builder(int[] liveItemIds, Monster target, PlayerCombat.Builder playerTemplate) {
@@ -178,6 +182,8 @@ public final class GearOptimizer {
             private final Set<Integer> include = new HashSet<>();
             private int candidatesPerSlot = DEFAULT_CANDIDATES_PER_SLOT;
             private PriceSource priceSource = PriceSource.zero();
+            private int expensiveItemCount = 0;
+            private long expensiveItemThreshold = 0L;
 
             private Builder(int[] liveItemIds, Monster target, PlayerCombat.Builder playerTemplate) {
                 this.liveItemIds = liveItemIds;
@@ -226,9 +232,51 @@ public final class GearOptimizer {
                 return this;
             }
 
+            /**
+             * How many "expensive" items (see {@link #expensiveItemThreshold}) the
+             * caller wants allowed in the result, e.g. for wilderness/PvP risk
+             * budgeting. Captured/plumbed through to {@link Request} only — the
+             * search does not yet enforce this (see {@link Request#expensiveItemCount()}).
+             */
+            public Builder expensiveItemCount(int count) {
+                this.expensiveItemCount = Math.max(0, count);
+                return this;
+            }
+
+            /**
+             * The gp value at/above which an item counts as "expensive" for
+             * {@link #expensiveItemCount}. Captured/plumbed through to
+             * {@link Request} only — not yet enforced by the search (see
+             * {@link Request#expensiveItemThreshold()}).
+             */
+            public Builder expensiveItemThreshold(long threshold) {
+                this.expensiveItemThreshold = Math.max(0, threshold);
+                return this;
+            }
+
             public Request build() {
                 return new Request(this);
             }
+        }
+
+        /**
+         * The number of "expensive" items (see {@link #expensiveItemThreshold()})
+         * the caller wants allowed in the result (e.g. for wilderness/PvP risk
+         * budgeting). NOT YET enforced by {@link GearOptimizer#optimize} — captured
+         * here so the UI can collect + persist the setting ahead of a later pass
+         * that wires it into the search itself.
+         */
+        public int expensiveItemCount() {
+            return expensiveItemCount;
+        }
+
+        /**
+         * The gp value at/above which an item is considered "expensive" for
+         * {@link #expensiveItemCount()}. NOT YET enforced by
+         * {@link GearOptimizer#optimize} — see that method's javadoc note.
+         */
+        public long expensiveItemThreshold() {
+            return expensiveItemThreshold;
         }
     }
 

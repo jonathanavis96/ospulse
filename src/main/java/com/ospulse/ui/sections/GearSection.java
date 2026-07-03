@@ -42,6 +42,7 @@ import javax.swing.AbstractListModel;
 import javax.swing.Box;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
+import javax.swing.ButtonGroup;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JLabel;
@@ -320,7 +321,19 @@ public final class GearSection extends CollapsibleSection
 	// -------------------------------------------- Phase 3: optimiser ("Best Setup")
 	/** Owned-item values (worn + top holdings incl. bank), refreshed each {@link #apply}; source for the optimiser's owned pool + GE prices. */
 	private WealthSnapshot lastWealth;
+	/** Budget's numeric entry (unit picked by {@link #budgetKToggle}/{@link #budgetMToggle}) — see {@link #resolvedBudget}. */
 	private final javax.swing.JTextField budgetField;
+	private final JToggleButton budgetKToggle;
+	private final JToggleButton budgetMToggle;
+	/** "Expensive items to allow" count (wilderness/PvP) — plumbed into {@link GearOptimizer.Request#expensiveItemCount()}, not yet enforced by the search. */
+	private final javax.swing.JTextField expensiveCountField;
+	/** GP value at/above which an item counts as "expensive" — see {@link #expensiveCountField}. */
+	private final javax.swing.JTextField expensiveThresholdField;
+	private final JToggleButton expensiveThresholdKToggle;
+	private final JToggleButton expensiveThresholdMToggle;
+	private static final String EXPENSIVE_COUNT_TOOLTIP =
+		"The amount of 'expensive' items you want to have in your setup, for wilderness or pvp world activities.";
+	private static final String EXPENSIVE_THRESHOLD_TOOLTIP = "The value of when an item is considered expensive.";
 	private final JButton findBestSetupButton;
 	private final JLabel optimizerStatusLabel;
 	private final JPanel optimizerResultPanel;
@@ -715,6 +728,10 @@ public final class GearSection extends CollapsibleSection
 		body().add(optimizerHeading);
 		body().add(Box.createRigidArea(new Dimension(0, 2)));
 
+		// Budget: a numeric field + a K/M segmented toggle (was a single "10m"/
+		// "500k" free-text field — split so the number entry never has to deal
+		// with a trailing unit letter itself). budgetUnitIsMillions defaults to
+		// true (M) since most upgrade budgets are in the millions.
 		JPanel budgetRow = new JPanel(new BorderLayout(4, 0));
 		budgetRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		budgetRow.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -722,15 +739,62 @@ public final class GearSection extends CollapsibleSection
 		budgetLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		budgetLabel.setFont(FontManager.getRunescapeSmallFont());
 		budgetField = new javax.swing.JTextField("0");
-		budgetField.setToolTipText("Extra GP to spend on upgrades, e.g. '10m' or '500k' (blank/0 = owned gear only)");
+		budgetField.setToolTipText("Extra GP to spend on upgrades beyond your owned gear (blank/0 = owned gear only)");
 		budgetField.setFont(FontManager.getRunescapeSmallFont());
 		budgetField.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		budgetField.setForeground(java.awt.Color.WHITE);
+		budgetKToggle = new JToggleButton("K");
+		budgetMToggle = new JToggleButton("M");
+		JPanel budgetUnitToggle = unitToggle(budgetKToggle, budgetMToggle, true);
+		JPanel budgetFieldRow = new JPanel(new BorderLayout(4, 0));
+		budgetFieldRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		budgetFieldRow.add(budgetField, BorderLayout.CENTER);
+		budgetFieldRow.add(budgetUnitToggle, BorderLayout.EAST);
 		budgetRow.add(budgetLabel, BorderLayout.WEST);
-		budgetRow.add(budgetField, BorderLayout.CENTER);
+		budgetRow.add(budgetFieldRow, BorderLayout.CENTER);
 		budgetRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
 		body().add(budgetRow);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
+
+		// Expensive-items count + threshold — wilderness/PvP risk budgeting.
+		// Plumbed into GearOptimizer.Request (expensiveItemCount/
+		// expensiveItemThreshold) but not yet enforced by the search itself
+		// (see that class's javadoc) — a later pass consumes them.
+		expensiveCountField = new javax.swing.JTextField("0");
+		expensiveCountField.setToolTipText(EXPENSIVE_COUNT_TOOLTIP);
+		expensiveCountField.setFont(FontManager.getRunescapeSmallFont());
+		expensiveCountField.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		expensiveCountField.setForeground(java.awt.Color.WHITE);
+		JPanel expensiveCountRow = labelledFieldRow("Expensive items", EXPENSIVE_COUNT_TOOLTIP, expensiveCountField);
+		body().add(expensiveCountRow);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
+
+		expensiveThresholdField = new javax.swing.JTextField("0");
+		expensiveThresholdField.setToolTipText(EXPENSIVE_THRESHOLD_TOOLTIP);
+		expensiveThresholdField.setFont(FontManager.getRunescapeSmallFont());
+		expensiveThresholdField.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		expensiveThresholdField.setForeground(java.awt.Color.WHITE);
+		expensiveThresholdKToggle = new JToggleButton("K");
+		expensiveThresholdMToggle = new JToggleButton("M");
+		JPanel expensiveThresholdUnitToggle = unitToggle(expensiveThresholdKToggle, expensiveThresholdMToggle, true);
+		JPanel expensiveThresholdFieldRow = new JPanel(new BorderLayout(4, 0));
+		expensiveThresholdFieldRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		expensiveThresholdFieldRow.add(expensiveThresholdField, BorderLayout.CENTER);
+		expensiveThresholdFieldRow.add(expensiveThresholdUnitToggle, BorderLayout.EAST);
+		JPanel expensiveThresholdRow = labelledFieldRow("Expensive threshold", EXPENSIVE_THRESHOLD_TOOLTIP,
+			expensiveThresholdFieldRow);
+		body().add(expensiveThresholdRow);
+		body().add(Box.createRigidArea(new Dimension(0, 4)));
+
+		loadOptimizerPrefs();
+		java.awt.event.ActionListener persistOptimizerPrefs = e -> saveOptimizerPrefs();
+		budgetField.addActionListener(persistOptimizerPrefs);
+		expensiveCountField.addActionListener(persistOptimizerPrefs);
+		expensiveThresholdField.addActionListener(persistOptimizerPrefs);
+		budgetKToggle.addActionListener(e -> saveOptimizerPrefs());
+		budgetMToggle.addActionListener(e -> saveOptimizerPrefs());
+		expensiveThresholdKToggle.addActionListener(e -> saveOptimizerPrefs());
+		expensiveThresholdMToggle.addActionListener(e -> saveOptimizerPrefs());
 
 		findBestSetupButton = new JButton("Find best setup");
 		findBestSetupButton.setFont(FontManager.getRunescapeSmallFont());
@@ -2177,6 +2241,187 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
+	 * Combines a plain numeric field's text with a K/M segmented toggle's
+	 * current selection into the same "10m"/"500k" shape {@link #parseBudget}
+	 * has always accepted, then parses it — so the budget/expensive-threshold
+	 * number fields feed {@link GearOptimizer.Request} exactly as the old
+	 * single free-text budget field did. Neither toggle selected (shouldn't
+	 * normally happen — see {@link #unitToggle}) is treated as a plain number
+	 * (no unit multiplier).
+	 */
+	private static long parseUnitAmount(String numberText, JToggleButton kToggle, JToggleButton mToggle)
+	{
+		String suffix = mToggle.isSelected() ? "m" : kToggle.isSelected() ? "k" : "";
+		return parseBudget((numberText == null ? "" : numberText.trim()) + suffix);
+	}
+
+	/** The optimiser budget from {@link #budgetField} + {@link #budgetKToggle}/{@link #budgetMToggle}. */
+	private long resolvedBudget()
+	{
+		return parseUnitAmount(budgetField.getText(), budgetKToggle, budgetMToggle);
+	}
+
+	/** The "expensive item" gp threshold from {@link #expensiveThresholdField} + its K/M toggle. */
+	private long resolvedExpensiveThreshold()
+	{
+		return parseUnitAmount(expensiveThresholdField.getText(), expensiveThresholdKToggle, expensiveThresholdMToggle);
+	}
+
+	/** The "expensive items to allow" count from {@link #expensiveCountField} — blank/unparseable/negative treated as 0. */
+	private int resolvedExpensiveCount()
+	{
+		try
+		{
+			return Math.max(0, Integer.parseInt(expensiveCountField.getText().trim()));
+		}
+		catch (NumberFormatException | NullPointerException e)
+		{
+			return 0;
+		}
+	}
+
+	/**
+	 * A compact two-button segmented K/M toggle (mirrors {@link #bookTabButton}'s
+	 * selected/unselected styling) backing a numeric field's unit — exactly one
+	 * of the two is ever selected via a shared {@link ButtonGroup}, and neither
+	 * button can be clicked off (a segmented toggle always has a selection).
+	 * {@code defaultMillions} picks the initially-selected button before
+	 * {@link #loadOptimizerPrefs} may override it from persisted config.
+	 */
+	private JPanel unitToggle(JToggleButton kToggle, JToggleButton mToggle, boolean defaultMillions)
+	{
+		ButtonGroup group = new ButtonGroup();
+		group.add(kToggle);
+		group.add(mToggle);
+		Border selectedBorder = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE);
+		Border unselectedBorder = BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR);
+		for (JToggleButton button : new JToggleButton[] {kToggle, mToggle})
+		{
+			button.setFont(FontManager.getRunescapeSmallFont());
+			button.setFocusPainted(false);
+			button.setMargin(new Insets(2, 6, 2, 6));
+			Runnable restyle = () ->
+			{
+				button.setBorder(button.isSelected() ? selectedBorder : unselectedBorder);
+				button.setBackground(button.isSelected()
+					? ColorScheme.MEDIUM_GRAY_COLOR
+					: ColorScheme.DARKER_GRAY_COLOR);
+				button.setForeground(button.isSelected()
+					? ColorScheme.BRAND_ORANGE
+					: ColorScheme.LIGHT_GRAY_COLOR);
+			};
+			restyle.run();
+			button.addItemListener(e -> restyle.run());
+		}
+		mToggle.setSelected(defaultMillions);
+		kToggle.setSelected(!defaultMillions);
+
+		JPanel panel = new JPanel(new GridLayout(1, 2, 1, 0));
+		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		panel.add(kToggle);
+		panel.add(mToggle);
+		return panel;
+	}
+
+	/**
+	 * A "label [icon w/ tooltip] [field]" row for the optimiser's expensive-
+	 * items settings — {@code tooltip} is attached to both the info icon and
+	 * the row itself so hovering anywhere on the row explains the field, not
+	 * just a tiny icon target.
+	 */
+	private JPanel labelledFieldRow(String labelText, String tooltip, java.awt.Component field)
+	{
+		JPanel row = new JPanel(new BorderLayout(4, 0));
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+		row.setToolTipText(tooltip);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+
+		JPanel labelPanel = new JPanel(new BorderLayout(3, 0));
+		labelPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		JLabel label = new JLabel(labelText);
+		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		label.setFont(FontManager.getRunescapeSmallFont());
+		JLabel infoIcon = new JLabel("ⓘ"); // circled "i" — info/help marker
+		infoIcon.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+		infoIcon.setFont(FontManager.getRunescapeSmallFont());
+		infoIcon.setToolTipText(tooltip);
+		labelPanel.add(label, BorderLayout.WEST);
+		labelPanel.add(infoIcon, BorderLayout.EAST);
+
+		row.add(labelPanel, BorderLayout.WEST);
+		row.add(field, BorderLayout.CENTER);
+		return row;
+	}
+
+	// ------------------------------- optimiser settings persistence (budget/expensive)
+
+	private static final String CONFIG_KEY_BUDGET_AMOUNT = "optimizerBudgetAmount";
+	private static final String CONFIG_KEY_BUDGET_UNIT_MILLIONS = "optimizerBudgetUnitMillions";
+	private static final String CONFIG_KEY_EXPENSIVE_COUNT = "optimizerExpensiveCount";
+	private static final String CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT = "optimizerExpensiveThresholdAmount";
+	private static final String CONFIG_KEY_EXPENSIVE_THRESHOLD_UNIT_MILLIONS = "optimizerExpensiveThresholdUnitMillions";
+
+	/**
+	 * Restores the budget amount/unit + expensive-items count/threshold from
+	 * config (see {@link #saveOptimizerPrefs}) so they survive a client
+	 * restart, mirroring {@link #loadPotionVariantPrefs}'s pattern. No-op
+	 * without a {@link ConfigManager} (headless tests / the no-config-manager
+	 * constructors).
+	 */
+	private void loadOptimizerPrefs()
+	{
+		if (configManager == null)
+		{
+			return;
+		}
+		String budgetAmount = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_BUDGET_AMOUNT);
+		if (budgetAmount != null && !budgetAmount.isEmpty())
+		{
+			budgetField.setText(budgetAmount);
+		}
+		String budgetUnit = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_BUDGET_UNIT_MILLIONS);
+		if (budgetUnit != null)
+		{
+			budgetMToggle.setSelected(Boolean.parseBoolean(budgetUnit));
+			budgetKToggle.setSelected(!Boolean.parseBoolean(budgetUnit));
+		}
+		String expensiveCount = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_COUNT);
+		if (expensiveCount != null && !expensiveCount.isEmpty())
+		{
+			expensiveCountField.setText(expensiveCount);
+		}
+		String thresholdAmount = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT);
+		if (thresholdAmount != null && !thresholdAmount.isEmpty())
+		{
+			expensiveThresholdField.setText(thresholdAmount);
+		}
+		String thresholdUnit = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_THRESHOLD_UNIT_MILLIONS);
+		if (thresholdUnit != null)
+		{
+			expensiveThresholdMToggle.setSelected(Boolean.parseBoolean(thresholdUnit));
+			expensiveThresholdKToggle.setSelected(!Boolean.parseBoolean(thresholdUnit));
+		}
+	}
+
+	/** Persists the budget amount/unit + expensive-items count/threshold to config — see {@link #loadOptimizerPrefs}. */
+	private void saveOptimizerPrefs()
+	{
+		if (configManager == null)
+		{
+			return;
+		}
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_BUDGET_AMOUNT, budgetField.getText());
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_BUDGET_UNIT_MILLIONS,
+			String.valueOf(budgetMToggle.isSelected()));
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_COUNT, expensiveCountField.getText());
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT,
+			expensiveThresholdField.getText());
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_THRESHOLD_UNIT_MILLIONS,
+			String.valueOf(expensiveThresholdMToggle.isSelected()));
+	}
+
+	/**
 	 * The owned-item pool + GE prices for the optimiser: every worn item
 	 * (always owned, price irrelevant) plus {@link WealthSnapshot#getTopHoldings()}
 	 * (worn + inventory + bank — see {@link #lastWealth}) filtered to items the
@@ -2226,8 +2471,9 @@ public final class GearSection extends CollapsibleSection
 		optimizerStatusLabel.setText("Searching...");
 		optimizerStatusLabel.setVisible(true);
 		optimizerResultPanel.setVisible(false);
+		saveOptimizerPrefs();
 
-		long budget = parseBudget(budgetField.getText());
+		long budget = resolvedBudget();
 		java.util.Map<Integer, Long> ownedPrices = ownedPriceMap();
 
 		if (priceResolver == null)
@@ -2282,6 +2528,8 @@ public final class GearSection extends CollapsibleSection
 			.budget(budget)
 			.owned(ownedPrices.keySet())
 			.priceSource(priceSource)
+			.expensiveItemCount(resolvedExpensiveCount())
+			.expensiveItemThreshold(resolvedExpensiveThreshold())
 			.build();
 	}
 
@@ -2826,9 +3074,32 @@ public final class GearSection extends CollapsibleSection
 
 	// --------------------------------------- Phase 3 optimiser test seams
 
+	/**
+	 * Test seam accepting the OLD single-field "10m"/"500k"/"0" shape
+	 * {@link #parseBudget} has always parsed, splitting it into the new
+	 * numeric-field + K/M-toggle pair ({@link #budgetField} +
+	 * {@link #budgetKToggle}/{@link #budgetMToggle}) so existing tests
+	 * written against the pre-redesign single-field contract keep working
+	 * unchanged. Mirrors {@link #parseUnitAmount}'s suffix convention.
+	 */
 	void setBudgetTextForTest(String text)
 	{
-		budgetField.setText(text);
+		String trimmed = text == null ? "" : text.trim();
+		String lower = trimmed.toLowerCase(Locale.ROOT);
+		if (lower.endsWith("m"))
+		{
+			budgetField.setText(trimmed.substring(0, trimmed.length() - 1));
+			budgetMToggle.setSelected(true);
+		}
+		else if (lower.endsWith("k"))
+		{
+			budgetField.setText(trimmed.substring(0, trimmed.length() - 1));
+			budgetKToggle.setSelected(true);
+		}
+		else
+		{
+			budgetField.setText(trimmed);
+		}
 	}
 
 	/**
@@ -2843,7 +3114,7 @@ public final class GearSection extends CollapsibleSection
 	 */
 	void runOptimizerSyncForTest()
 	{
-		long budget = parseBudget(budgetField.getText());
+		long budget = resolvedBudget();
 		java.util.Map<Integer, Long> ownedPrices = ownedPriceMap();
 
 		if (priceResolver == null)
@@ -2869,6 +3140,54 @@ public final class GearSection extends CollapsibleSection
 	GearOptimizer.Result lastOptimizerResultForTest()
 	{
 		return lastOptimizerResult;
+	}
+
+	/** Test seam for item #1's budget K/M-toggle + expensive-items fields — see {@link #resolvedBudget}. */
+	long resolvedBudgetForTest()
+	{
+		return resolvedBudget();
+	}
+
+	int resolvedExpensiveCountForTest()
+	{
+		return resolvedExpensiveCount();
+	}
+
+	long resolvedExpensiveThresholdForTest()
+	{
+		return resolvedExpensiveThreshold();
+	}
+
+	void setExpensiveCountTextForTest(String text)
+	{
+		expensiveCountField.setText(text);
+	}
+
+	/** Mirrors {@link #setBudgetTextForTest} for the expensive-threshold field's own K/M toggle. */
+	void setExpensiveThresholdTextForTest(String text)
+	{
+		String trimmed = text == null ? "" : text.trim();
+		String lower = trimmed.toLowerCase(Locale.ROOT);
+		if (lower.endsWith("m"))
+		{
+			expensiveThresholdField.setText(trimmed.substring(0, trimmed.length() - 1));
+			expensiveThresholdMToggle.setSelected(true);
+		}
+		else if (lower.endsWith("k"))
+		{
+			expensiveThresholdField.setText(trimmed.substring(0, trimmed.length() - 1));
+			expensiveThresholdKToggle.setSelected(true);
+		}
+		else
+		{
+			expensiveThresholdField.setText(trimmed);
+		}
+	}
+
+	void setBudgetUnitMillionsForTest(boolean millions)
+	{
+		budgetMToggle.setSelected(millions);
+		budgetKToggle.setSelected(!millions);
 	}
 
 	boolean optimizerResultVisibleForTest()

@@ -387,4 +387,99 @@ public class GearSectionOptimizerTest
 		assertEquals(1_500_000L, GearSection.parseBudget("1.5m"));
 		assertEquals(2_000_000L, GearSection.parseBudget("2,000,000"));
 	}
+
+	// -------------------------------------------- item #1: budget K/M toggle + expensive-items fields
+
+	/**
+	 * The redesigned budget entry (numeric field + K/M segmented toggle,
+	 * replacing the old single "10m"/"500k" free-text field) must resolve to
+	 * the same values {@code parseBudget} always produced for those strings.
+	 */
+	@Test
+	public void budgetKMToggle_resolvesSameAsOldSingleFieldSyntax()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+
+			section.setBudgetTextForTest("0");
+			assertEquals(0L, section.resolvedBudgetForTest());
+
+			section.setBudgetTextForTest("500k");
+			assertEquals(500_000L, section.resolvedBudgetForTest());
+
+			section.setBudgetTextForTest("10m");
+			assertEquals(10_000_000L, section.resolvedBudgetForTest());
+		});
+	}
+
+	/** Flipping the K/M toggle directly (not via the old-syntax test seam) changes the resolved budget. */
+	@Test
+	public void budgetUnitToggle_switchesBetweenKAndM()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.setBudgetTextForTest("5"); // plain digits, no suffix -> toggle decides the unit
+
+			section.setBudgetUnitMillionsForTest(false);
+			assertEquals(5_000L, section.resolvedBudgetForTest());
+
+			section.setBudgetUnitMillionsForTest(true);
+			assertEquals(5_000_000L, section.resolvedBudgetForTest());
+		});
+	}
+
+	/**
+	 * The "expensive items" count and "expensive threshold" fields (item #1
+	 * parts b/c) are captured from the UI even though the optimiser doesn't
+	 * enforce them yet — this covers the GearSection-side parsing only;
+	 * {@code GearOptimizerTest} covers the {@code GearOptimizer.Request}
+	 * round-trip.
+	 */
+	@Test
+	public void expensiveItemFields_parseFromTheUi()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+
+			assertEquals("blank/default count is 0", 0, section.resolvedExpensiveCountForTest());
+			assertEquals("blank/default threshold is 0", 0L, section.resolvedExpensiveThresholdForTest());
+
+			section.setExpensiveCountTextForTest("3");
+			assertEquals(3, section.resolvedExpensiveCountForTest());
+
+			section.setExpensiveThresholdTextForTest("20m");
+			assertEquals(20_000_000L, section.resolvedExpensiveThresholdForTest());
+
+			section.setExpensiveCountTextForTest("not a number");
+			assertEquals("unparseable count falls back to 0, not a crash", 0, section.resolvedExpensiveCountForTest());
+		});
+	}
+
+	/**
+	 * End-to-end: running the optimiser with the expensive-items fields set
+	 * must not crash and must not change the search's actual behaviour (not
+	 * enforced yet — see {@code GearOptimizer.Request} javadoc), confirming
+	 * the plumbing is inert until a later pass consumes it.
+	 */
+	@Test
+	public void expensiveItemFields_doNotAffectSearchResultYet()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(section);
+
+			section.setBudgetTextForTest("0");
+			section.setExpensiveCountTextForTest("2");
+			section.setExpensiveThresholdTextForTest("10m");
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			assertEquals(BRONZE_SWORD, weaponIdInResult(result));
+		});
+	}
 }
