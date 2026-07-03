@@ -27,7 +27,29 @@ public class MonsterRepositoryTest {
         // The old 25-result cap is gone: the UI shows a scrollable list of ALL
         // matches, so a broad query must return far more than 25.
         assertTrue("search should return all matches (uncapped)", repo.search("a").size() > 25);
-        assertEquals("empty query should return the entire list", repo.size(), repo.search("").size());
+        // search() dedupes near-identical combat-instance variants (same name
+        // + defence level, differing only by a trailing variant marker — see
+        // dedupesRepeatedCombatVariants below), so an empty query returns
+        // fewer entries than the raw bundled count, but still the vast
+        // majority of it (dedup collapses ~2830 -> ~2450, not a drastic cut).
+        int deduped = repo.search("").size();
+        assertTrue("empty query should return most of the bundled list, deduped", deduped > repo.size() / 2);
+        assertTrue("dedup should actually reduce the count below the raw total", deduped < repo.size());
+    }
+
+    @Test
+    public void dedupesRepeatedCombatVariants() {
+        MonsterRepository repo = MonsterRepository.getInstance();
+        List<Monster> zombies = repo.search("Zombie (Wilderness)");
+        long level18Count = zombies.stream().filter(m -> m.defenceLevel() == 18).count();
+        assertEquals("the 7 identical (Level 18, N) Zombie (Wilderness) variants should collapse to 1",
+                1, level18Count);
+
+        // A genuinely distinct trailing parenthetical (not a numeric variant
+        // marker) must NOT be collapsed away.
+        List<Monster> billyGoats = repo.search("Billy Goat");
+        assertTrue("non-variant distinguishing names (e.g. \"Billy Goat (Tan)\") must survive dedup",
+                billyGoats.stream().anyMatch(m -> m.name().contains("Tan")));
     }
 
     @Test
