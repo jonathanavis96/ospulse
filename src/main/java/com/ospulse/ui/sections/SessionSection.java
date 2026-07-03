@@ -75,7 +75,7 @@ public final class SessionSection extends CollapsibleSection
 			categorySupport.buildMenu(CAT_SUPPLIES, null));
 		profitPerHourValue = PanelWidgets.statRow(body(), "Profit/hr",
 			categorySupport.buildMenu(CAT_PROFIT_PER_HOUR, null));
-		netWorthDeltaValue = PanelWidgets.statRow(body(), "Net worth Δ",
+		netWorthDeltaValue = PanelWidgets.statRow(body(), "Net worth",
 			categorySupport.buildMenu(CAT_NET_WORTH_DELTA, null));
 		geRealizedPnlValue = PanelWidgets.statRow(body(), "GE flip P&L",
 			categorySupport.buildMenu(CAT_GE_PNL, null));
