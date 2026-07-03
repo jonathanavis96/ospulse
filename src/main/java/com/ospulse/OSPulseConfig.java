@@ -19,18 +19,10 @@ public interface OSPulseConfig extends Config
 	String sessionSection = "session";
 
 	@ConfigSection(
-		name = "Sync (optional)",
-		description = "Optional, off-by-default HTTP sync to a companion dashboard you host.",
-		position = 1,
-		closedByDefault = true
-	)
-	String syncSection = "sync";
-
-	@ConfigSection(
 		name = "Price trends (optional)",
 		description = "Optional, off-by-default price trend badges on Top Holdings, sourced from "
 			+ "the OSRS Wiki prices API.",
-		position = 2,
+		position = 1,
 		closedByDefault = true
 	)
 	String priceTrendSection = "priceTrend";
@@ -62,90 +54,6 @@ public interface OSPulseConfig extends Config
 	default boolean includePouches()
 	{
 		return true;
-	}
-
-	// ------------------------------------------------------------------- Sync
-
-	@ConfigItem(
-		keyName = "syncEnabled",
-		name = "Enable sync",
-		description = "OFF by default. When enabled, your session and wealth summary is sent "
-			+ "to the URL below using the token below. Nothing is sent unless you turn this on "
-			+ "and provide a URL. Normally set for you automatically by the pairing code below.",
-		position = 0,
-		section = syncSection
-	)
-	default boolean syncEnabled()
-	{
-		return false;
-	}
-
-	@ConfigItem(
-		keyName = "pairingServerUrl",
-		name = "Dashboard URL",
-		description = "The base URL of your dashboard, e.g. http://100.67.160.92:8701. "
-			+ "Leave blank if you're using the manual Sync URL / Sync token fields below instead.",
-		position = 1,
-		section = syncSection
-	)
-	default String pairingServerUrl()
-	{
-		return "";
-	}
-
-	@ConfigItem(
-		keyName = "pairingCode",
-		name = "Pairing code",
-		description = "Enter the 6-digit code shown on your dashboard's \"Connect RuneLite\" "
-			+ "screen. It's exchanged for a sync token automatically, then cleared.",
-		position = 2,
-		section = syncSection
-	)
-	default String pairingCode()
-	{
-		return "";
-	}
-
-	@ConfigItem(
-		keyName = "syncUrl",
-		name = "Sync URL (advanced)",
-		description = "Full HTTPS URL of your companion dashboard's ingest endpoint. Filled in "
-			+ "automatically once you redeem a pairing code above; only edit directly if you're "
-			+ "not using pairing.",
-		position = 3,
-		section = syncSection
-	)
-	default String syncUrl()
-	{
-		return "";
-	}
-
-	@ConfigItem(
-		keyName = "syncToken",
-		name = "Sync token (advanced)",
-		description = "Bearer token sent with each sync request to authenticate you to your "
-			+ "own dashboard. Filled in automatically once you redeem a pairing code above; only "
-			+ "edit directly if you're not using pairing.",
-		secret = true,
-		position = 4,
-		section = syncSection
-	)
-	default String syncToken()
-	{
-		return "";
-	}
-
-	@ConfigItem(
-		keyName = "syncIntervalSeconds",
-		name = "Sync interval (seconds)",
-		description = "Minimum seconds between sync uploads while enabled.",
-		position = 5,
-		section = syncSection
-	)
-	@Range(min = 10, max = 3600)
-	default int syncIntervalSeconds()
-	{
-		return 60;
 	}
 
 	// ---------------------------------------------------------- Price trends
