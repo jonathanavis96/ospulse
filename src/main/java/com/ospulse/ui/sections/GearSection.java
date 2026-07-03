@@ -14,7 +14,9 @@ import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
 
+import net.runelite.api.Skill;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.components.IconTextField;
@@ -40,6 +42,7 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.awt.Image;
 import java.awt.Insets;
 import java.util.Collections;
 import java.util.List;
@@ -111,22 +114,27 @@ public final class GearSection extends CollapsibleSection
 	};
 
 	// Representative item ids for the icon buttons (item images are the
-	// EDT-safe icon source — see class javadoc).
-	private static final int ICON_STAB = 1215;     // Dragon dagger
+	// EDT-safe icon source — see class javadoc). Ranged/Magic use the actual
+	// skill icons (via SkillIconManager) instead, since no single item reads as
+	// "the ranged/magic style" the way a stab weapon does.
+	private static final int ICON_STAB = 22324;    // Ghrazi rapier (a stab weapon)
 	private static final int ICON_SLASH = 4587;    // Dragon scimitar
 	private static final int ICON_CRUSH = 13576;   // Dragon warhammer
-	private static final int ICON_RANGED = 861;    // Magic shortbow
-	private static final int ICON_MAGIC = 4675;    // Ancient staff
 	private static final int ICON_POTION = 12695;  // Super combat potion(4)
 	private static final int ICON_PRAYER = 1718;   // Holy symbol
 	private static final int ICON_SLAYER = 11864;  // Slayer helmet
 
+	/** Skill-icon side length for the Ranged/Magic style buttons. */
+	private static final int STYLE_ICON_SIZE = 25;
+
 	private final ItemManager itemManager;
+	private final SkillIconManager skillIconManager;
 
 	private final JLabel[] slotLabels = new JLabel[GearSnapshot.EQUIPMENT_SLOT_COUNT];
 	private final int[] renderedSlotIds = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
 
 	private final IconTextField monsterSearchField;
+	private final JScrollPane listScroll;
 	private final JList<String> monsterList;
 	private final MonsterListModel monsterListModel = new MonsterListModel();
 	private final JLabel targetLabel;
@@ -149,10 +157,11 @@ public final class GearSection extends CollapsibleSection
 	/** Last observed "slayer helm / black mask worn" state — drives edge-triggered auto-tick. */
 	private boolean lastSlayerHeadgearWorn;
 
-	public GearSection(CollapseStore store, ItemManager itemManager)
+	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager)
 	{
 		super(KEY, "Gear DPS", store);
 		this.itemManager = itemManager;
+		this.skillIconManager = skillIconManager;
 
 		// ------------------------------------------------ worn-gear header
 		JLabel heading = PanelWidgets.emptyRowLabel("Live DPS · your worn gear");
@@ -246,10 +255,14 @@ public final class GearSection extends CollapsibleSection
 				selectedMonster = filteredMonsters.get(index);
 				updateTargetLabel();
 				recompute();
+				// Collapse the result list once a target is picked — the choice
+				// shows in the Target line below; typing in the search box again
+				// re-opens it (see onSearchChanged).
+				setListOpen(false);
 			}
 		});
 
-		JScrollPane listScroll = new JScrollPane(monsterList);
+		listScroll = new JScrollPane(monsterList);
 		listScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 		listScroll.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
 		listScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -370,11 +383,10 @@ public final class GearSection extends CollapsibleSection
 		ButtonGroup group = new ButtonGroup();
 		CombatStyle[] styles = { CombatStyle.STAB, CombatStyle.SLASH, CombatStyle.CRUSH, CombatStyle.RANGED, CombatStyle.MAGIC };
 		String[] tooltips = { "Stab", "Slash", "Crush", "Ranged", "Magic" };
-		int[] iconIds = { ICON_STAB, ICON_SLASH, ICON_CRUSH, ICON_RANGED, ICON_MAGIC };
 		for (int i = 0; i < styles.length; i++)
 		{
 			CombatStyle style = styles[i];
-			JToggleButton button = iconToggle(iconIds[i], tooltips[i] + " attack style");
+			JToggleButton button = styleToggle(style, tooltips[i] + " attack style");
 			button.setSelected(style == selectedStyle);
 			button.addActionListener(e ->
 			{
@@ -389,11 +401,47 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
-	 * An icon-only toggle button (item sprite + tooltip, orange border when
-	 * active). The sprite loads via the async, EDT-safe
-	 * {@code ItemManager.getImage(int)}.
+	 * The toggle for one attack style: a representative <em>item</em> icon for
+	 * the melee styles (Ghrazi rapier / Dragon scimitar / Dragon warhammer) and
+	 * the actual <em>skill</em> icon for Ranged / Magic.
 	 */
-	private JToggleButton iconToggle(int itemId, String tooltip)
+	private JToggleButton styleToggle(CombatStyle style, String tooltip)
+	{
+		switch (style)
+		{
+			case RANGED:
+				return iconToggle(skillImage(Skill.RANGED), tooltip);
+			case MAGIC:
+				return iconToggle(skillImage(Skill.MAGIC), tooltip);
+			case SLASH:
+				return iconToggle(ICON_SLASH, tooltip);
+			case CRUSH:
+				return iconToggle(ICON_CRUSH, tooltip);
+			default:
+				return iconToggle(ICON_STAB, tooltip);
+		}
+	}
+
+	/** A skill icon scaled to {@link #STYLE_ICON_SIZE}, or {@code null} if unavailable. */
+	private Image skillImage(Skill skill)
+	{
+		if (skillIconManager == null)
+		{
+			return null;
+		}
+		try
+		{
+			Image full = skillIconManager.getSkillImage(skill, false);
+			return full == null ? null : full.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH);
+		}
+		catch (RuntimeException e)
+		{
+			return null;
+		}
+	}
+
+	/** Bare icon-toggle button (border/background styling, no icon yet). */
+	private JToggleButton newToggle(String tooltip)
 	{
 		JToggleButton button = new JToggleButton();
 		button.setToolTipText(tooltip);
@@ -401,17 +449,6 @@ public final class GearSection extends CollapsibleSection
 		button.setMargin(new Insets(0, 0, 0, 0));
 		button.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		button.setPreferredSize(new Dimension(40, SLOT_H));
-
-		if (itemManager != null)
-		{
-			AsyncBufferedImage image = itemManager.getImage(itemId);
-			button.setIcon(new ImageIcon(image));
-			image.onLoaded(() ->
-			{
-				button.setIcon(new ImageIcon(image));
-				button.repaint();
-			});
-		}
 
 		Border selectedBorder = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE);
 		Border unselectedBorder = BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR);
@@ -427,11 +464,57 @@ public final class GearSection extends CollapsibleSection
 		return button;
 	}
 
+	/**
+	 * An icon-only toggle button whose sprite loads via the async, EDT-safe
+	 * {@code ItemManager.getImage(int)}.
+	 */
+	private JToggleButton iconToggle(int itemId, String tooltip)
+	{
+		JToggleButton button = newToggle(tooltip);
+		if (itemManager != null)
+		{
+			AsyncBufferedImage image = itemManager.getImage(itemId);
+			button.setIcon(new ImageIcon(image));
+			image.onLoaded(() ->
+			{
+				button.setIcon(new ImageIcon(image));
+				button.repaint();
+			});
+		}
+		return button;
+	}
+
+	/** An icon-only toggle button from an already-loaded {@link Image} (e.g. a skill icon). */
+	private JToggleButton iconToggle(Image image, String tooltip)
+	{
+		JToggleButton button = newToggle(tooltip);
+		if (image != null)
+		{
+			button.setIcon(new ImageIcon(image));
+		}
+		return button;
+	}
+
 	// ------------------------------------------------------- target picker
 
 	private void onSearchChanged()
 	{
+		// Typing re-opens the (collapsed-after-pick) result list.
+		setListOpen(true);
 		populateMonsterList(monsterSearchField.getText());
+	}
+
+	/** Shows/hides the scrollable result list and reflows the panel around it. */
+	private void setListOpen(boolean open)
+	{
+		if (listScroll.isVisible() == open)
+		{
+			return;
+		}
+		listScroll.setVisible(open);
+		listScroll.revalidate();
+		body().revalidate();
+		body().repaint();
 	}
 
 	/**

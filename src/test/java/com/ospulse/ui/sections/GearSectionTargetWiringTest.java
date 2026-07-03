@@ -159,7 +159,7 @@ public class GearSectionTargetWiringTest
 	{
 		onEdt(() ->
 		{
-			GearSection section = new GearSection(NO_STORE, null);
+			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(meleeGear()));
 
 			assertNull("no monster may be pre-selected", section.selectedMonsterForTest());
@@ -174,7 +174,7 @@ public class GearSectionTargetWiringTest
 	{
 		onEdt(() ->
 		{
-			GearSection section = new GearSection(NO_STORE, null);
+			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(meleeGear()));
 
 			// Type into the search box (fires the DocumentListener synchronously)
@@ -226,7 +226,7 @@ public class GearSectionTargetWiringTest
 	{
 		onEdt(() ->
 		{
-			GearSection section = new GearSection(NO_STORE, null);
+			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(meleeGear()));
 
 			section.searchFieldForTest().setText("cerberus");
@@ -260,7 +260,7 @@ public class GearSectionTargetWiringTest
 	{
 		onEdt(() ->
 		{
-			GearSection section = new GearSection(NO_STORE, null);
+			GearSection section = new GearSection(NO_STORE, null, null);
 
 			// No headgear -> stays off.
 			section.apply(snapshotWith(meleeGear()));
@@ -290,7 +290,7 @@ public class GearSectionTargetWiringTest
 	{
 		onEdt(() ->
 		{
-			GearSection section = new GearSection(NO_STORE, null);
+			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(meleeGear()));
 
 			section.searchFieldForTest().setText("cerberus");
