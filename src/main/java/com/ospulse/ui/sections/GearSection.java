@@ -300,7 +300,10 @@ public final class GearSection extends CollapsibleSection
 	private final JLabel optimizerResultDelta;
 	private final JLabel optimizerResultSpend;
 	private final JLabel optimizerResultDpsPerGp;
+	/** One row per proposed slot swap ("Slot: current -> suggested (+X DPS)") — see {@link #renderOptimizerSwapList}. */
+	private final JPanel optimizerSwapList;
 	private final JButton applyOptimizerResultButton;
+	private final JButton clearOptimizerPreviewButton;
 	private GearOptimizer.Result lastOptimizerResult;
 
 	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager)
@@ -681,16 +684,56 @@ public final class GearSection extends CollapsibleSection
 		optimizerResultDelta = PanelWidgets.statRow(optimizerResultPanel, "vs owned-only");
 		optimizerResultSpend = PanelWidgets.statRow(optimizerResultPanel, "Total spend");
 		optimizerResultDpsPerGp = PanelWidgets.statRow(optimizerResultPanel, "DPS per gp spent");
-		applyOptimizerResultButton = new JButton("Apply to readout (what-if)");
+
+		// The proposed swaps themselves — "Slot: current -> suggested (+X DPS)" —
+		// so the user sees exactly what the optimiser is suggesting instead of
+		// only an aggregate DPS number (design ask: results clarity).
+		optimizerResultPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+		JLabel swapListHeading = PanelWidgets.emptyRowLabel("Suggested swaps");
+		swapListHeading.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		optimizerResultPanel.add(swapListHeading);
+		optimizerSwapList = new JPanel();
+		optimizerSwapList.setLayout(new BoxLayout(optimizerSwapList, BoxLayout.Y_AXIS));
+		optimizerSwapList.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		optimizerSwapList.setAlignmentX(Component.LEFT_ALIGNMENT);
+		optimizerResultPanel.add(optimizerSwapList);
+		optimizerResultPanel.add(Box.createRigidArea(new Dimension(0, 4)));
+
+		// "Preview these swaps" (was the unclear "Apply to readout (what-if)")
+		// plus a one-line explanation of exactly what it does — it only loads
+		// the suggestion into the what-if readout below as a preview; it never
+		// touches the player's real worn gear.
+		JLabel previewExplanation = PanelWidgets.emptyRowLabel(
+			"Loads these swaps into the readout above as a preview — your real gear is not changed.");
+		previewExplanation.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+		previewExplanation.setFont(FontManager.getRunescapeSmallFont().deriveFont(Font.ITALIC));
+		optimizerResultPanel.add(previewExplanation);
+		applyOptimizerResultButton = new JButton("Preview these swaps");
 		applyOptimizerResultButton.setFont(FontManager.getRunescapeSmallFont());
 		applyOptimizerResultButton.setFocusPainted(false);
 		applyOptimizerResultButton.setAlignmentX(Component.LEFT_ALIGNMENT);
 		applyOptimizerResultButton.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		applyOptimizerResultButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		applyOptimizerResultButton.setToolTipText("Loads this result into the what-if slots above (real gear unaffected)");
+		applyOptimizerResultButton.setToolTipText("Loads this result into the what-if slots above as a preview — your real gear is unaffected");
 		applyOptimizerResultButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, applyOptimizerResultButton.getPreferredSize().height));
 		applyOptimizerResultButton.addActionListener(e -> applyOptimizerResultToOverride());
 		optimizerResultPanel.add(applyOptimizerResultButton);
+
+		// The preview is otherwise sticky with no way to cancel it — this
+		// reuses the same resetAllOverrides() the "Reset all to worn gear"
+		// button uses, so it clears the overrides AND hides this whole panel.
+		clearOptimizerPreviewButton = new JButton("Clear preview / revert to worn gear");
+		clearOptimizerPreviewButton.setFont(FontManager.getRunescapeSmallFont());
+		clearOptimizerPreviewButton.setFocusPainted(false);
+		clearOptimizerPreviewButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+		clearOptimizerPreviewButton.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		clearOptimizerPreviewButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		clearOptimizerPreviewButton.setToolTipText("Cancels the preview above and any what-if swaps, going back to your real worn gear");
+		clearOptimizerPreviewButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, clearOptimizerPreviewButton.getPreferredSize().height));
+		clearOptimizerPreviewButton.addActionListener(e -> resetAllOverrides());
+		optimizerResultPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+		optimizerResultPanel.add(clearOptimizerPreviewButton);
+
 		optimizerResultPanel.setVisible(false);
 		body().add(optimizerResultPanel);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
@@ -2019,8 +2062,21 @@ public final class GearSection extends CollapsibleSection
 	private void onOptimizerResult(GearOptimizer.Result result)
 	{
 		findBestSetupButton.setEnabled(true);
-		optimizerStatusLabel.setVisible(false);
 		lastOptimizerResult = result;
+
+		boolean anyChange = hasAnySlotChange(result);
+		if (!anyChange)
+		{
+			// Fix 5: say so explicitly instead of leaving the user staring at a
+			// "Best DPS found" panel that matches their current loadout with no
+			// indication of whether that's a bug or just "you're already best".
+			optimizerStatusLabel.setText("No upgrade found within budget / owned + affordable pool");
+			optimizerStatusLabel.setVisible(true);
+		}
+		else
+		{
+			optimizerStatusLabel.setVisible(false);
+		}
 
 		optimizerResultDps.setText(String.format(Locale.ROOT, "%.2f", result.dps().dps()));
 		double delta = result.deltaDps();
@@ -2030,10 +2086,81 @@ public final class GearSection extends CollapsibleSection
 		optimizerResultDpsPerGp.setText(result.totalSpend() > 0
 			? String.format(Locale.ROOT, "%.6f", result.dpsPerGp())
 			: "-");
+		renderOptimizerSwapList(result);
+		// Nothing to preview/clear when the suggestion equals what's already worn.
+		applyOptimizerResultButton.setVisible(anyChange);
+		clearOptimizerPreviewButton.setVisible(anyChange);
 		optimizerResultPanel.setVisible(true);
 		optimizerResultPanel.revalidate();
 		body().revalidate();
 		body().repaint();
+	}
+
+	/** True if the optimiser's proposed loadout differs from the currently worn gear in at least one slot. */
+	private boolean hasAnySlotChange(GearOptimizer.Result result)
+	{
+		int[] liveIds = lastGear == null ? new int[GearSnapshot.EQUIPMENT_SLOT_COUNT] : lastGear.equippedItemIds();
+		for (GearOptimizer.SlotChoice choice : result.loadout())
+		{
+			int liveId = choice.slotOrdinal() < liveIds.length ? liveIds[choice.slotOrdinal()] : -1;
+			if (liveId != choice.itemId())
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Renders "Slot: current item -&gt; suggested item" for every slot the
+	 * optimiser actually wants to change (slots where the suggestion matches
+	 * what's already worn are omitted — nothing to show there) — design ask:
+	 * show the actual swaps, not just an aggregate "Best DPS found" number.
+	 */
+	private void renderOptimizerSwapList(GearOptimizer.Result result)
+	{
+		optimizerSwapList.removeAll();
+		int[] liveIds = lastGear == null ? new int[GearSnapshot.EQUIPMENT_SLOT_COUNT] : lastGear.equippedItemIds();
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		boolean anyRow = false;
+		for (GearOptimizer.SlotChoice choice : result.loadout())
+		{
+			int liveId = choice.slotOrdinal() < liveIds.length ? liveIds[choice.slotOrdinal()] : -1;
+			if (liveId == choice.itemId())
+			{
+				continue; // unchanged — nothing to report for this slot
+			}
+			anyRow = true;
+			String slotName = choice.slotOrdinal() >= 0 && choice.slotOrdinal() < SLOT_NAMES.length
+				&& !SLOT_NAMES[choice.slotOrdinal()].isEmpty()
+				? SLOT_NAMES[choice.slotOrdinal()] : ("Slot " + choice.slotOrdinal());
+			String currentName = itemDisplayName(index, liveId);
+			String suggestedName = itemDisplayName(index, choice.itemId());
+			String spend = choice.owned() ? "owned" : formatGp(choice.price());
+
+			JLabel row = new JLabel(slotName + ": " + currentName + " -> " + suggestedName + " (" + spend + ")");
+			row.setFont(FontManager.getRunescapeSmallFont());
+			row.setForeground(java.awt.Color.WHITE);
+			row.setAlignmentX(Component.LEFT_ALIGNMENT);
+			optimizerSwapList.add(row);
+		}
+		if (!anyRow)
+		{
+			JLabel none = PanelWidgets.emptyRowLabel("No slot changes — your current loadout is already best");
+			none.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+			optimizerSwapList.add(none);
+		}
+	}
+
+	/** Display name for an item id via the bundled equipment index, or a placeholder for an empty/unindexed slot. */
+	private static String itemDisplayName(EquipmentIndexRepository index, int itemId)
+	{
+		if (itemId <= 0)
+		{
+			return "(empty)";
+		}
+		EquipmentIndexRepository.Entry entry = index.entryFor(itemId);
+		return entry != null ? entry.name() : ("item " + itemId);
 	}
 
 	/** "1.2m" / "350k" / "0" — compact gp formatting for the spend readout. */
