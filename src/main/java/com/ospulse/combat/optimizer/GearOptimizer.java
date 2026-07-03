@@ -153,6 +153,7 @@ public final class GearOptimizer {
         private final PriceSource priceSource;
         private final int expensiveItemCount;
         private final long expensiveItemThreshold;
+        private final CombatStyle style;
 
         private Request(Builder b) {
             this.liveItemIds = b.liveItemIds.clone();
@@ -166,6 +167,7 @@ public final class GearOptimizer {
             this.priceSource = b.priceSource;
             this.expensiveItemCount = b.expensiveItemCount;
             this.expensiveItemThreshold = b.expensiveItemThreshold;
+            this.style = b.style;
         }
 
         public static Builder builder(int[] liveItemIds, Monster target, PlayerCombat.Builder playerTemplate) {
@@ -184,6 +186,7 @@ public final class GearOptimizer {
             private PriceSource priceSource = PriceSource.zero();
             private int expensiveItemCount = 0;
             private long expensiveItemThreshold = 0L;
+            private CombatStyle style;
 
             private Builder(int[] liveItemIds, Monster target, PlayerCombat.Builder playerTemplate) {
                 this.liveItemIds = liveItemIds;
@@ -254,9 +257,38 @@ public final class GearOptimizer {
                 return this;
             }
 
+            /**
+             * Constrains the search to loadouts that deal the given damage type
+             * (item #6e's 5-way Ranged/Magic/Crush/Slash/Stab selector):
+             * <ul>
+             *   <li>weapon-slot candidates are filtered to weapons whose real
+             *       combat options (see {@link WeaponCategoryRepository}) include
+             *       a style of this {@link CombatStyle};</li>
+             *   <li>every candidate loadout is evaluated ONLY at styles of this
+             *       type (a loadout whose weapon cannot attack with it evaluates
+             *       to {@code null}/unusable rather than silently falling back to
+             *       a different type);</li>
+             *   <li>the per-slot pruning proxy ranks by this style's relevant
+             *       bonuses (e.g. magic attack + magic damage for MAGIC) instead
+             *       of the style-agnostic all-bonus sum, so e.g. magic armour is
+             *       never pruned away by melee armour's bigger raw stat totals.</li>
+             * </ul>
+             * {@code null} (the default) keeps the historical unconstrained
+             * behaviour: every weapon evaluated at its own best style.
+             */
+            public Builder style(CombatStyle style) {
+                this.style = style;
+                return this;
+            }
+
             public Request build() {
                 return new Request(this);
             }
+        }
+
+        /** The damage-type constraint for the search, or {@code null} for the unconstrained best-of-any-style search. */
+        public CombatStyle style() {
+            return style;
         }
 
         /**
@@ -511,6 +543,12 @@ public final class GearOptimizer {
             if (request.exclude.contains(e.itemId())) {
                 continue;
             }
+            if (slot == WhatIfLoadout.WEAPON_SLOT && !weaponSupportsStyle(e.itemId(), request.style)) {
+                // Style-constrained search (item #6e): a weapon that cannot
+                // attack with the requested damage type is never a candidate —
+                // it would only ever evaluate to null under the constraint.
+                continue;
+            }
             boolean owned = request.owned.contains(e.itemId());
             boolean included = request.include.contains(e.itemId());
             long price = owned ? 0L : priceOf(e.itemId(), request);
@@ -520,11 +558,12 @@ public final class GearOptimizer {
             affordable.add(new Candidate(e.itemId(), price, owned));
         }
 
-        // Prune to top-N by a cheap per-style proxy (sum of every offensive
-        // bonus this repo's numeric data has for the item — a fast, style-
-        // agnostic ranking good enough to keep the true top candidates without
-        // computing a full DPS for every one of ~1500 weapons per pass).
-        affordable.sort(Comparator.comparingInt((Candidate c) -> -proxyOffensiveScore(c.itemId())));
+        // Prune to top-N by a cheap proxy bonus (see proxyOffensiveScore): the
+        // requested style's relevant bonuses when the search is style-
+        // constrained, else the style-agnostic sum of every offensive bonus —
+        // a fast ranking good enough to keep the true top candidates without
+        // computing a full DPS for every one of ~1500 weapons per pass.
+        affordable.sort(Comparator.comparingInt((Candidate c) -> -proxyOffensiveScore(c.itemId(), request.style)));
 
         List<Candidate> pruned = new ArrayList<>();
         for (Candidate c : affordable) {
@@ -536,12 +575,51 @@ public final class GearOptimizer {
         return pruned;
     }
 
-    private static int proxyOffensiveScore(int itemId) {
+    /** True when the weapon id's real combat options include a style of {@code type} ({@code null} type = no constraint). */
+    private static boolean weaponSupportsStyle(int weaponId, CombatStyle type) {
+        if (type == null) {
+            return true;
+        }
+        for (WeaponStyle style : WeaponCategoryRepository.getInstance().stylesForItem(weaponId)) {
+            if (style.type() == type) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The cheap pruning proxy for one item. Unconstrained ({@code style ==
+     * null}): the historical sum of every offensive bonus. Style-constrained:
+     * only the bonuses that actually feed that style's DPS — otherwise e.g. a
+     * MAGIC-constrained search would prune Ancestral (small raw totals) in
+     * favour of melee armour whose big slash/str numbers are irrelevant to the
+     * constraint. Weights: magic damage is a percentage (1% is worth far more
+     * than 1 accuracy point) and ranged strength scales the max hit directly
+     * (keeps ammo/blessing candidates ranked above accuracy-only picks).
+     */
+    private static int proxyOffensiveScore(int itemId, CombatStyle style) {
         com.ospulse.combat.EquipmentStatsRepository.Stats s = com.ospulse.combat.EquipmentStatsRepository.getInstance().statsFor(itemId);
         if (s == null) {
             return Integer.MIN_VALUE;
         }
-        return s.astab() + s.aslash() + s.acrush() + s.arange() + s.amagic() + s.str() + s.rstr() + (int) s.mdmg();
+        if (style == null) {
+            return s.astab() + s.aslash() + s.acrush() + s.arange() + s.amagic() + s.str() + s.rstr() + (int) s.mdmg();
+        }
+        switch (style) {
+            case STAB:
+                return s.astab() + s.str();
+            case SLASH:
+                return s.aslash() + s.str();
+            case CRUSH:
+                return s.acrush() + s.str();
+            case RANGED:
+                return s.arange() + 2 * s.rstr();
+            case MAGIC:
+                return s.amagic() + (int) (10 * s.mdmg());
+            default:
+                return s.astab() + s.aslash() + s.acrush() + s.arange() + s.amagic() + s.str() + s.rstr() + (int) s.mdmg();
+        }
     }
 
     /** One fully-evaluated candidate loadout: its best style/spell and resulting DPS. */
@@ -579,6 +657,13 @@ public final class GearOptimizer {
 
         boolean poweredStaff = stats.poweredStaff().applies();
         for (WeaponStyle style : styles) {
+            if (request.style != null && style.type() != request.style) {
+                // Style-constrained search (item #6e): only styles of the
+                // requested damage type may drive the DPS. A weapon with no
+                // such style yields best == null -> this loadout is unusable
+                // under the constraint (never silently scored at another type).
+                continue;
+            }
             PlayerCombat player = request.playerTemplate.stance(style.stance()).build();
             if (style.type() == CombatStyle.MAGIC) {
                 if (poweredStaff) {
@@ -591,6 +676,11 @@ public final class GearOptimizer {
                 } else {
                     for (Spell spell : Spell.values()) {
                         if (spell.book() != Spell.SpellBook.STANDARD && spell.book() != Spell.SpellBook.ANCIENT) {
+                            continue;
+                        }
+                        if (!spell.isCastableWith(weaponId)) {
+                            // Mirrors GearSection's ranked spell picker: e.g. Iban
+                            // Blast must never inflate a non-Iban's-staff weapon.
                             continue;
                         }
                         DpsResult r = DpsCalculator.compute(stats, player, CombatStyle.MAGIC, request.target, spell);

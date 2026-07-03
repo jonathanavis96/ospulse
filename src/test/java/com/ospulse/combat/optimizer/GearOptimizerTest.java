@@ -326,4 +326,90 @@ public class GearOptimizerTest {
         }
         return -1;
     }
+
+    // -------------------------------------------------- style constraint (item #6e)
+
+    private static final int ABYSSAL_BLUDGEON = 13263; // crush weapon
+    private static final int MAGIC_SHORTBOW = 861;     // ranged weapon
+
+    /**
+     * The per-style optimum proof the 5-way selector rests on: with a slash
+     * weapon (whip) AND a crush weapon (bludgeon) both owned, constraining the
+     * search to SLASH must pick the whip and constraining to CRUSH must pick
+     * the bludgeon — each result's driving style is of the constrained type.
+     */
+    @Test
+    public void styleConstraint_crushAndSlashPickDifferentBestWeapons() {
+        int[] live = emptyLoadout();
+        live[3] = ABYSSAL_WHIP;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(ABYSSAL_WHIP, ABYSSAL_BLUDGEON));
+        GearOptimizer.PriceSource prices = id -> owned.contains(id) ? 0L : 100_000_000L;
+
+        GearOptimizer.Result slash = GearOptimizer.optimize(GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L).owned(owned).priceSource(prices)
+                .style(com.ospulse.combat.CombatStyle.SLASH)
+                .build());
+        GearOptimizer.Result crush = GearOptimizer.optimize(GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L).owned(owned).priceSource(prices)
+                .style(com.ospulse.combat.CombatStyle.CRUSH)
+                .build());
+
+        assertEquals("SLASH constraint must pick the whip", ABYSSAL_WHIP, weaponIdIn(slash));
+        assertEquals(com.ospulse.combat.CombatStyle.SLASH, slash.style().type());
+        assertEquals("CRUSH constraint must pick the bludgeon", ABYSSAL_BLUDGEON, weaponIdIn(crush));
+        assertEquals(com.ospulse.combat.CombatStyle.CRUSH, crush.style().type());
+        assertTrue("both constrained results must actually compute a DPS",
+                slash.dps().dps() > 0 && crush.dps().dps() > 0);
+    }
+
+    /**
+     * The #6g scenario in engine terms: melee (whip) out-DPSes the owned bow,
+     * so the UNCONSTRAINED search rightly picks the whip — but a RANGED
+     * constraint must anchor to the bow, never "helpfully" fall back to melee.
+     */
+    @Test
+    public void styleConstraint_rangedKeepsRangedWeaponEvenWhenMeleeDpsIsHigher() {
+        int[] live = emptyLoadout();
+        live[3] = MAGIC_SHORTBOW;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(ABYSSAL_WHIP, MAGIC_SHORTBOW));
+        GearOptimizer.PriceSource prices = id -> owned.contains(id) ? 0L : 100_000_000L;
+
+        GearOptimizer.Result unconstrained = GearOptimizer.optimize(GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L).owned(owned).priceSource(prices)
+                .build());
+        GearOptimizer.Result ranged = GearOptimizer.optimize(GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L).owned(owned).priceSource(prices)
+                .style(com.ospulse.combat.CombatStyle.RANGED)
+                .build());
+
+        assertEquals("sanity: unconstrained, the higher-DPS whip wins", ABYSSAL_WHIP, weaponIdIn(unconstrained));
+        assertEquals("RANGED constraint must keep the bow", MAGIC_SHORTBOW, weaponIdIn(ranged));
+        assertEquals(com.ospulse.combat.CombatStyle.RANGED, ranged.style().type());
+        assertTrue("the constrained result's DPS is legitimately lower than melee's, never swapped for it",
+                ranged.dps().dps() <= unconstrained.dps().dps());
+    }
+
+    /** Nothing owned/affordable can attack with the constrained type: the result is explicitly unusable (no style, zero DPS), not a silent fallback. */
+    @Test
+    public void styleConstraint_noWeaponOfThatTypeAvailable_yieldsNoStyleAndZeroDps() {
+        int[] live = emptyLoadout();
+        live[3] = ABYSSAL_WHIP;
+
+        GearOptimizer.PriceSource prices = id -> id == ABYSSAL_WHIP ? 0L : 100_000_000L;
+
+        GearOptimizer.Result result = GearOptimizer.optimize(GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L).priceSource(prices)
+                .style(com.ospulse.combat.CombatStyle.MAGIC)
+                .build());
+
+        assertTrue("no magic weapon available -> zero DPS", result.dps().dps() == 0.0);
+        assertEquals("no driving style must be reported", null, result.style());
+    }
 }
