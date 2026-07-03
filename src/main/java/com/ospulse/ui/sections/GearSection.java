@@ -355,6 +355,10 @@ public final class GearSection extends CollapsibleSection
 	private final JPanel optimizerSwapList;
 	private final JButton applyOptimizerResultButton;
 	private final JButton clearOptimizerPreviewButton;
+	/** The excluded-items viewer container (heading + list); hidden when nothing is excluded — see {@link #renderExcludedItemsList}. */
+	private final JPanel excludedItemsPanel;
+	/** One row per excluded item (icon + name + remove ✕) inside {@link #excludedItemsPanel}. */
+	private final JPanel excludedItemsList;
 	private GearOptimizer.Result lastOptimizerResult;
 	/**
 	 * Item ids the user right-clicked "Exclude from suggestions" on (item #6a)
@@ -967,6 +971,30 @@ public final class GearSection extends CollapsibleSection
 		optimizerResultPanel.setVisible(false);
 		body().add(optimizerResultPanel);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
+
+		// Excluded-from-suggestions viewer: the items the user has right-clicked
+		// to exclude, shown as a compact icon+name list so they can see AND
+		// manage their exclusions at any time — not just at the moment of
+		// excluding. Persisted across reloads (loadExcludedItemsPref above
+		// already populated the set), so this renders whatever was excluded in a
+		// previous session. Each row's ✕ button stops excluding that item. The
+		// whole panel hides itself when nothing is excluded (renderExcludedItemsList).
+		excludedItemsPanel = new JPanel();
+		excludedItemsPanel.setLayout(new BoxLayout(excludedItemsPanel, BoxLayout.Y_AXIS));
+		excludedItemsPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		excludedItemsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JLabel excludedHeading = PanelWidgets.emptyRowLabel("Excluded from suggestions");
+		excludedHeading.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		excludedHeading.setToolTipText("Items you've excluded from optimiser suggestions — click a ✕ to stop excluding one");
+		excludedItemsPanel.add(excludedHeading);
+		excludedItemsList = new JPanel();
+		excludedItemsList.setLayout(new BoxLayout(excludedItemsList, BoxLayout.Y_AXIS));
+		excludedItemsList.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		excludedItemsList.setAlignmentX(Component.LEFT_ALIGNMENT);
+		excludedItemsPanel.add(excludedItemsList);
+		body().add(excludedItemsPanel);
+		body().add(Box.createRigidArea(new Dimension(0, 4)));
+		renderExcludedItemsList();
 
 		// Show the full monster list, but with NO pre-selected target — the
 		// user must explicitly pick one before any numbers are shown (see
@@ -2675,10 +2703,89 @@ public final class GearSection extends CollapsibleSection
 			return;
 		}
 		saveExcludedItemsPref();
+		renderExcludedItemsList();
 		if (lastOptimizerResult != null)
 		{
 			runOptimizer();
 		}
+	}
+
+	/**
+	 * Removes {@code itemId} from {@link #excludedItemIds}, persists the change,
+	 * refreshes the viewer, and — if a search is on screen — re-optimises so the
+	 * item can immediately reappear as a suggestion. The counterpart to
+	 * {@link #excludeItemFromSuggestions}.
+	 */
+	private void removeExcludedItem(int itemId)
+	{
+		if (!excludedItemIds.remove(itemId))
+		{
+			return;
+		}
+		saveExcludedItemsPref();
+		renderExcludedItemsList();
+		if (lastOptimizerResult != null)
+		{
+			runOptimizer();
+		}
+	}
+
+	/**
+	 * Rebuilds the excluded-items viewer ({@link #excludedItemsList}) from
+	 * {@link #excludedItemIds} — one icon+name row per excluded item, each with a
+	 * ✕ to stop excluding it. The whole {@link #excludedItemsPanel} hides when
+	 * nothing is excluded so it never adds empty clutter. Only the user's manual
+	 * exclusions appear here; mode-based {@code restrictedItemIds()} (Deadman/LMS
+	 * filters) are deliberately not shown.
+	 */
+	private void renderExcludedItemsList()
+	{
+		if (excludedItemsList == null)
+		{
+			return; // called before construction finished — nothing to do yet
+		}
+		excludedItemsList.removeAll();
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		for (int itemId : excludedItemIds)
+		{
+			excludedItemsList.add(buildExcludedRow(index, itemId));
+			excludedItemsList.add(Box.createRigidArea(new Dimension(0, 2)));
+		}
+		excludedItemsPanel.setVisible(!excludedItemIds.isEmpty());
+		excludedItemsPanel.revalidate();
+		excludedItemsPanel.repaint();
+	}
+
+	/** One "icon + name ........ ✕" row for the excluded-items viewer — see {@link #renderExcludedItemsList}. */
+	private JPanel buildExcludedRow(EquipmentIndexRepository index, int itemId)
+	{
+		String name = itemDisplayName(index, itemId);
+
+		JPanel row = new JPanel(new BorderLayout(4, 0));
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+		left.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		left.add(swapItemIcon(itemId, name));
+		JLabel nameLabel = new JLabel(name);
+		nameLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		nameLabel.setFont(FontManager.getRunescapeSmallFont());
+		left.add(nameLabel);
+		row.add(left, BorderLayout.WEST);
+
+		JButton remove = new JButton("✕"); // ✕ — stop excluding this item
+		remove.setFont(FontManager.getRunescapeSmallFont());
+		remove.setFocusPainted(false);
+		remove.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		remove.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		remove.setToolTipText("Stop excluding " + name + " — allow it in suggestions again");
+		remove.addActionListener(e -> removeExcludedItem(itemId));
+		row.add(remove, BorderLayout.EAST);
+
+		row.setToolTipText(name + " — excluded from optimiser suggestions");
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		return row;
 	}
 
 	/**
