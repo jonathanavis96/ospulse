@@ -3439,6 +3439,24 @@ public final class GearSection extends CollapsibleSection
 		selectStyle(styleRows.get(index).style);
 	}
 
+	/**
+	 * Item #6d: simulates a REAL mouse press on the style row's CENTER child
+	 * label — the area users actually click, and the exact component that used
+	 * to swallow the press (its tooltip's ToolTipManager listener made it the
+	 * mouse-event target instead of the row). Dispatches to the child's own
+	 * listeners only, exactly like Swing's deepest-target dispatch does.
+	 */
+	void pressStyleRowLabelForTest(int index)
+	{
+		StyleRow row = styleRows.get(index);
+		Component child = ((BorderLayout) row.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+		for (MouseListener listener : child.getMouseListeners())
+		{
+			listener.mousePressed(new MouseEvent(child, MouseEvent.MOUSE_PRESSED,
+				System.currentTimeMillis(), 0, 1, 1, 1, false));
+		}
+	}
+
 	String dpsTextForTest()
 	{
 		return dpsValue.getText();
@@ -3574,6 +3592,33 @@ public final class GearSection extends CollapsibleSection
 		return secondaryValue.getText();
 	}
 
+	/**
+	 * Installs a single-press action on a clickable row AND every child
+	 * component that could steal the press from it (item #6d). Children with a
+	 * tooltip have a ToolTipManager MouseListener, which makes THEM the mouse
+	 * -event target over their bounds — Swing mouse events never bubble to the
+	 * parent — so without this the row's own listener only covers the padding
+	 * pixels. One shared adapter on the row and each child guarantees a single
+	 * click anywhere in the row always fires the action exactly once (each
+	 * press is dispatched to exactly one component).
+	 */
+	private static void installRowPressListener(JPanel row, Runnable action, JLabel... children)
+	{
+		MouseAdapter press = new MouseAdapter()
+		{
+			@Override
+			public void mousePressed(MouseEvent e)
+			{
+				action.run();
+			}
+		};
+		row.addMouseListener(press);
+		for (JLabel child : children)
+		{
+			child.addMouseListener(press);
+		}
+	}
+
 	/** A {@link WeaponStyle} paired with its computed DPS ({@code null} before a target is picked). */
 	private static final class Ranked
 	{
@@ -3672,14 +3717,10 @@ public final class GearSection extends CollapsibleSection
 			add(dps, BorderLayout.EAST);
 
 			setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
-			addMouseListener(new MouseAdapter()
-			{
-				@Override
-				public void mousePressed(MouseEvent e)
-				{
-					selectSpell(SpellRow.this.spell);
-				}
-			});
+			// Item #6d: the listener must ALSO be on the child labels, not just
+			// the row — see StyleRow's constructor comment for why (tooltip
+			// registration makes a child swallow the press).
+			installRowPressListener(this, () -> selectSpell(SpellRow.this.spell), name, dps);
 		}
 
 		private void setSelected(boolean selected)
@@ -3735,14 +3776,17 @@ public final class GearSection extends CollapsibleSection
 			add(dps, BorderLayout.EAST);
 
 			setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
-			addMouseListener(new MouseAdapter()
-			{
-				@Override
-				public void mousePressed(MouseEvent e)
-				{
-					selectStyle(StyleRow.this.style);
-				}
-			});
+			// Item #6d ("style buttons need multiple clicks"): the press
+			// listener must be installed on the CHILD labels as well as the
+			// row. Both labels carry tooltips, and setToolTipText registers
+			// the label with ToolTipManager, which adds a MouseListener to it
+			// — that makes the label itself the mouse-event target for almost
+			// the entire row's area (Swing dispatches to the DEEPEST component
+			// with a mouse listener and never bubbles to the parent), so a
+			// row-only listener only ever fired on the few border/padding
+			// pixels around the text. That is exactly the "sometimes takes
+			// several clicks" symptom: clicks on the text did nothing.
+			installRowPressListener(this, () -> selectStyle(StyleRow.this.style), name, dps);
 		}
 
 		private void setSelected(boolean selected)

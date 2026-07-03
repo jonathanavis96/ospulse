@@ -186,6 +186,38 @@ public class GearSectionStyleRankingTest
 		});
 	}
 
+	/**
+	 * Item #6d regression ("attack-style buttons need multiple clicks"): the
+	 * row's child name label has a tooltip, whose ToolTipManager registration
+	 * adds a MouseListener to the LABEL — making the label (which covers
+	 * nearly the whole row) the mouse-event target instead of the row, and
+	 * Swing never bubbles the press up to the row's own listener. A press
+	 * dispatched to the child label — what a real click on the style text
+	 * does — must therefore select the style directly from the label's own
+	 * listeners, first time, every time.
+	 */
+	@Test
+	public void pressOnStyleRowChildLabel_selectsThatStyleFirstTime()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			GearSnapshot gear = gearWithWeapon(22324);
+			section.apply(snapshotWith(gear));
+			pickCerberus(section);
+
+			int last = section.styleRowCountForTest() - 1;
+			WeaponStyle worst = section.rankedStylesForTest().get(last);
+			assertTrue("fixture sanity: the worst style must not already be selected",
+				!worst.equals(section.selectedStyleForTest()));
+
+			section.pressStyleRowLabelForTest(last);
+
+			assertEquals("a single press on the row's text label must switch the style",
+				worst, section.selectedStyleForTest());
+		});
+	}
+
 	@Test
 	public void unarmedFallsBackToThreeCrushStyles()
 	{
