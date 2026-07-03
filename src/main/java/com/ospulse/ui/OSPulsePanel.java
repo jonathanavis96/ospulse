@@ -98,7 +98,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 			optimizerPriceResolver));
 		sectionList.add(new GeSection(store, itemManager));
 		sectionList.add(new WealthSection(store));
-		sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService));
+		sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService, configManager));
 
 		// A width-tracking column so nothing is laid out wider than the fixed
 		// side-panel width; the widest row ellipsizes within its row instead of
@@ -154,6 +154,24 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		for (CollapsibleSection section : sectionList)
 		{
 			section.removeAllCategoryOverlays();
+		}
+	}
+
+	/**
+	 * Flushes any section-owned persisted state (currently just
+	 * {@link HoldingsSection}'s "since last login" Unrealized P/L snapshot,
+	 * feature 7) to the RuneLite config on plugin shutdown, so the very
+	 * latest value is what's read back next login even if it postdates the
+	 * last {@link #onSessionUpdate} snapshot.
+	 */
+	public void persistState()
+	{
+		for (CollapsibleSection section : sectionList)
+		{
+			if (section instanceof HoldingsSection)
+			{
+				((HoldingsSection) section).shutdown();
+			}
 		}
 	}
 
