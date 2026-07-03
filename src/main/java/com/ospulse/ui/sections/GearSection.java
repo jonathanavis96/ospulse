@@ -2659,7 +2659,15 @@ public final class GearSection extends CollapsibleSection
 		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXCLUDED_ITEM_IDS, sb.toString());
 	}
 
-	/** Adds {@code itemId} to {@link #excludedItemIds}, persists it, and re-renders the swap list so the change is visible immediately. */
+	/**
+	 * Adds {@code itemId} to {@link #excludedItemIds}, persists it, and — if a
+	 * search is already on screen — immediately re-runs the optimiser so the
+	 * excluded item drops out and the next-best suggestion takes its place
+	 * without the user having to click "Find best setup" again. Re-rendering the
+	 * cached {@link #lastOptimizerResult} would just show the stale result (which
+	 * still contains the excluded item), which is why we re-optimise here — the
+	 * same pattern the style selector uses (see {@link #runOptimizer}).
+	 */
 	private void excludeItemFromSuggestions(int itemId)
 	{
 		if (itemId <= 0 || !excludedItemIds.add(itemId))
@@ -2669,7 +2677,7 @@ public final class GearSection extends CollapsibleSection
 		saveExcludedItemsPref();
 		if (lastOptimizerResult != null)
 		{
-			renderOptimizerSwapList(lastOptimizerResult);
+			runOptimizer();
 		}
 	}
 
