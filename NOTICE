@@ -1,0 +1,30 @@
+OSPulse — third-party data & code attribution
+=============================================
+
+Plugin code: BSD-2-Clause (see LICENSE). Compiled against the RuneLite client
+API — RuneLite is BSD-2-Clause, Copyright (c) RuneLite contributors
+(https://github.com/runelite/runelite).
+
+Bundled data:
+
+1. src/main/resources/com/ospulse/combat/monsters.min.json
+   Monster combat stats derived from the weirdgloop osrs-dps-calc project's
+   monster dataset (https://github.com/weirdgloop/osrs-dps-calc, GPL-3.0),
+   whose figures originate from the OSRS Wiki (CC BY-NC-SA 3.0,
+   https://oldschool.runescape.wiki). See the sibling .README.md for
+   provenance and regeneration.
+
+2. src/main/resources/com/ospulse/combat/weapon_categories.min.json
+   Item-id -> weapon-category map derived from the same weirdgloop project's
+   equipment data (same licence chain as above). See its .README.md sibling.
+   The attack-style table (WeaponStyles.java) is an independent port of the
+   in-game combat-options facts, cross-checked against the weirdgloop source.
+
+3. com.ospulse.combat.Spell / PoweredStaff / DragonHunterWeapon /
+   DemonbaneWeapon constants: raw game facts (spell max hits, weapon
+   percentages) hand-transcribed from OSRS Wiki pages — facts, not copied
+   compilations.
+
+Planned: items 1-2 are scheduled to be replaced by a cache-derived clean-room
+dataset (docs/specs/cache-extraction-investigation.md), removing the
+NC-licenced provenance from the shipped artifact.
