@@ -103,6 +103,21 @@ public final class CategoryController
 		}
 	}
 
+	/**
+	 * Drops every category's pause/reset/canvas state back to just-constructed
+	 * (feature 11: panel-wide full reset). Unlike {@link #resetAll} — which only
+	 * bumps each category's reset epoch and leaves the {@code states} entries in
+	 * place — this forgets the categories entirely, so a paused/reset row starts
+	 * fresh (not paused, epoch 0) on the next snapshot. Does NOT fire the canvas
+	 * listener: callers that own overlays must drop them first (the section's
+	 * {@code CategorySectionSupport.clearAll} does exactly that).
+	 */
+	public void clearAll()
+	{
+		states.clear();
+		onCanvas.clear();
+	}
+
 	/** Sets pause on one category. Mirrors {@code XpTrackerPlugin#pauseSkill}. */
 	public void setPaused(String categoryId, boolean paused)
 	{

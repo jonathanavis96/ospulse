@@ -2201,6 +2201,54 @@ public final class GearSection extends CollapsibleSection
 		rankAndRender();
 	}
 
+	/**
+	 * Full panel reset (feature 11): returns the gear panel to a fresh state —
+	 * no target monster, no locked style/spell, no what-if overrides and no
+	 * optimiser preview — while deliberately KEEPING the user's persisted
+	 * preferences ({@link #potionVariantByStyle} and {@link #excludedItemIds}),
+	 * which are config-backed choices, not session-tracking state.
+	 *
+	 * <p>The live gear/DPS readout itself is not cleared: equipment is live
+	 * (re-supplied every {@link #apply}), so it re-defaults to the best style
+	 * for the worn weapon rather than blanking out. Clearing
+	 * {@link #lastRankedWeaponId} forces that re-default; {@link #resetAllOverrides}
+	 * then drops the override, hides the optimiser result, closes the item
+	 * search and re-renders.
+	 */
+	@Override
+	public void resetState()
+	{
+		suppressListEvents = true;
+		try
+		{
+			monsterSearchField.setText("");
+			populateMonsterList("");
+			monsterList.clearSelection();
+		}
+		finally
+		{
+			suppressListEvents = false;
+		}
+		selectedMonster = null;
+		selectedStyle = null;
+		lastRankedWeaponId = Integer.MIN_VALUE;
+		lastRankedTarget = null;
+		selectedSpell = null;
+		selectedBook = BookTab.STANDARD;
+		magicCastStyle = null;
+		currentWeaponCategory = null;
+		lastDps = 0.0;
+		baselineDps = 0.0;
+		lastWealth = null;
+		optimizerStyle = null;
+		optimizerStyleUserPicked = false;
+		updateTargetLabel();
+		// Reuse the shared what-if/optimiser teardown: it also clears
+		// userPickedStyle/userPickedSpell, hides the optimiser panel, closes the
+		// item search and re-renders the grid + readout from the live gear.
+		resetAllOverrides();
+	}
+
 	/** Clears a single slot's override (the gear-grid cell's right-click / the future per-slot reset affordance). */
 	private void resetSlotOverride(int slotOrdinal)
 	{

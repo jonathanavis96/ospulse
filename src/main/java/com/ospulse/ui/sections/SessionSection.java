@@ -169,6 +169,58 @@ public final class SessionSection extends CollapsibleSection
 		categorySupport.removeAllOverlays();
 	}
 
+	/**
+	 * Full panel reset (feature 11): drop the per-category "Reset" baselines
+	 * back to zero and forget every paused/reset category, so the next snapshot
+	 * shows the freshly re-anchored engine figures rather than a phantom.
+	 *
+	 * <p>This is the fix for the "phantom profit on reset" bug: each displayed
+	 * stat is {@code raw - baseline}, where a per-row "Reset" click captured
+	 * {@code baseline = raw} at that instant. When the panel-wide Reset
+	 * re-anchors the engine so {@code raw} returns to ~0, a stale non-zero
+	 * baseline would render {@code 0 - baseline} — a large phantom of the
+	 * opposite sign. Zeroing the baselines (and clearing {@link #lastSeenEpoch}
+	 * so the next {@code apply} re-syncs the epoch without re-capturing a
+	 * baseline) makes the fresh figure {@code raw - 0 = raw}.
+	 */
+	@Override
+	public void resetState()
+	{
+		profitBaseline = 0;
+		suppliesBaseline = 0;
+		profitPerHourBaseline = 0;
+		netWorthDeltaBaseline = 0;
+		gePnlBaseline = 0;
+		elapsedMs = 0;
+		displayedProfit = 0;
+		lastSeenEpoch.clear();
+		categorySupport.clearAll();
+		refreshSummary();
+	}
+
+	// ------------------------------------------------- test seams (package)
+
+	long displayedProfitForTest()
+	{
+		return displayedProfit;
+	}
+
+	boolean isPausedForTest(String categoryId)
+	{
+		return categorySupport.controller().isPaused(categoryId);
+	}
+
+	/** Simulates the per-row "Reset" right-click action (bumps the category's reset epoch). */
+	void resetCategoryForTest(String categoryId)
+	{
+		categorySupport.controller().reset(categoryId, System.currentTimeMillis());
+	}
+
+	void pauseCategoryForTest(String categoryId, boolean paused)
+	{
+		categorySupport.controller().setPaused(categoryId, paused);
+	}
+
 	@Override
 	protected String summaryText()
 	{

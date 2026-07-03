@@ -134,6 +134,22 @@ public abstract class CollapsibleSection extends JPanel
 	{
 	}
 
+	/**
+	 * Wipes any state this section has <em>retained across snapshots</em> — the
+	 * accumulating maps, cached baselines, "last seen" anchors, frozen values
+	 * and hidden/collapsed selections that {@link #apply(SessionSnapshot)}
+	 * carries forward — back to its just-constructed state. No-op by default;
+	 * sections that retain such state override this (feature 11: full Reset).
+	 *
+	 * <p>Called on the Swing EDT from {@link OSPulsePanel}'s Reset button
+	 * <em>before</em> the tracker's {@code resetSession()} fires the fresh
+	 * post-reset snapshot, so the next {@code apply} recomputes deltas against a
+	 * cleared baseline rather than showing a phantom carry-over.
+	 */
+	public void resetState()
+	{
+	}
+
 	/** Subclasses MUST call this at the end of {@link #apply}. */
 	protected final void refreshSummary()
 	{

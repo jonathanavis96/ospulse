@@ -190,6 +190,27 @@ public final class HoldingsSection extends CollapsibleSection
 	}
 
 	/**
+	 * Full panel reset (feature 11): collapses the "Show more" pagination back
+	 * to a single page and clears the cached holdings so the list reads empty
+	 * until the next snapshot repopulates it. Holdings themselves are live
+	 * wealth (re-supplied every {@code apply}), so this only forgets transient
+	 * view state — it deliberately does NOT re-persist Unrealized P/L, leaving
+	 * the "since last login" baseline ({@link #previousLoginUnrealizedPnl})
+	 * intact rather than overwriting it with a reset-time zero.
+	 */
+	@Override
+	public void resetState()
+	{
+		lastHoldings = List.of();
+		lastPnls = Map.of();
+		lastUnrealizedPnl = 0;
+		total = 0;
+		visibleCount = pageSize();
+		aggregateTrendBadgeHtml = null;
+		render();
+	}
+
+	/**
 	 * Collapsed-header summary: "Top holdings" value formatted compactly
 	 * (e.g. {@code 2.1B} / {@code 950M}), plus - when a value-weighted trend
 	 * is available - a separate colored (green up / red down) percentage

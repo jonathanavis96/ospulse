@@ -489,9 +489,61 @@ public final class LootSection extends CollapsibleSection
 		categorySupport.removeAllOverlays();
 	}
 
+	/**
+	 * Full panel reset (feature 11): clears every retained loot state — the
+	 * "hidden until next pickup" source set, the persistent "Hide item"/"Hide
+	 * loot" hides, collapsed-source and frozen paused-figure maps, the reset
+	 * epochs and the running total — and re-renders an empty feed. The next
+	 * snapshot repopulates it from scratch, so nothing stays hidden or frozen
+	 * across a reset.
+	 */
+	@Override
+	public void resetState()
+	{
+		hiddenSources.clear();
+		collapsedSources.clear();
+		lastSeenBySource.clear();
+		lastSeenEpoch.clear();
+		hiddenState.clear();
+		total = 0;
+		categorySupport.clearAll();
+		rebuild(List.of());
+	}
+
 	@Override
 	protected String summaryText()
 	{
 		return GpFormat.format(total);
+	}
+
+	// ------------------------------------------------- test seams (package)
+
+	boolean isSourceHiddenForTest(String source)
+	{
+		return hiddenSources.contains(categoryId(source));
+	}
+
+	boolean hasHiddenItemsForTest()
+	{
+		return !hiddenState.isEmpty();
+	}
+
+	/** Simulates "Reset"-ing a source (the "hidden until next pickup" set) plus collapsing it. */
+	void hideSourceForTest(String source)
+	{
+		hiddenSources.add(categoryId(source));
+		collapsedSources.add(source);
+		categorySupport.controller().setPaused(categoryId(source), true);
+	}
+
+	/** Simulates the per-item "Hide item" action (the persistent hide set). */
+	void hideItemForTest(int itemId, String name)
+	{
+		hiddenState.hideItem(new com.ospulse.model.ItemStack(itemId, name, 1, 0L));
+	}
+
+	int lootListRowCountForTest()
+	{
+		return lootListPanel.getComponentCount();
 	}
 }

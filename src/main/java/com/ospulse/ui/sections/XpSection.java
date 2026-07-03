@@ -463,9 +463,50 @@ public final class XpSection extends CollapsibleSection
 		categorySupport.removeAllOverlays();
 	}
 
+	/**
+	 * Full panel reset (feature 11): forgets every hidden skill, frozen
+	 * paused-figure snapshot and reset epoch, zeroes the totals and clears the
+	 * per-skill breakdown. The next snapshot rebuilds the breakdown from
+	 * scratch, so a skill hidden via "Reset" reappears and paused cards
+	 * un-freeze.
+	 */
+	@Override
+	public void resetState()
+	{
+		lastSeenBySkill.clear();
+		hiddenSkills.clear();
+		lastSeenEpoch.clear();
+		xpTotal = 0;
+		elapsedMs = 0;
+		categorySupport.clearAll();
+		breakdownPanel.removeAll();
+		breakdownPanel.revalidate();
+		breakdownPanel.repaint();
+		refreshSummary();
+	}
+
 	@Override
 	protected String summaryText()
 	{
 		return GpFormat.format(xpTotal) + " · " + GpFormat.format(xpPerHour()) + " xp/hr";
+	}
+
+	// ------------------------------------------------- test seams (package)
+
+	boolean isSkillHiddenForTest(String skillName)
+	{
+		return hiddenSkills.contains(categoryId(skillName));
+	}
+
+	/** Simulates "Reset"-ing a skill (hides it until next XP drop) and pausing it. */
+	void hideSkillForTest(String skillName)
+	{
+		hiddenSkills.add(categoryId(skillName));
+		categorySupport.controller().setPaused(categoryId(skillName), true);
+	}
+
+	int breakdownRowCountForTest()
+	{
+		return breakdownPanel.getComponentCount();
 	}
 }

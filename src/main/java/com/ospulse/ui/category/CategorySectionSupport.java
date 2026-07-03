@@ -162,4 +162,17 @@ public final class CategorySectionSupport
 			controller.setOnCanvas(categoryId, false);
 		}
 	}
+
+	/**
+	 * Full reset (feature 11): drop every registered canvas overlay AND clear
+	 * all per-category pause/reset state, so the owning section returns to its
+	 * just-constructed category state. Overlays are removed first (so the actual
+	 * {@code Overlay} objects leave the {@code OverlayManager}) before the
+	 * controller forgets the categories. Idempotent.
+	 */
+	public void clearAll()
+	{
+		removeAllOverlays();
+		controller.clearAll();
+	}
 }

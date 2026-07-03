@@ -144,6 +144,32 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	}
 
 	/**
+	 * Feature 11 — full Reset. Wipes every section's retained UI state
+	 * <em>first</em> (baselines, frozen/hidden figures, what-if/optimiser
+	 * selections), then runs the engine {@link #resetCallback} which re-anchors
+	 * the session and pushes a fresh snapshot. Order matters: clearing the
+	 * section baselines before the re-anchored snapshot arrives is what stops
+	 * the stale-baseline "phantom profit" (see {@code SessionSection.resetState}).
+	 * Runs on the Swing EDT (the button's action); the engine reset marshals its
+	 * snapshot back to the EDT later, by which point the baselines are already
+	 * cleared.
+	 */
+	void onReset()
+	{
+		resetSections();
+		resetCallback.run();
+	}
+
+	/** Dispatches {@link CollapsibleSection#resetState()} to every section. */
+	private void resetSections()
+	{
+		for (CollapsibleSection section : sectionList)
+		{
+			section.resetState();
+		}
+	}
+
+	/**
 	 * Removes every category canvas overlay any section has added (via its
 	 * "Add to canvas" menu item), so a plugin toggle or client shutdown
 	 * doesn't leak stale XP-Tracker-style overlays. Delegates to each
@@ -223,7 +249,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 
 		JButton resetButton = new JButton("Reset");
 		resetButton.setFont(FontManager.getRunescapeSmallFont());
-		resetButton.addActionListener(e -> resetCallback.run());
+		resetButton.addActionListener(e -> onReset());
 		header.add(resetButton, BorderLayout.EAST);
 
 		return header;
