@@ -685,6 +685,7 @@ public class SessionEngineTest
 	private static final int ADAMANT_ARROW = 890;
 	private static final int SHARK = 385;
 	private static final int COOKED_KARAMBWAN = 3144;
+	private static final int TELEPORT_TO_HOUSE = 8013;
 
 	@Test
 	public void consumingPotionDosesIncreasesSuppliesUsed()
@@ -770,6 +771,35 @@ public class SessionEngineTest
 
 		assertEquals("drinking the last dose must count as supplies used", 1_000L, result.getSuppliesUsed());
 		assertEquals("drinking the last dose must not register as a profit loss", 0L, result.getProfit());
+	}
+
+	@Test
+	public void usingAHouseTeleportTabletCountsAsSuppliesUsedNotProfitLoss()
+	{
+		// Regression: an in-client QA report showed using a House Teleport
+		// tablet (~747gp) dinged Profit by the full value while "Supplies
+		// used" stayed at 0 — the tablet fell through SupplyClassifier
+		// unclassified and was treated as ordinary lost wealth instead of a
+		// supply. Teleport tablets must get the same "fold into baseline,
+		// don't touch profit" treatment as potions/food/ammo/runes.
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(TELEPORT_TO_HOUSE,
+			new ItemStack(TELEPORT_TO_HOUSE, "Teleport to house", 1L, 747L));
+		WealthSnapshot initial = snap(747L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Used the tablet: it is consumed entirely, vanishing from the
+		// tracked items (mirrors the last-dose-of-a-potion transition).
+		Map<Integer, ItemStack> afterTracked = new LinkedHashMap<>();
+		WealthSnapshot current = snap(0L, afterTracked, 0L, false, 1000L);
+
+		engine.update(current, Collections.emptySet(), 1000L);
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+
+		assertEquals("using a House Teleport tablet must count as supplies used",
+			747L, result.getSuppliesUsed());
+		assertEquals("using a House Teleport tablet must not register as a profit loss",
+			0L, result.getProfit());
 	}
 
 	@Test
