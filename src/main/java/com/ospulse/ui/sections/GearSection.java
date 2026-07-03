@@ -1,5 +1,6 @@
 package com.ospulse.ui.sections;
 
+import com.ospulse.combat.AttackStyleIcons;
 import com.ospulse.combat.CombatIcons;
 import com.ospulse.combat.CombatStyle;
 import com.ospulse.combat.DpsCalculator;
@@ -27,7 +28,6 @@ import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
 import com.ospulse.wealth.WealthSnapshot;
 
-import net.runelite.api.Skill;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.game.SpriteManager;
@@ -161,9 +161,6 @@ public final class GearSection extends CollapsibleSection
 	// EDT-safe icon source — see class javadoc). Ranged/Magic use the actual
 	// skill icons (via SkillIconManager) instead, since no single item reads as
 	// "the ranged/magic style" the way a stab weapon does.
-	private static final int ICON_STAB = 22324;    // Ghrazi rapier (a stab weapon)
-	private static final int ICON_SLASH = 4587;    // Dragon scimitar
-	private static final int ICON_CRUSH = 13576;   // Dragon warhammer
 	private static final int ICON_POTION = 12695;  // Super combat potion(4)
 	private static final int ICON_PRAYER = 1718;   // Holy symbol
 	private static final int ICON_SLAYER = 11864;  // Slayer helmet
@@ -180,16 +177,13 @@ public final class GearSection extends CollapsibleSection
 	/** Small side length for the style-aware prayer/potion indicator icons. */
 	private static final int INDICATOR_ICON_SIZE = 18;
 
-	/** Skill-icon side length for the Ranged/Magic type icons. */
+	/** Side length for the attack-style-row and spell-row icons. */
 	private static final int STYLE_ICON_SIZE = 18;
 
 	private final ItemManager itemManager;
 	private final SkillIconManager skillIconManager;
 	private final SpriteManager spriteManager;
 	private final WeaponCategoryRepository weaponRepo = WeaponCategoryRepository.getInstance();
-
-	/** Small per-{@link CombatStyle} type icon, index == {@code CombatStyle.ordinal()}; null-safe. */
-	private final ImageIcon[] typeIcons = new ImageIcon[CombatStyle.values().length];
 
 	private final JLabel[] slotLabels = new JLabel[GearSnapshot.EQUIPMENT_SLOT_COUNT];
 	private final int[] renderedSlotIds = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
@@ -208,6 +202,8 @@ public final class GearSection extends CollapsibleSection
 	private final List<SpellRow> spellRows = new ArrayList<>();
 	/** Per-sprite-id spell icon cache — each spellbook sprite is fetched (async) at most once. */
 	private final Map<Integer, ImageIcon> spellIconCache = new HashMap<>();
+	/** Per-sprite-id native attack-style icon cache — see {@link #attackStyleIcon}. */
+	private final Map<Integer, ImageIcon> attackStyleIconCache = new HashMap<>();
 	/** Per-sprite-id prayer icon cache for the style-aware prayer indicator — see {@link #prayerIcon}. */
 	private final Map<Integer, ImageIcon> prayerIconCache = new HashMap<>();
 	/** Per-item-id potion icon cache for the style-aware potion indicator — see {@link #potionIcon}. */
@@ -241,6 +237,8 @@ public final class GearSection extends CollapsibleSection
 	private boolean userPickedStyle;
 	/** Weapon id the current ranking/selection was built for; a change re-defaults to the best style. */
 	private int lastRankedWeaponId = Integer.MIN_VALUE;
+	/** The effective weapon's {@link WeaponCategory}, refreshed once per {@link #rankAndRender} — feeds {@link StyleRow}'s native icon lookup ({@link AttackStyleIcons}). */
+	private WeaponCategory currentWeaponCategory;
 	/** True while the equipped weapon routes to the magic-first (spellbook) view. */
 	private boolean magicView;
 	/** The spellbook tab currently selected in the magic view. */
@@ -317,7 +315,6 @@ public final class GearSection extends CollapsibleSection
 		this.itemManager = itemManager;
 		this.skillIconManager = skillIconManager;
 		this.spriteManager = spriteManager;
-		buildTypeIcons();
 
 		// ------------------------------------------------ worn-gear header
 		JLabel heading = PanelWidgets.emptyRowLabel("Live DPS · your worn gear");
@@ -798,47 +795,6 @@ public final class GearSection extends CollapsibleSection
 
 	// ------------------------------------------------- attack-style picker
 
-	/** Precomputes a small icon per damage type for the ranked style rows. */
-	private void buildTypeIcons()
-	{
-		typeIcons[CombatStyle.STAB.ordinal()] = itemIcon(ICON_STAB);
-		typeIcons[CombatStyle.SLASH.ordinal()] = itemIcon(ICON_SLASH);
-		typeIcons[CombatStyle.CRUSH.ordinal()] = itemIcon(ICON_CRUSH);
-		typeIcons[CombatStyle.RANGED.ordinal()] = skillIcon(Skill.RANGED);
-		typeIcons[CombatStyle.MAGIC.ordinal()] = skillIcon(Skill.MAGIC);
-	}
-
-	private ImageIcon itemIcon(int itemId)
-	{
-		if (itemManager == null)
-		{
-			return null;
-		}
-		AsyncBufferedImage image = itemManager.getImage(itemId);
-		ImageIcon icon = new ImageIcon(image.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH));
-		// Re-scale once the async sprite actually arrives.
-		image.onLoaded(() -> icon.setImage(image.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH)));
-		return icon;
-	}
-
-	private ImageIcon skillIcon(Skill skill)
-	{
-		if (skillIconManager == null)
-		{
-			return null;
-		}
-		try
-		{
-			Image full = skillIconManager.getSkillImage(skill, false);
-			return full == null ? null
-				: new ImageIcon(full.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH));
-		}
-		catch (RuntimeException e)
-		{
-			return null;
-		}
-	}
-
 	private static String typeLabel(CombatStyle type)
 	{
 		switch (type)
@@ -894,6 +850,7 @@ public final class GearSection extends CollapsibleSection
 		}
 
 		List<WeaponStyle> styles = new ArrayList<>(weaponRepo.stylesForItem(weaponId));
+		currentWeaponCategory = weaponRepo.categoryFor(weaponId);
 		EquipmentStats effectiveStats = effectiveEquipmentStats();
 		PoweredStaff poweredStaff = effectiveStats != null ? effectiveStats.poweredStaff() : PoweredStaff.NONE;
 		boolean canRank = lastGear != null && selectedMonster != null && effectiveStats != null;
@@ -1317,6 +1274,36 @@ public final class GearSection extends CollapsibleSection
 			ImageIcon icon = new ImageIcon(
 				new BufferedImage(STYLE_ICON_SIZE, STYLE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB));
 			spriteManager.getSpriteAsync(spriteId, 0, sprite ->
+				SwingUtilities.invokeLater(() ->
+				{
+					icon.setImage(sprite.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH));
+					stylesPanel.repaint();
+				}));
+			return icon;
+		});
+	}
+
+	/**
+	 * The NATIVE Combat Options icon for one attack-style row — the same sprite
+	 * OSRS itself draws on that weapon-type's combat-options button (see
+	 * {@link AttackStyleIcons} for the sprite-id table and why it, not
+	 * RuneLite's core {@code attackstyles} plugin, is the source). Fetched at
+	 * most once per sprite id via the async {@code SpriteManager.getSpriteAsync}
+	 * (same pattern as {@link #spellIcon}); {@code null} without a SpriteManager
+	 * (headless tests) so callers fall back to the plain text label.
+	 */
+	private ImageIcon attackStyleIcon(WeaponCategory category, WeaponStyle style)
+	{
+		if (spriteManager == null || style == null)
+		{
+			return null;
+		}
+		int spriteId = AttackStyleIcons.spriteIdFor(category, style);
+		return attackStyleIconCache.computeIfAbsent(spriteId, id ->
+		{
+			ImageIcon icon = new ImageIcon(
+				new BufferedImage(STYLE_ICON_SIZE, STYLE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB));
+			spriteManager.getSpriteAsync(id, 0, sprite ->
 				SwingUtilities.invokeLater(() ->
 				{
 					icon.setImage(sprite.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH));
@@ -2587,15 +2574,20 @@ public final class GearSection extends CollapsibleSection
 			setBorder(BorderFactory.createCompoundBorder(unselectedBorder,
 				BorderFactory.createEmptyBorder(2, 3, 2, 4)));
 
-			JLabel name = new JLabel((best ? "★ " : "") + style.name() + "  ·  " + typeLabel(style.type()));
+			// The native Combat Options icon leads (the actual in-game
+			// weapon-type-specific attack-style sprite — see AttackStyleIcons);
+			// the style name stays as a small secondary label rather than the
+			// old custom text ("Chop"/"Slash"/etc used to BE the icon).
+			JLabel name = new JLabel((best ? "★ " : "") + style.name());
 			name.setFont(FontManager.getRunescapeSmallFont());
 			name.setForeground(best ? ColorScheme.BRAND_ORANGE : ColorScheme.LIGHT_GRAY_COLOR);
-			ImageIcon icon = typeIcons[style.type().ordinal()];
+			ImageIcon icon = attackStyleIcon(currentWeaponCategory, style);
 			if (icon != null)
 			{
 				name.setIcon(icon);
 				name.setIconTextGap(4);
 			}
+			name.setToolTipText(style.name() + " (" + typeLabel(style.type()) + ")");
 
 			JLabel dps = new JLabel(result == null ? "—" : String.format(Locale.ROOT, "%.2f", result.dps()));
 			dps.setFont(FontManager.getRunescapeSmallFont());
