@@ -1,5 +1,6 @@
 package com.ospulse.ui.sections;
 
+import com.ospulse.combat.AttackStyleIcons;
 import com.ospulse.combat.CombatIcons;
 import com.ospulse.combat.CombatStyle;
 import com.ospulse.combat.DpsCalculator;
@@ -27,7 +28,6 @@ import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
 import com.ospulse.wealth.WealthSnapshot;
 
-import net.runelite.api.Skill;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.game.SpriteManager;
@@ -161,9 +161,6 @@ public final class GearSection extends CollapsibleSection
 	// EDT-safe icon source — see class javadoc). Ranged/Magic use the actual
 	// skill icons (via SkillIconManager) instead, since no single item reads as
 	// "the ranged/magic style" the way a stab weapon does.
-	private static final int ICON_STAB = 22324;    // Ghrazi rapier (a stab weapon)
-	private static final int ICON_SLASH = 4587;    // Dragon scimitar
-	private static final int ICON_CRUSH = 13576;   // Dragon warhammer
 	private static final int ICON_POTION = 12695;  // Super combat potion(4)
 	private static final int ICON_PRAYER = 1718;   // Holy symbol
 	private static final int ICON_SLAYER = 11864;  // Slayer helmet
@@ -174,11 +171,13 @@ public final class GearSection extends CollapsibleSection
 	private static final int ITEM_SUPER_COMBAT_POTION = 12695;
 	private static final int ITEM_RANGING_POTION = 2444;
 	private static final int ITEM_IMBUED_HEART = 20724;
+	private static final int ITEM_SATURATED_HEART = 27641;
+	private static final int ITEM_ANCIENT_BREW = 26340; // Ancient brew(4)
 
 	/** Small side length for the style-aware prayer/potion indicator icons. */
 	private static final int INDICATOR_ICON_SIZE = 18;
 
-	/** Skill-icon side length for the Ranged/Magic type icons. */
+	/** Side length for the attack-style-row and spell-row icons. */
 	private static final int STYLE_ICON_SIZE = 18;
 
 	private final ItemManager itemManager;
@@ -186,28 +185,29 @@ public final class GearSection extends CollapsibleSection
 	private final SpriteManager spriteManager;
 	private final WeaponCategoryRepository weaponRepo = WeaponCategoryRepository.getInstance();
 
-	/** Small per-{@link CombatStyle} type icon, index == {@code CombatStyle.ordinal()}; null-safe. */
-	private final ImageIcon[] typeIcons = new ImageIcon[CombatStyle.values().length];
-
 	private final JLabel[] slotLabels = new JLabel[GearSnapshot.EQUIPMENT_SLOT_COUNT];
 	private final int[] renderedSlotIds = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
+
+	/** Fixed row height (row content + the 2px inter-row gap) used to size {@link #stylesScroll}'s viewport. */
+	private static final int STYLE_ROW_HEIGHT = 22;
+	/** How many attack-style/spell rows are visible before {@link #stylesScroll} scrolls (design: ~5 rows). */
+	private static final int STYLES_VISIBLE_ROWS = 5;
 
 	private final JLabel stylesHeading;
 	private final JPanel bookTabsPanel;
 	private final JToggleButton[] bookTabButtons = new JToggleButton[BookTab.values().length];
 	private final JPanel stylesPanel;
+	private final JScrollPane stylesScroll;
 	private final List<StyleRow> styleRows = new ArrayList<>();
 	private final List<SpellRow> spellRows = new ArrayList<>();
 	/** Per-sprite-id spell icon cache — each spellbook sprite is fetched (async) at most once. */
 	private final Map<Integer, ImageIcon> spellIconCache = new HashMap<>();
+	/** Per-sprite-id native attack-style icon cache — see {@link #attackStyleIcon}. */
+	private final Map<Integer, ImageIcon> attackStyleIconCache = new HashMap<>();
 	/** Per-sprite-id prayer icon cache for the style-aware prayer indicator — see {@link #prayerIcon}. */
 	private final Map<Integer, ImageIcon> prayerIconCache = new HashMap<>();
 	/** Per-item-id potion icon cache for the style-aware potion indicator — see {@link #potionIcon}. */
 	private final Map<Integer, ImageIcon> potionIconCache = new HashMap<>();
-	/** Style-aware offensive-prayer icon, kept in sync with the DPS calc's actual prayer choice. */
-	private final JLabel prayerIconLabel;
-	/** Style-aware boosting-potion icon, kept in sync with the DPS calc's {@code assumeBestPotion} choice. */
-	private final JLabel potionIconLabel;
 	private final JPanel primaryRow;
 	private final JLabel primaryValue;
 	private final JPanel secondaryRow;
@@ -237,6 +237,8 @@ public final class GearSection extends CollapsibleSection
 	private boolean userPickedStyle;
 	/** Weapon id the current ranking/selection was built for; a change re-defaults to the best style. */
 	private int lastRankedWeaponId = Integer.MIN_VALUE;
+	/** The effective weapon's {@link WeaponCategory}, refreshed once per {@link #rankAndRender} — feeds {@link StyleRow}'s native icon lookup ({@link AttackStyleIcons}). */
+	private WeaponCategory currentWeaponCategory;
 	/** True while the equipped weapon routes to the magic-first (spellbook) view. */
 	private boolean magicView;
 	/** The spellbook tab currently selected in the magic view. */
@@ -254,6 +256,14 @@ public final class GearSection extends CollapsibleSection
 	private boolean suppressListEvents;
 	/** Last observed "slayer helm / black mask worn" state — drives edge-triggered auto-tick. */
 	private boolean lastSlayerHeadgearWorn;
+	/**
+	 * The magic-style potion variant the potion toggle's right-click swap menu
+	 * has picked ({@code null} = follow {@link CombatIcons#bestPotion} as
+	 * before — Imbued heart for Magic). Melee/Ranged styles ignore this; only
+	 * fed to {@link DpsCalculator} via {@link PlayerCombat#magicPotionVariant()}
+	 * when the active style is Magic.
+	 */
+	private CombatIcons.BoostPotion magicPotionVariant;
 
 	// ---------------------------------------------- Phase 2: what-if overrides
 	/**
@@ -305,7 +315,6 @@ public final class GearSection extends CollapsibleSection
 		this.itemManager = itemManager;
 		this.skillIconManager = skillIconManager;
 		this.spriteManager = spriteManager;
-		buildTypeIcons();
 
 		// ------------------------------------------------ worn-gear header
 		JLabel heading = PanelWidgets.emptyRowLabel("Live DPS · your worn gear");
@@ -424,7 +433,21 @@ public final class GearSection extends CollapsibleSection
 		stylesPanel.setLayout(new BoxLayout(stylesPanel, BoxLayout.Y_AXIS));
 		stylesPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		stylesPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-		body().add(stylesPanel);
+
+		// Capped-height, scrollable viewport (design: ~5 rows) — the magic view's
+		// Standard book alone has ~25 spell rows, which used to render in full and
+		// push the whole panel taller; melee/ranged style lists (3-4 rows) simply
+		// never need to scroll within the same fixed-height viewport.
+		stylesScroll = new JScrollPane(stylesPanel);
+		stylesScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+		stylesScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+		stylesScroll.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
+		stylesScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+		stylesScroll.getVerticalScrollBar().setUnitIncrement(STYLE_ROW_HEIGHT);
+		int viewportHeight = STYLE_ROW_HEIGHT * STYLES_VISIBLE_ROWS;
+		stylesScroll.setPreferredSize(new Dimension(0, viewportHeight));
+		stylesScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, viewportHeight));
+		body().add(stylesScroll);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
 
 		// -------------------------------- primary/secondary cast readout
@@ -460,13 +483,20 @@ public final class GearSection extends CollapsibleSection
 		body().add(Box.createRigidArea(new Dimension(0, 6)));
 
 		// ------------------------------------------------- boost toggles
+		// The prayer/potion toggles double as the style-aware indicator: the
+		// BUTTON itself shows the auto-selected prayer/potion icon for the
+		// current attack style (Melee->Piety/Super combat, Ranged->Rigour/
+		// Ranging, Magic->Augury/Imbued heart — degrading by the player's real
+		// Prayer level; see CombatIcons), refreshed in updateBoostIndicators
+		// (called from updateOutputs) so it always matches whatever prayer/
+		// potion DpsCalculator is actually applying. Right-clicking the potion
+		// button opens a swap menu for the magic-style potion variant (Imbued
+		// heart / Saturated heart / Ancient brew) — see potionVariantPopup.
 		JPanel boostRow = new JPanel(new GridLayout(1, 3, 2, 0));
 		boostRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		boostRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-		bestPotionToggle = iconToggle(ICON_POTION,
-			"Simulate best boosting potion (e.g. super combat / ranging / saturated heart)");
-		bestPrayerToggle = iconToggle(ICON_PRAYER,
-			"Simulate best offensive prayer (e.g. Piety / Rigour / Augury)");
+		bestPotionToggle = iconToggle(ICON_POTION, "Simulate best boosting potion for this attack style");
+		bestPrayerToggle = iconToggle(ICON_PRAYER, "Simulate best offensive prayer for this attack style");
 		onSlayerTaskToggle = iconToggle(ICON_SLAYER,
 			"On Slayer task — applies the slayer helmet / black mask bonus (auto-ticks "
 				+ "while one is worn; untick if you are actually off-task)");
@@ -480,29 +510,9 @@ public final class GearSection extends CollapsibleSection
 		bestPotionToggle.addItemListener(e -> rankAndRender());
 		bestPrayerToggle.addItemListener(e -> rankAndRender());
 		onSlayerTaskToggle.addItemListener(e -> rankAndRender());
+		bestPotionToggle.setComponentPopupMenu(buildPotionVariantPopup());
 		boostRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, boostRow.getPreferredSize().height));
 		body().add(boostRow);
-		body().add(Box.createRigidArea(new Dimension(0, 2)));
-
-		// ---------------------------------- style-aware prayer/potion indicator
-		// Shows WHICH prayer/potion the boost toggles above are actually
-		// applying for the current attack style — auto-selected by style +
-		// (for prayer) the player's Prayer level, via CombatIcons. Updated in
-		// updateBoostIndicators, called from updateOutputs so it always tracks
-		// the same style/toggle state the DPS numbers below reflect.
-		JPanel indicatorRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-		indicatorRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		indicatorRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-		prayerIconLabel = new JLabel();
-		prayerIconLabel.setToolTipText("The offensive prayer applied for this attack style");
-		prayerIconLabel.setVisible(false);
-		potionIconLabel = new JLabel();
-		potionIconLabel.setToolTipText("The boosting potion applied for this attack style");
-		potionIconLabel.setVisible(false);
-		indicatorRow.add(prayerIconLabel);
-		indicatorRow.add(potionIconLabel);
-		indicatorRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, indicatorRow.getPreferredSize().height));
-		body().add(indicatorRow);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
 
 		// -------------------------------------------------- target picker
@@ -785,47 +795,6 @@ public final class GearSection extends CollapsibleSection
 
 	// ------------------------------------------------- attack-style picker
 
-	/** Precomputes a small icon per damage type for the ranked style rows. */
-	private void buildTypeIcons()
-	{
-		typeIcons[CombatStyle.STAB.ordinal()] = itemIcon(ICON_STAB);
-		typeIcons[CombatStyle.SLASH.ordinal()] = itemIcon(ICON_SLASH);
-		typeIcons[CombatStyle.CRUSH.ordinal()] = itemIcon(ICON_CRUSH);
-		typeIcons[CombatStyle.RANGED.ordinal()] = skillIcon(Skill.RANGED);
-		typeIcons[CombatStyle.MAGIC.ordinal()] = skillIcon(Skill.MAGIC);
-	}
-
-	private ImageIcon itemIcon(int itemId)
-	{
-		if (itemManager == null)
-		{
-			return null;
-		}
-		AsyncBufferedImage image = itemManager.getImage(itemId);
-		ImageIcon icon = new ImageIcon(image.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH));
-		// Re-scale once the async sprite actually arrives.
-		image.onLoaded(() -> icon.setImage(image.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH)));
-		return icon;
-	}
-
-	private ImageIcon skillIcon(Skill skill)
-	{
-		if (skillIconManager == null)
-		{
-			return null;
-		}
-		try
-		{
-			Image full = skillIconManager.getSkillImage(skill, false);
-			return full == null ? null
-				: new ImageIcon(full.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH));
-		}
-		catch (RuntimeException e)
-		{
-			return null;
-		}
-	}
-
 	private static String typeLabel(CombatStyle type)
 	{
 		switch (type)
@@ -881,6 +850,7 @@ public final class GearSection extends CollapsibleSection
 		}
 
 		List<WeaponStyle> styles = new ArrayList<>(weaponRepo.stylesForItem(weaponId));
+		currentWeaponCategory = weaponRepo.categoryFor(weaponId);
 		EquipmentStats effectiveStats = effectiveEquipmentStats();
 		PoweredStaff poweredStaff = effectiveStats != null ? effectiveStats.poweredStaff() : PoweredStaff.NONE;
 		boolean canRank = lastGear != null && selectedMonster != null && effectiveStats != null;
@@ -900,6 +870,8 @@ public final class GearSection extends CollapsibleSection
 
 		stylesPanel.revalidate();
 		stylesPanel.repaint();
+		stylesScroll.revalidate();
+		stylesScroll.repaint();
 		body().revalidate();
 		body().repaint();
 
@@ -1279,7 +1251,8 @@ public final class GearSection extends CollapsibleSection
 		}
 		Stance stance = magicCastStyle != null ? magicCastStyle.stance() : Stance.STANDARD;
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, stance,
-			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected());
+			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected(),
+			magicPotionVariant);
 		return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell);
 	}
 
@@ -1301,6 +1274,36 @@ public final class GearSection extends CollapsibleSection
 			ImageIcon icon = new ImageIcon(
 				new BufferedImage(STYLE_ICON_SIZE, STYLE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB));
 			spriteManager.getSpriteAsync(spriteId, 0, sprite ->
+				SwingUtilities.invokeLater(() ->
+				{
+					icon.setImage(sprite.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH));
+					stylesPanel.repaint();
+				}));
+			return icon;
+		});
+	}
+
+	/**
+	 * The NATIVE Combat Options icon for one attack-style row — the same sprite
+	 * OSRS itself draws on that weapon-type's combat-options button (see
+	 * {@link AttackStyleIcons} for the sprite-id table and why it, not
+	 * RuneLite's core {@code attackstyles} plugin, is the source). Fetched at
+	 * most once per sprite id via the async {@code SpriteManager.getSpriteAsync}
+	 * (same pattern as {@link #spellIcon}); {@code null} without a SpriteManager
+	 * (headless tests) so callers fall back to the plain text label.
+	 */
+	private ImageIcon attackStyleIcon(WeaponCategory category, WeaponStyle style)
+	{
+		if (spriteManager == null || style == null)
+		{
+			return null;
+		}
+		int spriteId = AttackStyleIcons.spriteIdFor(category, style);
+		return attackStyleIconCache.computeIfAbsent(spriteId, id ->
+		{
+			ImageIcon icon = new ImageIcon(
+				new BufferedImage(STYLE_ICON_SIZE, STYLE_ICON_SIZE, BufferedImage.TYPE_INT_ARGB));
+			spriteManager.getSpriteAsync(id, 0, sprite ->
 				SwingUtilities.invokeLater(() ->
 				{
 					icon.setImage(sprite.getScaledInstance(STYLE_ICON_SIZE, STYLE_ICON_SIZE, Image.SCALE_SMOOTH));
@@ -1363,7 +1366,7 @@ public final class GearSection extends CollapsibleSection
 				SwingUtilities.invokeLater(() ->
 				{
 					icon.setImage(sprite.getScaledInstance(INDICATOR_ICON_SIZE, INDICATOR_ICON_SIZE, Image.SCALE_SMOOTH));
-					prayerIconLabel.repaint();
+					bestPrayerToggle.repaint();
 				}));
 			return icon;
 		});
@@ -1377,6 +1380,8 @@ public final class GearSection extends CollapsibleSection
 			case SUPER_COMBAT: return ITEM_SUPER_COMBAT_POTION;
 			case RANGING: return ITEM_RANGING_POTION;
 			case IMBUED_HEART: return ITEM_IMBUED_HEART;
+			case SATURATED_HEART: return ITEM_SATURATED_HEART;
+			case ANCIENT_BREW: return ITEM_ANCIENT_BREW;
 			default: return -1;
 		}
 	}
@@ -1400,27 +1405,41 @@ public final class GearSection extends CollapsibleSection
 			image.onLoaded(() ->
 			{
 				icon.setImage(image);
-				potionIconLabel.repaint();
+				bestPotionToggle.repaint();
 			});
 			return icon;
 		});
 	}
 
 	/**
-	 * Refreshes the style-aware prayer/potion indicator icons for {@code style}
-	 * so they always show the SAME prayer/potion {@link DpsCalculator} is
-	 * actually applying: the ladder-topped prayer for the style + the player's
+	 * The magic potion variant the potion toggle should show/apply for the
+	 * current style: the user's right-click swap pick when the style is Magic
+	 * (defaulting to Imbued heart if none chosen yet), or {@link CombatIcons#bestPotion}
+	 * unchanged for every other style (melee/ranged are not swappable).
+	 */
+	private CombatIcons.BoostPotion effectivePotionFor(CombatStyle style)
+	{
+		if (style == CombatStyle.MAGIC)
+		{
+			return magicPotionVariant != null ? magicPotionVariant : CombatIcons.BoostPotion.IMBUED_HEART;
+		}
+		return CombatIcons.bestPotion(style);
+	}
+
+	/**
+	 * Refreshes the prayer/potion boost TOGGLE BUTTONS themselves so each one's
+	 * icon always shows the SAME prayer/potion {@link DpsCalculator} is actually
+	 * applying for {@code style}: the ladder-topped prayer for the player's real
 	 * Prayer level (or the calculator's hardcoded top-tier prayer when the
-	 * "best prayer" toggle is on), and the style's boosting potion (only shown
-	 * when the "best potion" toggle is on, since that toggle is what makes the
-	 * calculator apply it at all).
+	 * "best prayer" toggle is on), and the style's boosting potion (the user's
+	 * right-click swap pick for Magic — see {@link #effectivePotionFor}).
+	 * Falls back to the generic default icon with no target/gear selected yet
+	 * (style is {@code null}) so the buttons are never blank.
 	 */
 	private void updateBoostIndicators(CombatStyle style)
 	{
 		if (style == null)
 		{
-			prayerIconLabel.setVisible(false);
-			potionIconLabel.setVisible(false);
 			return;
 		}
 
@@ -1428,25 +1447,16 @@ public final class GearSection extends CollapsibleSection
 			style, lastGear != null ? lastGear.basePrayer() : 0, bestPrayerToggle.isSelected());
 		if (prayer != null)
 		{
-			prayerIconLabel.setIcon(prayerIcon(prayer));
-			prayerIconLabel.setToolTipText("Offensive prayer applied: " + displayName(prayer));
-			prayerIconLabel.setVisible(true);
-		}
-		else
-		{
-			prayerIconLabel.setVisible(false);
+			bestPrayerToggle.setIcon(prayerIcon(prayer));
+			bestPrayerToggle.setToolTipText("Offensive prayer applied: " + displayName(prayer));
 		}
 
-		if (bestPotionToggle.isSelected())
+		CombatIcons.BoostPotion potion = effectivePotionFor(style);
+		if (potion != null)
 		{
-			CombatIcons.BoostPotion potion = CombatIcons.bestPotion(style);
-			potionIconLabel.setIcon(potionIcon(potion));
-			potionIconLabel.setToolTipText("Boosting potion applied: " + displayName(potion));
-			potionIconLabel.setVisible(potion != null);
-		}
-		else
-		{
-			potionIconLabel.setVisible(false);
+			bestPotionToggle.setIcon(potionIcon(potion));
+			bestPotionToggle.setToolTipText("Boosting potion applied: " + displayName(potion)
+				+ (style == CombatStyle.MAGIC ? " (right-click to swap)" : ""));
 		}
 	}
 
@@ -1507,7 +1517,8 @@ public final class GearSection extends CollapsibleSection
 			return null;
 		}
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, style.stance(),
-			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected());
+			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected(),
+			magicPotionVariant);
 		if (style.type() == CombatStyle.MAGIC)
 		{
 			// Spell-aware path: a worn powered staff wins automatically; otherwise
@@ -1881,7 +1892,8 @@ public final class GearSection extends CollapsibleSection
 			.activePrayers(lastGear.activePrayers())
 			.assumeBestPotion(bestPotionToggle.isSelected())
 			.assumeBestPrayer(bestPrayerToggle.isSelected())
-			.onSlayerTask(onSlayerTaskToggle.isSelected());
+			.onSlayerTask(onSlayerTaskToggle.isSelected())
+			.magicPotionVariant(magicPotionVariant);
 
 		GearOptimizer.Request request = GearOptimizer.Request
 			.builder(liveIds, target, template)
@@ -2118,6 +2130,31 @@ public final class GearSection extends CollapsibleSection
 		return button;
 	}
 
+	/**
+	 * The potion toggle's right-click swap menu: one item per magic-style
+	 * potion variant ({@link CombatIcons#MAGIC_POTION_VARIANTS} — Saturated
+	 * heart / Imbued heart / Ancient brew), each setting {@link #magicPotionVariant}
+	 * and re-ranking so the swap immediately feeds {@link DpsCalculator} via
+	 * {@link PlayerCombat#magicPotionVariant()}. Melee/Ranged prayer/potion
+	 * picks are calculator-fixed "best" and have nothing to swap, so only the
+	 * potion toggle gets this menu (the prayer toggle does not).
+	 */
+	private javax.swing.JPopupMenu buildPotionVariantPopup()
+	{
+		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+		for (CombatIcons.BoostPotion variant : CombatIcons.MAGIC_POTION_VARIANTS)
+		{
+			javax.swing.JMenuItem item = new javax.swing.JMenuItem(displayName(variant));
+			item.addActionListener(e ->
+			{
+				magicPotionVariant = variant;
+				rankAndRender();
+			});
+			menu.add(item);
+		}
+		return menu;
+	}
+
 	// ------------------------------------------------- test seams (package)
 
 	IconTextField searchFieldForTest()
@@ -2216,7 +2253,8 @@ public final class GearSection extends CollapsibleSection
 			.activePrayers(lastGear.activePrayers())
 			.assumeBestPotion(bestPotionToggle.isSelected())
 			.assumeBestPrayer(bestPrayerToggle.isSelected())
-			.onSlayerTask(onSlayerTaskToggle.isSelected());
+			.onSlayerTask(onSlayerTaskToggle.isSelected())
+			.magicPotionVariant(magicPotionVariant);
 		GearOptimizer.Request request = GearOptimizer.Request
 			.builder(liveIds, selectedMonster, template)
 			.budget(budget)
@@ -2311,6 +2349,23 @@ public final class GearSection extends CollapsibleSection
 		return bestPotionToggle;
 	}
 
+	JToggleButton bestPrayerToggleForTest()
+	{
+		return bestPrayerToggle;
+	}
+
+	/** Simulates right-clicking the potion toggle and picking a magic potion variant from the swap menu. */
+	void pickMagicPotionVariantForTest(CombatIcons.BoostPotion variant)
+	{
+		magicPotionVariant = variant;
+		rankAndRender();
+	}
+
+	CombatIcons.BoostPotion magicPotionVariantForTest()
+	{
+		return magicPotionVariant;
+	}
+
 	JToggleButton onSlayerTaskToggleForTest()
 	{
 		return onSlayerTaskToggle;
@@ -2397,15 +2452,15 @@ public final class GearSection extends CollapsibleSection
 
 	/**
 	 * A spellbook tab of the magic view's segmented control. Lunar and Arceuus
-	 * carry no offensive {@link Spell}s (OSRS has none there), so their
-	 * {@link #book()} is {@code null} and the tab renders an empty-book note.
+	 * are deliberately absent — OSRS has no offensive spells on either book, so
+	 * they would only ever render an empty "no offensive spells" tab; only
+	 * Standard and Ancient (which both have real offensive spells to rank) are
+	 * offered.
 	 */
 	enum BookTab
 	{
 		STANDARD("Standard", Spell.SpellBook.STANDARD),
-		ANCIENT("Ancient", Spell.SpellBook.ANCIENT),
-		LUNAR("Lunar", null),
-		ARCEUUS("Arceuus", null);
+		ANCIENT("Ancient", Spell.SpellBook.ANCIENT);
 
 		private final String label;
 		private final Spell.SpellBook book;
@@ -2519,15 +2574,20 @@ public final class GearSection extends CollapsibleSection
 			setBorder(BorderFactory.createCompoundBorder(unselectedBorder,
 				BorderFactory.createEmptyBorder(2, 3, 2, 4)));
 
-			JLabel name = new JLabel((best ? "★ " : "") + style.name() + "  ·  " + typeLabel(style.type()));
+			// The native Combat Options icon leads (the actual in-game
+			// weapon-type-specific attack-style sprite — see AttackStyleIcons);
+			// the style name stays as a small secondary label rather than the
+			// old custom text ("Chop"/"Slash"/etc used to BE the icon).
+			JLabel name = new JLabel((best ? "★ " : "") + style.name());
 			name.setFont(FontManager.getRunescapeSmallFont());
 			name.setForeground(best ? ColorScheme.BRAND_ORANGE : ColorScheme.LIGHT_GRAY_COLOR);
-			ImageIcon icon = typeIcons[style.type().ordinal()];
+			ImageIcon icon = attackStyleIcon(currentWeaponCategory, style);
 			if (icon != null)
 			{
 				name.setIcon(icon);
 				name.setIconTextGap(4);
 			}
+			name.setToolTipText(style.name() + " (" + typeLabel(style.type()) + ")");
 
 			JLabel dps = new JLabel(result == null ? "—" : String.format(Locale.ROOT, "%.2f", result.dps()));
 			dps.setFont(FontManager.getRunescapeSmallFont());

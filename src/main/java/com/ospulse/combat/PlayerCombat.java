@@ -33,6 +33,7 @@ public final class PlayerCombat {
     private final boolean assumeBestPotion;
     private final boolean assumeBestPrayer;
     private final boolean onSlayerTask;
+    private final CombatIcons.BoostPotion magicPotionVariant;
 
     private PlayerCombat(Builder b) {
         this.baseAttack = b.baseAttack;
@@ -54,6 +55,7 @@ public final class PlayerCombat {
         this.assumeBestPotion = b.assumeBestPotion;
         this.assumeBestPrayer = b.assumeBestPrayer;
         this.onSlayerTask = b.onSlayerTask;
+        this.magicPotionVariant = b.magicPotionVariant;
     }
 
     public int baseAttack() {
@@ -132,6 +134,18 @@ public final class PlayerCombat {
         return onSlayerTask;
     }
 
+    /**
+     * Which magic-boosting potion {@link #assumeBestPotion()} should model when
+     * the active style is Magic — a UI-driven swap (right-click the potion
+     * toggle in {@code GearSection}) over the otherwise-fixed "best" pick.
+     * Defaults to {@link CombatIcons.BoostPotion#IMBUED_HEART} (unchanged
+     * behaviour for every caller that does not set this explicitly). Melee/
+     * ranged best-potion picks are not swappable and ignore this field.
+     */
+    public CombatIcons.BoostPotion magicPotionVariant() {
+        return magicPotionVariant;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -156,6 +170,7 @@ public final class PlayerCombat {
         private boolean assumeBestPotion;
         private boolean assumeBestPrayer;
         private boolean onSlayerTask;
+        private CombatIcons.BoostPotion magicPotionVariant = CombatIcons.BoostPotion.IMBUED_HEART;
 
         private Builder() {
         }
@@ -224,6 +239,12 @@ public final class PlayerCombat {
 
         public Builder onSlayerTask(boolean value) {
             this.onSlayerTask = value;
+            return this;
+        }
+
+        /** @see PlayerCombat#magicPotionVariant() */
+        public Builder magicPotionVariant(CombatIcons.BoostPotion value) {
+            this.magicPotionVariant = value == null ? CombatIcons.BoostPotion.IMBUED_HEART : value;
             return this;
         }
 

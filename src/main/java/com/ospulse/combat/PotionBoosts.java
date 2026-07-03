@@ -28,6 +28,25 @@ final class PotionBoosts {
 
     /** Imbued heart: best readily-repeatable magic accuracy boost (saturated heart's +3 is a Tier-B refinement). */
     static int bestMagicBoostedLevel(int baseLevel) {
+        return imbuedHeartBoostedLevel(baseLevel);
+    }
+
+    /** Imbued heart (Invigorate): {@code 1 + floor(level * 0.1)}. */
+    static int imbuedHeartBoostedLevel(int baseLevel) {
         return baseLevel + (int) Math.floor(baseLevel * 0.1) + 1;
+    }
+
+    /** Saturated heart (upgraded Imbued heart): {@code 4 + floor(level * 0.1)} — the highest magic-level boost. */
+    static int saturatedHeartBoostedLevel(int baseLevel) {
+        return baseLevel + (int) Math.floor(baseLevel * 0.1) + 4;
+    }
+
+    /**
+     * Ancient brew: {@code 2 + floor(level * 0.05)} — a smaller Magic boost than
+     * either heart, traded for draining Attack/Strength/Defence (not modelled
+     * here; this method only covers the Magic-level side of the potion).
+     */
+    static int ancientBrewBoostedLevel(int baseLevel) {
+        return baseLevel + (int) Math.floor(baseLevel * 0.05) + 2;
     }
 }

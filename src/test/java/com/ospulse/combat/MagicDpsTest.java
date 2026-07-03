@@ -5,6 +5,8 @@ import org.junit.Test;
 import java.util.EnumSet;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Magic end-to-end sanity check (not a wiki-narrated worked example - the
@@ -101,5 +103,77 @@ public class MagicDpsTest {
         // pre-hit-roll multiplicative stage must NOT also apply (mutual exclusion).
         // primary = floor(20 * 1.20) = 24; pre-hit-roll unchanged since slayer bonus is suppressed.
         assertEquals(24, result.maxHit());
+    }
+
+    // ---- QA fix 1: the potion-toggle right-click swap must actually feed the
+    // calculator a different Magic-level boost per variant (GearSection wires
+    // PlayerCombat.magicPotionVariant() through to here) — proven end-to-end via
+    // a powered staff, whose built-in max hit scales directly with boosted Magic. ----
+
+    @Test
+    public void magicPotionVariant_changesBoostedMagicLevel_viaPoweredStaffMaxHit() {
+        EquipmentStats gear = EquipmentStats.builder()
+                .add(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0)
+                .poweredStaff(PoweredStaff.SANGUINESTI_STAFF) // maxHitAt = floor(magic/3) - 1
+                .weaponSpeedTicks(4)
+                .build();
+
+        Monster target = Monster.builder()
+                .name("Potion variant target")
+                .magicLevel(1)
+                .defenceBonuses(0, 0, 0, 0, 0)
+                .hitpoints(100)
+                .build();
+
+        int baseMagic = 80;
+
+        int imbuedHeartMaxHit = maxHitWithVariant(gear, target, baseMagic, CombatIcons.BoostPotion.IMBUED_HEART);
+        int saturatedHeartMaxHit = maxHitWithVariant(gear, target, baseMagic, CombatIcons.BoostPotion.SATURATED_HEART);
+        int ancientBrewMaxHit = maxHitWithVariant(gear, target, baseMagic, CombatIcons.BoostPotion.ANCIENT_BREW);
+
+        // Saturated heart (4 + 10%) boosts Magic higher than Imbued heart (1 + 10%),
+        // which in turn boosts higher than Ancient brew (2 + 5%) at this level —
+        // matching the OSRS Wiki formulas (PotionBoosts.*BoostedLevel).
+        assertEquals(80 + 8 + 4, PotionBoosts.saturatedHeartBoostedLevel(baseMagic));
+        assertEquals(80 + 8 + 1, PotionBoosts.imbuedHeartBoostedLevel(baseMagic));
+        assertEquals(80 + 4 + 2, PotionBoosts.ancientBrewBoostedLevel(baseMagic));
+        assertTrue("saturated heart must out-boost imbued heart", saturatedHeartMaxHit >= imbuedHeartMaxHit);
+        assertTrue("imbued heart must out-boost ancient brew here", imbuedHeartMaxHit >= ancientBrewMaxHit);
+        assertNotEquals("the three variants must not collapse to one identical result",
+                saturatedHeartMaxHit, ancientBrewMaxHit);
+    }
+
+    @Test
+    public void magicPotionVariant_null_defaultsToImbuedHeart() {
+        EquipmentStats gear = EquipmentStats.builder()
+                .add(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0)
+                .poweredStaff(PoweredStaff.SANGUINESTI_STAFF)
+                .weaponSpeedTicks(4)
+                .build();
+        Monster target = Monster.builder()
+                .name("Default variant target")
+                .magicLevel(1)
+                .defenceBonuses(0, 0, 0, 0, 0)
+                .hitpoints(100)
+                .build();
+
+        int explicitImbued = maxHitWithVariant(gear, target, 80, CombatIcons.BoostPotion.IMBUED_HEART);
+        int nullVariant = maxHitWithVariant(gear, target, 80, null);
+
+        assertEquals(explicitImbued, nullVariant);
+    }
+
+    private static int maxHitWithVariant(EquipmentStats gear, Monster target, int baseMagic,
+                                          CombatIcons.BoostPotion variant) {
+        PlayerCombat player = PlayerCombat.builder()
+                .magic(baseMagic, baseMagic)
+                .assumeBestPotion(true)
+                .magicPotionVariant(variant)
+                .build();
+        // The Spell-overload is required here (not the legacy int-maxHit
+        // overload) so the worn powered staff's max-hit-from-boosted-Magic path
+        // in computeMagic actually engages — see DpsCalculator.compute(..., Spell).
+        DpsResult result = DpsCalculator.compute(gear, player, CombatStyle.MAGIC, target, (Spell) null);
+        return result.maxHit();
     }
 }

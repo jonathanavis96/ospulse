@@ -336,7 +336,7 @@ public class GearSectionStyleRankingTest
 	}
 
 	@Test
-	public void lunarTabHasNoOffensiveSpellsAndClearsTheReadout()
+	public void onlyStandardAndAncientBookTabsExist()
 	{
 		onEdt(() ->
 		{
@@ -345,10 +345,9 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			section.clickBookTabForTest(2); // Lunar
-			assertTrue("no offensive spells on Lunar", section.rankedSpellsForTest().isEmpty());
-			assertEquals("-", section.dpsTextForTest());
-			assertEquals("-", section.primaryTextForTest());
+			// Lunar/Arceuus have no offensive spells in OSRS, so they are not
+			// offered as tabs at all — only Standard(0) and Ancient(1).
+			assertEquals(2, com.ospulse.ui.sections.GearSection.BookTab.values().length);
 		});
 	}
 
@@ -387,6 +386,41 @@ public class GearSectionStyleRankingTest
 			String overkill = section.overkillTextForTest();
 			assertTrue("overkill must be a number once a target is picked, got: " + overkill,
 				overkill.matches("\\d+\\.\\d"));
+		});
+	}
+
+	// ---- QA fix 1: the potion toggle's right-click swap must actually feed a
+	// different magic-potion boost into the DPS readout, not just repaint an icon ----
+
+	@Test
+	public void potionVariantSwapChangesTheMagicReadout()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			// Trident of the seas 11907 -> powered staff; base magic 99, so
+			// assumeBestPotion's boosted level differs per variant (see
+			// PotionBoosts.*BoostedLevel), which floor(boosted/3)-5 turns into a
+			// different max hit for each swap pick.
+			GearSnapshot gear = gearWithMagicWeapon(11907,
+				com.ospulse.combat.PoweredStaff.TRIDENT_OF_THE_SEAS);
+			section.apply(snapshotWith(gear));
+			pickCerberus(section);
+			section.bestPotionToggleForTest().setSelected(true);
+
+			// Default (no swap yet) == Imbued heart: boosted = 99+1+9=109, floor(109/3)-5=31.
+			assertEquals(null, section.magicPotionVariantForTest());
+			assertEquals("31", section.maxHitTextForTest());
+
+			section.pickMagicPotionVariantForTest(com.ospulse.combat.CombatIcons.BoostPotion.SATURATED_HEART);
+			assertEquals(com.ospulse.combat.CombatIcons.BoostPotion.SATURATED_HEART,
+				section.magicPotionVariantForTest());
+			// Saturated heart: boosted = 99+4+9=112, floor(112/3)-5=32.
+			assertEquals("32", section.maxHitTextForTest());
+
+			section.pickMagicPotionVariantForTest(com.ospulse.combat.CombatIcons.BoostPotion.ANCIENT_BREW);
+			// Ancient brew: boosted = 99+2+4=105, floor(105/3)-5=30.
+			assertEquals("30", section.maxHitTextForTest());
 		});
 	}
 }

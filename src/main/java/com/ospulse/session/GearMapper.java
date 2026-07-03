@@ -1,5 +1,6 @@
 package com.ospulse.session;
 
+import com.ospulse.combat.CombatIcons;
 import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.PlayerCombat;
 import com.ospulse.combat.Stance;
@@ -156,6 +157,18 @@ public final class GearMapper
 	public static PlayerCombat toPlayerCombat(GearSnapshot gear, Stance stance, boolean assumeBestPotion, boolean assumeBestPrayer,
 									boolean onSlayerTask)
 	{
+		return toPlayerCombat(gear, stance, assumeBestPotion, assumeBestPrayer, onSlayerTask, null);
+	}
+
+	/**
+	 * As {@link #toPlayerCombat(GearSnapshot, Stance, boolean, boolean, boolean)},
+	 * additionally passing through {@code magicPotionVariant} — the potion-toggle
+	 * right-click swap in {@code GearSection} ({@code null} keeps the default
+	 * Imbued heart behaviour; see {@link PlayerCombat#magicPotionVariant()}).
+	 */
+	public static PlayerCombat toPlayerCombat(GearSnapshot gear, Stance stance, boolean assumeBestPotion, boolean assumeBestPrayer,
+									boolean onSlayerTask, CombatIcons.BoostPotion magicPotionVariant)
+	{
 		return PlayerCombat.builder()
 			.attack(gear.baseAttack(), gear.boostedAttack())
 			.strength(gear.baseStrength(), gear.boostedStrength())
@@ -169,6 +182,7 @@ public final class GearMapper
 			.assumeBestPotion(assumeBestPotion)
 			.assumeBestPrayer(assumeBestPrayer)
 			.onSlayerTask(onSlayerTask)
+			.magicPotionVariant(magicPotionVariant)
 			.build();
 	}
 }
