@@ -388,4 +388,39 @@ public class GearSectionStyleRankingTest
 				overkill.matches("\\d+\\.\\d"));
 		});
 	}
+
+	// ---- QA fix 1: the potion toggle's right-click swap must actually feed a
+	// different magic-potion boost into the DPS readout, not just repaint an icon ----
+
+	@Test
+	public void potionVariantSwapChangesTheMagicReadout()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			// Trident of the seas 11907 -> powered staff; base magic 99, so
+			// assumeBestPotion's boosted level differs per variant (see
+			// PotionBoosts.*BoostedLevel), which floor(boosted/3)-5 turns into a
+			// different max hit for each swap pick.
+			GearSnapshot gear = gearWithMagicWeapon(11907,
+				com.ospulse.combat.PoweredStaff.TRIDENT_OF_THE_SEAS);
+			section.apply(snapshotWith(gear));
+			pickCerberus(section);
+			section.bestPotionToggleForTest().setSelected(true);
+
+			// Default (no swap yet) == Imbued heart: boosted = 99+1+9=109, floor(109/3)-5=31.
+			assertEquals(null, section.magicPotionVariantForTest());
+			assertEquals("31", section.maxHitTextForTest());
+
+			section.pickMagicPotionVariantForTest(com.ospulse.combat.CombatIcons.BoostPotion.SATURATED_HEART);
+			assertEquals(com.ospulse.combat.CombatIcons.BoostPotion.SATURATED_HEART,
+				section.magicPotionVariantForTest());
+			// Saturated heart: boosted = 99+4+9=112, floor(112/3)-5=32.
+			assertEquals("32", section.maxHitTextForTest());
+
+			section.pickMagicPotionVariantForTest(com.ospulse.combat.CombatIcons.BoostPotion.ANCIENT_BREW);
+			// Ancient brew: boosted = 99+2+4=105, floor(105/3)-5=30.
+			assertEquals("30", section.maxHitTextForTest());
+		});
+	}
 }

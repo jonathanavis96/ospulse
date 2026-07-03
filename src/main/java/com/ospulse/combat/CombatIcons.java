@@ -120,9 +120,22 @@ public final class CombatIcons {
         SUPER_COMBAT,
         /** Ranging potion / Bastion potion — {@link PotionBoosts#bestRangedBoostedLevel}. */
         RANGING,
-        /** Imbued heart — {@link PotionBoosts#bestMagicBoostedLevel}. */
+        /** Imbued heart (Invigorate) — {@link PotionBoosts#imbuedHeartBoostedLevel}. The default magic pick. */
         IMBUED_HEART,
+        /** Saturated heart (upgraded Imbued heart) — {@link PotionBoosts#saturatedHeartBoostedLevel}, the highest magic-level boost. */
+        SATURATED_HEART,
+        /**
+         * Ancient brew — {@link PotionBoosts#ancientBrewBoostedLevel}, a smaller
+         * Magic boost traded for draining Attack/Strength/Defence (the drain
+         * itself is not modelled by the DPS calculator).
+         */
+        ANCIENT_BREW,
     }
+
+    /** The magic-style potion variants offered by the potion toggle's right-click swap menu, best-to-worst Magic boost. */
+    public static final BoostPotion[] MAGIC_POTION_VARIANTS = {
+        BoostPotion.SATURATED_HEART, BoostPotion.IMBUED_HEART, BoostPotion.ANCIENT_BREW,
+    };
 
     /** The boosting potion the calculator's {@code assumeBestPotion} branch applies for {@code style}. */
     public static BoostPotion bestPotion(CombatStyle style) {

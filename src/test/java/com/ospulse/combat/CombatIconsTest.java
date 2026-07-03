@@ -125,4 +125,28 @@ public class CombatIconsTest {
         assertNull(CombatIcons.bestOffensivePrayer(null, 99, false));
         assertNull(CombatIcons.bestPotion(null));
     }
+
+    // ---- QA fix 1: the magic potion-variant swap menu (Saturated heart /
+    // Imbued heart / Ancient brew) offered on GearSection's potion toggle ----
+
+    @Test
+    public void magicPotionVariantsAreOfferedBestToWorstMagicBoost() {
+        assertEquals(3, CombatIcons.MAGIC_POTION_VARIANTS.length);
+        assertEquals(CombatIcons.BoostPotion.SATURATED_HEART, CombatIcons.MAGIC_POTION_VARIANTS[0]);
+        assertEquals(CombatIcons.BoostPotion.IMBUED_HEART, CombatIcons.MAGIC_POTION_VARIANTS[1]);
+        assertEquals(CombatIcons.BoostPotion.ANCIENT_BREW, CombatIcons.MAGIC_POTION_VARIANTS[2]);
+    }
+
+    @Test
+    public void potionBoostFormulasMatchOsrsWiki() {
+        // Imbued heart (Invigorate): 1 + floor(level * 0.1).
+        assertEquals(99 + 1 + 9, PotionBoosts.imbuedHeartBoostedLevel(99));
+        assertEquals(1 + 1 + 0, PotionBoosts.imbuedHeartBoostedLevel(1));
+        // Saturated heart: 4 + floor(level * 0.1) — always beats Imbued heart by 3.
+        assertEquals(99 + 4 + 9, PotionBoosts.saturatedHeartBoostedLevel(99));
+        assertEquals(PotionBoosts.imbuedHeartBoostedLevel(70) + 3, PotionBoosts.saturatedHeartBoostedLevel(70));
+        // Ancient brew: 2 + floor(level * 0.05) (melee stat drain not modelled here).
+        assertEquals(99 + 2 + 4, PotionBoosts.ancientBrewBoostedLevel(99));
+        assertEquals(1 + 2 + 0, PotionBoosts.ancientBrewBoostedLevel(1));
+    }
 }

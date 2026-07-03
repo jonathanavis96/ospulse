@@ -219,10 +219,27 @@ public final class DpsCalculator {
     /** Marker for "derive the base max hit from the worn powered staff at the boosted Magic level". */
     private static final int POWERED_STAFF_SENTINEL = -1;
 
+    /**
+     * The Magic-level boost {@link PlayerCombat#assumeBestPotion()} applies for
+     * the given {@link PlayerCombat#magicPotionVariant()} — see
+     * {@link CombatIcons.BoostPotion} / {@link PotionBoosts}. Only the three
+     * magic-boosting variants are meaningful here; a non-magic variant (or
+     * {@code null}) falls back to the Imbued heart formula.
+     */
+    private static int magicPotionBoostedLevel(CombatIcons.BoostPotion variant, int baseLevel) {
+        if (variant == CombatIcons.BoostPotion.SATURATED_HEART) {
+            return PotionBoosts.saturatedHeartBoostedLevel(baseLevel);
+        }
+        if (variant == CombatIcons.BoostPotion.ANCIENT_BREW) {
+            return PotionBoosts.ancientBrewBoostedLevel(baseLevel);
+        }
+        return PotionBoosts.imbuedHeartBoostedLevel(baseLevel);
+    }
+
     private static DpsResult computeMagic(EquipmentStats gear, PlayerCombat player, Monster target,
                                           int baseSpellMaxHit, int castSpeedTicks, boolean approximate) {
         int boostedMagic = player.assumeBestPotion()
-                ? PotionBoosts.bestMagicBoostedLevel(player.baseMagic())
+                ? magicPotionBoostedLevel(player.magicPotionVariant(), player.baseMagic())
                 : player.boostedMagic();
 
         if (baseSpellMaxHit == POWERED_STAFF_SENTINEL) {

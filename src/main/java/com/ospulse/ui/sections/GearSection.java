@@ -174,6 +174,8 @@ public final class GearSection extends CollapsibleSection
 	private static final int ITEM_SUPER_COMBAT_POTION = 12695;
 	private static final int ITEM_RANGING_POTION = 2444;
 	private static final int ITEM_IMBUED_HEART = 20724;
+	private static final int ITEM_SATURATED_HEART = 27641;
+	private static final int ITEM_ANCIENT_BREW = 26340; // Ancient brew(4)
 
 	/** Small side length for the style-aware prayer/potion indicator icons. */
 	private static final int INDICATOR_ICON_SIZE = 18;
@@ -210,10 +212,6 @@ public final class GearSection extends CollapsibleSection
 	private final Map<Integer, ImageIcon> prayerIconCache = new HashMap<>();
 	/** Per-item-id potion icon cache for the style-aware potion indicator — see {@link #potionIcon}. */
 	private final Map<Integer, ImageIcon> potionIconCache = new HashMap<>();
-	/** Style-aware offensive-prayer icon, kept in sync with the DPS calc's actual prayer choice. */
-	private final JLabel prayerIconLabel;
-	/** Style-aware boosting-potion icon, kept in sync with the DPS calc's {@code assumeBestPotion} choice. */
-	private final JLabel potionIconLabel;
 	private final JPanel primaryRow;
 	private final JLabel primaryValue;
 	private final JPanel secondaryRow;
@@ -260,6 +258,14 @@ public final class GearSection extends CollapsibleSection
 	private boolean suppressListEvents;
 	/** Last observed "slayer helm / black mask worn" state — drives edge-triggered auto-tick. */
 	private boolean lastSlayerHeadgearWorn;
+	/**
+	 * The magic-style potion variant the potion toggle's right-click swap menu
+	 * has picked ({@code null} = follow {@link CombatIcons#bestPotion} as
+	 * before — Imbued heart for Magic). Melee/Ranged styles ignore this; only
+	 * fed to {@link DpsCalculator} via {@link PlayerCombat#magicPotionVariant()}
+	 * when the active style is Magic.
+	 */
+	private CombatIcons.BoostPotion magicPotionVariant;
 
 	// ---------------------------------------------- Phase 2: what-if overrides
 	/**
@@ -480,13 +486,20 @@ public final class GearSection extends CollapsibleSection
 		body().add(Box.createRigidArea(new Dimension(0, 6)));
 
 		// ------------------------------------------------- boost toggles
+		// The prayer/potion toggles double as the style-aware indicator: the
+		// BUTTON itself shows the auto-selected prayer/potion icon for the
+		// current attack style (Melee->Piety/Super combat, Ranged->Rigour/
+		// Ranging, Magic->Augury/Imbued heart — degrading by the player's real
+		// Prayer level; see CombatIcons), refreshed in updateBoostIndicators
+		// (called from updateOutputs) so it always matches whatever prayer/
+		// potion DpsCalculator is actually applying. Right-clicking the potion
+		// button opens a swap menu for the magic-style potion variant (Imbued
+		// heart / Saturated heart / Ancient brew) — see potionVariantPopup.
 		JPanel boostRow = new JPanel(new GridLayout(1, 3, 2, 0));
 		boostRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		boostRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-		bestPotionToggle = iconToggle(ICON_POTION,
-			"Simulate best boosting potion (e.g. super combat / ranging / saturated heart)");
-		bestPrayerToggle = iconToggle(ICON_PRAYER,
-			"Simulate best offensive prayer (e.g. Piety / Rigour / Augury)");
+		bestPotionToggle = iconToggle(ICON_POTION, "Simulate best boosting potion for this attack style");
+		bestPrayerToggle = iconToggle(ICON_PRAYER, "Simulate best offensive prayer for this attack style");
 		onSlayerTaskToggle = iconToggle(ICON_SLAYER,
 			"On Slayer task — applies the slayer helmet / black mask bonus (auto-ticks "
 				+ "while one is worn; untick if you are actually off-task)");
@@ -500,29 +513,9 @@ public final class GearSection extends CollapsibleSection
 		bestPotionToggle.addItemListener(e -> rankAndRender());
 		bestPrayerToggle.addItemListener(e -> rankAndRender());
 		onSlayerTaskToggle.addItemListener(e -> rankAndRender());
+		bestPotionToggle.setComponentPopupMenu(buildPotionVariantPopup());
 		boostRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, boostRow.getPreferredSize().height));
 		body().add(boostRow);
-		body().add(Box.createRigidArea(new Dimension(0, 2)));
-
-		// ---------------------------------- style-aware prayer/potion indicator
-		// Shows WHICH prayer/potion the boost toggles above are actually
-		// applying for the current attack style — auto-selected by style +
-		// (for prayer) the player's Prayer level, via CombatIcons. Updated in
-		// updateBoostIndicators, called from updateOutputs so it always tracks
-		// the same style/toggle state the DPS numbers below reflect.
-		JPanel indicatorRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-		indicatorRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		indicatorRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-		prayerIconLabel = new JLabel();
-		prayerIconLabel.setToolTipText("The offensive prayer applied for this attack style");
-		prayerIconLabel.setVisible(false);
-		potionIconLabel = new JLabel();
-		potionIconLabel.setToolTipText("The boosting potion applied for this attack style");
-		potionIconLabel.setVisible(false);
-		indicatorRow.add(prayerIconLabel);
-		indicatorRow.add(potionIconLabel);
-		indicatorRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, indicatorRow.getPreferredSize().height));
-		body().add(indicatorRow);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
 
 		// -------------------------------------------------- target picker
@@ -1301,7 +1294,8 @@ public final class GearSection extends CollapsibleSection
 		}
 		Stance stance = magicCastStyle != null ? magicCastStyle.stance() : Stance.STANDARD;
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, stance,
-			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected());
+			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected(),
+			magicPotionVariant);
 		return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell);
 	}
 
@@ -1385,7 +1379,7 @@ public final class GearSection extends CollapsibleSection
 				SwingUtilities.invokeLater(() ->
 				{
 					icon.setImage(sprite.getScaledInstance(INDICATOR_ICON_SIZE, INDICATOR_ICON_SIZE, Image.SCALE_SMOOTH));
-					prayerIconLabel.repaint();
+					bestPrayerToggle.repaint();
 				}));
 			return icon;
 		});
@@ -1399,6 +1393,8 @@ public final class GearSection extends CollapsibleSection
 			case SUPER_COMBAT: return ITEM_SUPER_COMBAT_POTION;
 			case RANGING: return ITEM_RANGING_POTION;
 			case IMBUED_HEART: return ITEM_IMBUED_HEART;
+			case SATURATED_HEART: return ITEM_SATURATED_HEART;
+			case ANCIENT_BREW: return ITEM_ANCIENT_BREW;
 			default: return -1;
 		}
 	}
@@ -1422,27 +1418,41 @@ public final class GearSection extends CollapsibleSection
 			image.onLoaded(() ->
 			{
 				icon.setImage(image);
-				potionIconLabel.repaint();
+				bestPotionToggle.repaint();
 			});
 			return icon;
 		});
 	}
 
 	/**
-	 * Refreshes the style-aware prayer/potion indicator icons for {@code style}
-	 * so they always show the SAME prayer/potion {@link DpsCalculator} is
-	 * actually applying: the ladder-topped prayer for the style + the player's
+	 * The magic potion variant the potion toggle should show/apply for the
+	 * current style: the user's right-click swap pick when the style is Magic
+	 * (defaulting to Imbued heart if none chosen yet), or {@link CombatIcons#bestPotion}
+	 * unchanged for every other style (melee/ranged are not swappable).
+	 */
+	private CombatIcons.BoostPotion effectivePotionFor(CombatStyle style)
+	{
+		if (style == CombatStyle.MAGIC)
+		{
+			return magicPotionVariant != null ? magicPotionVariant : CombatIcons.BoostPotion.IMBUED_HEART;
+		}
+		return CombatIcons.bestPotion(style);
+	}
+
+	/**
+	 * Refreshes the prayer/potion boost TOGGLE BUTTONS themselves so each one's
+	 * icon always shows the SAME prayer/potion {@link DpsCalculator} is actually
+	 * applying for {@code style}: the ladder-topped prayer for the player's real
 	 * Prayer level (or the calculator's hardcoded top-tier prayer when the
-	 * "best prayer" toggle is on), and the style's boosting potion (only shown
-	 * when the "best potion" toggle is on, since that toggle is what makes the
-	 * calculator apply it at all).
+	 * "best prayer" toggle is on), and the style's boosting potion (the user's
+	 * right-click swap pick for Magic — see {@link #effectivePotionFor}).
+	 * Falls back to the generic default icon with no target/gear selected yet
+	 * (style is {@code null}) so the buttons are never blank.
 	 */
 	private void updateBoostIndicators(CombatStyle style)
 	{
 		if (style == null)
 		{
-			prayerIconLabel.setVisible(false);
-			potionIconLabel.setVisible(false);
 			return;
 		}
 
@@ -1450,25 +1460,16 @@ public final class GearSection extends CollapsibleSection
 			style, lastGear != null ? lastGear.basePrayer() : 0, bestPrayerToggle.isSelected());
 		if (prayer != null)
 		{
-			prayerIconLabel.setIcon(prayerIcon(prayer));
-			prayerIconLabel.setToolTipText("Offensive prayer applied: " + displayName(prayer));
-			prayerIconLabel.setVisible(true);
-		}
-		else
-		{
-			prayerIconLabel.setVisible(false);
+			bestPrayerToggle.setIcon(prayerIcon(prayer));
+			bestPrayerToggle.setToolTipText("Offensive prayer applied: " + displayName(prayer));
 		}
 
-		if (bestPotionToggle.isSelected())
+		CombatIcons.BoostPotion potion = effectivePotionFor(style);
+		if (potion != null)
 		{
-			CombatIcons.BoostPotion potion = CombatIcons.bestPotion(style);
-			potionIconLabel.setIcon(potionIcon(potion));
-			potionIconLabel.setToolTipText("Boosting potion applied: " + displayName(potion));
-			potionIconLabel.setVisible(potion != null);
-		}
-		else
-		{
-			potionIconLabel.setVisible(false);
+			bestPotionToggle.setIcon(potionIcon(potion));
+			bestPotionToggle.setToolTipText("Boosting potion applied: " + displayName(potion)
+				+ (style == CombatStyle.MAGIC ? " (right-click to swap)" : ""));
 		}
 	}
 
@@ -1529,7 +1530,8 @@ public final class GearSection extends CollapsibleSection
 			return null;
 		}
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, style.stance(),
-			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected());
+			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected(),
+			magicPotionVariant);
 		if (style.type() == CombatStyle.MAGIC)
 		{
 			// Spell-aware path: a worn powered staff wins automatically; otherwise
@@ -1903,7 +1905,8 @@ public final class GearSection extends CollapsibleSection
 			.activePrayers(lastGear.activePrayers())
 			.assumeBestPotion(bestPotionToggle.isSelected())
 			.assumeBestPrayer(bestPrayerToggle.isSelected())
-			.onSlayerTask(onSlayerTaskToggle.isSelected());
+			.onSlayerTask(onSlayerTaskToggle.isSelected())
+			.magicPotionVariant(magicPotionVariant);
 
 		GearOptimizer.Request request = GearOptimizer.Request
 			.builder(liveIds, target, template)
@@ -2140,6 +2143,31 @@ public final class GearSection extends CollapsibleSection
 		return button;
 	}
 
+	/**
+	 * The potion toggle's right-click swap menu: one item per magic-style
+	 * potion variant ({@link CombatIcons#MAGIC_POTION_VARIANTS} — Saturated
+	 * heart / Imbued heart / Ancient brew), each setting {@link #magicPotionVariant}
+	 * and re-ranking so the swap immediately feeds {@link DpsCalculator} via
+	 * {@link PlayerCombat#magicPotionVariant()}. Melee/Ranged prayer/potion
+	 * picks are calculator-fixed "best" and have nothing to swap, so only the
+	 * potion toggle gets this menu (the prayer toggle does not).
+	 */
+	private javax.swing.JPopupMenu buildPotionVariantPopup()
+	{
+		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+		for (CombatIcons.BoostPotion variant : CombatIcons.MAGIC_POTION_VARIANTS)
+		{
+			javax.swing.JMenuItem item = new javax.swing.JMenuItem(displayName(variant));
+			item.addActionListener(e ->
+			{
+				magicPotionVariant = variant;
+				rankAndRender();
+			});
+			menu.add(item);
+		}
+		return menu;
+	}
+
 	// ------------------------------------------------- test seams (package)
 
 	IconTextField searchFieldForTest()
@@ -2238,7 +2266,8 @@ public final class GearSection extends CollapsibleSection
 			.activePrayers(lastGear.activePrayers())
 			.assumeBestPotion(bestPotionToggle.isSelected())
 			.assumeBestPrayer(bestPrayerToggle.isSelected())
-			.onSlayerTask(onSlayerTaskToggle.isSelected());
+			.onSlayerTask(onSlayerTaskToggle.isSelected())
+			.magicPotionVariant(magicPotionVariant);
 		GearOptimizer.Request request = GearOptimizer.Request
 			.builder(liveIds, selectedMonster, template)
 			.budget(budget)
@@ -2331,6 +2360,23 @@ public final class GearSection extends CollapsibleSection
 	JToggleButton bestPotionToggleForTest()
 	{
 		return bestPotionToggle;
+	}
+
+	JToggleButton bestPrayerToggleForTest()
+	{
+		return bestPrayerToggle;
+	}
+
+	/** Simulates right-clicking the potion toggle and picking a magic potion variant from the swap menu. */
+	void pickMagicPotionVariantForTest(CombatIcons.BoostPotion variant)
+	{
+		magicPotionVariant = variant;
+		rankAndRender();
+	}
+
+	CombatIcons.BoostPotion magicPotionVariantForTest()
+	{
+		return magicPotionVariant;
 	}
 
 	JToggleButton onSlayerTaskToggleForTest()
