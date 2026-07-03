@@ -84,6 +84,118 @@ public final class SessionEngine
 	 * snapshot is produced. Never affects profit/unrealized computation.
 	 */
 	private DebugFigures lastLoggedFigures;
+	/**
+	 * Wall-clock window (ms) within which a stack vanishing in one update and
+	 * reappearing in the next (or vice versa) is treated as the two halves of
+	 * a single equip/unequip rather than genuine consumption followed by loot.
+	 * RuneLite fires one ItemContainerChanged per container, so mid-equip the
+	 * engine can observe the stack in NEITHER container (inventory already
+	 * updated, equipment not yet) or in BOTH (the reverse order) for one
+	 * refresh; the two events land within the same client tick, so one game
+	 * tick is a comfortably safe bound.
+	 */
+	private static final long TRANSFER_REVERSAL_WINDOW_MS = 600L;
+	/**
+	 * Vanishes classified by the PREVIOUS update (supplies charged / value
+	 * silently dropped) that the current update may reverse if the stack
+	 * reappears — see {@link #update}. Replaced wholesale every update, so an
+	 * entry is reversible for exactly one following interval (and only within
+	 * {@link #TRANSFER_REVERSAL_WINDOW_MS}).
+	 */
+	private List<PendingSwing> pendingVanished = new ArrayList<>();
+	/** Loot recorded by the PREVIOUS update, reversible symmetrically. */
+	private List<PendingSwing> pendingLooted = new ArrayList<>();
+
+	/**
+	 * One classified quantity swing (vanish or loot) kept for one interval so
+	 * the next update can reverse it if it turns out to be the first half of
+	 * an equip/unequip transient.
+	 */
+	private static final class PendingSwing
+	{
+		final int itemId;
+		/** Remaining reversible quantity; decremented as reversals consume it. */
+		long quantity;
+		/** Unit value the swing was recorded (and, if charged, priced) at. */
+		final long unitValue;
+		/** Whether the whole stack swung (fully vanished / fully new). */
+		final boolean fullSwing;
+		/** Vanish side: {@link #recordSupplyConsumed} was applied and must be undone. */
+		final boolean suppliesCharged;
+		/** Cost-basis state just before the swing, to restore on full reversal. */
+		final boolean hadBasis;
+		final long basisQuantity;
+		final long basisTotalCost;
+		final long tsMs;
+
+		PendingSwing(int itemId, long quantity, long unitValue, boolean fullSwing,
+			boolean suppliesCharged, boolean hadBasis, long basisQuantity, long basisTotalCost, long tsMs)
+		{
+			this.itemId = itemId;
+			this.quantity = quantity;
+			this.unitValue = unitValue;
+			this.fullSwing = fullSwing;
+			this.suppliesCharged = suppliesCharged;
+			this.hadBasis = hadBasis;
+			this.basisQuantity = basisQuantity;
+			this.basisTotalCost = basisTotalCost;
+			this.tsMs = tsMs;
+		}
+	}
+
+	/**
+	 * A quantity delta observed by the current update, pre-classification.
+	 * Mutable {@code quantity} is whittled down by transfer pairing and
+	 * reversal netting; whatever survives is classified as loot/supplies.
+	 */
+	private static final class Swing
+	{
+		final int itemId;
+		final String name;
+		long quantity;
+		final long unitValue;
+		final boolean fullSwing;
+		final boolean consumable;
+		final boolean hadBasis;
+		final long basisQuantity;
+		final long basisTotalCost;
+
+		Swing(int itemId, String name, long quantity, long unitValue, boolean fullSwing,
+			boolean consumable, Basis basisOrNull)
+		{
+			this.itemId = itemId;
+			this.name = name;
+			this.quantity = quantity;
+			this.unitValue = unitValue;
+			this.fullSwing = fullSwing;
+			this.consumable = consumable;
+			this.hadBasis = basisOrNull != null;
+			this.basisQuantity = basisOrNull == null ? 0L : basisOrNull.quantity;
+			this.basisTotalCost = basisOrNull == null ? 0L : basisOrNull.totalCost;
+		}
+	}
+
+	/**
+	 * Deferred cost-basis correction applied after {@link #syncCostBasis} has
+	 * run for the update: carries a holding's session basis across an id swap
+	 * or an equip transient instead of letting the units re-enter at the live
+	 * price (which would silently convert paper drift into realised profit).
+	 * Applied only if the item is actually held at {@code expectedQuantity},
+	 * so a partial/foreign state can never be corrupted.
+	 */
+	private static final class BasisCarry
+	{
+		final int itemId;
+		final long expectedQuantity;
+		final long totalCost;
+
+		BasisCarry(int itemId, long expectedQuantity, long totalCost)
+		{
+			this.itemId = itemId;
+			this.expectedQuantity = expectedQuantity;
+			this.totalCost = totalCost;
+		}
+	}
 
 	/** Immutable bundle of the debug-loggable figures from one snapshot. */
 	private static final class DebugFigures
@@ -126,6 +238,8 @@ public final class SessionEngine
 		this.suppliesUsed = 0L;
 		this.costBasis.clear();
 		this.lastLoggedFigures = null;
+		this.pendingVanished = new ArrayList<>();
+		this.pendingLooted = new ArrayList<>();
 		// Holdings present at session start enter at their live price, so
 		// unrealized P/L starts the session at zero.
 		syncCostBasis(initial);
@@ -160,6 +274,10 @@ public final class SessionEngine
 
 		this.previous = current;
 		this.bankOpen = open;
+		// A bank visit re-anchors all diffing; stale equip-transient records
+		// from before the visit must never net against post-visit changes.
+		this.pendingVanished = new ArrayList<>();
+		this.pendingLooted = new ArrayList<>();
 	}
 
 	/**
@@ -225,6 +343,28 @@ public final class SessionEngine
 	 * supply is excluded from profit rather than registering as a loss;
 	 * "supplies used" is where that spend shows up instead.
 	 *
+	 * <p>Equipping/unequipping is ZERO-SUM: gear moving between the inventory
+	 * and equipment components of tracked wealth must never register as loot,
+	 * supplies or profit. Two equip shapes would otherwise leak through the
+	 * per-id delta diff and are explicitly neutralised here:
+	 * <ul>
+	 *   <li><b>Id swap</b> — the worn form of an item carries a different id
+	 *       than the inventory form, so one id disappears and another of equal
+	 *       quantity and unit value appears in the same interval. Such a pair
+	 *       is matched up-front and treated as an internal transfer (no loot,
+	 *       no supplies, cost basis migrated to the new id).</li>
+	 *   <li><b>Container-event transient</b> — RuneLite fires one
+	 *       ItemContainerChanged per container, so mid-equip the stack can be
+	 *       observed in NEITHER container (or in BOTH) for one refresh. The
+	 *       vanish half is classified normally (it is indistinguishable from
+	 *       consumption at that instant), but is remembered for one interval;
+	 *       if the stack reappears within {@link #TRANSFER_REVERSAL_WINDOW_MS}
+	 *       the classification is reversed (supplies un-charged, baseline
+	 *       restored, no loot, cost basis restored). The symmetric
+	 *       both-containers order (phantom gain then correction) is netted the
+	 *       same way via the remembered loot records.</li>
+	 * </ul>
+	 *
 	 * <p>Limitation: this is a conservative heuristic, not a perfect
 	 * consumed-vs-transferred classification. Because it only runs while the
 	 * bank is closed and skips GE-attributed items, depositing potions/ammo
@@ -233,7 +373,10 @@ public final class SessionEngine
 	 * engine doesn't model (e.g. trading the item to another player,
 	 * or a rare bank action that doesn't toggle {@code bankOpen}) would be
 	 * mis-counted as "used". This mirrors the existing loot heuristic, which
-	 * has the same blind spot for gains.
+	 * has the same blind spot for gains. Conversely, consuming a stack and
+	 * regaining the identical stack within the same ~one-tick reversal window
+	 * nets to nothing — economically a wash, and vastly cheaper than the
+	 * phantom profit the netting prevents.
 	 *
 	 * @param geAttributedItemIds item ids whose quantity changed this
 	 *                            interval due to a GE buy/sell, supplied by
@@ -244,23 +387,31 @@ public final class SessionEngine
 	 */
 	public void update(WealthSnapshot current, Set<Integer> geAttributedItemIds, long tsMs)
 	{
-		syncCostBasis(current);
 		if (bankOpen)
 		{
+			syncCostBasis(current);
 			captureLateKnownBank(current);
+			logUpdateBreakdown(current, 0L, 0L, 0L, 0L, 0L, 0L);
 			this.previous = current;
 			return;
 		}
+
+		long trackedBefore = previous == null ? current.tracked() : previous.tracked();
+		long baselineBefore = baseline;
 
 		Map<Integer, ItemStack> previousItems = previous == null
 			? Collections.emptyMap()
 			: previous.getTrackedItems();
 
+		// ---- 1. Collect this interval's raw quantity swings (pre-classification).
+		// Cost-basis state is captured here, BEFORE syncCostBasis mutates it,
+		// so transfers/reversals can carry a holding's basis across the move.
+		List<Swing> appeared = new ArrayList<>();
+		List<Swing> vanished = new ArrayList<>();
 		for (Map.Entry<Integer, ItemStack> entry : current.getTrackedItems().entrySet())
 		{
 			int itemId = entry.getKey();
 			ItemStack currentStack = entry.getValue();
-
 			ItemStack previousStack = previousItems.get(itemId);
 			long previousQty = previousStack == null ? 0L : previousStack.getQuantity();
 			long delta = currentStack.getQuantity() - previousQty;
@@ -280,27 +431,25 @@ public final class SessionEngine
 
 			if (delta > 0)
 			{
-				LootEntry entryLoot = new LootEntry(
-					itemId,
-					currentStack.getName(),
-					delta,
-					delta * currentStack.getUnitValue(),
-					tsMs);
-				addLoot(entryLoot);
+				appeared.add(new Swing(itemId, currentStack.getName(), delta,
+					currentStack.getUnitValue(), previousQty == 0,
+					false, costBasis.get(itemId)));
 			}
-			else if (SupplyClassifier.isConsumable(currentStack.getName()))
+			else
 			{
-				recordSupplyConsumed((-delta) * currentStack.getUnitValue());
+				vanished.add(new Swing(itemId, currentStack.getName(), -delta,
+					currentStack.getUnitValue(), false,
+					SupplyClassifier.isConsumable(currentStack.getName()), costBasis.get(itemId)));
 			}
 		}
 
 		// Items present in the previous snapshot but entirely absent from the
 		// current one (last unit of a stack consumed/dropped/sold — snapshots
 		// only carry entries with quantity > 0, see SessionTracker) are
-		// invisible to the loop above, which only walks current's items. Without
-		// this pass, drinking the final dose of a potion or eating the last
-		// piece of food would silently reduce profit with no supplies-used
-		// attribution at all.
+		// invisible to the loop above, which only walks current's items.
+		// Without this pass, drinking the final dose of a potion or eating the
+		// last piece of food would silently reduce profit with no
+		// supplies-used attribution at all.
 		for (Map.Entry<Integer, ItemStack> entry : previousItems.entrySet())
 		{
 			int itemId = entry.getKey();
@@ -317,13 +466,245 @@ public final class SessionEngine
 			{
 				continue;
 			}
-			if (SupplyClassifier.isConsumable(previousStack.getName()))
+			vanished.add(new Swing(itemId, previousStack.getName(), previousStack.getQuantity(),
+				previousStack.getUnitValue(), true,
+				SupplyClassifier.isConsumable(previousStack.getName()), costBasis.get(itemId)));
+		}
+
+		// ---- 2. Same-interval transfer pairing (equip id-swap): a whole stack
+		// of id A gone and a whole stack of id B — equal quantity, equal unit
+		// value — new in the SAME interval is the same item changing id, not
+		// consumption + loot. Neither side is classified; the basis migrates.
+		List<BasisCarry> basisCarries = new ArrayList<>();
+		long transferPaired = 0L;
+		for (Swing v : vanished)
+		{
+			if (!v.fullSwing || v.quantity == 0)
 			{
-				recordSupplyConsumed(previousStack.getQuantity() * previousStack.getUnitValue());
+				continue;
+			}
+			for (Swing a : appeared)
+			{
+				if (a.quantity == 0 || !a.fullSwing || a.itemId == v.itemId
+					|| a.quantity != v.quantity || a.unitValue != v.unitValue)
+				{
+					continue;
+				}
+				transferPaired += a.quantity * a.unitValue;
+				if (v.hadBasis && v.basisQuantity == v.quantity)
+				{
+					basisCarries.add(new BasisCarry(a.itemId, a.quantity, v.basisTotalCost));
+				}
+				a.quantity = 0L;
+				v.quantity = 0L;
+				break;
 			}
 		}
 
+		// ---- 3. Reversal netting against the PREVIOUS interval (equip
+		// container-event transient). An appearance first cancels a matching
+		// just-recorded vanish (un-charging supplies and restoring the
+		// baseline) before anything counts as loot; a disappearance first
+		// retracts matching just-recorded loot before anything counts as
+		// supplies. Matching prefers the same item id (the usual same-id
+		// flicker) and falls back to an exact whole-stack value signature
+		// (id-swap split across the two events).
+		long suppliesReversed = 0L;
+		long lootRecorded = 0L;
+		List<PendingSwing> newPendingLooted = new ArrayList<>();
+		for (Swing a : appeared)
+		{
+			for (int pass = 0; pass < 2 && a.quantity > 0; pass++)
+			{
+				for (PendingSwing p : pendingVanished)
+				{
+					if (p.quantity == 0 || tsMs - p.tsMs > TRANSFER_REVERSAL_WINDOW_MS)
+					{
+						continue;
+					}
+					boolean matched = pass == 0
+						? p.itemId == a.itemId
+						: (p.itemId != a.itemId && a.fullSwing && p.fullSwing
+							&& p.quantity == a.quantity && p.unitValue == a.unitValue);
+					if (!matched)
+					{
+						continue;
+					}
+					long reversedQty = Math.min(a.quantity, p.quantity);
+					boolean fullReversal = reversedQty == p.quantity;
+					if (p.suppliesCharged)
+					{
+						long reversedValue = reversedQty * p.unitValue;
+						suppliesUsed -= reversedValue;
+						this.baseline += reversedValue;
+						suppliesReversed += reversedValue;
+					}
+					a.quantity -= reversedQty;
+					p.quantity -= reversedQty;
+					if (fullReversal && p.hadBasis)
+					{
+						ItemStack heldNow = current.getTrackedItems().get(a.itemId);
+						if (heldNow != null && heldNow.getQuantity() == p.basisQuantity)
+						{
+							basisCarries.add(new BasisCarry(a.itemId, p.basisQuantity, p.basisTotalCost));
+						}
+					}
+					if (a.quantity == 0)
+					{
+						break;
+					}
+				}
+			}
+
+			if (a.quantity > 0)
+			{
+				long lootValue = a.quantity * a.unitValue;
+				addLoot(new LootEntry(a.itemId, a.name, a.quantity, lootValue, tsMs));
+				lootRecorded += lootValue;
+				newPendingLooted.add(new PendingSwing(a.itemId, a.quantity, a.unitValue,
+					a.fullSwing, false, a.hadBasis, a.basisQuantity, a.basisTotalCost, tsMs));
+			}
+		}
+
+		long lootReversed = 0L;
+		long suppliesRecorded = 0L;
+		List<PendingSwing> newPendingVanished = new ArrayList<>();
+		for (Swing v : vanished)
+		{
+			for (int pass = 0; pass < 2 && v.quantity > 0; pass++)
+			{
+				for (PendingSwing p : pendingLooted)
+				{
+					if (p.quantity == 0 || tsMs - p.tsMs > TRANSFER_REVERSAL_WINDOW_MS)
+					{
+						continue;
+					}
+					boolean matched = pass == 0
+						? p.itemId == v.itemId
+						: (p.itemId != v.itemId && v.fullSwing && p.fullSwing
+							&& p.quantity == v.quantity && p.unitValue == v.unitValue);
+					if (!matched)
+					{
+						continue;
+					}
+					long reversedQty = Math.min(v.quantity, p.quantity);
+					boolean fullReversal = reversedQty == p.quantity;
+					long reversedValue = reversedQty * p.unitValue;
+					retractLoot(p.itemId, reversedQty, reversedValue);
+					lootReversed += reversedValue;
+					v.quantity -= reversedQty;
+					p.quantity -= reversedQty;
+					if (fullReversal)
+					{
+						if (p.itemId == v.itemId && p.hadBasis)
+						{
+							// Same-id flicker (gain then correction): restore
+							// the pre-gain basis instead of the scaled one.
+							basisCarries.add(new BasisCarry(p.itemId, p.basisQuantity, p.basisTotalCost));
+						}
+						else if (p.itemId != v.itemId && v.hadBasis && v.basisQuantity == reversedQty)
+						{
+							// Id-swap split across events (new id appeared
+							// first): the surviving new id inherits the
+							// vanished id's basis.
+							ItemStack heldNow = current.getTrackedItems().get(p.itemId);
+							if (heldNow != null && heldNow.getQuantity() == reversedQty)
+							{
+								basisCarries.add(new BasisCarry(p.itemId, reversedQty, v.basisTotalCost));
+							}
+						}
+					}
+					if (v.quantity == 0)
+					{
+						break;
+					}
+				}
+			}
+
+			if (v.quantity > 0)
+			{
+				boolean charge = v.consumable;
+				if (charge)
+				{
+					long consumedValue = v.quantity * v.unitValue;
+					recordSupplyConsumed(consumedValue);
+					suppliesRecorded += consumedValue;
+				}
+				// Remember ALL surviving vanishes (consumable or not) so a
+				// reappearance next update is netted instead of read as loot.
+				newPendingVanished.add(new PendingSwing(v.itemId, v.quantity, v.unitValue,
+					v.fullSwing, charge, v.hadBasis, v.basisQuantity, v.basisTotalCost, tsMs));
+			}
+		}
+
+		// ---- 4. Commit: the reversal window rolls forward exactly one interval.
+		this.pendingVanished = newPendingVanished;
+		this.pendingLooted = newPendingLooted;
+
+		syncCostBasis(current);
+		for (BasisCarry carry : basisCarries)
+		{
+			Basis basis = costBasis.get(carry.itemId);
+			if (basis != null && basis.quantity == carry.expectedQuantity)
+			{
+				basis.totalCost = carry.totalCost;
+			}
+		}
+
+		long trackedDelta = current.tracked() - trackedBefore;
+		long baselineDelta = baseline - baselineBefore;
+		logUpdateBreakdown(current, trackedDelta, lootRecorded, suppliesRecorded,
+			lootReversed + transferPaired, suppliesReversed, trackedDelta - baselineDelta);
+
 		this.previous = current;
+	}
+
+	/**
+	 * Guarded per-update wealth-breakdown DEBUG log so a "profit jumped for no
+	 * reason" report can be audited from client.log: every component of
+	 * tracked wealth, the bank, what this update classified (loot/supplies and
+	 * any equip-transient reversals), and the resulting realised-profit
+	 * movement ({@code m2mDelta} = Δtracked − Δbaseline, i.e. how far this
+	 * update moved {@code markToMarket} — the profit+unrealized total).
+	 */
+	private void logUpdateBreakdown(WealthSnapshot current, long trackedDelta,
+		long lootRecorded, long suppliesRecorded, long lootReversed, long suppliesReversed,
+		long m2mDelta)
+	{
+		if (!log.isDebugEnabled())
+		{
+			return;
+		}
+		log.debug("update: tracked={} (inv={} equip={} ge={} pouch={}) bank={}/known={} bankOpen={} "
+				+ "Δtracked={} loot+={} supplies+={} lootReversed={} suppliesReversed={} baseline={} ΔprofitM2m={}",
+			current.tracked(), current.getInventoryValue(), current.getEquipmentValue(),
+			current.getGeInFlightValue(), current.getPouchValue(),
+			current.getBankValue(), current.isBankKnown(), bankOpen,
+			trackedDelta, lootRecorded, suppliesRecorded, lootReversed, suppliesReversed,
+			baseline, m2mDelta);
+	}
+
+	/**
+	 * Removes {@code quantity}/{@code value} of a previously recorded loot row
+	 * (an equip-transient reversal, see {@link #update}), deleting the row
+	 * outright once nothing remains.
+	 */
+	private void retractLoot(int itemId, long quantity, long value)
+	{
+		LootEntry existing = lootTotals.get(itemId);
+		if (existing == null)
+		{
+			return;
+		}
+		long newQty = existing.getQuantity() - quantity;
+		long newValue = existing.getValue() - value;
+		if (newQty <= 0 && newValue <= 0)
+		{
+			lootTotals.remove(itemId);
+			return;
+		}
+		lootTotals.put(itemId, new LootEntry(itemId, existing.getName(),
+			Math.max(0L, newQty), Math.max(0L, newValue), existing.getTimestampMs()));
 	}
 
 	/**
