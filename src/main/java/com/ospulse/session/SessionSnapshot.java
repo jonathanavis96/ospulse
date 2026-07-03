@@ -353,11 +353,12 @@ public final class SessionSnapshot
 	/**
 	 * Running session total (gp value) of consumable supplies used
 	 * (potions/food/ammo/runes drained from inventory while away from the
-	 * bank and not attributable to a GE sale). An ADDITIONAL readout, not a
-	 * component subtracted from {@link #getProfit()} a second time — supplies
-	 * already implicitly reduce tracked wealth (and therefore profit); this
-	 * figure just surfaces how much of that reduction was supplies. Zero for
-	 * snapshots built before this tracking existed (older constructors).
+	 * bank and not attributable to a GE sale). This spend is excluded from
+	 * {@link #getProfit()} — consuming a supply neither gains nor loses
+	 * profit, it just moves value from "held" to "used" — so this figure is
+	 * the dedicated place that spend is visible, not a duplicate of a
+	 * reduction already visible in profit. Zero for snapshots built before
+	 * this tracking existed (older constructors).
 	 */
 	public long getSuppliesUsed()
 	{

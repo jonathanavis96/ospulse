@@ -220,7 +220,10 @@ public final class SessionEngine
 	 * recorded as a loot event; any NEGATIVE quantity delta in a tracked
 	 * item that {@link SupplyClassifier} recognises as a consumable, and
 	 * that isn't attributed to a GE sale, is recorded as supplies used (see
-	 * {@link #getSuppliesUsed}).
+	 * {@link #getSuppliesUsed}) and its value is folded into {@link
+	 * #baseline} — exactly like a bank-visit transfer — so eating/drinking a
+	 * supply is excluded from profit rather than registering as a loss;
+	 * "supplies used" is where that spend shows up instead.
 	 *
 	 * <p>Limitation: this is a conservative heuristic, not a perfect
 	 * consumed-vs-transferred classification. Because it only runs while the
@@ -287,11 +290,55 @@ public final class SessionEngine
 			}
 			else if (SupplyClassifier.isConsumable(currentStack.getName()))
 			{
-				suppliesUsed += (-delta) * currentStack.getUnitValue();
+				recordSupplyConsumed((-delta) * currentStack.getUnitValue());
+			}
+		}
+
+		// Items present in the previous snapshot but entirely absent from the
+		// current one (last unit of a stack consumed/dropped/sold — snapshots
+		// only carry entries with quantity > 0, see SessionTracker) are
+		// invisible to the loop above, which only walks current's items. Without
+		// this pass, drinking the final dose of a potion or eating the last
+		// piece of food would silently reduce profit with no supplies-used
+		// attribution at all.
+		for (Map.Entry<Integer, ItemStack> entry : previousItems.entrySet())
+		{
+			int itemId = entry.getKey();
+			if (current.getTrackedItems().containsKey(itemId))
+			{
+				continue;
+			}
+			ItemStack previousStack = entry.getValue();
+			if (geAttributedItemIds != null && geAttributedItemIds.contains(itemId))
+			{
+				continue;
+			}
+			if (previousStack.getUnitValue() <= 0)
+			{
+				continue;
+			}
+			if (SupplyClassifier.isConsumable(previousStack.getName()))
+			{
+				recordSupplyConsumed(previousStack.getQuantity() * previousStack.getUnitValue());
 			}
 		}
 
 		this.previous = current;
+	}
+
+	/**
+	 * Records {@code consumedValue} gp of a consumable leaving tracked wealth
+	 * via consumption (eating/drinking), and neutralises it against profit.
+	 * Folds the value into {@link #baseline} — exactly like a bank-visit
+	 * transfer is neutralised in {@link #setBankOpen} — so {@code
+	 * markToMarket = tracked() - baseline} (and hence profit) is unaffected
+	 * by the consumed value, while {@link #suppliesUsed} still surfaces it as
+	 * its own line item.
+	 */
+	private void recordSupplyConsumed(long consumedValue)
+	{
+		suppliesUsed += consumedValue;
+		this.baseline -= consumedValue;
 	}
 
 	/**
