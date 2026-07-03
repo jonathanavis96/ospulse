@@ -237,10 +237,18 @@ final class GearVariants
 	 * Emberlight — the Arclight upgrade; +70% accuracy AND damage vs demons.
 	 * Live id 29589 verified against the OSRS Wiki infobox (client-current).
 	 *
-	 * <p>TODO: Burning claws (melee, +5%) and dyed Silverlight variants are
-	 * still unwired.
+	 * <p>TODO: dyed Silverlight variants are still unwired.
 	 */
 	private static final int EMBERLIGHT = 29589;
+
+	/**
+	 * Burning claws — melee (slash) demonbane weapon; +5% accuracy AND damage
+	 * vs demons. Id 29577, cross-checked against the bundled cache-derived
+	 * {@code equipment_stats.min.json} (29577 = astab +43 / aslash +54 / str
+	 * +32 / 4-tick / weapon slot), which exactly matches the OSRS Wiki's
+	 * published stats for Burning claws.
+	 */
+	private static final int BURNING_CLAWS = 29577;
 
 	/**
 	 * Rest of the melee sword line. Ids are the OSRS Wiki infobox values for
@@ -277,6 +285,8 @@ final class GearVariants
 				return DemonbaneWeapon.SILVERLIGHT;
 			case SCORCHING_BOW:
 				return DemonbaneWeapon.SCORCHING_BOW;
+			case BURNING_CLAWS:
+				return DemonbaneWeapon.BURNING_CLAWS;
 			default:
 				return DemonbaneWeapon.NONE;
 		}

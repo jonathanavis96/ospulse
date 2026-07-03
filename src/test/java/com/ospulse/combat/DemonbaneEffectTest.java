@@ -95,4 +95,53 @@ public class DemonbaneEffectTest {
         assertTrue("adding the on-task helm must strictly raise DPS over demonbane alone",
                 withSlayerToo.dps() > demonbaneOnly.dps());
     }
+
+    @Test
+    public void burningClaws_vsDemon_raisesMaxHitByFivePercentAndDps() {
+        // Burning claws (item id 29577, cache-verified): melee (slash), +5%
+        // accuracy AND damage vs demons -> Fraction(21, 20).
+        Monster demon = monster(EnumSet.of(MonsterAttribute.DEMON));
+        DpsResult base = compute(gear(DemonbaneWeapon.NONE, SlayerHeadgear.NONE), player(false), demon);
+        DpsResult claws = compute(gear(DemonbaneWeapon.BURNING_CLAWS, SlayerHeadgear.NONE), player(false), demon);
+
+        int expectedMaxHit = (int) new Fraction(21, 20).applyFloor(base.maxHit());
+        assertEquals("max hit must be floor(base * 1.05) vs a demon", expectedMaxHit, claws.maxHit());
+        assertTrue("Burning claws must raise DPS vs a demon (" + claws.dps() + " vs " + base.dps() + ")",
+                claws.dps() > base.dps());
+    }
+
+    @Test
+    public void burningClaws_vsNonDemon_hasNoEffect() {
+        Monster notDemon = monster(EnumSet.noneOf(MonsterAttribute.class));
+        DpsResult base = compute(gear(DemonbaneWeapon.NONE, SlayerHeadgear.NONE), player(false), notDemon);
+        DpsResult claws = compute(gear(DemonbaneWeapon.BURNING_CLAWS, SlayerHeadgear.NONE), player(false), notDemon);
+
+        assertEquals("no demonbane bonus vs a non-demon", base.maxHit(), claws.maxHit());
+        assertEquals("no demonbane bonus vs a non-demon", base.dps(), claws.dps(), 1e-9);
+    }
+
+    @Test
+    public void burningClaws_appliesOnAllMeleeStyles() {
+        // The claws' style family marker is SLASH, but per the wired melee
+        // demonbane rule (DemonbaneWeapon#appliesTo), the passive applies to
+        // ALL melee styles (STAB/SLASH/CRUSH), matching the sword line.
+        Monster demon = monster(EnumSet.of(MonsterAttribute.DEMON));
+        assertTrue(DemonbaneWeapon.BURNING_CLAWS.appliesTo(CombatStyle.STAB));
+        assertTrue(DemonbaneWeapon.BURNING_CLAWS.appliesTo(CombatStyle.SLASH));
+        assertTrue(DemonbaneWeapon.BURNING_CLAWS.appliesTo(CombatStyle.CRUSH));
+        assertTrue("sanity: gear still usable for a CRUSH-style calc",
+                compute(gear(DemonbaneWeapon.BURNING_CLAWS, SlayerHeadgear.NONE), player(false), demon).maxHit() > 0);
+    }
+
+    @Test
+    public void burningClaws_stacksWithSlayerHelm_sequentialFloorSteps() {
+        Monster demon = monster(EnumSet.of(MonsterAttribute.DEMON));
+        DpsResult noBonuses = compute(gear(DemonbaneWeapon.NONE, SlayerHeadgear.NONE), player(false), demon);
+        DpsResult withSlayerToo = compute(gear(DemonbaneWeapon.BURNING_CLAWS, SlayerHeadgear.STANDARD), player(true), demon);
+
+        long slotStep = new Fraction(7, 6).applyFloor(noBonuses.maxHit());
+        int expected = (int) new Fraction(21, 20).applyFloor(slotStep);
+        assertEquals("slayer helm 7/6 then demonbane 21/20, each its own floor",
+                expected, withSlayerToo.maxHit());
+    }
 }

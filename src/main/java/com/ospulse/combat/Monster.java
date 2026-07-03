@@ -24,6 +24,7 @@ public final class Monster {
     private final int size;
     private final Set<MonsterAttribute> attributes;
     private final Integer attackSpeedTicks;
+    private final int demonbaneResistPercent;
 
     private Monster(Builder b) {
         this.name = b.name;
@@ -40,6 +41,7 @@ public final class Monster {
         this.attributes = Collections.unmodifiableSet(EnumSet.copyOf(
                 b.attributes.isEmpty() ? EnumSet.noneOf(MonsterAttribute.class) : b.attributes));
         this.attackSpeedTicks = b.attackSpeedTicks;
+        this.demonbaneResistPercent = b.demonbaneResistPercent;
     }
 
     public String name() {
@@ -126,6 +128,19 @@ public final class Monster {
         return attackSpeedTicks;
     }
 
+    /**
+     * Percent by which this monster resists the demonbane weapon BONUS
+     * (0-100; default 0 = no resistance). E.g. Duke Sucellus is 30: a
+     * demonbane weapon's excess-over-1 multiplier is scaled down by
+     * {@code (1 - resistPercent / 100)} — see {@code DpsCalculator}'s
+     * demonbane apply step for the exact formula. Populated from the bundled
+     * monster data when present; otherwise 0 (mechanism is data-driven, so it
+     * activates automatically once a monster's data carries a non-zero value).
+     */
+    public int demonbaneResistPercent() {
+        return demonbaneResistPercent;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -144,6 +159,7 @@ public final class Monster {
         private int size = 1;
         private Set<MonsterAttribute> attributes = EnumSet.noneOf(MonsterAttribute.class);
         private Integer attackSpeedTicks;
+        private int demonbaneResistPercent;
 
         private Builder() {
         }
@@ -194,6 +210,12 @@ public final class Monster {
 
         public Builder attackSpeedTicks(Integer ticks) {
             this.attackSpeedTicks = ticks;
+            return this;
+        }
+
+        /** Percent demonbane resistance (0-100; default 0). See {@link Monster#demonbaneResistPercent()}. */
+        public Builder demonbaneResistPercent(int percent) {
+            this.demonbaneResistPercent = percent;
             return this;
         }
 

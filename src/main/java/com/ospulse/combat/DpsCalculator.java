@@ -9,9 +9,12 @@ package com.ospulse.combat;
  * predicate, per the design doc): offensive prayers, best-potion boosts,
  * Slayer helm(i)/black mask(i) on-task bonus, Salve amulet variants vs
  * Undead, Void/Elite Void. Tier-B effects: demonbane weapons (melee sword
- * line + ranged Scorching bow; accuracy/damage split, applied as the weapon's
- * own step stacking with the salve/slayer slot, with the ranged max hit
- * folding additively into an on-task imbued helm — see computeRanged), Dragon
+ * line + Burning claws + ranged Scorching bow; accuracy/damage split, applied
+ * as the weapon's own step stacking with the salve/slayer slot, with the
+ * ranged max hit folding additively into an on-task imbued helm — see
+ * computeRanged; a per-monster demonbane RESISTANCE, e.g. Duke Sucellus's
+ * 30%, scales the bonus's excess-over-1 down — see
+ * resistedDemonbaneFraction), Dragon
  * Hunter lance/crossbow/wand vs dragons and the Twisted bow's vs-target-magic
  * scaling (separate multiplicative steps — they stack with the target
  * slot, with the same ranged-max-hit additive fold for the DHCB),
@@ -99,11 +102,14 @@ public final class DpsCalculator {
 
         // Melee demonbane (Silverlight line): the weapon's own vs-demon passive —
         // a SEPARATE multiplicative floor step AFTER the salve/slayer slot, so it
-        // STACKS with the on-task slayer helm (per the wiki DPS calc).
+        // STACKS with the on-task slayer helm (per the wiki DPS calc). Some
+        // demons (Duke Sucellus) partially resist the bonus — see
+        // resistedDemonbaneFraction.
         DemonbaneWeapon demonbane = gear.demonbaneWeapon();
         if (target.isDemon() && demonbane.appliesTo(style)) {
-            maxHit = (int) demonbane.damageMult().applyFloor(maxHit);
-            attackRoll = (int) demonbane.accuracyMult().applyFloor(attackRoll);
+            int resist = target.demonbaneResistPercent();
+            maxHit = (int) resistedDemonbaneFraction(demonbane.damageMult(), resist).applyFloor(maxHit);
+            attackRoll = (int) resistedDemonbaneFraction(demonbane.accuracyMult(), resist).applyFloor(attackRoll);
         }
 
         // Dragon Hunter lance: the weapon's own vs-dragon passive — a SEPARATE
@@ -176,11 +182,18 @@ public final class DpsCalculator {
         }
 
         // Scorching bow (ranged demonbane) — same shape as dragonbane above.
+        // Per-monster demonbane resistance (Duke Sucellus) is applied to the
+        // separate-step accuracy roll and to the damage step when it is NOT
+        // folded into the slayer-helm slot above; a resisted value folded
+        // additively into that slot is not documented by the wiki calc, so we
+        // do not attempt to fold a resisted bonus (out of scope — no known
+        // demon combines on-task-imbued-helm ranged demonbane with resistance).
         if (demonbaneApplies) {
+            int resist = target.demonbaneResistPercent();
             if (!foldIntoSlayer) {
-                maxHit = (int) demonbane.damageMult().applyFloor(maxHit);
+                maxHit = (int) resistedDemonbaneFraction(demonbane.damageMult(), resist).applyFloor(maxHit);
             }
-            attackRoll = (int) demonbane.accuracyMult().applyFloor(attackRoll);
+            attackRoll = (int) resistedDemonbaneFraction(demonbane.accuracyMult(), resist).applyFloor(attackRoll);
         }
 
         // Twisted bow: the weapon's own scaling with the TARGET's magic level —
@@ -321,6 +334,29 @@ public final class DpsCalculator {
      */
     private static long additiveTwentieths(Fraction bonus) {
         return (bonus.numerator - bonus.denominator) * 20 / bonus.denominator;
+    }
+
+    /**
+     * Scales a demonbane bonus fraction down for a monster's demonbane
+     * resistance: the bonus's excess-over-1 (its "BONUS portion", e.g.
+     * Emberlight's 17/10 is 1 + 7/10) is reduced by {@code resistPercent}%,
+     * so the final multiplier is {@code 1 + excess * (1 - resistPercent/100)}.
+     * Duke Sucellus (30% resistance): Emberlight's documented +70% becomes
+     * +49% (0.7 * 0.7 = 0.49), i.e. 149/100 instead of 17/10 — per the OSRS
+     * Wiki ("an emberlight would only have 49% increased damage and accuracy
+     * against him rather than 70%"). {@code resistPercent} of 0 (the default
+     * for almost every demon) returns the bonus unchanged.
+     */
+    private static Fraction resistedDemonbaneFraction(Fraction bonus, int resistPercent) {
+        if (resistPercent <= 0 || bonus.isOne()) {
+            return bonus;
+        }
+        // excess = bonus - 1, as a fraction with the same denominator as bonus.
+        long excessNumerator = bonus.numerator - bonus.denominator;
+        // scaledExcess = excess * (100 - resistPercent) / 100
+        long numerator = bonus.denominator * 100L + excessNumerator * (100L - resistPercent);
+        long denominator = bonus.denominator * 100L;
+        return new Fraction(numerator, denominator);
     }
 
     /** The stronger of two slot candidates: higher damage multiplier wins, accuracy breaks ties. */
