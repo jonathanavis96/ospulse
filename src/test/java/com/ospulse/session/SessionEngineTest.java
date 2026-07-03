@@ -1151,4 +1151,66 @@ public class SessionEngineTest
 		engine.startSession(current, 1000L);
 		assertEquals(0L, engine.getSuppliesUsed());
 	}
+
+	private static final int SUPER_ANTIFIRE_4 = 21978;
+	private static final int SUPER_ANTIFIRE_3 = 21981;
+	private static final int SUPER_ANTIFIRE_1 = 21987;
+
+	@Test
+	public void drinkingAPotionDoseDownIsNotBookedAsLoot()
+	{
+		// Regression: drinking one dose of a 4-dose potion drops the (4) stack
+		// (correctly booked as supplies) but a (3) stack of a DIFFERENT item id
+		// appears in the same interval. The existing Section 2 transfer pairing
+		// only matches equal unit values, so the appearing (3) stack (worth
+		// less than the vanished (4) stack) was falling through to loot,
+		// inflating profit. Only the value of the dose actually drunk
+		// (4000 - 3000 = 1000) may move, and it must land in suppliesUsed, not
+		// profit/loot.
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(SUPER_ANTIFIRE_4,
+			new ItemStack(SUPER_ANTIFIRE_4, "Super antifire potion(4)", 1L, 4_000L));
+		WealthSnapshot initial = snap(4_000L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		Map<Integer, ItemStack> afterTracked = new LinkedHashMap<>();
+		afterTracked.put(SUPER_ANTIFIRE_3,
+			new ItemStack(SUPER_ANTIFIRE_3, "Super antifire potion(3)", 1L, 3_000L));
+		WealthSnapshot current = snap(3_000L, afterTracked, 0L, false, 1000L);
+
+		engine.update(current, Collections.emptySet(), 1000L);
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+
+		assertEquals("drinking a dose must not register as profit", 0L, result.getProfit());
+		assertEquals("drinking a dose must not appear as loot", 0, result.getLoot().size());
+		assertEquals("only the consumed dose value counts as supplies used",
+			1_000L, result.getSuppliesUsed());
+		assertEquals(1_000L, engine.getSuppliesUsed());
+	}
+
+	@Test
+	public void drinkingTheFinalDoseOfADosePotionStillCountsAsSuppliesUsed()
+	{
+		// Edge case: drinking the LAST dose makes the item vanish entirely
+		// (no lower-dose item appears at all). This must keep going through
+		// the existing full-vanish supplies path unaffected by the new
+		// dose-swap pairing.
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(SUPER_ANTIFIRE_1,
+			new ItemStack(SUPER_ANTIFIRE_1, "Super antifire potion(1)", 1L, 1_000L));
+		WealthSnapshot initial = snap(1_000L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		Map<Integer, ItemStack> afterTracked = new LinkedHashMap<>();
+		WealthSnapshot current = snap(0L, afterTracked, 0L, false, 1000L);
+
+		engine.update(current, Collections.emptySet(), 1000L);
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+
+		assertEquals("drinking the last dose must still count as supplies used",
+			1_000L, result.getSuppliesUsed());
+		assertEquals("drinking the last dose must not register as a profit loss",
+			0L, result.getProfit());
+		assertTrue("drinking the last dose must not appear as loot", result.getLoot().isEmpty());
+	}
 }

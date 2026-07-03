@@ -318,6 +318,44 @@ public class GearOptimizerTest {
         assertTrue(result.totalSpend() <= 75_000L);
     }
 
+    /**
+     * Reproduces the per-item-only budget bug: several UNOWNED candidates
+     * (weapon whip, shield defender, boots) are each individually priced
+     * UNDER the 50m budget, but their SUM (46m + 40m + 6m = 92m) blows way
+     * past it. A search that only prunes items whose OWN price exceeds the
+     * budget (the old {@code buildCandidatesForSlot} behaviour) will happily
+     * combine all three since each passes the per-item check individually —
+     * the cumulative spend was never bounded. The fix must track/guard
+     * total spend across slots so the returned loadout's total is <= budget.
+     */
+    @Test
+    public void resultLoadout_totalSpendAcrossMultipleSlots_neverExceedsBudget() {
+        int[] live = emptyLoadout(); // nothing owned, bare fists/no gear
+
+        final int DRAGON_DEFENDER = 12954; // shield slot (5)
+        final int DRAGON_BOOTS = 11840;    // boots slot (10)
+
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(ABYSSAL_WHIP, 46_000_000L);
+        fixed.put(DRAGON_DEFENDER, 40_000_000L);
+        fixed.put(DRAGON_BOOTS, 6_000_000L);
+        // Everything else effectively unaffordable/irrelevant so the search
+        // is forced to choose among (or skip) these three fixtures.
+        GearOptimizer.PriceSource prices = id -> fixed.containsKey(id) ? fixed.get(id) : 100_000_000L;
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(50_000_000L)
+                .priceSource(prices)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertTrue("total spend across all purchased slots must not exceed the budget (was "
+                        + result.totalSpend() + ")",
+                result.totalSpend() <= 50_000_000L);
+    }
+
     private static int weaponIdIn(GearOptimizer.Result result) {
         for (GearOptimizer.SlotChoice choice : result.loadout()) {
             if (choice.slotOrdinal() == WhatIfLoadout.WEAPON_SLOT) {

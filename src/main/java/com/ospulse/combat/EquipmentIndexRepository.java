@@ -41,14 +41,21 @@ public final class EquipmentIndexRepository {
 
     private final List<Entry> entries;
     private final Map<Integer, Entry> byItemId;
+    private final Map<String, Integer> idByLowercaseName;
 
     private EquipmentIndexRepository(List<Entry> entries) {
         this.entries = Collections.unmodifiableList(entries);
         Map<Integer, Entry> byId = new HashMap<>();
+        Map<String, Integer> byName = new HashMap<>();
         for (Entry e : entries) {
             byId.put(e.itemId(), e);
+            // First entry wins on a name collision (several ids can share a
+            // display name, e.g. multiple imbue-source id families for the
+            // same item) — deterministic file-order preference.
+            byName.putIfAbsent(e.name().toLowerCase(Locale.ROOT), e.itemId());
         }
         this.byItemId = Collections.unmodifiableMap(byId);
+        this.idByLowercaseName = Collections.unmodifiableMap(byName);
     }
 
     /** Shared, lazily-initialised singleton loaded from the bundled resource. */
@@ -115,6 +122,20 @@ public final class EquipmentIndexRepository {
     /** The name+slot entry for an item id, or {@code null} if unknown/unindexed. */
     public Entry entryFor(int itemId) {
         return byItemId.get(itemId);
+    }
+
+    /**
+     * Case-insensitive EXACT name -&gt; item id lookup (as opposed to
+     * {@link #searchSlot}'s substring search), or {@code null} if no indexed
+     * item has that display name. Used to resolve a variant's plain-name
+     * counterpart (e.g. stripping the " (f)"/" (i)" suffix — see
+     * {@code GearSection.ownedPriceMap}) without hard-coding per-item ids.
+     */
+    public Integer idForName(String name) {
+        if (name == null) {
+            return null;
+        }
+        return idByLowercaseName.get(name.toLowerCase(Locale.ROOT));
     }
 
     /** All indexed (computable) item ids — the optimiser's candidate universe. */
