@@ -302,6 +302,42 @@ public class GearSectionStyleRankingTest
 		});
 	}
 
+	// ---- QA fix: Iban Blast is castable ONLY with Iban's staff equipped -------------------
+
+	@Test
+	public void ibanBlastIsExcludedFromCandidatesWithoutIbansStaffEquipped()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			// Staff of fire (1387) is a regular "staff" category weapon, not Iban's staff.
+			GearSnapshot gear = gearWithMagicWeapon(1387, com.ospulse.combat.PoweredStaff.NONE);
+			section.apply(snapshotWith(gear));
+			pickCerberus(section);
+
+			List<com.ospulse.combat.Spell> ranked = section.rankedSpellsForTest();
+			assertTrue("Iban Blast must never appear/rank without Iban's staff equipped",
+				ranked.stream().noneMatch(s -> s == com.ospulse.combat.Spell.IBAN_BLAST));
+		});
+	}
+
+	@Test
+	public void ibanBlastIsIncludedInCandidatesWithIbansStaffEquipped()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			// Iban's staff, item id 1409.
+			GearSnapshot gear = gearWithMagicWeapon(1409, com.ospulse.combat.PoweredStaff.NONE);
+			section.apply(snapshotWith(gear));
+			pickCerberus(section);
+
+			List<com.ospulse.combat.Spell> ranked = section.rankedSpellsForTest();
+			assertTrue("Iban Blast must be a candidate when Iban's staff is equipped",
+				ranked.stream().anyMatch(s -> s == com.ospulse.combat.Spell.IBAN_BLAST));
+		});
+	}
+
 	@Test
 	public void ancientTabRanksAncientsAndASpellClickLocksTheReadout()
 	{
