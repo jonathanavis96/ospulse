@@ -16,10 +16,11 @@ import java.util.List;
 
 /**
  * Session summary: elapsed, profit, supplies used, profit/hr, net-worth delta
- * and GE flip P&L. Profit is the headline figure; supplies used is shown
- * alongside it as a separate spent/negative-styled readout so consumables
- * burned through this session are visible at a glance instead of silently
- * eating into profit. Collapsed summary shows elapsed + profit.
+ * and GE flip P&L. Profit is the headline figure and excludes consumption
+ * spend entirely (see {@link com.ospulse.session.SessionEngine#update});
+ * supplies used is shown alongside it as a separate spent/negative-styled
+ * readout so consumables burned through this session are visible at a
+ * glance. Collapsed summary shows elapsed + profit.
  *
  * <p>Each stat row carries an XP-Tracker-style right-click menu (see {@code
  * com.ospulse.ui.category.CategoryContextMenu}, ported from RuneLite's XP

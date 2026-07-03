@@ -220,7 +220,10 @@ public final class SessionEngine
 	 * recorded as a loot event; any NEGATIVE quantity delta in a tracked
 	 * item that {@link SupplyClassifier} recognises as a consumable, and
 	 * that isn't attributed to a GE sale, is recorded as supplies used (see
-	 * {@link #getSuppliesUsed}).
+	 * {@link #getSuppliesUsed}) and its value is folded into {@link
+	 * #baseline} — exactly like a bank-visit transfer — so eating/drinking a
+	 * supply is excluded from profit rather than registering as a loss;
+	 * "supplies used" is where that spend shows up instead.
 	 *
 	 * <p>Limitation: this is a conservative heuristic, not a perfect
 	 * consumed-vs-transferred classification. Because it only runs while the
@@ -287,7 +290,17 @@ public final class SessionEngine
 			}
 			else if (SupplyClassifier.isConsumable(currentStack.getName()))
 			{
-				suppliesUsed += (-delta) * currentStack.getUnitValue();
+				long consumedValue = (-delta) * currentStack.getUnitValue();
+				suppliesUsed += consumedValue;
+				// Consumption (eating/drinking) is neither a loot gain nor
+				// trade activity — it must not register as a profit loss.
+				// Shift the baseline down by the same amount that tracked
+				// wealth just dropped by, exactly like a bank-visit transfer
+				// is neutralised in setBankOpen: this keeps
+				// markToMarket = tracked() - baseline (and hence profit)
+				// unaffected by the consumed value, while suppliesUsed still
+				// surfaces it as its own line item.
+				this.baseline -= consumedValue;
 			}
 		}
 
