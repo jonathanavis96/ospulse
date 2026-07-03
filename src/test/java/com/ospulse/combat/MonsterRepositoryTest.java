@@ -57,4 +57,22 @@ public class MonsterRepositoryTest {
         assertFalse(ghosts.isEmpty());
         assertTrue(ghosts.stream().anyMatch(Monster::isUndead));
     }
+
+    /**
+     * Guards the gzip-compressed resource load path (monsters.min.json.gz,
+     * decompressed via GZIPInputStream in MonsterRepository.loadFromResource):
+     * a known monster with well-established stats must still resolve exactly
+     * as it did from the plain JSON. Cerberus is also exercised end-to-end by
+     * ScorchingBowCerberusParityTest.
+     */
+    @Test
+    public void cerberusLoadsFromGzippedResourceWithKnownStats() {
+        MonsterRepository repo = MonsterRepository.getInstance();
+        Optional<Monster> byId = repo.byId(5862);
+        assertTrue("Cerberus (npc id 5862) must load from the gzipped bundle", byId.isPresent());
+        Monster cerberus = byId.get();
+        assertEquals("Cerberus", cerberus.name());
+        assertEquals(600, cerberus.hitpoints());
+        assertTrue("Cerberus must be tagged DEMON", cerberus.isDemon());
+    }
 }
