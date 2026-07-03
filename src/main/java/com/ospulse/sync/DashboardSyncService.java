@@ -13,8 +13,9 @@ import okhttp3.Response;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -28,6 +29,12 @@ import java.util.concurrent.TimeUnit;
  * actual HTTP call off to a single background thread it owns, throttled to at
  * most one send per {@link OSPulseConfig#syncIntervalSeconds()}.
  *
+ * <p>The throttle is leading edge <em>plus</em> a trailing-edge retry: an
+ * update landing inside the throttle window schedules exactly one deferred
+ * flush for when the window reopens, so the final snapshot before an idle
+ * gap or logout is still shipped rather than silently dropped. On
+ * {@link #shutdown()} any still-pending snapshot gets one best-effort send.
+ *
  * <p>All failure modes (disabled config, blank URL, network errors, non-2xx
  * responses) are swallowed and logged - a sync problem must never propagate
  * back into the game thread or interrupt play.
@@ -37,14 +44,27 @@ public final class DashboardSyncService implements SessionListener
 {
 	private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 
+	/**
+	 * Sends one serialised snapshot. Package seam so tests can count sends
+	 * without any network; production uses {@link #httpSend(SessionSnapshot)}.
+	 */
+	@FunctionalInterface
+	interface Sender
+	{
+		void send(SessionSnapshot snapshot);
+	}
+
 	private final OkHttpClient httpClient;
 	private final OSPulseConfig config;
 	private final Gson gson;
-	private final ExecutorService executor;
+	private final ScheduledExecutorService executor;
+	private final Sender sender;
 
 	/**
-	 * Latest snapshot awaiting send. Overwritten on every update so a send
-	 * always ships the freshest data, never a stale one.
+	 * Latest snapshot awaiting send, or {@code null} once consumed by a send.
+	 * Overwritten on every update so a send always ships the freshest data,
+	 * never a stale one; cleared on send so a trailing flush with nothing new
+	 * to say sends nothing.
 	 */
 	private volatile SessionSnapshot pendingSnapshot;
 
@@ -58,6 +78,12 @@ public final class DashboardSyncService implements SessionListener
 	private volatile long lastSendAtMs;
 
 	/**
+	 * True while a trailing-edge flush is scheduled. Only read/written on the
+	 * single executor thread, so no synchronisation is needed.
+	 */
+	private boolean trailingFlushScheduled;
+
+	/**
 	 * Builds a sync service with its own single-thread background executor.
 	 *
 	 * @param httpClient RuneLite's shared OkHttp client
@@ -66,23 +92,26 @@ public final class DashboardSyncService implements SessionListener
 	 */
 	public DashboardSyncService(OkHttpClient httpClient, OSPulseConfig config, Gson gson)
 	{
-		this(httpClient, config, gson, Executors.newSingleThreadExecutor(r ->
+		this(httpClient, config, gson, Executors.newSingleThreadScheduledExecutor(r ->
 		{
 			Thread t = new Thread(r, "ospulse-sync");
 			t.setDaemon(true);
 			return t;
-		}));
+		}), null);
 	}
 
 	/**
-	 * Visible for testing: allows injecting a controllable executor.
+	 * Visible for testing: allows injecting a controllable executor and a
+	 * network-free {@link Sender} ({@code null} = real HTTP send).
 	 */
-	DashboardSyncService(OkHttpClient httpClient, OSPulseConfig config, Gson gson, ExecutorService executor)
+	DashboardSyncService(OkHttpClient httpClient, OSPulseConfig config, Gson gson,
+						ScheduledExecutorService executor, Sender sender)
 	{
 		this.httpClient = httpClient;
 		this.config = config;
 		this.gson = gson;
 		this.executor = executor;
+		this.sender = sender != null ? sender : this::httpSend;
 	}
 
 	/**
@@ -108,12 +137,23 @@ public final class DashboardSyncService implements SessionListener
 		}
 
 		pendingSnapshot = snapshot;
-		executor.execute(this::flushIfDue);
+		try
+		{
+			executor.execute(this::flushIfDue);
+		}
+		catch (RejectedExecutionException e)
+		{
+			// Shutdown raced a late session update - never leak into the client thread.
+			log.debug("Dashboard sync executor already shut down", e);
+		}
 	}
 
 	/**
 	 * Runs on the background executor thread. Re-checks gating and the
-	 * throttle window, and if due, POSTs the most recently stashed snapshot.
+	 * throttle window; if due, POSTs the most recently stashed snapshot, and
+	 * if throttled, schedules exactly one trailing-edge flush for the moment
+	 * the window reopens (otherwise the last update before an idle gap or
+	 * logout would only ever ship if ANOTHER update happened to arrive later).
 	 */
 	private void flushIfDue()
 	{
@@ -126,6 +166,39 @@ public final class DashboardSyncService implements SessionListener
 		long now = System.currentTimeMillis();
 		if (!shouldSend(lastSendAtMs, now, intervalMs))
 		{
+			if (!trailingFlushScheduled)
+			{
+				trailingFlushScheduled = true;
+				long delayMs = Math.max(1L, lastSendAtMs + intervalMs - now);
+				try
+				{
+					executor.schedule(() ->
+					{
+						trailingFlushScheduled = false;
+						flushIfDue();
+					}, delayMs, TimeUnit.MILLISECONDS);
+				}
+				catch (RejectedExecutionException e)
+				{
+					trailingFlushScheduled = false;
+					log.debug("Dashboard sync executor already shut down", e);
+				}
+			}
+			return;
+		}
+
+		flushNow();
+	}
+
+	/**
+	 * Runs on the background executor thread (steady state) or during
+	 * {@link #shutdown()}'s final drain: consumes and sends the pending
+	 * snapshot, ignoring the throttle window.
+	 */
+	private void flushNow()
+	{
+		if (!config.syncEnabled() || isBlank(config.syncUrl()))
+		{
 			return;
 		}
 
@@ -135,8 +208,9 @@ public final class DashboardSyncService implements SessionListener
 			return;
 		}
 
-		lastSendAtMs = now;
-		send(snapshot);
+		pendingSnapshot = null;
+		lastSendAtMs = System.currentTimeMillis();
+		sender.send(snapshot);
 	}
 
 	/**
@@ -148,7 +222,7 @@ public final class DashboardSyncService implements SessionListener
 		return nowMs - lastSendAtMs >= intervalMs;
 	}
 
-	private void send(SessionSnapshot snapshot)
+	private void httpSend(SessionSnapshot snapshot)
 	{
 		try
 		{
@@ -180,11 +254,20 @@ public final class DashboardSyncService implements SessionListener
 	}
 
 	/**
-	 * Stops the background executor. Safe to call from the plugin's
-	 * {@code shutDown()}.
+	 * Queues one best-effort final flush of any pending snapshot (so the tail
+	 * of the session isn't lost), then stops the background executor. Safe to
+	 * call from the plugin's {@code shutDown()}.
 	 */
 	public void shutdown()
 	{
+		try
+		{
+			executor.execute(this::flushNow);
+		}
+		catch (RejectedExecutionException ignored)
+		{
+			// Already shut down - nothing left to drain.
+		}
 		executor.shutdown();
 		try
 		{
