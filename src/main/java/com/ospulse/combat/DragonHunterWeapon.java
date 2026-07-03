@@ -18,17 +18,17 @@ package com.ospulse.combat;
  * both apply (1.30×1.15 vs 1+0.30+0.15 on accuracy); GearScape-parity
  * TODO before trusting on-task-vs-dragon numbers to the last percent.
  *
- * <p>Dragon hunter wand: exists but its exact vs-dragon percentages were not
- * verifiable from the sources checked — flagged TODO rather than guessed
- * (per the item-id/percentage verification rule); until wired, a wand user
- * vs dragons simply gets no dragonbane bonus (a lower bound).
+ * <p>Dragon hunter wand (magic): grants +75% magic accuracy and +40% magic
+ * damage vs draconic creatures, per the OSRS Wiki (verified 2026-07-03).
  */
 public enum DragonHunterWeapon {
     NONE(Fraction.ONE, Fraction.ONE, null),
     /** Dragon hunter lance (melee): +20% accuracy and +20% damage vs dragons. */
     LANCE(new Fraction(6, 5), new Fraction(6, 5), CombatStyle.STAB),
     /** Dragon hunter crossbow (ranged): +30% accuracy and +25% damage vs dragons. */
-    CROSSBOW(new Fraction(13, 10), new Fraction(5, 4), CombatStyle.RANGED);
+    CROSSBOW(new Fraction(13, 10), new Fraction(5, 4), CombatStyle.RANGED),
+    /** Dragon hunter wand (magic): +75% accuracy and +40% damage vs dragons. */
+    WAND(new Fraction(7, 4), new Fraction(7, 5), CombatStyle.MAGIC);
 
     private final Fraction accuracyMult;
     private final Fraction damageMult;

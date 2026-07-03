@@ -282,13 +282,14 @@ final class GearVariants
 	// ==== Dragon Hunter (dragonbane) weapons + Twisted bow ================================
 
 	/**
-	 * Dragon hunter crossbow 21012 and Dragon hunter lance 22978, both
-	 * verified against the OSRS Wiki infobox 2026-07-03 (dragon-hunter
-	 * crossbow (b)/(t) cosmetic variants and the Dragon hunter wand — whose
-	 * exact vs-dragon %s are still unverified — are TODO). Twisted bow 20997.
+	 * Dragon hunter crossbow 21012, Dragon hunter lance 22978, and Dragon
+	 * hunter wand 30070, all verified against the OSRS Wiki infobox
+	 * 2026-07-03 (dragon-hunter crossbow (b)/(t) cosmetic variants are TODO).
+	 * Twisted bow 20997.
 	 */
 	private static final int DRAGON_HUNTER_CROSSBOW = 21012;
 	private static final int DRAGON_HUNTER_LANCE = 22978;
+	private static final int DRAGON_HUNTER_WAND = 30070;
 	private static final int TWISTED_BOW = 20997;
 
 	/** Maps a worn WEAPON-slot item id to its {@link DragonHunterWeapon} ({@link DragonHunterWeapon#NONE} if not dragonbane). */
@@ -300,6 +301,8 @@ final class GearVariants
 				return DragonHunterWeapon.LANCE;
 			case DRAGON_HUNTER_CROSSBOW:
 				return DragonHunterWeapon.CROSSBOW;
+			case DRAGON_HUNTER_WAND:
+				return DragonHunterWeapon.WAND;
 			default:
 				return DragonHunterWeapon.NONE;
 		}

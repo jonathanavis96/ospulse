@@ -202,6 +202,14 @@ public final class DpsCalculator {
         boolean slayerPreHitRollApplies = slayerOnTaskImbued && !salveVsUndead;
         int maxHit = CombatMath.magicPreHitRoll(primaryDamage, slayerPreHitRollApplies);
 
+        // Dragon hunter wand — the weapon's own vs-dragon passive, a separate
+        // multiplicative floor step stacking with the salve/slayer slot (see computeRanged).
+        DragonHunterWeapon dh = gear.dragonHunterWeapon();
+        if (target.isDragon() && dh.appliesTo(CombatStyle.MAGIC)) {
+            maxHit = (int) dh.damageMult().applyFloor(maxHit);
+            accuracyRoll = (int) dh.accuracyMult().applyFloor(accuracyRoll);
+        }
+
         return finish(maxHit, accuracyRoll, defenceRoll, castSpeedTicks, target.hitpoints(), approximate);
     }
 
