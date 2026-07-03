@@ -2614,12 +2614,27 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
+	 * Fortified/imbued variant name suffixes (space-prefixed, as they appear
+	 * at the end of an {@link EquipmentIndexRepository.Entry#name()}) whose
+	 * plain form should also count as owned — see {@link #addVariantPlainForm}.
+	 */
+	private static final String[] OWNED_VARIANT_SUFFIXES = { " (f)", " (i)" };
+
+	/**
 	 * The owned-item pool + GE prices for the optimiser: every worn item
 	 * (always owned, price irrelevant) plus {@link WealthSnapshot#getTopHoldings()}
 	 * (worn + inventory + bank — see {@link #lastWealth}) filtered to items the
 	 * {@link EquipmentIndexRepository} actually indexes (so the optimiser never
 	 * tries to equip e.g. raw materials). Built fresh per search so it always
 	 * reflects the latest snapshot.
+	 *
+	 * <p><b>Variant-aware ownership (bug B):</b> owning an upgraded variant —
+	 * a name ending in " (f)" (fortified, e.g. "Masori body (f)") or " (i)"
+	 * (imbued, e.g. "Berserker ring (i)") — also marks the PLAIN form (e.g.
+	 * "Masori body"/"Berserker ring") as owned at price 0, resolved generically
+	 * via {@link EquipmentIndexRepository#idForName}. Without this the
+	 * optimiser has no idea an owned upgrade already supersedes the plain
+	 * item, and will happily suggest buying the plain form as an "upgrade".
 	 */
 	private java.util.Map<Integer, Long> ownedPriceMap()
 	{
@@ -2632,6 +2647,7 @@ public final class GearSection extends CollapsibleSection
 				if (id > 0 && index.entryFor(id) != null)
 				{
 					prices.put(id, 0L);
+					addVariantPlainForm(prices, index, id);
 				}
 			}
 		}
@@ -2642,10 +2658,41 @@ public final class GearSection extends CollapsibleSection
 				if (index.entryFor(stack.getId()) != null)
 				{
 					prices.merge(stack.getId(), Math.max(0L, stack.getUnitValue()), Math::min);
+					addVariantPlainForm(prices, index, stack.getId());
 				}
 			}
 		}
 		return prices;
+	}
+
+	/**
+	 * If {@code ownedItemId}'s indexed name ends in one of
+	 * {@link #OWNED_VARIANT_SUFFIXES}, looks up the plain (suffix-stripped)
+	 * name's item id and marks it owned at price 0 too — see
+	 * {@link #ownedPriceMap}'s javadoc for why.
+	 */
+	private static void addVariantPlainForm(java.util.Map<Integer, Long> prices, EquipmentIndexRepository index,
+		int ownedItemId)
+	{
+		EquipmentIndexRepository.Entry entry = index.entryFor(ownedItemId);
+		if (entry == null)
+		{
+			return;
+		}
+		String name = entry.name();
+		for (String suffix : OWNED_VARIANT_SUFFIXES)
+		{
+			if (name.regionMatches(true, name.length() - suffix.length(), suffix, 0, suffix.length()))
+			{
+				String plainName = name.substring(0, name.length() - suffix.length());
+				Integer plainId = index.idForName(plainName);
+				if (plainId != null)
+				{
+					prices.putIfAbsent(plainId, 0L);
+				}
+				return;
+			}
+		}
 	}
 
 	/**
@@ -2789,7 +2836,7 @@ public final class GearSection extends CollapsibleSection
 			// Long.MAX_VALUE (unaffordable at any budget); owned items are separately
 			// marked affordable via .owned(...) regardless of price.
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
-				id -> ownedPrices.getOrDefault(id, Long.MAX_VALUE));
+				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L)));
 			runOptimizerSearch(request);
 			return;
 		}
@@ -2802,11 +2849,86 @@ public final class GearSection extends CollapsibleSection
 		{
 			// .owned() already makes owned items free/affordable — no need to
 			// special-case ownedPrices here. Anything the resolver didn't price
-			// (untradeable/unknown) falls back to Long.MAX_VALUE = unaffordable.
+			// (untradeable/unknown) falls back to Long.MAX_VALUE = unaffordable —
+			// see resolveOptimizerPriceSource (bug D).
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
-				id -> priceMap.getOrDefault(id, Long.MAX_VALUE));
+				resolveOptimizerPriceSource(id -> priceMap.getOrDefault(id, 0L)));
 			runOptimizerSearch(request);
 		});
+	}
+
+	/**
+	 * A small assembled-item -&gt; tradeable-component price override (bug D):
+	 * some equippable ids are the ASSEMBLED (untradeable) form of an item
+	 * whose real GE cost is a separate tradeable component. Without this, an
+	 * untradeable item's raw GE price resolves to 0 and looks nearly free —
+	 * e.g. the assembled Avernic defender (ids 24186/22322) is untradeable,
+	 * but its real cost is the tradeable Avernic defender hilt (~31.8m).
+	 *
+	 * <p>Add more entries here as they're found — {@code assembled id -> the
+	 * tradeable component id to price instead}.
+	 */
+	private static final java.util.Map<Integer, Integer> PRICE_COMPONENT_OVERRIDE = java.util.Map.of(
+		24186, net.runelite.api.ItemID.AVERNIC_DEFENDER_HILT, // Avernic defender (l) — assembled, untradeable
+		22322, net.runelite.api.ItemID.AVERNIC_DEFENDER_HILT  // Avernic defender — assembled, untradeable
+	);
+
+	/**
+	 * Wraps a raw (unowned-item) GE price lookup with two rules (bug D):
+	 * <ul>
+	 *   <li>a resolved price &lt;= 0 means untradeable/unpriced, not free —
+	 *       an UNOWNED item you cannot buy is unaffordable
+	 *       ({@link Long#MAX_VALUE}), not a bargain. Owned items never reach
+	 *       this path (they are priced 0 via {@code .owned()} directly);</li>
+	 *   <li>{@link #PRICE_COMPONENT_OVERRIDE}: some ids price from a
+	 *       different (tradeable) component id instead of their own raw
+	 *       price.</li>
+	 * </ul>
+	 */
+	private static GearOptimizer.PriceSource resolveOptimizerPriceSource(GearOptimizer.PriceSource rawPriceSource)
+	{
+		return itemId ->
+		{
+			Integer componentId = PRICE_COMPONENT_OVERRIDE.get(itemId);
+			long resolved = rawPriceSource.priceFor(componentId != null ? componentId : itemId);
+			return resolved > 0 ? resolved : Long.MAX_VALUE;
+		};
+	}
+
+	/**
+	 * Matches a parenthesised game-mode marker in an item's display name —
+	 * Deadman Mode, Bounty Hunter, Last Man Standing/LMS, or a league beta
+	 * cosmetic. These items are not usable by a normal-mode player and must
+	 * never be suggested by the optimiser (bug C).
+	 */
+	private static final java.util.regex.Pattern MODE_LOCKED_NAME_PATTERN = java.util.regex.Pattern.compile(
+		"(?i)\\((deadman mode|deadman|bh|lms|last man standing|beta)\\)");
+
+	/** True when an item's indexed display name carries a mode-locked marker — see {@link #MODE_LOCKED_NAME_PATTERN}. */
+	static boolean isModeLockedItem(String name)
+	{
+		return name != null && MODE_LOCKED_NAME_PATTERN.matcher(name).find();
+	}
+
+	/**
+	 * Every indexed item id whose display name is mode-locked (bug C) — added
+	 * to the optimiser's exclude set every search so Deadman/BH/LMS/beta-only
+	 * items (which the user, not being in those modes, cannot actually use)
+	 * are never suggested, regardless of price or ownership.
+	 */
+	private static java.util.Set<Integer> modeLockedItemIds()
+	{
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		java.util.Set<Integer> ids = new java.util.HashSet<>();
+		for (Integer id : index.allItemIds())
+		{
+			EquipmentIndexRepository.Entry entry = index.entryFor(id);
+			if (entry != null && isModeLockedItem(entry.name()))
+			{
+				ids.add(id);
+			}
+		}
+		return ids;
 	}
 
 	/** Builds the {@link GearOptimizer.Request} shared by both the resolver and no-resolver {@link #runOptimizer} paths. */
@@ -2829,11 +2951,14 @@ public final class GearSection extends CollapsibleSection
 			.onSlayerTask(onSlayerTaskToggle.isSelected())
 			.magicPotionVariant(magicPotionVariantForCalc());
 
+		java.util.Set<Integer> exclusions = new java.util.LinkedHashSet<>(excludedItemIds);
+		exclusions.addAll(modeLockedItemIds());
+
 		return GearOptimizer.Request
 			.builder(liveIds, target, template)
 			.budget(budget)
 			.owned(ownedPrices.keySet())
-			.exclude(excludedItemIds)
+			.exclude(exclusions)
 			.priceSource(priceSource)
 			.expensiveItemCount(resolvedExpensiveCount())
 			.expensiveItemThreshold(resolvedExpensiveThreshold())
@@ -3579,7 +3704,7 @@ public final class GearSection extends CollapsibleSection
 		if (priceResolver == null)
 		{
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
-				id -> ownedPrices.getOrDefault(id, Long.MAX_VALUE));
+				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L)));
 			onOptimizerResult(GearOptimizer.optimize(request));
 			return;
 		}
@@ -3591,7 +3716,7 @@ public final class GearSection extends CollapsibleSection
 		priceResolver.resolve(candidateIds, priceMap ->
 		{
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
-				id -> priceMap.getOrDefault(id, Long.MAX_VALUE));
+				resolveOptimizerPriceSource(id -> priceMap.getOrDefault(id, 0L)));
 			onOptimizerResult(GearOptimizer.optimize(request));
 		});
 	}
@@ -3599,6 +3724,18 @@ public final class GearSection extends CollapsibleSection
 	GearOptimizer.Result lastOptimizerResultForTest()
 	{
 		return lastOptimizerResult;
+	}
+
+	/** Test seam: {@link #ownedPriceMap()} (bug B — variant-aware ownership). */
+	java.util.Map<Integer, Long> ownedPriceMapForTest()
+	{
+		return ownedPriceMap();
+	}
+
+	/** Test seam: {@link #resolveOptimizerPriceSource} (bug D — untradeable pricing + component override). */
+	GearOptimizer.PriceSource resolveOptimizerPriceSourceForTest(GearOptimizer.PriceSource rawPriceSource)
+	{
+		return resolveOptimizerPriceSource(rawPriceSource);
 	}
 
 	/** Test seam for item #1's budget K/M-toggle + expensive-items fields — see {@link #resolvedBudget}. */
