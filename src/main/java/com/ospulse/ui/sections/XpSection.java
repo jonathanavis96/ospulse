@@ -136,6 +136,7 @@ public final class XpSection extends CollapsibleSection
 			String catId = categoryId(view.getSkillName());
 			detectReset(catId);
 			categorySupport.setLinesSupplier(catId, () -> canvasLines(catId));
+			categorySupport.setProgressSupplier(catId, () -> canvasProgress(catId));
 
 			if (categorySupport.controller().isPaused(catId))
 			{
@@ -209,6 +210,13 @@ public final class XpSection extends CollapsibleSection
 			new CategoryOverlay.Line("Lvl", String.valueOf(view.getCurrentLevel())),
 			new CategoryOverlay.Line("XP gained", GpFormat.format(view.getGained())),
 			new CategoryOverlay.Line("XP/hr", GpFormat.format(view.getXpPerHour())));
+	}
+
+	/** Progress to next level for {@code catId}'s canvas overlay bar, from the same last-seen view {@link #canvasLines} reads. */
+	private Double canvasProgress(String catId)
+	{
+		XpSkillView view = lastSeenBySkill.get(catId);
+		return view == null ? null : view.getProgressToNextLevel();
 	}
 
 	/**

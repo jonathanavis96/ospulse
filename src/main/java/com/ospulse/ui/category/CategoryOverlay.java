@@ -4,10 +4,12 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.ui.overlay.OverlayPanel;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.components.LineComponent;
+import net.runelite.client.ui.overlay.components.ProgressBarComponent;
 import net.runelite.client.ui.overlay.components.TitleComponent;
 
 import java.awt.Dimension;
 import java.awt.Graphics2D;
+import java.awt.Point;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
@@ -51,6 +53,8 @@ public class CategoryOverlay extends OverlayPanel
 	private final String categoryId;
 	private final String title;
 	private final Supplier<List<Line>> linesSupplier;
+	/** Optional 0.0-1.0 progress source; {@code null} renders no bar (backward-compatible default). */
+	private final Supplier<Double> progressSupplier;
 
 	/**
 	 * @param plugin        the owning plugin, so RuneLite's overlay drag/reset
@@ -66,16 +70,48 @@ public class CategoryOverlay extends OverlayPanel
 	 */
 	public CategoryOverlay(Plugin plugin, String categoryId, String title, Supplier<List<Line>> linesSupplier)
 	{
+		this(plugin, categoryId, title, linesSupplier, null);
+	}
+
+	/**
+	 * Same as {@link #CategoryOverlay(Plugin, String, String, Supplier)}, but
+	 * with an optional progress bar rendered below the label/value lines —
+	 * matching RuneLite's own XP Tracker {@code XpInfoBoxOverlay}, which
+	 * shows a progress-to-next-level bar under its lines.
+	 *
+	 * @param progressSupplier called on every render, returning progress in
+	 *                         [0, 1] to fill the bar; pass {@code null} (or
+	 *                         use the shorter constructor) to render without
+	 *                         a bar at all, e.g. for loot/session categories
+	 *                         that have no single "progress" concept.
+	 */
+	public CategoryOverlay(Plugin plugin, String categoryId, String title, Supplier<List<Line>> linesSupplier,
+		Supplier<Double> progressSupplier)
+	{
 		super(plugin);
 		this.categoryId = categoryId;
 		this.title = title;
 		this.linesSupplier = linesSupplier;
+		this.progressSupplier = progressSupplier;
 		setPosition(OverlayPosition.DETACHED);
 	}
 
 	public String getCategoryId()
 	{
 		return categoryId;
+	}
+
+	/**
+	 * Sets the default on-canvas location for this overlay before it's first
+	 * rendered, so multiple "Add to canvas" overlays cascade instead of
+	 * landing exactly on top of each other (RuneLite otherwise anchors every
+	 * DETACHED overlay with no preferred location at the same default spot).
+	 * Has no effect once the user has dragged the overlay, since RuneLite
+	 * then persists their own location instead.
+	 */
+	public void setDefaultLocation(Point point)
+	{
+		setPreferredLocation(point);
 	}
 
 	@Override
@@ -93,6 +129,21 @@ public class CategoryOverlay extends OverlayPanel
 					.left(line.label)
 					.right(line.value)
 					.build());
+			}
+		}
+
+		if (progressSupplier != null)
+		{
+			Double progress = progressSupplier.get();
+			if (progress != null)
+			{
+				double clamped = Math.max(0.0, Math.min(1.0, progress));
+				ProgressBarComponent progressBar = new ProgressBarComponent();
+				progressBar.setMinimum(0);
+				progressBar.setMaximum(100);
+				progressBar.setValue(clamped * 100.0);
+				progressBar.setLabelDisplayMode(ProgressBarComponent.LabelDisplayMode.PERCENTAGE);
+				panelComponent.getChildren().add(progressBar);
 			}
 		}
 
