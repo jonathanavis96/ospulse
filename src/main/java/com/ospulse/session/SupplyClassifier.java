@@ -65,6 +65,17 @@ public final class SupplyClassifier
 	private static final Pattern TELEPORT_PATTERN = Pattern.compile(
 		"(?i)^(teleport to [\\w' ]+|[\\w' ]+ teleport)\\s*(tablet)?$");
 
+	/**
+	 * Generic fallback for any 1-4 dose consumable (potions, brews, restores,
+	 * etc.) whose base name isn't otherwise recognised by {@link
+	 * #POTION_PATTERN}. Bounded to doses 1-4 deliberately: charged jewellery
+	 * (e.g. "Amulet of glory(6)", "Ring of dueling(8)") uses higher charge
+	 * counts in the same "(n)" suffix position and must NOT be swept up here —
+	 * those are equippable gear with charges, not a consumed tracked-wealth
+	 * stack.
+	 */
+	private static final Pattern DOSE_PATTERN = Pattern.compile("(?i).*\\([1-4]\\)$");
+
 	private SupplyClassifier()
 	{
 	}
@@ -85,6 +96,7 @@ public final class SupplyClassifier
 			|| AMMO_PATTERN.matcher(trimmed).matches()
 			|| RUNE_PATTERN.matcher(trimmed).matches()
 			|| FOOD_PATTERN.matcher(trimmed).matches()
-			|| TELEPORT_PATTERN.matcher(trimmed).matches();
+			|| TELEPORT_PATTERN.matcher(trimmed).matches()
+			|| DOSE_PATTERN.matcher(trimmed).matches();
 	}
 }

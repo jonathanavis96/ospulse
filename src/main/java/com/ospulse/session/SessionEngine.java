@@ -197,6 +197,44 @@ public final class SessionEngine
 		}
 	}
 
+	/**
+	 * Parsed "<base> (<dose>)" shape of a dose-suffixed item name (potions,
+	 * brews, restores — anything named "...(1)" through "...(4)"), used only
+	 * to pair a dose-down within the same update (see {@link #update}). Not
+	 * related to {@link SupplyClassifier}'s broader consumable matching.
+	 */
+	private static final class DoseName
+	{
+		private static final java.util.regex.Pattern PATTERN =
+			java.util.regex.Pattern.compile("^(?<base>.+?)\\s*\\((?<dose>[1-4])\\)$",
+				java.util.regex.Pattern.CASE_INSENSITIVE);
+
+		final String base;
+		final int dose;
+
+		private DoseName(String base, int dose)
+		{
+			this.base = base;
+			this.dose = dose;
+		}
+
+		/** @return the parsed base/dose, or {@code null} if not dose-suffixed. */
+		static DoseName parse(String name)
+		{
+			if (name == null)
+			{
+				return null;
+			}
+			java.util.regex.Matcher m = PATTERN.matcher(name.trim());
+			if (!m.matches())
+			{
+				return null;
+			}
+			return new DoseName(m.group("base").trim().toLowerCase(java.util.Locale.ROOT),
+				Integer.parseInt(m.group("dose")));
+		}
+	}
+
 	/** Immutable bundle of the debug-loggable figures from one snapshot. */
 	private static final class DebugFigures
 	{
@@ -497,6 +535,49 @@ public final class SessionEngine
 				}
 				a.quantity = 0L;
 				v.quantity = 0L;
+				break;
+			}
+		}
+
+		// ---- 2b. Same-interval dose-swap pairing: drinking a dose of a
+		// potion (or similar "(n)" charge item) makes the higher-dose stack
+		// vanish and a lower-dose stack of a DIFFERENT item id appear in the
+		// SAME interval, e.g. "Super antifire potion(4)" -> "...(3)". Unlike
+		// the id-swap transfer pairing above, the two sides have UNEQUAL unit
+		// value (a lower dose is worth less), so they never match there and
+		// the appearing lower-dose stack would otherwise fall through to loot
+		// — silently inflating profit by the value of every dose drunk. Only
+		// the value actually consumed (higher-dose unit value minus
+		// lower-dose unit value, times the doses drunk) is booked as supplies
+		// via the normal recordSupplyConsumed path; neither side is booked as
+		// loot for the paired portion.
+		for (Swing v : vanished)
+		{
+			DoseName vDose = DoseName.parse(v.name);
+			if (vDose == null || v.quantity == 0)
+			{
+				continue;
+			}
+			for (Swing a : appeared)
+			{
+				if (a.quantity == 0)
+				{
+					continue;
+				}
+				DoseName aDose = DoseName.parse(a.name);
+				if (aDose == null || !aDose.base.equals(vDose.base) || aDose.dose >= vDose.dose)
+				{
+					continue;
+				}
+
+				long n = Math.min(v.quantity, a.quantity);
+				long consumedValue = n * (v.unitValue - a.unitValue);
+				if (consumedValue > 0)
+				{
+					recordSupplyConsumed(consumedValue);
+				}
+				a.quantity -= n;
+				v.quantity -= n;
 				break;
 			}
 		}
