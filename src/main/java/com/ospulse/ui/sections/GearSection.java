@@ -346,6 +346,7 @@ public final class GearSection extends CollapsibleSection
 	private final JButton findBestSetupButton;
 	private final JLabel optimizerStatusLabel;
 	private final JPanel optimizerResultPanel;
+	private final JLabel optimizerResultStyle;
 	private final JLabel optimizerResultDps;
 	private final JLabel optimizerResultDelta;
 	private final JLabel optimizerResultSpend;
@@ -362,6 +363,32 @@ public final class GearSection extends CollapsibleSection
 	 * {@link #loadExcludedItemsPref}/{@link #saveExcludedItemsPref}.
 	 */
 	private final java.util.Set<Integer> excludedItemIds = new java.util.LinkedHashSet<>();
+
+	/**
+	 * Item #6e: the Best-setup optimiser's 5-way damage-type selector, in
+	 * button order. The optimiser search is CONSTRAINED to the selected type
+	 * (see {@link GearOptimizer.Request.Builder#style}) — different types have
+	 * genuinely different best-in-slot answers (e.g. Scythe+Inquisitor's on
+	 * Crush vs Scythe+Torva+Bellator on Slash), so "best setup" is only
+	 * meaningful per damage type.
+	 */
+	private static final CombatStyle[] OPTIMIZER_STYLE_ORDER = {
+		CombatStyle.RANGED, CombatStyle.MAGIC, CombatStyle.CRUSH, CombatStyle.SLASH, CombatStyle.STAB,
+	};
+	private final JToggleButton[] optimizerStyleButtons = new JToggleButton[OPTIMIZER_STYLE_ORDER.length];
+	/**
+	 * The damage type the optimiser searches for. Until the user clicks one of
+	 * the five buttons ({@link #optimizerStyleUserPicked}) this FOLLOWS the
+	 * equipped weapon's current combat style (item #6g: previewing with a
+	 * wand/bow equipped must optimise magic/ranged, never default to melee) —
+	 * re-detected in {@link #syncOptimizerStyleSelector} on every re-rank.
+	 */
+	private CombatStyle optimizerStyle;
+	/** True once the user clicked a selector button; cleared when the (effective) weapon changes, like the style lock. */
+	private boolean optimizerStyleUserPicked;
+
+	/** Gold marker for a suggested item the player does NOT own (border + price label) — RuneLite's GE-gold tone. */
+	private static final java.awt.Color NOT_OWNED_GOLD = new java.awt.Color(240, 207, 123);
 
 	/**
 	 * Resolves GE prices for candidate item ids ON THE CLIENT THREAD, then delivers the
@@ -744,6 +771,12 @@ public final class GearSection extends CollapsibleSection
 		body().add(optimizerHeading);
 		body().add(Box.createRigidArea(new Dimension(0, 2)));
 
+		// Item #6e: 5-way damage-type selector (Ranged/Magic/Crush/Slash/Stab).
+		// Defaults to the equipped weapon's current combat style (item #6g) and
+		// re-runs a visible search immediately when the user picks another type.
+		body().add(buildOptimizerStyleSelector());
+		body().add(Box.createRigidArea(new Dimension(0, 4)));
+
 		// Budget: a numeric field + a K/M segmented toggle (was a single "10m"/
 		// "500k" free-text field — split so the number entry never has to deal
 		// with a trailing unit letter itself). budgetUnitIsMillions defaults to
@@ -833,6 +866,8 @@ public final class GearSection extends CollapsibleSection
 		optimizerResultPanel.setLayout(new BoxLayout(optimizerResultPanel, BoxLayout.Y_AXIS));
 		optimizerResultPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		optimizerResultPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		optimizerResultStyle = PanelWidgets.statRow(optimizerResultPanel, "Optimised for");
+		optimizerResultStyle.setToolTipText("The damage type this setup was optimised for — change it with the selector above");
 		optimizerResultDps = PanelWidgets.statRow(optimizerResultPanel, "Best DPS found");
 		optimizerResultDelta = PanelWidgets.statRow(optimizerResultPanel, "vs owned-only");
 		optimizerResultSpend = PanelWidgets.statRow(optimizerResultPanel, "Total spend");
@@ -960,6 +995,10 @@ public final class GearSection extends CollapsibleSection
 	private void updateGearGrid(GearSnapshot gear)
 	{
 		int[] ids = gear == null ? null : gear.equippedItemIds();
+		// Owned-item lookup for the preview tooltips below — only needed while
+		// at least one slot is overridden (i.e. a what-if/optimiser preview).
+		java.util.Map<Integer, Long> ownedIds = override.isEmpty() ? null : ownedPriceMap();
+		EquipmentIndexRepository index = override.isEmpty() ? null : EquipmentIndexRepository.getInstance();
 		for (int slot = 0; slot < slotLabels.length; slot++)
 		{
 			JLabel cell = slotLabels[slot];
@@ -971,6 +1010,22 @@ public final class GearSection extends CollapsibleSection
 			int liveId = ids == null || slot >= ids.length ? -1 : ids[slot];
 			int id = overridden ? override.itemIdFor(slot) : liveId;
 			cell.setBorder(overridden ? OVERRIDE_BORDER : null);
+			// Item #6f (second site): the cell tooltip must describe what the
+			// cell is actually SHOWING. While previewing it names the previewed
+			// item + the real slot + whether the item is even owned, instead of
+			// the misleading static "<slot> slot (live)" text over preview
+			// content. Refreshed before the icon diff-guard below since the
+			// override/owned state can change without the item id changing.
+			if (overridden)
+			{
+				boolean ownedItem = id <= 0 || (ownedIds != null && ownedIds.containsKey(id));
+				cell.setToolTipText(itemDisplayName(index, id) + " — " + SLOT_NAMES[slot] + " slot (preview"
+					+ (ownedItem ? "" : ", not owned") + ") — click to try a different item");
+			}
+			else
+			{
+				cell.setToolTipText(SLOT_NAMES[slot] + " slot (live) — click to try a different item");
+			}
 			if (id == renderedSlotIds[slot])
 			{
 				continue;
@@ -1035,6 +1090,10 @@ public final class GearSection extends CollapsibleSection
 			lastRankedWeaponId = weaponId;
 			userPickedStyle = false;
 			userPickedSpell = false;
+			// The optimiser's 5-way selector follows the same rule (item #6e/#6g):
+			// a manual damage-type pick is dropped on a weapon change so the
+			// selector re-detects from whatever is now actually wielded.
+			optimizerStyleUserPicked = false;
 		}
 		if (selectedMonster != lastRankedTarget)
 		{
@@ -1070,6 +1129,10 @@ public final class GearSection extends CollapsibleSection
 		stylesScroll.repaint();
 		body().revalidate();
 		body().repaint();
+
+		// Keep the optimiser's 5-way selector tracking the (possibly what-if)
+		// equipped weapon's current style unless the user picked one (item #6g).
+		syncOptimizerStyleSelector();
 
 		updateOutputs();
 	}
@@ -2537,6 +2600,120 @@ public final class GearSection extends CollapsibleSection
 		return prices;
 	}
 
+	/**
+	 * Builds the 5-way Ranged/Magic/Crush/Slash/Stab selector (item #6e) —
+	 * a segmented control mirroring {@link #unitToggle}'s styling. Exactly one
+	 * button is ever selected (shared {@link ButtonGroup}); a USER click on a
+	 * different type re-runs any visible search for that type immediately
+	 * (programmatic {@code setSelected} from {@link #syncOptimizerStyleSelector}
+	 * only fires the ItemListener restyle, never the ActionListener, so the
+	 * follow-the-weapon auto-sync can never trigger a search by itself).
+	 */
+	private JPanel buildOptimizerStyleSelector()
+	{
+		ButtonGroup group = new ButtonGroup();
+		Border selectedBorder = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE);
+		Border unselectedBorder = BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR);
+		JPanel panel = new JPanel(new GridLayout(1, OPTIMIZER_STYLE_ORDER.length, 1, 0));
+		panel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		panel.setToolTipText("Optimise the best setup for this damage type — follows your equipped weapon's "
+			+ "current style until you pick one yourself");
+		for (int i = 0; i < OPTIMIZER_STYLE_ORDER.length; i++)
+		{
+			CombatStyle style = OPTIMIZER_STYLE_ORDER[i];
+			JToggleButton button = new JToggleButton(typeLabel(style));
+			button.setToolTipText("Find the best " + typeLabel(style)
+				+ " setup (owned gear + anything affordable within the budget)");
+			button.setFont(FontManager.getRunescapeSmallFont());
+			button.setFocusPainted(false);
+			button.setMargin(new Insets(2, 0, 2, 0));
+			Runnable restyle = () ->
+			{
+				button.setBorder(button.isSelected() ? selectedBorder : unselectedBorder);
+				button.setBackground(button.isSelected()
+					? ColorScheme.MEDIUM_GRAY_COLOR
+					: ColorScheme.DARKER_GRAY_COLOR);
+				button.setForeground(button.isSelected()
+					? ColorScheme.BRAND_ORANGE
+					: ColorScheme.LIGHT_GRAY_COLOR);
+			};
+			restyle.run();
+			button.addItemListener(e -> restyle.run());
+			button.addActionListener(e ->
+			{
+				if (optimizerStyle == style)
+				{
+					return; // re-clicking the active type: nothing to do (group keeps it selected)
+				}
+				optimizerStyle = style;
+				optimizerStyleUserPicked = true;
+				if (lastOptimizerResult != null)
+				{
+					// A search is on screen — re-run it for the new type so the
+					// selector always describes the result being shown.
+					runOptimizer();
+				}
+			});
+			group.add(button);
+			optimizerStyleButtons[i] = button;
+			panel.add(button);
+		}
+		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
+		return panel;
+	}
+
+	/**
+	 * The combat style the optimiser should target when the user has not
+	 * explicitly picked one (item #6g): the live readout's currently selected
+	 * style — which {@link #rankAndRender} always resolves from the EQUIPPED
+	 * (or what-if) weapon's real combat options, so a wand detects MAGIC and a
+	 * bow RANGED — falling back to the weapon's first style pre-target.
+	 */
+	private CombatStyle detectedCombatStyle()
+	{
+		if (selectedStyle != null)
+		{
+			return selectedStyle.type();
+		}
+		List<WeaponStyle> styles = weaponRepo.stylesForItem(effectiveWeaponId());
+		return styles.isEmpty() ? null : styles.get(0).type();
+	}
+
+	/** The damage-type constraint for the next optimiser run: the user's pick, else the detected current style. */
+	private CombatStyle optimizerConstraint()
+	{
+		return optimizerStyle != null ? optimizerStyle : detectedCombatStyle();
+	}
+
+	/**
+	 * Re-asserts the 5-way selector from {@link #optimizerStyle}, first
+	 * re-detecting it from the equipped weapon unless the user has picked one
+	 * manually. Called on every {@link #rankAndRender} so the selector tracks
+	 * weapon swaps live (the manual pick is dropped on a weapon change, same
+	 * as the readout's own style lock).
+	 */
+	private void syncOptimizerStyleSelector()
+	{
+		if (!optimizerStyleUserPicked)
+		{
+			CombatStyle detected = detectedCombatStyle();
+			if (detected != null)
+			{
+				optimizerStyle = detected;
+			}
+		}
+		for (int i = 0; i < OPTIMIZER_STYLE_ORDER.length; i++)
+		{
+			JToggleButton button = optimizerStyleButtons[i];
+			boolean selected = OPTIMIZER_STYLE_ORDER[i] == optimizerStyle;
+			if (button != null && button.isSelected() != selected)
+			{
+				button.setSelected(selected);
+			}
+		}
+	}
+
 	/** Runs {@link GearOptimizer} off the EDT and publishes the result back via {@link #onOptimizerResult}. */
 	private void runOptimizer()
 	{
@@ -2612,6 +2789,10 @@ public final class GearSection extends CollapsibleSection
 			.priceSource(priceSource)
 			.expensiveItemCount(resolvedExpensiveCount())
 			.expensiveItemThreshold(resolvedExpensiveThreshold())
+			// Items #6e/#6g: anchor the search to the selector's damage type,
+			// which itself defaults to the EQUIPPED weapon's current style —
+			// never an implicit best-of-any-style (i.e. usually melee) search.
+			.style(optimizerConstraint())
 			.build();
 	}
 
@@ -2648,8 +2829,22 @@ public final class GearSection extends CollapsibleSection
 		findBestSetupButton.setEnabled(true);
 		lastOptimizerResult = result;
 
+		CombatStyle constraint = optimizerConstraint();
+		optimizerResultStyle.setText(result.style() != null
+			? typeLabel(result.style().type())
+			: (constraint != null ? typeLabel(constraint) : "-"));
+
 		boolean anyChange = hasAnySlotChange(result);
-		if (!anyChange)
+		if (result.style() == null)
+		{
+			// Style-constrained search found NO loadout that can attack with the
+			// requested type at all (e.g. Magic selected but no magic weapon is
+			// owned or affordable) — say that, not a misleading "no upgrade".
+			optimizerStatusLabel.setText("No usable " + (constraint != null ? typeLabel(constraint) : "")
+				+ " weapon owned or affordable within budget");
+			optimizerStatusLabel.setVisible(true);
+		}
+		else if (!anyChange)
 		{
 			// Fix 5: say so explicitly instead of leaving the user staring at a
 			// "Best DPS found" panel that matches their current loadout with no
@@ -2745,12 +2940,11 @@ public final class GearSection extends CollapsibleSection
 			? SLOT_NAMES[slotOrdinal] : ("Slot " + slotOrdinal);
 		String currentName = itemDisplayName(index, currentItemId);
 		String suggestedName = itemDisplayName(index, suggestedItemId);
-		String spend = choice.owned() ? "owned" : formatGp(choice.price());
+		String spend = choice.owned() ? "owned" : (formatGp(choice.price()) + " — not owned");
 
 		JPanel row = new JPanel(new BorderLayout(4, 0));
 		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, ITEM_GRID_CELL_SIZE));
 
 		JPanel iconsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
 		iconsPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -2762,17 +2956,45 @@ public final class GearSection extends CollapsibleSection
 		iconsPanel.add(arrow);
 		JLabel suggestedIcon = swapItemIcon(suggestedItemId, suggestedName + " (" + spend + ")");
 		suggestedIcon.setComponentPopupMenu(buildExcludeItemPopup(suggestedItemId, suggestedName));
-		iconsPanel.add(suggestedIcon);
+		if (choice.owned())
+		{
+			iconsPanel.add(suggestedIcon);
+		}
+		else
+		{
+			// Item #6e rendering ask: a suggested item the player does NOT own
+			// must be visually distinct from owned ones AND show its gp value
+			// right by the item — gold border on the icon + a gold price label
+			// directly beneath it (owned suggestions keep the plain icon).
+			suggestedIcon.setBorder(BorderFactory.createLineBorder(NOT_OWNED_GOLD));
+			JPanel notOwnedCell = new JPanel();
+			notOwnedCell.setLayout(new BoxLayout(notOwnedCell, BoxLayout.Y_AXIS));
+			notOwnedCell.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			suggestedIcon.setAlignmentX(Component.CENTER_ALIGNMENT);
+			notOwnedCell.add(suggestedIcon);
+			JLabel price = new JLabel(formatGp(choice.price()));
+			price.setName("notOwnedPrice"); // test hook + self-documenting component name
+			price.setFont(FontManager.getRunescapeSmallFont());
+			price.setForeground(NOT_OWNED_GOLD);
+			price.setAlignmentX(Component.CENTER_ALIGNMENT);
+			price.setToolTipText(suggestedName + " — not owned; GE price " + formatGp(choice.price()));
+			notOwnedCell.add(price);
+			iconsPanel.add(notOwnedCell);
+		}
 		row.add(iconsPanel, BorderLayout.WEST);
 
-		JLabel caption = new JLabel(slotName + " (" + spend + ")");
-		caption.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+		JLabel caption = new JLabel(slotName + (choice.owned() ? " (owned)" : " (" + formatGp(choice.price()) + ")"));
+		caption.setForeground(choice.owned() ? ColorScheme.MEDIUM_GRAY_COLOR : NOT_OWNED_GOLD);
 		caption.setFont(FontManager.getRunescapeSmallFont().deriveFont(Font.ITALIC));
 		caption.setHorizontalAlignment(SwingConstants.RIGHT);
 		row.add(caption, BorderLayout.EAST);
 
 		row.setToolTipText(slotName + ": " + currentName + " -> " + suggestedName + " (" + spend
 			+ ") — right-click the suggested icon to exclude it from future suggestions");
+		// Height is content-driven now: a not-owned suggestion adds a price
+		// label under its icon, so the old fixed ITEM_GRID_CELL_SIZE cap would
+		// clip it.
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
 		return row;
 	}
 
@@ -2848,6 +3070,29 @@ public final class GearSection extends CollapsibleSection
 			next = next.withSlot(choice.slotOrdinal(), choice.itemId());
 		}
 		override = next;
+
+		// Item #6g: the preview must show the DPS the optimiser actually
+		// computed — i.e. lock the readout to the RESULT's style/spell instead
+		// of letting rankAndRender re-default to the new weapon's best-of-any-
+		// style (which could flip a Ranged/Magic-constrained preview to melee).
+		// Pre-setting lastRankedWeaponId suppresses the weapon-change auto-reset
+		// of these locks (and of the 5-way selector's user pick) for this
+		// deliberate, style-aware swap.
+		lastRankedWeaponId = effectiveWeaponId();
+		if (lastOptimizerResult.style() != null)
+		{
+			selectedStyle = lastOptimizerResult.style();
+			userPickedStyle = true;
+		}
+		if (lastOptimizerResult.spell() != null)
+		{
+			selectedSpell = lastOptimizerResult.spell();
+			userPickedSpell = true;
+			selectedBook = lastOptimizerResult.spell().book() == Spell.SpellBook.ANCIENT
+				? BookTab.ANCIENT : BookTab.STANDARD;
+			lastRankedTarget = selectedMonster; // keep the spell lock through the re-rank
+		}
+
 		updateGearGrid(lastGear);
 		rankAndRender();
 	}
@@ -3356,6 +3601,67 @@ public final class GearSection extends CollapsibleSection
 		budgetKToggle.setSelected(!millions);
 	}
 
+	// ------------------------------- item #6e/#6g optimiser-style test seams
+
+	/** The damage type the next optimiser run will be constrained to (user pick, else detected from the equipped weapon). */
+	CombatStyle optimizerStyleForTest()
+	{
+		return optimizerConstraint();
+	}
+
+	boolean optimizerStyleUserPickedForTest()
+	{
+		return optimizerStyleUserPicked;
+	}
+
+	/** Simulates a user click on the 5-way selector's button for {@code style}. */
+	void clickOptimizerStyleForTest(CombatStyle style)
+	{
+		for (int i = 0; i < OPTIMIZER_STYLE_ORDER.length; i++)
+		{
+			if (OPTIMIZER_STYLE_ORDER[i] == style)
+			{
+				optimizerStyleButtons[i].doClick();
+				return;
+			}
+		}
+		throw new IllegalArgumentException("no selector button for " + style);
+	}
+
+	String optimizerResultStyleTextForTest()
+	{
+		return optimizerResultStyle.getText();
+	}
+
+	/** How many not-owned price labels the suggested-swaps list currently renders (item #6e's owned-vs-not-owned rendering). */
+	int notOwnedPriceLabelCountForTest()
+	{
+		return countComponentsNamed(optimizerSwapList, "notOwnedPrice");
+	}
+
+	private static int countComponentsNamed(java.awt.Container root, String name)
+	{
+		int count = 0;
+		for (Component c : root.getComponents())
+		{
+			if (name.equals(c.getName()))
+			{
+				count++;
+			}
+			if (c instanceof java.awt.Container)
+			{
+				count += countComponentsNamed((java.awt.Container) c, name);
+			}
+		}
+		return count;
+	}
+
+	/** The worn-gear grid cell's current tooltip for {@code slotOrdinal} (item #6f's live-vs-preview tooltip). */
+	String slotTooltipForTest(int slotOrdinal)
+	{
+		return slotLabels[slotOrdinal].getToolTipText();
+	}
+
 	boolean optimizerResultVisibleForTest()
 	{
 		return optimizerResultPanel.isVisible();
@@ -3437,6 +3743,24 @@ public final class GearSection extends CollapsibleSection
 	void clickStyleRowForTest(int index)
 	{
 		selectStyle(styleRows.get(index).style);
+	}
+
+	/**
+	 * Item #6d: simulates a REAL mouse press on the style row's CENTER child
+	 * label — the area users actually click, and the exact component that used
+	 * to swallow the press (its tooltip's ToolTipManager listener made it the
+	 * mouse-event target instead of the row). Dispatches to the child's own
+	 * listeners only, exactly like Swing's deepest-target dispatch does.
+	 */
+	void pressStyleRowLabelForTest(int index)
+	{
+		StyleRow row = styleRows.get(index);
+		Component child = ((BorderLayout) row.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+		for (MouseListener listener : child.getMouseListeners())
+		{
+			listener.mousePressed(new MouseEvent(child, MouseEvent.MOUSE_PRESSED,
+				System.currentTimeMillis(), 0, 1, 1, 1, false));
+		}
 	}
 
 	String dpsTextForTest()
@@ -3574,6 +3898,33 @@ public final class GearSection extends CollapsibleSection
 		return secondaryValue.getText();
 	}
 
+	/**
+	 * Installs a single-press action on a clickable row AND every child
+	 * component that could steal the press from it (item #6d). Children with a
+	 * tooltip have a ToolTipManager MouseListener, which makes THEM the mouse
+	 * -event target over their bounds — Swing mouse events never bubble to the
+	 * parent — so without this the row's own listener only covers the padding
+	 * pixels. One shared adapter on the row and each child guarantees a single
+	 * click anywhere in the row always fires the action exactly once (each
+	 * press is dispatched to exactly one component).
+	 */
+	private static void installRowPressListener(JPanel row, Runnable action, JLabel... children)
+	{
+		MouseAdapter press = new MouseAdapter()
+		{
+			@Override
+			public void mousePressed(MouseEvent e)
+			{
+				action.run();
+			}
+		};
+		row.addMouseListener(press);
+		for (JLabel child : children)
+		{
+			child.addMouseListener(press);
+		}
+	}
+
 	/** A {@link WeaponStyle} paired with its computed DPS ({@code null} before a target is picked). */
 	private static final class Ranked
 	{
@@ -3672,14 +4023,10 @@ public final class GearSection extends CollapsibleSection
 			add(dps, BorderLayout.EAST);
 
 			setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
-			addMouseListener(new MouseAdapter()
-			{
-				@Override
-				public void mousePressed(MouseEvent e)
-				{
-					selectSpell(SpellRow.this.spell);
-				}
-			});
+			// Item #6d: the listener must ALSO be on the child labels, not just
+			// the row — see StyleRow's constructor comment for why (tooltip
+			// registration makes a child swallow the press).
+			installRowPressListener(this, () -> selectSpell(SpellRow.this.spell), name, dps);
 		}
 
 		private void setSelected(boolean selected)
@@ -3735,14 +4082,17 @@ public final class GearSection extends CollapsibleSection
 			add(dps, BorderLayout.EAST);
 
 			setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
-			addMouseListener(new MouseAdapter()
-			{
-				@Override
-				public void mousePressed(MouseEvent e)
-				{
-					selectStyle(StyleRow.this.style);
-				}
-			});
+			// Item #6d ("style buttons need multiple clicks"): the press
+			// listener must be installed on the CHILD labels as well as the
+			// row. Both labels carry tooltips, and setToolTipText registers
+			// the label with ToolTipManager, which adds a MouseListener to it
+			// — that makes the label itself the mouse-event target for almost
+			// the entire row's area (Swing dispatches to the DEEPEST component
+			// with a mouse listener and never bubbles to the parent), so a
+			// row-only listener only ever fired on the few border/padding
+			// pixels around the text. That is exactly the "sometimes takes
+			// several clicks" symptom: clicks on the text did nothing.
+			installRowPressListener(this, () -> selectStyle(StyleRow.this.style), name, dps);
 		}
 
 		private void setSelected(boolean selected)
