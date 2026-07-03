@@ -126,6 +126,7 @@ public final class GearMapper
 		builder.demonbaneWeapon(GearVariants.demonbaneWeaponFor(weaponItemId));
 		builder.dragonHunterWeapon(GearVariants.dragonHunterWeaponFor(weaponItemId));
 		builder.twistedBow(GearVariants.isTwistedBow(weaponItemId));
+		builder.osmumtensFang(GearVariants.isOsmumtensFang(weaponItemId));
 		builder.poweredStaff(GearVariants.poweredStaffFor(weaponItemId));
 		builder.voidSet(GearVariants.voidSetFor(
 			slotItemId(equippedItemIds, SLOT_HEAD),
