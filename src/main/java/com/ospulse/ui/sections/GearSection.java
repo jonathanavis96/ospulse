@@ -327,6 +327,20 @@ public final class GearSection extends CollapsibleSection
 	private final JButton clearOptimizerPreviewButton;
 	private GearOptimizer.Result lastOptimizerResult;
 
+	/**
+	 * Resolves GE prices for candidate item ids ON THE CLIENT THREAD, then delivers the
+	 * map back to the given callback (impl marshals the callback onto the EDT). Null in
+	 * tests / when unavailable → optimiser falls back to an owned-only search.
+	 */
+	@FunctionalInterface
+	public interface OptimizerPriceResolver
+	{
+		void resolve(java.util.Set<Integer> itemIds, java.util.function.Consumer<java.util.Map<Integer, Long>> onResolved);
+	}
+
+	/** Nullable — see {@link OptimizerPriceResolver}; {@code null} means owned-only search (no client-thread pricing available). */
+	private final OptimizerPriceResolver priceResolver;
+
 	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager)
 	{
 		this(store, itemManager, skillIconManager, null, null);
@@ -341,11 +355,18 @@ public final class GearSection extends CollapsibleSection
 	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager,
 		SpriteManager spriteManager, ConfigManager configManager)
 	{
+		this(store, itemManager, skillIconManager, spriteManager, configManager, null);
+	}
+
+	public GearSection(CollapseStore store, ItemManager itemManager, SkillIconManager skillIconManager,
+		SpriteManager spriteManager, ConfigManager configManager, OptimizerPriceResolver priceResolver)
+	{
 		super(KEY, "Gear DPS", store);
 		this.itemManager = itemManager;
 		this.skillIconManager = skillIconManager;
 		this.spriteManager = spriteManager;
 		this.configManager = configManager;
+		this.priceResolver = priceResolver;
 		loadPotionVariantPrefs();
 
 		// ------------------------------------------------ worn-gear header
@@ -2201,6 +2222,38 @@ public final class GearSection extends CollapsibleSection
 
 		long budget = parseBudget(budgetField.getText());
 		java.util.Map<Integer, Long> ownedPrices = ownedPriceMap();
+
+		if (priceResolver == null)
+		{
+			// No client-thread price source available (headless test / not wired) —
+			// legitimate owned-only fallback: an unpriced non-owned item resolves to
+			// Long.MAX_VALUE (unaffordable at any budget); owned items are separately
+			// marked affordable via .owned(...) regardless of price.
+			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
+				id -> ownedPrices.getOrDefault(id, Long.MAX_VALUE));
+			runOptimizerSearch(request);
+			return;
+		}
+
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		java.util.Set<Integer> candidateIds = new java.util.HashSet<>(index.allItemIds());
+		candidateIds.removeAll(ownedPrices.keySet());
+
+		priceResolver.resolve(candidateIds, priceMap ->
+		{
+			// .owned() already makes owned items free/affordable — no need to
+			// special-case ownedPrices here. Anything the resolver didn't price
+			// (untradeable/unknown) falls back to Long.MAX_VALUE = unaffordable.
+			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
+				id -> priceMap.getOrDefault(id, Long.MAX_VALUE));
+			runOptimizerSearch(request);
+		});
+	}
+
+	/** Builds the {@link GearOptimizer.Request} shared by both the resolver and no-resolver {@link #runOptimizer} paths. */
+	private GearOptimizer.Request buildOptimizerRequest(long budget, java.util.Map<Integer, Long> ownedPrices,
+		GearOptimizer.PriceSource priceSource)
+	{
 		int[] liveIds = lastGear.equippedItemIds();
 		Monster target = selectedMonster;
 		PlayerCombat.Builder template = PlayerCombat.builder()
@@ -2217,13 +2270,17 @@ public final class GearSection extends CollapsibleSection
 			.onSlayerTask(onSlayerTaskToggle.isSelected())
 			.magicPotionVariant(magicPotionVariantForCalc());
 
-		GearOptimizer.Request request = GearOptimizer.Request
+		return GearOptimizer.Request
 			.builder(liveIds, target, template)
 			.budget(budget)
 			.owned(ownedPrices.keySet())
-			.priceSource(id -> ownedPrices.getOrDefault(id, Long.MAX_VALUE))
+			.priceSource(priceSource)
 			.build();
+	}
 
+	/** Runs the given request off the EDT via {@code SwingWorker} and publishes the result back via {@link #onOptimizerResult}. */
+	private void runOptimizerSearch(GearOptimizer.Request request)
+	{
 		new javax.swing.SwingWorker<GearOptimizer.Result, Void>()
 		{
 			@Override
@@ -2765,35 +2822,35 @@ public final class GearSection extends CollapsibleSection
 	 * Runs the optimizer SYNCHRONOUSLY for tests (bypassing the real
 	 * {@code SwingWorker}, whose background thread + {@code invokeLater}
 	 * hand-off is awkward to await deterministically in a headless test) by
-	 * building the same {@link GearOptimizer.Request} {@link #runOptimizer}
-	 * would and calling {@link #onOptimizerResult} directly on the calling
-	 * (EDT) thread.
+	 * mirroring {@link #runOptimizer}'s resolver-vs-owned-only branching and
+	 * calling {@link #onOptimizerResult} directly on the calling (EDT)
+	 * thread. If a fake {@link OptimizerPriceResolver} was injected via the
+	 * 6-arg constructor, this exercises it too — as long as it calls back
+	 * synchronously (as a test fake should), no threading is involved.
 	 */
 	void runOptimizerSyncForTest()
 	{
 		long budget = parseBudget(budgetField.getText());
 		java.util.Map<Integer, Long> ownedPrices = ownedPriceMap();
-		int[] liveIds = lastGear.equippedItemIds();
-		PlayerCombat.Builder template = PlayerCombat.builder()
-			.attack(lastGear.baseAttack(), lastGear.boostedAttack())
-			.strength(lastGear.baseStrength(), lastGear.boostedStrength())
-			.defence(lastGear.baseDefence(), lastGear.boostedDefence())
-			.ranged(lastGear.baseRanged(), lastGear.boostedRanged())
-			.magic(lastGear.baseMagic(), lastGear.boostedMagic())
-			.prayer(lastGear.basePrayer(), lastGear.boostedPrayer())
-			.hitpoints(lastGear.baseHitpoints(), lastGear.boostedHitpoints())
-			.activePrayers(lastGear.activePrayers())
-			.assumeBestPotion(bestPotionToggle.isSelected())
-			.assumeBestPrayer(bestPrayerToggle.isSelected())
-			.onSlayerTask(onSlayerTaskToggle.isSelected())
-			.magicPotionVariant(magicPotionVariantForCalc());
-		GearOptimizer.Request request = GearOptimizer.Request
-			.builder(liveIds, selectedMonster, template)
-			.budget(budget)
-			.owned(ownedPrices.keySet())
-			.priceSource(id -> ownedPrices.getOrDefault(id, Long.MAX_VALUE))
-			.build();
-		onOptimizerResult(GearOptimizer.optimize(request));
+
+		if (priceResolver == null)
+		{
+			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
+				id -> ownedPrices.getOrDefault(id, Long.MAX_VALUE));
+			onOptimizerResult(GearOptimizer.optimize(request));
+			return;
+		}
+
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		java.util.Set<Integer> candidateIds = new java.util.HashSet<>(index.allItemIds());
+		candidateIds.removeAll(ownedPrices.keySet());
+
+		priceResolver.resolve(candidateIds, priceMap ->
+		{
+			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
+				id -> priceMap.getOrDefault(id, Long.MAX_VALUE));
+			onOptimizerResult(GearOptimizer.optimize(request));
+		});
 	}
 
 	GearOptimizer.Result lastOptimizerResultForTest()

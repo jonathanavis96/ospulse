@@ -239,30 +239,22 @@ public class GearSectionOptimizerTest
 	}
 
 	/**
-	 * Documents a real, confirmed bug in {@code GearSection.ownedPriceMap()}
-	 * (see {@code runOptimizer}/{@code ownedPriceMap}): the {@code priceSource}
-	 * it builds only has an entry for items the player already owns (worn gear
-	 * at 0, {@code WealthSnapshot} top holdings at their held value) and falls
-	 * back to {@code Long.MAX_VALUE} for anything else via
-	 * {@code ownedPrices.getOrDefault(id, Long.MAX_VALUE)}. Since a budget
-	 * upgrade is by definition an item the player does NOT already own, this
-	 * means {@code GearOptimizer} can never see any non-owned item as
-	 * affordable no matter how large the budget field is — the "Find best
-	 * setup" budget has effectively never worked; only owned-only search
-	 * (budget-independent) can ever change anything.
-	 *
-	 * <p>Fixing this for real requires wiring in an actual GE-price source for
-	 * arbitrary (non-owned) items, which this plugin currently only has as an
-	 * OFF-BY-DEFAULT, async, client-thread-fed HTTP integration
-	 * ({@code PriceTrendService}/{@code ItemManager.getItemPrice}) — neither of
-	 * which is safely callable synchronously from the optimiser's background
-	 * search today. That is an architectural decision (new always-on price
-	 * source, caching, EDT-safety) beyond a routine fix, so it is reported
-	 * here rather than guessed at. This test pins today's (buggy) behaviour so
-	 * a future fix has a clear "budget must matter" assertion to flip.
+	 * Documents the intentional owned-only fallback when {@link GearSection}
+	 * has no {@code OptimizerPriceResolver} wired in (e.g. this test's 3-arg
+	 * constructor, or a headless/no-client-thread context in production).
+	 * With no resolver, {@code runOptimizer}/{@code runOptimizerSyncForTest}
+	 * build the {@code priceSource} purely from {@code ownedPriceMap()} —
+	 * worn gear + {@code WealthSnapshot} top holdings — and fall back to
+	 * {@code 0L} (unaffordable-unless-owned) for anything else. Since a
+	 * budget upgrade is by definition an item the player does NOT already
+	 * own, this means the budget genuinely cannot buy anything in this mode —
+	 * that is correct, not a bug: pricing arbitrary non-owned items requires
+	 * an {@code OptimizerPriceResolver} (see
+	 * {@code withInjectedPriceResolver_budgetBuysAffordableNonOwnedWeapon}
+	 * below for the resolver-driven path where the budget does matter).
 	 */
 	@Test
-	public void budgetFieldIsCurrentlyIgnored_nonOwnedItemsAreNeverPricedAffordable()
+	public void withoutPriceResolver_budgetCannotBuyNonOwnedItems_ownedOnlySearch()
 	{
 		onEdt(() ->
 		{
@@ -274,18 +266,83 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 
-			// A huge budget — if pricing worked, SOME non-owned weapon upgrade
-			// (e.g. a dragon scimitar, real GE price ~50k) would be affordable.
+			// A huge budget — but with no resolver wired in, nothing non-owned
+			// can ever be priced affordable, by design.
 			section.setBudgetTextForTest("50m");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResultForTest();
-			// Current (buggy) behaviour: nothing was ever affordable, so spend
-			// is always 0 and the weapon never changes — regardless of budget.
-			assertEquals("bug: no non-owned item is ever priced affordable, so nothing is ever bought",
+			assertEquals("no resolver: no non-owned item is ever priced affordable, so nothing is ever bought",
 				0L, result.totalSpend());
-			assertEquals("bug: the live bronze sword is kept even with a 50m budget",
+			assertEquals("no resolver: the live bronze sword is kept even with a 50m budget",
 				BRONZE_SWORD, weaponIdInResult(result));
+		});
+	}
+
+	private static final int ABYSSAL_WHIP = 4151;
+
+	/** A synchronous fake resolver — calls {@code onResolved} inline with a fixed price map, no threading involved. */
+	private static GearSection.OptimizerPriceResolver fakeResolver(java.util.Map<Integer, Long> prices)
+	{
+		return (ids, onResolved) -> onResolved.accept(prices);
+	}
+
+	/**
+	 * The real fix under test: with an {@code OptimizerPriceResolver} injected
+	 * (mirroring the production client-thread-backed resolver wired in
+	 * {@code OSPulsePlugin}), a large-enough budget now lets the optimiser
+	 * propose buying a non-owned item it was never able to see as affordable
+	 * before. Mirrors
+	 * {@code GearOptimizerTest#budgetAllowsAffordableUpgrade_picksTheBestAffordableWeapon}'s
+	 * cheap-scimitar/expensive-whip pattern, but exercised through the real
+	 * {@link GearSection} wiring instead of calling {@code GearOptimizer}
+	 * directly.
+	 */
+	@Test
+	public void withInjectedPriceResolver_budgetBuysAffordableNonOwnedWeapon()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(DRAGON_SCIMITAR, 50_000L);
+			prices.put(ABYSSAL_WHIP, 5_000_000L);
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(section);
+
+			section.setBudgetTextForTest("100k");
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			assertEquals("the resolver-priced, affordable scimitar upgrade must be bought",
+				DRAGON_SCIMITAR, weaponIdInResult(result));
+			assertTrue("spend must be > 0 (an actual purchase happened)", result.totalSpend() > 0L);
+			assertTrue("spend must not exceed the budget", result.totalSpend() <= 100_000L);
+		});
+	}
+
+	/** Companion to the test above: budget 0 must keep the owned weapon even with a resolver wired in (nothing is "free" to buy). */
+	@Test
+	public void withInjectedPriceResolver_zeroBudgetKeepsOwnedWeapon()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(DRAGON_SCIMITAR, 50_000L);
+			prices.put(ABYSSAL_WHIP, 5_000_000L);
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(section);
+
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			assertEquals("budget 0 must not buy anything even with a resolver wired in",
+				0L, result.totalSpend());
+			assertEquals(BRONZE_SWORD, weaponIdInResult(result));
 		});
 	}
 

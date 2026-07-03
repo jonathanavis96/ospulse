@@ -119,7 +119,16 @@ public final class GearOptimizer {
      */
     @FunctionalInterface
     public interface PriceSource {
-        /** GE price for {@code itemId}, or {@code 0}/negative if unknown/untradeable (treated as unaffordable unless owned). */
+        /**
+         * GE price for {@code itemId}. {@code 0} (or negative) is treated as
+         * FREE/affordable regardless of budget — the convention owned/untradeable
+         * items use (see {@link Candidate}'s javadoc and
+         * {@code buildCandidatesForSlot}'s {@code price > request.budget} check,
+         * which a {@code 0} price always passes). To mark a non-owned item as
+         * unaffordable (e.g. unknown/unpriced), return a value greater than any
+         * realistic budget, such as {@code Long.MAX_VALUE} — returning {@code 0}
+         * for that case would incorrectly make the item look free.
+         */
         long priceFor(int itemId);
 
         /** A price source that treats every item as free — useful for tests and an owned-only search. */

@@ -3,10 +3,12 @@ package com.ospulse;
 import com.google.gson.Gson;
 import com.google.inject.Provides;
 import com.ospulse.integration.PriceTrendService;
+import com.ospulse.integration.RuneLiteItemValuation;
 import com.ospulse.integration.SessionTracker;
 import com.ospulse.sync.DashboardSyncService;
 import com.ospulse.sync.PairingClient;
 import com.ospulse.ui.OSPulsePanel;
+import com.ospulse.ui.sections.GearSection;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
@@ -82,6 +84,9 @@ public class OSPulsePlugin extends Plugin
 	@Inject
 	private OverlayManager overlayManager;
 
+	@Inject
+	private net.runelite.client.callback.ClientThread clientThread;
+
 	private SessionTracker tracker;
 	private OSPulsePanel panel;
 	private DashboardSyncService syncService;
@@ -99,8 +104,23 @@ public class OSPulsePlugin extends Plugin
 
 		priceTrendService = new PriceTrendService(okHttpClient, config, gson);
 
+		RuneLiteItemValuation valuation = new RuneLiteItemValuation(itemManager);
+		GearSection.OptimizerPriceResolver optimizerPriceResolver = (ids, cb) -> clientThread.invoke(() ->
+		{
+			java.util.Map<Integer, Long> m = new java.util.HashMap<>();
+			for (int id : ids)
+			{
+				long v = valuation.unitValue(id);
+				if (v > 0)
+				{
+					m.put(id, v);
+				}
+			}
+			javax.swing.SwingUtilities.invokeLater(() -> cb.accept(m));
+		});
+
 		panel = new OSPulsePanel(config, itemManager, configManager, priceTrendService, skillIconManager,
-			spriteManager, this, client, overlayManager);
+			spriteManager, this, client, overlayManager, optimizerPriceResolver);
 		panel.setResetCallback(tracker::resetSession);
 		tracker.addListener(panel);
 

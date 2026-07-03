@@ -74,7 +74,8 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	public OSPulsePanel(OSPulseConfig config, ItemManager itemManager, ConfigManager configManager,
 		PriceTrendService priceTrendService, SkillIconManager skillIconManager,
 		net.runelite.client.game.SpriteManager spriteManager,
-		Plugin plugin, Client client, OverlayManager overlayManager)
+		Plugin plugin, Client client, OverlayManager overlayManager,
+		GearSection.OptimizerPriceResolver optimizerPriceResolver)
 	{
 		super(false);
 		Objects.requireNonNull(config, "config");
@@ -93,7 +94,8 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		sectionList.add(new SessionSection(store, plugin, client, overlayManager));
 		sectionList.add(new LootSection(store, config, itemManager, plugin, client, overlayManager));
 		sectionList.add(new XpSection(store, skillIconManager, plugin, client, overlayManager));
-		sectionList.add(new GearSection(store, itemManager, skillIconManager, spriteManager, configManager));
+		sectionList.add(new GearSection(store, itemManager, skillIconManager, spriteManager, configManager,
+			optimizerPriceResolver));
 		sectionList.add(new GeSection(store, itemManager));
 		sectionList.add(new WealthSection(store));
 		sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService));

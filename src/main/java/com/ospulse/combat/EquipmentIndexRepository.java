@@ -117,6 +117,11 @@ public final class EquipmentIndexRepository {
         return byItemId.get(itemId);
     }
 
+    /** All indexed (computable) item ids — the optimiser's candidate universe. */
+    public java.util.Set<Integer> allItemIds() {
+        return Collections.unmodifiableSet(byItemId.keySet());
+    }
+
     /**
      * Every indexed item that fits the given {@code EquipmentInventorySlot}
      * ordinal, in file order. Never {@code null}; empty if the slot ordinal
