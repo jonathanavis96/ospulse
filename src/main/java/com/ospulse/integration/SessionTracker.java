@@ -2,6 +2,7 @@ package com.ospulse.integration;
 
 import com.ospulse.OSPulseConfig;
 import com.ospulse.combat.EquipmentStats;
+import com.ospulse.combat.EquipmentStatsRepository;
 import com.ospulse.combat.OffensivePrayer;
 import com.ospulse.ge.GeOfferState;
 import com.ospulse.ge.GeOfferView;
@@ -394,7 +395,9 @@ public class SessionTracker implements SessionService
 			base.getLootSources(),
 			buildXpSkillViews(base.getXpGained(), elapsedMs),
 			overallXpPerHour,
-			buildGear());
+			buildGear(),
+			base.getUnrealizedPnl(),
+			base.getHoldingPnls());
 	}
 
 	/**
@@ -481,12 +484,27 @@ public class SessionTracker implements SessionService
 		{
 			return null;
 		}
+
+		// Numeric bonuses come from the bundled clean-room cache data
+		// ({@link EquipmentStatsRepository}) — licence-free and shareable with a
+		// future non-RuneLite build. RuneLite's wiki-derived getItemStats() is
+		// retained only for the two-handed flag (not cache-derivable) and as the
+		// fallback for the rare item absent from the cache data.
+		EquipmentStatsRepository.Stats cache = EquipmentStatsRepository.getInstance().statsFor(itemId);
+
 		ItemStats stats = itemManager.getItemStats(itemId);
-		if (stats == null || !stats.isEquipable())
+		ItemEquipmentStats eq = (stats != null && stats.isEquipable()) ? stats.getEquipment() : null;
+
+		if (cache != null)
 		{
-			return null;
+			boolean isTwoHanded = eq != null && eq.isTwoHanded();
+			return new GearMapper.SlotStats(
+				cache.astab(), cache.aslash(), cache.acrush(), cache.amagic(), cache.arange(),
+				cache.dstab(), cache.dslash(), cache.dcrush(), cache.dmagic(), cache.drange(),
+				cache.str(), cache.rstr(), cache.mdmg(), cache.prayer(), cache.aspeed(), isTwoHanded);
 		}
-		ItemEquipmentStats eq = stats.getEquipment();
+
+		// Cache miss — fall back to RuneLite's wiki-derived numbers (unchanged behaviour).
 		if (eq == null)
 		{
 			return null;
