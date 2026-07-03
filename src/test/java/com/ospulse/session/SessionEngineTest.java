@@ -461,6 +461,203 @@ public class SessionEngineTest
 		assertEquals(2, result.getLoot().size());
 	}
 
+	// ---------------------------------------------------- realised vs unrealized
+
+	@Test
+	public void purePriceDriftMovesUnrealizedNotProfit()
+	{
+		// Held 100 dragon bones @10k when the session started...
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(DRAGON_BONES, new ItemStack(DRAGON_BONES, "Dragon bones", 100L, 10_000L));
+		WealthSnapshot initial = snap(1_000_000L, held, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// ...and the live price drifts to 13k with NO trade: quantity unchanged.
+		Map<Integer, ItemStack> drifted = new LinkedHashMap<>();
+		drifted.put(DRAGON_BONES, new ItemStack(DRAGON_BONES, "Dragon bones", 100L, 13_000L));
+		WealthSnapshot current = snap(1_300_000L, drifted, 0L, false, 1000L);
+		engine.update(current, Collections.emptySet(), 1000L);
+
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("price drift alone must not move realised profit", 0L, result.getProfit());
+		assertEquals(0L, result.getProfitPerHour());
+		assertEquals("price drift belongs in unrealized P/L", 300_000L, result.getUnrealizedPnl());
+
+		assertEquals(1, result.getHoldingPnls().size());
+		HoldingPnl row = result.getHoldingPnls().get(0);
+		assertEquals(DRAGON_BONES, row.getItemId());
+		assertEquals(100L, row.getQuantity());
+		assertEquals(1_000_000L, row.getCostBasis());
+		assertEquals(1_300_000L, row.getCurrentValue());
+		assertEquals(300_000L, row.unrealized());
+	}
+
+	@Test
+	public void lootRaisesProfitNotUnrealized()
+	{
+		WealthSnapshot initial = snap(0L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Picked up 100 dragon bones @10k: a genuine quantity gain.
+		Map<Integer, ItemStack> tracked = new LinkedHashMap<>();
+		tracked.put(DRAGON_BONES, new ItemStack(DRAGON_BONES, "Dragon bones", 100L, 10_000L));
+		WealthSnapshot current = snap(1_000_000L, tracked, 0L, false, 1000L);
+		engine.update(current, Collections.emptySet(), 1000L);
+
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("loot is realised profit", 1_000_000L, result.getProfit());
+		assertEquals("loot valued at pickup price has no paper gain yet",
+			0L, result.getUnrealizedPnl());
+		// Its cost basis is the pickup price, so the breakdown row is flat.
+		assertEquals(1, result.getHoldingPnls().size());
+		assertEquals(1_000_000L, result.getHoldingPnls().get(0).getCostBasis());
+		assertEquals(1_000_000L, result.getHoldingPnls().get(0).getCurrentValue());
+	}
+
+	@Test
+	public void geSaleAtProfitRealisesTheGain()
+	{
+		// Start holding 100 units @1k (basis 100k)...
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(RUNE_ITEM, new ItemStack(RUNE_ITEM, "Nature rune", 100L, 1_000L));
+		WealthSnapshot initial = snap(100_000L, held, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// ...price drifts to 1.5k: 50k paper gain, no realised profit yet.
+		Map<Integer, ItemStack> drifted = new LinkedHashMap<>();
+		drifted.put(RUNE_ITEM, new ItemStack(RUNE_ITEM, "Nature rune", 100L, 1_500L));
+		WealthSnapshot afterDrift = snap(150_000L, drifted, 0L, false, 1000L);
+		engine.update(afterDrift, Collections.emptySet(), 1000L);
+
+		SessionSnapshot paper = engine.snapshot(afterDrift, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals(0L, paper.getProfit());
+		assertEquals(50_000L, paper.getUnrealizedPnl());
+
+		// Sold the lot at 1.5k: coins in, item out. The paper gain is realised.
+		WealthSnapshot afterSale = snap(150_000L, Collections.emptyMap(), 0L, false, 2000L);
+		engine.update(afterSale, Collections.emptySet(), 2000L);
+
+		SessionSnapshot result = engine.snapshot(afterSale, 0L, Collections.emptyMap(), 0L, 2000L);
+		assertEquals("sale converts the paper gain into realised profit",
+			50_000L, result.getProfit());
+		assertEquals(0L, result.getUnrealizedPnl());
+		assertTrue(result.getHoldingPnls().isEmpty());
+	}
+
+	@Test
+	public void costBasisAveragesAcrossBuysAndPartialSells()
+	{
+		// 10k coins, no holdings. (Coins are implicit in inventoryValue.)
+		WealthSnapshot initial = snap(10_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+		Set<Integer> geAttributed = Collections.singleton(RUNE_ITEM);
+
+		// Buy 10 @100: coins 9k + items 1k. Basis 1,000. Nothing realised.
+		Map<Integer, ItemStack> afterBuy1Items = new LinkedHashMap<>();
+		afterBuy1Items.put(RUNE_ITEM, new ItemStack(RUNE_ITEM, "Nature rune", 10L, 100L));
+		WealthSnapshot afterBuy1 = snap(10_000L, afterBuy1Items, 0L, false, 1000L);
+		engine.update(afterBuy1, geAttributed, 1000L);
+		SessionSnapshot s1 = engine.snapshot(afterBuy1, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals(0L, s1.getProfit());
+		assertEquals(0L, s1.getUnrealizedPnl());
+
+		// Price doubles to 200 and buy 10 more @200: coins 7k + items 4k.
+		// Basis 1,000 + 2,000 = 3,000 (avg 150). The first 10 units' price
+		// rise is a paper gain only.
+		Map<Integer, ItemStack> afterBuy2Items = new LinkedHashMap<>();
+		afterBuy2Items.put(RUNE_ITEM, new ItemStack(RUNE_ITEM, "Nature rune", 20L, 200L));
+		WealthSnapshot afterBuy2 = snap(11_000L, afterBuy2Items, 0L, false, 2000L);
+		engine.update(afterBuy2, geAttributed, 2000L);
+		SessionSnapshot s2 = engine.snapshot(afterBuy2, 0L, Collections.emptyMap(), 0L, 2000L);
+		assertEquals(0L, s2.getProfit());
+		assertEquals(1_000L, s2.getUnrealizedPnl());
+
+		// Sell 10 @200: coins 9k + items 2k. Sold units carried avg basis 150,
+		// so 10 * (200 - 150) = 500 is realised; the kept 10 retain basis 1,500.
+		Map<Integer, ItemStack> afterSellItems = new LinkedHashMap<>();
+		afterSellItems.put(RUNE_ITEM, new ItemStack(RUNE_ITEM, "Nature rune", 10L, 200L));
+		WealthSnapshot afterSell = snap(11_000L, afterSellItems, 0L, false, 3000L);
+		engine.update(afterSell, geAttributed, 3000L);
+		SessionSnapshot s3 = engine.snapshot(afterSell, 0L, Collections.emptyMap(), 0L, 3000L);
+		assertEquals(500L, s3.getProfit());
+		assertEquals(500L, s3.getUnrealizedPnl());
+		assertEquals(1, s3.getHoldingPnls().size());
+		assertEquals(1_500L, s3.getHoldingPnls().get(0).getCostBasis());
+		assertEquals(2_000L, s3.getHoldingPnls().get(0).getCurrentValue());
+	}
+
+	@Test
+	public void holdingBreakdownSumsToUnrealizedLine()
+	{
+		// Two holdings: A 10 @1k (10k) and B 5 @2k (10k).
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(1, new ItemStack(1, "Item A", 10L, 1_000L));
+		held.put(2, new ItemStack(2, "Item B", 5L, 2_000L));
+		WealthSnapshot initial = snap(20_000L, held, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// A drifts up to 1.3k (+3k paper), B down to 1.6k (-2k paper).
+		Map<Integer, ItemStack> drifted = new LinkedHashMap<>();
+		drifted.put(1, new ItemStack(1, "Item A", 10L, 1_300L));
+		drifted.put(2, new ItemStack(2, "Item B", 5L, 1_600L));
+		WealthSnapshot current = snap(21_000L, drifted, 0L, false, 1000L);
+		engine.update(current, Collections.emptySet(), 1000L);
+
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals(0L, result.getProfit());
+		assertEquals(1_000L, result.getUnrealizedPnl());
+
+		assertEquals(2, result.getHoldingPnls().size());
+		long sum = 0L;
+		for (HoldingPnl row : result.getHoldingPnls())
+		{
+			sum += row.unrealized();
+		}
+		assertEquals("breakdown rows must sum to the unrealized line",
+			result.getUnrealizedPnl(), sum);
+		// Ordered by absolute unrealized amount descending: A (+3k) before B (-2k).
+		assertEquals("Item A", result.getHoldingPnls().get(0).getName());
+		assertEquals(3_000L, result.getHoldingPnls().get(0).unrealized());
+		assertEquals(-2_000L, result.getHoldingPnls().get(1).unrealized());
+	}
+
+	@Test
+	public void bankDepositOfAppreciatedHoldingRealisesItsGain()
+	{
+		// Deliberate accounting choice: cost basis is session- and
+		// tracked-wealth-scoped, and the bank is valued at live prices, so
+		// depositing an appreciated holding locks in its paper gain (the
+		// unrealized amount moves into realised profit — the total is
+		// continuous, nothing jumps).
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(RUNE_ITEM, new ItemStack(RUNE_ITEM, "Nature rune", 100L, 1_000L));
+		WealthSnapshot initial = snap(100_000L, held, 0L, true, 0L);
+		engine.startSession(initial, 0L);
+
+		// Price drifts to 1.5k: 50k paper gain.
+		Map<Integer, ItemStack> drifted = new LinkedHashMap<>();
+		drifted.put(RUNE_ITEM, new ItemStack(RUNE_ITEM, "Nature rune", 100L, 1_500L));
+		WealthSnapshot afterDrift = snap(150_000L, drifted, 0L, true, 1000L);
+		engine.update(afterDrift, Collections.emptySet(), 1000L);
+		assertEquals(50_000L,
+			engine.snapshot(afterDrift, 0L, Collections.emptyMap(), 0L, 1000L).getUnrealizedPnl());
+
+		// Deposit the whole stack: tracked -> 0, bank +150k, bank still open.
+		engine.setBankOpen(true, afterDrift, 1100L);
+		WealthSnapshot afterDeposit = snap(0L, Collections.emptyMap(), 150_000L, true, 1200L);
+		engine.update(afterDeposit, Collections.emptySet(), 1200L);
+
+		SessionSnapshot live = engine.snapshot(afterDeposit, 0L, Collections.emptyMap(), 0L, 1200L);
+		assertEquals(50_000L, live.getProfit());
+		assertEquals(0L, live.getUnrealizedPnl());
+
+		// The figure survives the bank close unchanged.
+		engine.setBankOpen(false, afterDeposit, 1300L);
+		SessionSnapshot closed = engine.snapshot(afterDeposit, 0L, Collections.emptyMap(), 0L, 1300L);
+		assertEquals(50_000L, closed.getProfit());
+		assertEquals(0L, closed.getUnrealizedPnl());
+	}
+
 	@Test
 	public void zeroValueItemsAreNotLoot()
 	{

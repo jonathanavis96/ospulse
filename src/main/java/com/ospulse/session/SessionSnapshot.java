@@ -33,6 +33,8 @@ public final class SessionSnapshot
 	private final List<XpSkillView> xpSkills;
 	private final long xpPerHour;
 	private final GearSnapshot gear;
+	private final long unrealizedPnl;
+	private final List<HoldingPnl> holdingPnls;
 
 	/**
 	 * Backward-compatible constructor: no active-offer / source-loot breakdown.
@@ -107,6 +109,11 @@ public final class SessionSnapshot
 			xpSkills, xpPerHour, null);
 	}
 
+	/**
+	 * Backward-compatible constructor: no unrealized-P/L figures. Delegates to
+	 * the full constructor with {@code unrealizedPnl = 0} and no per-holding
+	 * breakdown.
+	 */
 	public SessionSnapshot(
 		long startMs,
 		long elapsedMs,
@@ -124,6 +131,31 @@ public final class SessionSnapshot
 		List<XpSkillView> xpSkills,
 		long xpPerHour,
 		GearSnapshot gear)
+	{
+		this(startMs, elapsedMs, profit, profitPerHour, geRealizedPnl, netWorthDelta,
+			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
+			xpSkills, xpPerHour, gear, 0L, Collections.emptyList());
+	}
+
+	public SessionSnapshot(
+		long startMs,
+		long elapsedMs,
+		long profit,
+		long profitPerHour,
+		long geRealizedPnl,
+		long netWorthDelta,
+		boolean bankKnown,
+		List<LootEntry> loot,
+		Map<String, Long> xpGained,
+		long xpTotal,
+		WealthSnapshot wealth,
+		List<GeOfferView> geOffers,
+		List<SourceLoot> lootSources,
+		List<XpSkillView> xpSkills,
+		long xpPerHour,
+		GearSnapshot gear,
+		long unrealizedPnl,
+		List<HoldingPnl> holdingPnls)
 	{
 		this.startMs = startMs;
 		this.elapsedMs = elapsedMs;
@@ -151,6 +183,10 @@ public final class SessionSnapshot
 			: Collections.unmodifiableList(new ArrayList<>(xpSkills));
 		this.xpPerHour = xpPerHour;
 		this.gear = gear == null ? GearSnapshot.empty() : gear;
+		this.unrealizedPnl = unrealizedPnl;
+		this.holdingPnls = holdingPnls == null
+			? Collections.emptyList()
+			: Collections.unmodifiableList(new ArrayList<>(holdingPnls));
 	}
 
 	public long getStartMs()
@@ -256,5 +292,26 @@ public final class SessionSnapshot
 	public GearSnapshot getGear()
 	{
 		return gear;
+	}
+
+	/**
+	 * Total unrealized P/L: current holdings valued at live price minus their
+	 * session cost basis. Pure price drift on held items moves this figure —
+	 * never {@link #getProfit()}, which is realised activity only.
+	 */
+	public long getUnrealizedPnl()
+	{
+		return unrealizedPnl;
+	}
+
+	/**
+	 * Per-holding unrealized P/L breakdown (cost basis vs current value per
+	 * held item), ordered by absolute unrealized amount descending — the rows
+	 * sum to {@link #getUnrealizedPnl()}. Empty when nothing is held or the
+	 * engine predates cost-basis tracking (older constructors).
+	 */
+	public List<HoldingPnl> getHoldingPnls()
+	{
+		return holdingPnls;
 	}
 }

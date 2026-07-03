@@ -3,6 +3,7 @@ package com.ospulse.session;
 import com.ospulse.ge.GeOfferView;
 import com.ospulse.model.ItemStack;
 import com.ospulse.wealth.WealthSnapshot;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -26,8 +27,18 @@ import java.util.Set;
  * figure is continuous across the close. Genuine gains while the bank happens
  * to be open (e.g. a GE fill) don't move the bank and therefore still count.
  *
+ * <p>"Profit" is realised activity only (loot, trade P&amp;L, genuine quantity
+ * changes) — passive price drift on held items must never move it. Each held
+ * tracked item carries a session cost basis (live price when its units were
+ * first seen / acquired this session, average-cost across later buys, see
+ * {@link #syncCostBasis}); the gap between a holding's live value and its
+ * basis is "unrealized P/L". The two figures always sum to the raw
+ * mark-to-market delta, so selling (or consuming/banking) a holding moves its
+ * paper gain into realised profit with no jump in the total.
+ *
  * <p>Mutable, single-threaded use only. Not thread-safe.
  */
+@Slf4j
 public final class SessionEngine
 {
 	/** Tracked wealth that currently defines zero profit. */
@@ -53,6 +64,19 @@ public final class SessionEngine
 	private final Map<Integer, LootEntry> lootTotals = new LinkedHashMap<>();
 	private long startNetWorth;
 	private boolean startBankKnown;
+	/**
+	 * itemId -&gt; session cost basis for every currently-held tracked item
+	 * (quantity + total acquisition cost in gp). Kept in lockstep with the
+	 * latest snapshot's tracked items by {@link #syncCostBasis}.
+	 */
+	private final Map<Integer, Basis> costBasis = new LinkedHashMap<>();
+
+	/** Mutable per-item cost-basis accumulator (quantity held + total cost). */
+	private static final class Basis
+	{
+		long quantity;
+		long totalCost;
+	}
 
 	/**
 	 * Begins a new session. Resets baseline, start time, loot, and banking
@@ -70,6 +94,10 @@ public final class SessionEngine
 		this.bankValueAtOpen = 0L;
 		this.bankValueAtOpenKnown = false;
 		this.lootTotals.clear();
+		this.costBasis.clear();
+		// Holdings present at session start enter at their live price, so
+		// unrealized P/L starts the session at zero.
+		syncCostBasis(initial);
 	}
 
 	/**
@@ -84,6 +112,7 @@ public final class SessionEngine
 	 */
 	public void setBankOpen(boolean open, WealthSnapshot current, long tsMs)
 	{
+		syncCostBasis(current);
 		if (!this.bankOpen && open)
 		{
 			// FALSE -> TRUE: bank just opened. Anchor the visit.
@@ -167,6 +196,7 @@ public final class SessionEngine
 	 */
 	public void update(WealthSnapshot current, Set<Integer> geAttributedItemIds, long tsMs)
 	{
+		syncCostBasis(current);
 		if (bankOpen)
 		{
 			captureLateKnownBank(current);
@@ -210,6 +240,72 @@ public final class SessionEngine
 		}
 
 		this.previous = current;
+	}
+
+	/**
+	 * Brings {@link #costBasis} into lockstep with {@code current}'s tracked
+	 * items. Acquired units (quantity above the basis) enter at the live
+	 * price — for loot that's the pickup value, for a GE buy it's the price
+	 * at fill time. Departing units (sold, consumed, or banked) carry away
+	 * their proportional share of the total cost (average-cost accounting),
+	 * so a partial sell leaves the remaining units' basis intact. Items no
+	 * longer held are dropped — cost basis is tracked-wealth-scoped, so
+	 * banking a holding settles its paper gain at the deposit-time valuation
+	 * (the bank itself is valued at live prices, keeping profit continuous).
+	 * Idempotent for an unchanged snapshot.
+	 */
+	private void syncCostBasis(WealthSnapshot current)
+	{
+		Map<Integer, ItemStack> items = current.getTrackedItems();
+		costBasis.keySet().removeIf(itemId -> !items.containsKey(itemId));
+
+		for (Map.Entry<Integer, ItemStack> entry : items.entrySet())
+		{
+			ItemStack stack = entry.getValue();
+			long quantity = stack.getQuantity();
+			if (quantity <= 0)
+			{
+				costBasis.remove(entry.getKey());
+				continue;
+			}
+
+			Basis basis = costBasis.computeIfAbsent(entry.getKey(), id -> new Basis());
+			if (quantity > basis.quantity)
+			{
+				basis.totalCost += (quantity - basis.quantity) * stack.getUnitValue();
+			}
+			else if (quantity < basis.quantity)
+			{
+				// Double intermediate: totalCost * quantity can overflow long
+				// for huge stacks; values are well within double's exact
+				// integer range (2^53).
+				basis.totalCost = Math.round((double) basis.totalCost * quantity / basis.quantity);
+			}
+			basis.quantity = quantity;
+		}
+	}
+
+	/**
+	 * Per-holding unrealized P/L rows for {@code current}'s tracked items
+	 * (live value minus session cost basis), ordered by absolute unrealized
+	 * amount descending. Must be called after {@link #syncCostBasis} so every
+	 * held item has a basis at the current quantity.
+	 */
+	private List<HoldingPnl> holdingPnls(WealthSnapshot current)
+	{
+		List<HoldingPnl> rows = new ArrayList<>();
+		for (ItemStack stack : current.getTrackedItems().values())
+		{
+			Basis basis = costBasis.get(stack.getId());
+			if (basis == null)
+			{
+				continue;
+			}
+			rows.add(new HoldingPnl(stack.getId(), stack.getName(), stack.getQuantity(),
+				basis.totalCost, stack.getQuantity() * stack.getUnitValue()));
+		}
+		rows.sort((a, b) -> Long.compare(Math.abs(b.unrealized()), Math.abs(a.unrealized())));
+		return rows;
 	}
 
 	private void addLoot(LootEntry entry)
@@ -272,14 +368,41 @@ public final class SessionEngine
 	{
 		foldNewlyKnownBankIntoStart(current);
 		captureLateKnownBank(current);
+		syncCostBasis(current);
 
 		// While the bank is open, add back the net amount deposited so far so
 		// in-progress transfers are zero-sum immediately rather than only
 		// after the bank closes.
-		long profit = current.tracked() + liveBankTransferOffset(current) - baseline;
+		long transferOffset = liveBankTransferOffset(current);
+		long markToMarket = current.tracked() + transferOffset - baseline;
+
+		// Split the raw mark-to-market delta: paper gains on current holdings
+		// (live value vs cost basis) are unrealized; whatever remains is
+		// realised activity — loot, trade P&L, genuine quantity changes.
+		// Price drift moves only the unrealized side.
+		List<HoldingPnl> holdingPnls = holdingPnls(current);
+		long unrealizedPnl = 0L;
+		for (HoldingPnl row : holdingPnls)
+		{
+			unrealizedPnl += row.unrealized();
+		}
+		long profit = markToMarket - unrealizedPnl;
+
 		long elapsedMs = tsMs - startMs;
 		long profitPerHour = elapsedMs > 0 ? profit * 3600000L / elapsedMs : 0L;
 		long netWorthDelta = current.netWorth() - startNetWorth;
+
+		if (log.isDebugEnabled())
+		{
+			// Guarded wealth breakdown so a "profit jumped for no reason"
+			// report can be fact-checked from client.log.
+			log.debug("wealth: tracked={} (inv={} equip={} ge={} pouch={}) bank={}/known={} "
+					+ "bankOpen={} transferOffset={} baseline={} m2m={} realised={} unrealized={} netWorthDelta={}",
+				current.tracked(), current.getInventoryValue(), current.getEquipmentValue(),
+				current.getGeInFlightValue(), current.getPouchValue(),
+				current.getBankValue(), current.isBankKnown(),
+				bankOpen, transferOffset, baseline, markToMarket, profit, unrealizedPnl, netWorthDelta);
+		}
 
 		return new SessionSnapshot(
 			startMs,
@@ -294,7 +417,12 @@ public final class SessionEngine
 			xpTotal,
 			current,
 			geOffers,
-			lootSources);
+			lootSources,
+			Collections.emptyList(),
+			0L,
+			null,
+			unrealizedPnl,
+			holdingPnls);
 	}
 
 	/**
