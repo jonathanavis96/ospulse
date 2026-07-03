@@ -27,6 +27,14 @@ public interface OSPulseConfig extends Config
 	)
 	String priceTrendSection = "priceTrend";
 
+	@ConfigSection(
+		name = "Panel sections",
+		description = "Choose which sections appear in the OSPulse side panel.",
+		position = 2,
+		closedByDefault = true
+	)
+	String panelSectionsSection = "panelSections";
+
 	// ---------------------------------------------------------------- Session
 
 	@ConfigItem(
@@ -94,5 +102,91 @@ public interface OSPulseConfig extends Config
 	default int holdingsPageSize()
 	{
 		return 5;
+	}
+
+	// ------------------------------------------------------------ Panel sections
+
+	@ConfigItem(
+		keyName = "showSessionSection",
+		name = "Show Session section",
+		description = "Show the Session section in the OSPulse panel.",
+		position = 0,
+		section = panelSectionsSection
+	)
+	default boolean showSessionSection()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "showLootSection",
+		name = "Show Loot section",
+		description = "Show the Loot section in the OSPulse panel.",
+		position = 1,
+		section = panelSectionsSection
+	)
+	default boolean showLootSection()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "showXpSection",
+		name = "Show XP section",
+		description = "Show the XP section in the OSPulse panel.",
+		position = 2,
+		section = panelSectionsSection
+	)
+	default boolean showXpSection()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "showGearSection",
+		name = "Show Gear section",
+		description = "Show the Gear section in the OSPulse panel.",
+		position = 3,
+		section = panelSectionsSection
+	)
+	default boolean showGearSection()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "showGeSection",
+		name = "Show Grand Exchange section",
+		description = "Show the Grand Exchange section in the OSPulse panel.",
+		position = 4,
+		section = panelSectionsSection
+	)
+	default boolean showGeSection()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "showWealthSection",
+		name = "Show Wealth section",
+		description = "Show the Wealth section in the OSPulse panel.",
+		position = 5,
+		section = panelSectionsSection
+	)
+	default boolean showWealthSection()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "showHoldingsSection",
+		name = "Show Top Holdings section",
+		description = "Show the Top Holdings section in the OSPulse panel.",
+		position = 6,
+		section = panelSectionsSection
+	)
+	default boolean showHoldingsSection()
+	{
+		return true;
 	}
 }
