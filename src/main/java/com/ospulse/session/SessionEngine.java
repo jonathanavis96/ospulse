@@ -62,6 +62,14 @@ public final class SessionEngine
 	 * (e.g. thousands of bird nests) collapses into a single summarised row.
 	 */
 	private final Map<Integer, LootEntry> lootTotals = new LinkedHashMap<>();
+	/**
+	 * Running session total (gp value) of consumable supplies used: tracked
+	 * items whose quantity decreased while the bank was closed and which
+	 * weren't attributed to a GE sale (see {@link #update}). This is a
+	 * conservative heuristic, not a perfect classification — see {@link
+	 * #update} for the exact exclusion rules and their limitations.
+	 */
+	private long suppliesUsed;
 	private long startNetWorth;
 	private boolean startBankKnown;
 	/**
@@ -115,6 +123,7 @@ public final class SessionEngine
 		this.bankValueAtOpen = 0L;
 		this.bankValueAtOpenKnown = false;
 		this.lootTotals.clear();
+		this.suppliesUsed = 0L;
 		this.costBasis.clear();
 		this.lastLoggedFigures = null;
 		// Holdings present at session start enter at their live price, so
@@ -205,16 +214,30 @@ public final class SessionEngine
 	/**
 	 * Advances the session with a new wealth snapshot. While the bank is
 	 * open, this is a no-op besides recording {@code current} as the new
-	 * baseline for future diffing (banking = transfers, not loot). While
-	 * away, any positive quantity delta in tracked items that isn't
+	 * baseline for future diffing (banking = transfers, not loot/supplies).
+	 * While away, any positive quantity delta in tracked items that isn't
 	 * attributed to a GE transaction and has a positive unit value is
-	 * recorded as a loot event.
+	 * recorded as a loot event; any NEGATIVE quantity delta in a tracked
+	 * item that {@link SupplyClassifier} recognises as a consumable, and
+	 * that isn't attributed to a GE sale, is recorded as supplies used (see
+	 * {@link #getSuppliesUsed}).
+	 *
+	 * <p>Limitation: this is a conservative heuristic, not a perfect
+	 * consumed-vs-transferred classification. Because it only runs while the
+	 * bank is closed and skips GE-attributed items, depositing potions/ammo
+	 * into the bank or selling them on the GE is correctly excluded.
+	 * However a decrease caused by some other out-of-band transfer this
+	 * engine doesn't model (e.g. trading the item to another player,
+	 * or a rare bank action that doesn't toggle {@code bankOpen}) would be
+	 * mis-counted as "used". This mirrors the existing loot heuristic, which
+	 * has the same blind spot for gains.
 	 *
 	 * @param geAttributedItemIds item ids whose quantity changed this
 	 *                            interval due to a GE buy/sell, supplied by
 	 *                            the integration layer (see
 	 *                            {@code GeReconciler#drainAttributedItemIds()});
-	 *                            these are excluded from the loot feed.
+	 *                            these are excluded from both the loot feed
+	 *                            and supplies-used tracking.
 	 */
 	public void update(WealthSnapshot current, Set<Integer> geAttributedItemIds, long tsMs)
 	{
@@ -239,7 +262,7 @@ public final class SessionEngine
 			long previousQty = previousStack == null ? 0L : previousStack.getQuantity();
 			long delta = currentStack.getQuantity() - previousQty;
 
-			if (delta <= 0)
+			if (delta == 0)
 			{
 				continue;
 			}
@@ -252,13 +275,20 @@ public final class SessionEngine
 				continue;
 			}
 
-			LootEntry entryLoot = new LootEntry(
-				itemId,
-				currentStack.getName(),
-				delta,
-				delta * currentStack.getUnitValue(),
-				tsMs);
-			addLoot(entryLoot);
+			if (delta > 0)
+			{
+				LootEntry entryLoot = new LootEntry(
+					itemId,
+					currentStack.getName(),
+					delta,
+					delta * currentStack.getUnitValue(),
+					tsMs);
+				addLoot(entryLoot);
+			}
+			else if (SupplyClassifier.isConsumable(currentStack.getName()))
+			{
+				suppliesUsed += (-delta) * currentStack.getUnitValue();
+			}
 		}
 
 		this.previous = current;
@@ -453,7 +483,8 @@ public final class SessionEngine
 			0L,
 			null,
 			unrealizedPnl,
-			holdingPnls);
+			holdingPnls,
+			suppliesUsed);
 	}
 
 	/**
@@ -494,5 +525,14 @@ public final class SessionEngine
 	public boolean isStartBankKnown()
 	{
 		return startBankKnown;
+	}
+
+	/**
+	 * Running session total (gp value) of consumable supplies used so far —
+	 * see {@link #update} for exactly what counts.
+	 */
+	public long getSuppliesUsed()
+	{
+		return suppliesUsed;
 	}
 }

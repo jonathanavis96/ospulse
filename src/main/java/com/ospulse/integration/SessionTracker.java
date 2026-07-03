@@ -397,7 +397,8 @@ public class SessionTracker implements SessionService
 			overallXpPerHour,
 			buildGear(),
 			base.getUnrealizedPnl(),
-			base.getHoldingPnls());
+			base.getHoldingPnls(),
+			base.getSuppliesUsed());
 	}
 
 	/**

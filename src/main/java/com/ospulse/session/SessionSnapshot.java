@@ -35,6 +35,7 @@ public final class SessionSnapshot
 	private final GearSnapshot gear;
 	private final long unrealizedPnl;
 	private final List<HoldingPnl> holdingPnls;
+	private final long suppliesUsed;
 
 	/**
 	 * Backward-compatible constructor: no active-offer / source-loot breakdown.
@@ -157,6 +158,39 @@ public final class SessionSnapshot
 		long unrealizedPnl,
 		List<HoldingPnl> holdingPnls)
 	{
+		this(startMs, elapsedMs, profit, profitPerHour, geRealizedPnl, netWorthDelta,
+			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
+			xpSkills, xpPerHour, gear, unrealizedPnl, holdingPnls, 0L);
+	}
+
+	/**
+	 * Full constructor including {@code suppliesUsed} — the running session
+	 * total (gp value) of consumable supplies (potions/food/ammo/runes)
+	 * consumed, as distinct from {@code profit} (unchanged: realised
+	 * activity only). See {@link SessionEngine#update} for how this is
+	 * detected and its heuristic's limitations.
+	 */
+	public SessionSnapshot(
+		long startMs,
+		long elapsedMs,
+		long profit,
+		long profitPerHour,
+		long geRealizedPnl,
+		long netWorthDelta,
+		boolean bankKnown,
+		List<LootEntry> loot,
+		Map<String, Long> xpGained,
+		long xpTotal,
+		WealthSnapshot wealth,
+		List<GeOfferView> geOffers,
+		List<SourceLoot> lootSources,
+		List<XpSkillView> xpSkills,
+		long xpPerHour,
+		GearSnapshot gear,
+		long unrealizedPnl,
+		List<HoldingPnl> holdingPnls,
+		long suppliesUsed)
+	{
 		this.startMs = startMs;
 		this.elapsedMs = elapsedMs;
 		this.profit = profit;
@@ -187,6 +221,7 @@ public final class SessionSnapshot
 		this.holdingPnls = holdingPnls == null
 			? Collections.emptyList()
 			: Collections.unmodifiableList(new ArrayList<>(holdingPnls));
+		this.suppliesUsed = suppliesUsed;
 	}
 
 	public long getStartMs()
@@ -313,5 +348,19 @@ public final class SessionSnapshot
 	public List<HoldingPnl> getHoldingPnls()
 	{
 		return holdingPnls;
+	}
+
+	/**
+	 * Running session total (gp value) of consumable supplies used
+	 * (potions/food/ammo/runes drained from inventory while away from the
+	 * bank and not attributable to a GE sale). An ADDITIONAL readout, not a
+	 * component subtracted from {@link #getProfit()} a second time — supplies
+	 * already implicitly reduce tracked wealth (and therefore profit); this
+	 * figure just surfaces how much of that reduction was supplies. Zero for
+	 * snapshots built before this tracking existed (older constructors).
+	 */
+	public long getSuppliesUsed()
+	{
+		return suppliesUsed;
 	}
 }
