@@ -200,6 +200,15 @@ public final class GearSection extends CollapsibleSection
 	/** One grid cell's square side length — matches the worn-gear grid's slot size so the two grids read consistently. */
 	private static final int ITEM_GRID_CELL_SIZE = SLOT_H;
 
+	/**
+	 * Delta colours for a positive/negative DPS comparison (item #6b) — reuse
+	 * the same green/red the panel already applies to gp gains elsewhere (see
+	 * {@link PanelWidgets#setSignedGpLabel}) instead of the literal ▲/▼
+	 * triangle glyphs the "vs owned only" / "vs worn gear" rows used before.
+	 */
+	private static final java.awt.Color DELTA_UP_COLOR = ColorScheme.PROGRESS_COMPLETE_COLOR;
+	private static final java.awt.Color DELTA_DOWN_COLOR = ColorScheme.PROGRESS_ERROR_COLOR;
+
 	private final ItemManager itemManager;
 	private final SkillIconManager skillIconManager;
 	private final SpriteManager spriteManager;
@@ -341,11 +350,18 @@ public final class GearSection extends CollapsibleSection
 	private final JLabel optimizerResultDelta;
 	private final JLabel optimizerResultSpend;
 	private final JLabel optimizerResultDpsPerGp;
-	/** One row per proposed slot swap ("Slot: current -> suggested (+X DPS)") — see {@link #renderOptimizerSwapList}. */
+	/** One row per proposed slot swap (icon current -&gt; icon suggested) — see {@link #renderOptimizerSwapList}. */
 	private final JPanel optimizerSwapList;
 	private final JButton applyOptimizerResultButton;
 	private final JButton clearOptimizerPreviewButton;
 	private GearOptimizer.Result lastOptimizerResult;
+	/**
+	 * Item ids the user right-clicked "Exclude from suggestions" on (item #6a)
+	 * — never suggested by the optimiser (wired into
+	 * {@link GearOptimizer.Request.Builder#exclude}), persisted via
+	 * {@link #loadExcludedItemsPref}/{@link #saveExcludedItemsPref}.
+	 */
+	private final java.util.Set<Integer> excludedItemIds = new java.util.LinkedHashSet<>();
 
 	/**
 	 * Resolves GE prices for candidate item ids ON THE CLIENT THREAD, then delivers the
@@ -787,6 +803,7 @@ public final class GearSection extends CollapsibleSection
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
 
 		loadOptimizerPrefs();
+		loadExcludedItemsPref();
 		java.awt.event.ActionListener persistOptimizerPrefs = e -> saveOptimizerPrefs();
 		budgetField.addActionListener(persistOptimizerPrefs);
 		expensiveCountField.addActionListener(persistOptimizerPrefs);
@@ -2189,11 +2206,14 @@ public final class GearSection extends CollapsibleSection
 		}
 		baselineDps = baseline.dps();
 		double delta = lastDps - baselineDps;
-		String arrow = delta > 1e-9 ? " ▲" : delta < -1e-9 ? " ▼" : "";
-		java.awt.Color color = delta > 1e-9 ? new java.awt.Color(0x3D, 0xC7, 0x54)
-			: delta < -1e-9 ? new java.awt.Color(0xE0, 0x5A, 0x5A) : java.awt.Color.WHITE;
+		// Item #6b: the literal triangle glyph (▲/▼) is gone — the number
+		// itself is coloured green/red (DELTA_UP_COLOR/DELTA_DOWN_COLOR) and a
+		// plain "->" arrow separates the two compared values, matching the
+		// panel's existing green/red gain styling elsewhere.
+		java.awt.Color color = delta > 1e-9 ? DELTA_UP_COLOR
+			: delta < -1e-9 ? DELTA_DOWN_COLOR : java.awt.Color.WHITE;
 		whatIfDeltaValue.setForeground(color);
-		whatIfDeltaValue.setText(String.format(Locale.ROOT, "%.2f -> %.2f%s", baselineDps, lastDps, arrow));
+		whatIfDeltaValue.setText(String.format(Locale.ROOT, "%.2f -> %.2f", baselineDps, lastDps));
 		whatIfRow.setVisible(true);
 	}
 
@@ -2421,6 +2441,67 @@ public final class GearSection extends CollapsibleSection
 			String.valueOf(expensiveThresholdMToggle.isSelected()));
 	}
 
+	private static final String CONFIG_KEY_EXCLUDED_ITEM_IDS = "optimizerExcludedItemIds";
+
+	/** Restores {@link #excludedItemIds} from a comma-separated config value. No-op without a {@link ConfigManager}. */
+	private void loadExcludedItemsPref()
+	{
+		if (configManager == null)
+		{
+			return;
+		}
+		String raw = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXCLUDED_ITEM_IDS);
+		if (raw == null || raw.isEmpty())
+		{
+			return;
+		}
+		excludedItemIds.clear();
+		for (String part : raw.split(","))
+		{
+			try
+			{
+				excludedItemIds.add(Integer.parseInt(part.trim()));
+			}
+			catch (NumberFormatException e)
+			{
+				// Stale/corrupt entry — skip it rather than fail the whole restore.
+			}
+		}
+	}
+
+	/** Persists {@link #excludedItemIds} as a comma-separated config value — see {@link #loadExcludedItemsPref}. */
+	private void saveExcludedItemsPref()
+	{
+		if (configManager == null)
+		{
+			return;
+		}
+		StringBuilder sb = new StringBuilder();
+		for (int id : excludedItemIds)
+		{
+			if (sb.length() > 0)
+			{
+				sb.append(',');
+			}
+			sb.append(id);
+		}
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXCLUDED_ITEM_IDS, sb.toString());
+	}
+
+	/** Adds {@code itemId} to {@link #excludedItemIds}, persists it, and re-renders the swap list so the change is visible immediately. */
+	private void excludeItemFromSuggestions(int itemId)
+	{
+		if (itemId <= 0 || !excludedItemIds.add(itemId))
+		{
+			return;
+		}
+		saveExcludedItemsPref();
+		if (lastOptimizerResult != null)
+		{
+			renderOptimizerSwapList(lastOptimizerResult);
+		}
+	}
+
 	/**
 	 * The owned-item pool + GE prices for the optimiser: every worn item
 	 * (always owned, price irrelevant) plus {@link WealthSnapshot#getTopHoldings()}
@@ -2527,6 +2608,7 @@ public final class GearSection extends CollapsibleSection
 			.builder(liveIds, target, template)
 			.budget(budget)
 			.owned(ownedPrices.keySet())
+			.exclude(excludedItemIds)
 			.priceSource(priceSource)
 			.expensiveItemCount(resolvedExpensiveCount())
 			.expensiveItemThreshold(resolvedExpensiveThreshold())
@@ -2582,8 +2664,14 @@ public final class GearSection extends CollapsibleSection
 
 		optimizerResultDps.setText(String.format(Locale.ROOT, "%.2f", result.dps().dps()));
 		double delta = result.deltaDps();
-		String arrow = delta > 1e-9 ? " ▲" : delta < -1e-9 ? " ▼" : "";
-		optimizerResultDelta.setText(String.format(Locale.ROOT, "%+.2f%s", delta, arrow));
+		// Item #6b: no literal triangle glyph — "owned-only DPS -> best-found
+		// DPS", the whole readout coloured green (upgrade) / red (downgrade),
+		// matching the what-if row's styling (updateWhatIfDelta) and the
+		// panel's existing green/red gain colours elsewhere.
+		java.awt.Color deltaColor = delta > 1e-9 ? DELTA_UP_COLOR
+			: delta < -1e-9 ? DELTA_DOWN_COLOR : java.awt.Color.WHITE;
+		optimizerResultDelta.setForeground(deltaColor);
+		optimizerResultDelta.setText(String.format(Locale.ROOT, "%.2f -> %.2f", result.ownedOnlyDps(), result.dps().dps()));
 		optimizerResultSpend.setText(formatGp(result.totalSpend()));
 		optimizerResultDpsPerGp.setText(result.totalSpend() > 0
 			? String.format(Locale.ROOT, "%.6f", result.dpsPerGp())
@@ -2614,10 +2702,15 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
-	 * Renders "Slot: current item -&gt; suggested item" for every slot the
+	 * Renders "current item icon -&gt; suggested item icon" for every slot the
 	 * optimiser actually wants to change (slots where the suggestion matches
 	 * what's already worn are omitted — nothing to show there) — design ask:
 	 * show the actual swaps, not just an aggregate "Best DPS found" number.
+	 * Icons (not text names) so a swap reads at a glance, matching the
+	 * worn-gear grid / item-picker's icon-first style; the slot + item names
+	 * + spend move to the row's tooltip and a small caption underneath
+	 * instead of inline text. Right-clicking the SUGGESTED icon offers
+	 * "Exclude from suggestions" (item #6a).
 	 */
 	private void renderOptimizerSwapList(GearOptimizer.Result result)
 	{
@@ -2633,18 +2726,8 @@ public final class GearSection extends CollapsibleSection
 				continue; // unchanged — nothing to report for this slot
 			}
 			anyRow = true;
-			String slotName = choice.slotOrdinal() >= 0 && choice.slotOrdinal() < SLOT_NAMES.length
-				&& !SLOT_NAMES[choice.slotOrdinal()].isEmpty()
-				? SLOT_NAMES[choice.slotOrdinal()] : ("Slot " + choice.slotOrdinal());
-			String currentName = itemDisplayName(index, liveId);
-			String suggestedName = itemDisplayName(index, choice.itemId());
-			String spend = choice.owned() ? "owned" : formatGp(choice.price());
-
-			JLabel row = new JLabel(slotName + ": " + currentName + " -> " + suggestedName + " (" + spend + ")");
-			row.setFont(FontManager.getRunescapeSmallFont());
-			row.setForeground(java.awt.Color.WHITE);
-			row.setAlignmentX(Component.LEFT_ALIGNMENT);
-			optimizerSwapList.add(row);
+			optimizerSwapList.add(buildSwapRow(index, choice.slotOrdinal(), liveId, choice.itemId(), choice));
+			optimizerSwapList.add(Box.createRigidArea(new Dimension(0, 2)));
 		}
 		if (!anyRow)
 		{
@@ -2652,6 +2735,73 @@ public final class GearSection extends CollapsibleSection
 			none.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
 			optimizerSwapList.add(none);
 		}
+	}
+
+	/** One "current icon -&gt; suggested icon (spend)" swap row — see {@link #renderOptimizerSwapList}. */
+	private JPanel buildSwapRow(EquipmentIndexRepository index, int slotOrdinal, int currentItemId,
+		int suggestedItemId, GearOptimizer.SlotChoice choice)
+	{
+		String slotName = slotOrdinal >= 0 && slotOrdinal < SLOT_NAMES.length && !SLOT_NAMES[slotOrdinal].isEmpty()
+			? SLOT_NAMES[slotOrdinal] : ("Slot " + slotOrdinal);
+		String currentName = itemDisplayName(index, currentItemId);
+		String suggestedName = itemDisplayName(index, suggestedItemId);
+		String spend = choice.owned() ? "owned" : formatGp(choice.price());
+
+		JPanel row = new JPanel(new BorderLayout(4, 0));
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, ITEM_GRID_CELL_SIZE));
+
+		JPanel iconsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+		iconsPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		iconsPanel.add(swapItemIcon(currentItemId, currentName));
+		JLabel arrow = new JLabel("→"); // "->" glyph between the two item icons
+		arrow.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		arrow.setFont(FontManager.getRunescapeSmallFont());
+		arrow.setVerticalAlignment(SwingConstants.CENTER);
+		iconsPanel.add(arrow);
+		JLabel suggestedIcon = swapItemIcon(suggestedItemId, suggestedName + " (" + spend + ")");
+		suggestedIcon.setComponentPopupMenu(buildExcludeItemPopup(suggestedItemId, suggestedName));
+		iconsPanel.add(suggestedIcon);
+		row.add(iconsPanel, BorderLayout.WEST);
+
+		JLabel caption = new JLabel(slotName + " (" + spend + ")");
+		caption.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+		caption.setFont(FontManager.getRunescapeSmallFont().deriveFont(Font.ITALIC));
+		caption.setHorizontalAlignment(SwingConstants.RIGHT);
+		row.add(caption, BorderLayout.EAST);
+
+		row.setToolTipText(slotName + ": " + currentName + " -> " + suggestedName + " (" + spend
+			+ ") — right-click the suggested icon to exclude it from future suggestions");
+		return row;
+	}
+
+	/** One item-icon label for a swap row (see {@link #buildSwapRow}) — same async icon source as the worn-gear grid/item picker. */
+	private JLabel swapItemIcon(int itemId, String tooltip)
+	{
+		JLabel icon = new JLabel();
+		icon.setOpaque(true);
+		icon.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		icon.setVerticalAlignment(SwingConstants.CENTER);
+		icon.setPreferredSize(new Dimension(ITEM_GRID_CELL_SIZE, ITEM_GRID_CELL_SIZE));
+		icon.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
+		icon.setToolTipText(tooltip);
+		if (itemManager != null && itemId > 0)
+		{
+			itemManager.getImage(itemId).addTo(icon);
+		}
+		return icon;
+	}
+
+	/** Right-click menu for a suggested-swap icon (item #6a): a single "Exclude from suggestions" action. */
+	private javax.swing.JPopupMenu buildExcludeItemPopup(int itemId, String itemName)
+	{
+		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+		javax.swing.JMenuItem exclude = new javax.swing.JMenuItem("Exclude " + itemName + " from suggestions");
+		exclude.addActionListener(e -> excludeItemFromSuggestions(itemId));
+		menu.add(exclude);
+		return menu;
 	}
 
 	/** Display name for an item id via the bundled equipment index, or a placeholder for an empty/unindexed slot. */
@@ -3062,6 +3212,22 @@ public final class GearSection extends CollapsibleSection
 		return whatIfDeltaValue.getText();
 	}
 
+	/** Item #6b: the coloured delta text's actual colour, so tests can assert green/red without a literal ▲/▼ glyph. */
+	java.awt.Color whatIfDeltaColorForTest()
+	{
+		return whatIfDeltaValue.getForeground();
+	}
+
+	String optimizerResultDeltaTextForTest()
+	{
+		return optimizerResultDelta.getText();
+	}
+
+	java.awt.Color optimizerResultDeltaColorForTest()
+	{
+		return optimizerResultDelta.getForeground();
+	}
+
 	double baselineDpsForTest()
 	{
 		return baselineDps;
@@ -3218,6 +3384,24 @@ public final class GearSection extends CollapsibleSection
 	String optimizerStatusTextForTest()
 	{
 		return optimizerStatusLabel.getText();
+	}
+
+	/** Number of rows currently in the suggested-swaps list (item #6c: one row per changed slot, or one "no changes" row). */
+	int optimizerSwapRowCountForTest()
+	{
+		return optimizerSwapList.getComponentCount();
+	}
+
+	/** Item #6a: the current exclude set (read-only copy), for asserting persistence/wiring. */
+	java.util.Set<Integer> excludedItemIdsForTest()
+	{
+		return new java.util.LinkedHashSet<>(excludedItemIds);
+	}
+
+	/** Item #6a: simulates the "Exclude from suggestions" right-click action for {@code itemId} without driving real mouse/popup events. */
+	void excludeItemFromSuggestionsForTest(int itemId)
+	{
+		excludeItemFromSuggestions(itemId);
 	}
 
 	JList<String> monsterListForTest()
