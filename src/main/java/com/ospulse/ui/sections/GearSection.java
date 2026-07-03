@@ -1,11 +1,13 @@
 package com.ospulse.ui.sections;
 
+import com.ospulse.combat.CombatIcons;
 import com.ospulse.combat.CombatStyle;
 import com.ospulse.combat.DpsCalculator;
 import com.ospulse.combat.DpsResult;
 import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.Monster;
 import com.ospulse.combat.MonsterRepository;
+import com.ospulse.combat.OffensivePrayer;
 import com.ospulse.combat.PlayerCombat;
 import com.ospulse.combat.PoweredStaff;
 import com.ospulse.combat.Spell;
@@ -94,13 +96,19 @@ import java.util.Map;
  * cast readout. Spell icons load via the async, EDT-safe
  * {@code SpriteManager.getSpriteAsync}.
  *
+ * <p>The style-aware prayer/potion indicator icons (melee→Piety/Chivalry/
+ * Ultimate-or-Superhuman-Strength, ranged→Rigour/Eagle-Eye/Hawk-Eye,
+ * magic→Augury/Mystic-Might/Mystic-Lore, each degrading by the player's
+ * Prayer level; per-style potion icons incl. imbued heart) sit next to the
+ * boost toggles — see {@link #prayerIconLabel} / {@link #potionIconLabel},
+ * driven by {@link CombatIcons} (pure mapping over the existing
+ * OffensivePrayer/PotionBoosts model) so the icon always matches whichever
+ * prayer/potion {@link DpsCalculator} is actually applying for the selected
+ * style and toggle state.
+ *
  * <p>Deferred to a later phase (see the design spec): live opponent
  * auto-detection, favourites, the current-cast spell as the secondary readout
- * (the snapshot does not expose it yet), the style-aware prayer/potion
- * indicator icons (TODO: melee→Piety / ranged→Rigour / magic→Augury with
- * degrade-by-Prayer-level, and per-style potion icons incl. imbued heart —
- * presentation over the existing OffensivePrayer/PotionBoosts model), and
- * gear upgrade suggestions
+ * (the snapshot does not expose it yet), and gear upgrade suggestions
  * (the optimiser reuses this same weapon-id → styles path for weapons you do
  * not yet own).
  *
@@ -153,6 +161,16 @@ public final class GearSection extends CollapsibleSection
 	private static final int ICON_PRAYER = 1718;   // Holy symbol
 	private static final int ICON_SLAYER = 11864;  // Slayer helmet
 
+	// Item ids backing the style-aware potion indicator (rendered via
+	// ItemManager.getImage, same as the boost toggles above) — one per
+	// CombatIcons.BoostPotion value.
+	private static final int ITEM_SUPER_COMBAT_POTION = 12695;
+	private static final int ITEM_RANGING_POTION = 2444;
+	private static final int ITEM_IMBUED_HEART = 20724;
+
+	/** Small side length for the style-aware prayer/potion indicator icons. */
+	private static final int INDICATOR_ICON_SIZE = 18;
+
 	/** Skill-icon side length for the Ranged/Magic type icons. */
 	private static final int STYLE_ICON_SIZE = 18;
 
@@ -175,6 +193,14 @@ public final class GearSection extends CollapsibleSection
 	private final List<SpellRow> spellRows = new ArrayList<>();
 	/** Per-sprite-id spell icon cache — each spellbook sprite is fetched (async) at most once. */
 	private final Map<Integer, ImageIcon> spellIconCache = new HashMap<>();
+	/** Per-sprite-id prayer icon cache for the style-aware prayer indicator — see {@link #prayerIcon}. */
+	private final Map<Integer, ImageIcon> prayerIconCache = new HashMap<>();
+	/** Per-item-id potion icon cache for the style-aware potion indicator — see {@link #potionIcon}. */
+	private final Map<Integer, ImageIcon> potionIconCache = new HashMap<>();
+	/** Style-aware offensive-prayer icon, kept in sync with the DPS calc's actual prayer choice. */
+	private final JLabel prayerIconLabel;
+	/** Style-aware boosting-potion icon, kept in sync with the DPS calc's {@code assumeBestPotion} choice. */
+	private final JLabel potionIconLabel;
 	private final JPanel primaryRow;
 	private final JLabel primaryValue;
 	private final JPanel secondaryRow;
@@ -332,7 +358,28 @@ public final class GearSection extends CollapsibleSection
 		onSlayerTaskToggle.addItemListener(e -> rankAndRender());
 		boostRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, boostRow.getPreferredSize().height));
 		body().add(boostRow);
-		body().add(Box.createRigidArea(new Dimension(0, 6)));
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
+
+		// ---------------------------------- style-aware prayer/potion indicator
+		// Shows WHICH prayer/potion the boost toggles above are actually
+		// applying for the current attack style — auto-selected by style +
+		// (for prayer) the player's Prayer level, via CombatIcons. Updated in
+		// updateBoostIndicators, called from updateOutputs so it always tracks
+		// the same style/toggle state the DPS numbers below reflect.
+		JPanel indicatorRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+		indicatorRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		indicatorRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		prayerIconLabel = new JLabel();
+		prayerIconLabel.setToolTipText("The offensive prayer applied for this attack style");
+		prayerIconLabel.setVisible(false);
+		potionIconLabel = new JLabel();
+		potionIconLabel.setToolTipText("The boosting potion applied for this attack style");
+		potionIconLabel.setVisible(false);
+		indicatorRow.add(prayerIconLabel);
+		indicatorRow.add(potionIconLabel);
+		indicatorRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, indicatorRow.getPreferredSize().height));
+		body().add(indicatorRow);
+		body().add(Box.createRigidArea(new Dimension(0, 4)));
 
 		// -------------------------------------------------- target picker
 		monsterSearchField = new IconTextField();
@@ -1031,6 +1078,162 @@ public final class GearSection extends CollapsibleSection
 		});
 	}
 
+	/**
+	 * {@code net.runelite.api.SpriteID} constant for an {@link OffensivePrayer}'s
+	 * prayer-book icon. {@link OffensivePrayer} itself stays RuneLite-free (see
+	 * its class javadoc), so this presentation-only mapping lives here.
+	 */
+	private static int prayerSpriteId(OffensivePrayer prayer)
+	{
+		switch (prayer)
+		{
+			case BURST_OF_STRENGTH: return net.runelite.api.SpriteID.PRAYER_BURST_OF_STRENGTH;
+			case SUPERHUMAN_STRENGTH: return net.runelite.api.SpriteID.PRAYER_SUPERHUMAN_STRENGTH;
+			case ULTIMATE_STRENGTH: return net.runelite.api.SpriteID.PRAYER_ULTIMATE_STRENGTH;
+			case CLARITY_OF_THOUGHT: return net.runelite.api.SpriteID.PRAYER_CLARITY_OF_THOUGHT;
+			case IMPROVED_REFLEXES: return net.runelite.api.SpriteID.PRAYER_IMPROVED_REFLEXES;
+			case INCREDIBLE_REFLEXES: return net.runelite.api.SpriteID.PRAYER_INCREDIBLE_REFLEXES;
+			case CHIVALRY: return net.runelite.api.SpriteID.PRAYER_CHIVALRY;
+			case PIETY: return net.runelite.api.SpriteID.PRAYER_PIETY;
+			case SHARP_EYE: return net.runelite.api.SpriteID.PRAYER_SHARP_EYE;
+			case HAWK_EYE: return net.runelite.api.SpriteID.PRAYER_HAWK_EYE;
+			case EAGLE_EYE: return net.runelite.api.SpriteID.PRAYER_EAGLE_EYE;
+			case DEADEYE: return net.runelite.api.SpriteID.PRAYER_DEADEYE;
+			case RIGOUR: return net.runelite.api.SpriteID.PRAYER_RIGOUR;
+			case MYSTIC_WILL: return net.runelite.api.SpriteID.PRAYER_MYSTIC_WILL;
+			case MYSTIC_LORE: return net.runelite.api.SpriteID.PRAYER_MYSTIC_LORE;
+			case MYSTIC_MIGHT: return net.runelite.api.SpriteID.PRAYER_MYSTIC_MIGHT;
+			case MYSTIC_VIGOUR: return net.runelite.api.SpriteID.PRAYER_MYSTIC_VIGOUR;
+			case AUGURY: return net.runelite.api.SpriteID.PRAYER_AUGURY;
+			default: return net.runelite.api.SpriteID.UNKNOWN_PRAYER_ICON;
+		}
+	}
+
+	/**
+	 * The style-aware offensive-prayer icon, fetched at most once per sprite id
+	 * via the async, EDT-safe {@code SpriteManager.getSpriteAsync} (same pattern
+	 * as {@link #spellIcon}). Returns a transparent placeholder-backed icon
+	 * immediately so layout is stable before the sprite arrives; {@code null}
+	 * without a SpriteManager (headless tests).
+	 */
+	private ImageIcon prayerIcon(OffensivePrayer prayer)
+	{
+		if (spriteManager == null || prayer == null)
+		{
+			return null;
+		}
+		int spriteId = prayerSpriteId(prayer);
+		return prayerIconCache.computeIfAbsent(spriteId, id ->
+		{
+			ImageIcon icon = new ImageIcon(
+				new BufferedImage(INDICATOR_ICON_SIZE, INDICATOR_ICON_SIZE, BufferedImage.TYPE_INT_ARGB));
+			spriteManager.getSpriteAsync(id, 0, sprite ->
+				SwingUtilities.invokeLater(() ->
+				{
+					icon.setImage(sprite.getScaledInstance(INDICATOR_ICON_SIZE, INDICATOR_ICON_SIZE, Image.SCALE_SMOOTH));
+					prayerIconLabel.repaint();
+				}));
+			return icon;
+		});
+	}
+
+	/** Item id backing a {@link CombatIcons.BoostPotion}'s icon (rendered via {@code ItemManager.getImage}). */
+	private static int potionItemId(CombatIcons.BoostPotion potion)
+	{
+		switch (potion)
+		{
+			case SUPER_COMBAT: return ITEM_SUPER_COMBAT_POTION;
+			case RANGING: return ITEM_RANGING_POTION;
+			case IMBUED_HEART: return ITEM_IMBUED_HEART;
+			default: return -1;
+		}
+	}
+
+	/**
+	 * The style-aware boosting-potion icon, fetched at most once per item id via
+	 * the async, EDT-safe {@code ItemManager.getImage(int)} (same pattern as
+	 * {@link #iconToggle}). {@code null} without an ItemManager (headless tests).
+	 */
+	private ImageIcon potionIcon(CombatIcons.BoostPotion potion)
+	{
+		if (itemManager == null || potion == null)
+		{
+			return null;
+		}
+		int itemId = potionItemId(potion);
+		return potionIconCache.computeIfAbsent(itemId, id ->
+		{
+			AsyncBufferedImage image = itemManager.getImage(id);
+			ImageIcon icon = new ImageIcon(image);
+			image.onLoaded(() ->
+			{
+				icon.setImage(image);
+				potionIconLabel.repaint();
+			});
+			return icon;
+		});
+	}
+
+	/**
+	 * Refreshes the style-aware prayer/potion indicator icons for {@code style}
+	 * so they always show the SAME prayer/potion {@link DpsCalculator} is
+	 * actually applying: the ladder-topped prayer for the style + the player's
+	 * Prayer level (or the calculator's hardcoded top-tier prayer when the
+	 * "best prayer" toggle is on), and the style's boosting potion (only shown
+	 * when the "best potion" toggle is on, since that toggle is what makes the
+	 * calculator apply it at all).
+	 */
+	private void updateBoostIndicators(CombatStyle style)
+	{
+		if (style == null)
+		{
+			prayerIconLabel.setVisible(false);
+			potionIconLabel.setVisible(false);
+			return;
+		}
+
+		OffensivePrayer prayer = CombatIcons.bestOffensivePrayer(
+			style, lastGear != null ? lastGear.basePrayer() : 0, bestPrayerToggle.isSelected());
+		if (prayer != null)
+		{
+			prayerIconLabel.setIcon(prayerIcon(prayer));
+			prayerIconLabel.setToolTipText("Offensive prayer applied: " + displayName(prayer));
+			prayerIconLabel.setVisible(true);
+		}
+		else
+		{
+			prayerIconLabel.setVisible(false);
+		}
+
+		if (bestPotionToggle.isSelected())
+		{
+			CombatIcons.BoostPotion potion = CombatIcons.bestPotion(style);
+			potionIconLabel.setIcon(potionIcon(potion));
+			potionIconLabel.setToolTipText("Boosting potion applied: " + displayName(potion));
+			potionIconLabel.setVisible(potion != null);
+		}
+		else
+		{
+			potionIconLabel.setVisible(false);
+		}
+	}
+
+	/** "Piety" from {@code PIETY}, etc — title-cased enum name for tooltips. */
+	private static String displayName(Enum<?> value)
+	{
+		String[] words = value.name().split("_");
+		StringBuilder sb = new StringBuilder();
+		for (String word : words)
+		{
+			if (sb.length() > 0)
+			{
+				sb.append(' ');
+			}
+			sb.append(word.charAt(0)).append(word.substring(1).toLowerCase(Locale.ROOT));
+		}
+		return sb.toString();
+	}
+
 	/** Applies the selected-row border/background to whichever row matches {@link #selectedStyle}. */
 	private void highlightSelectedRow()
 	{
@@ -1210,6 +1413,7 @@ public final class GearSection extends CollapsibleSection
 		ttkValue.setText(formatTtk(result.ttkSeconds()));
 		overkillValue.setText(String.format(Locale.ROOT, "%.1f", result.overkillPerKill()));
 		baseEstimateNote.setVisible(result.baseEstimate());
+		updateBoostIndicators(selectedStyle != null ? selectedStyle.type() : null);
 
 		refreshSummary();
 	}
@@ -1224,6 +1428,7 @@ public final class GearSection extends CollapsibleSection
 		overkillValue.setText("-");
 		baseEstimateNote.setVisible(false);
 		lastDps = 0.0;
+		updateBoostIndicators(null);
 	}
 
 	/** Formats a time-to-kill (seconds) as "12.3s" or "1:05" for a minute or more; "-" when non-positive. */
