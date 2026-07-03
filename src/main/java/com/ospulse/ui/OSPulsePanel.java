@@ -91,14 +91,40 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 
 		CollapsibleSection.CollapseStore store = new ConfigCollapseStore();
 
-		sectionList.add(new SessionSection(store, plugin, client, overlayManager));
-		sectionList.add(new LootSection(store, config, itemManager, plugin, client, overlayManager));
-		sectionList.add(new XpSection(store, skillIconManager, plugin, client, overlayManager));
-		sectionList.add(new GearSection(store, itemManager, skillIconManager, spriteManager, configManager,
-			optimizerPriceResolver));
-		sectionList.add(new GeSection(store, itemManager));
-		sectionList.add(new WealthSection(store));
-		sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService, configManager));
+		// Feature: hideable panel sections (OSPulseConfig "Panel sections"). Each
+		// section is only constructed/added when its config flag is true; there is
+		// no ConfigChanged listener wiring the panel back up, so this is evaluated
+		// once at construction — toggling a flag takes effect on the next panel
+		// build (plugin restart), not live.
+		if (config.showSessionSection())
+		{
+			sectionList.add(new SessionSection(store, plugin, client, overlayManager));
+		}
+		if (config.showLootSection())
+		{
+			sectionList.add(new LootSection(store, config, itemManager, plugin, client, overlayManager));
+		}
+		if (config.showXpSection())
+		{
+			sectionList.add(new XpSection(store, skillIconManager, plugin, client, overlayManager));
+		}
+		if (config.showGearSection())
+		{
+			sectionList.add(new GearSection(store, itemManager, skillIconManager, spriteManager, configManager,
+				optimizerPriceResolver));
+		}
+		if (config.showGeSection())
+		{
+			sectionList.add(new GeSection(store, itemManager));
+		}
+		if (config.showWealthSection())
+		{
+			sectionList.add(new WealthSection(store));
+		}
+		if (config.showHoldingsSection())
+		{
+			sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService, configManager));
+		}
 
 		// A width-tracking column so nothing is laid out wider than the fixed
 		// side-panel width; the widest row ellipsizes within its row instead of
