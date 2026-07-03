@@ -12,12 +12,15 @@ import com.ospulse.ui.sections.SessionSection;
 import com.ospulse.ui.sections.WealthSection;
 import com.ospulse.ui.sections.XpSection;
 
+import net.runelite.api.Client;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
+import net.runelite.client.plugins.Plugin;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.ui.overlay.OverlayManager;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -70,7 +73,8 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 
 	public OSPulsePanel(OSPulseConfig config, ItemManager itemManager, ConfigManager configManager,
 		PriceTrendService priceTrendService, SkillIconManager skillIconManager,
-		net.runelite.client.game.SpriteManager spriteManager)
+		net.runelite.client.game.SpriteManager spriteManager,
+		Plugin plugin, Client client, OverlayManager overlayManager)
 	{
 		super(false);
 		Objects.requireNonNull(config, "config");
@@ -86,9 +90,9 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 
 		CollapsibleSection.CollapseStore store = new ConfigCollapseStore();
 
-		sectionList.add(new SessionSection(store));
-		sectionList.add(new LootSection(store, config, itemManager));
-		sectionList.add(new XpSection(store, skillIconManager));
+		sectionList.add(new SessionSection(store, plugin, client, overlayManager));
+		sectionList.add(new LootSection(store, config, itemManager, plugin, client, overlayManager));
+		sectionList.add(new XpSection(store, skillIconManager, plugin, client, overlayManager));
 		sectionList.add(new GearSection(store, itemManager, skillIconManager, spriteManager));
 		sectionList.add(new GeSection(store, itemManager));
 		sectionList.add(new WealthSection(store));
@@ -135,6 +139,20 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	public void setResetCallback(Runnable resetCallback)
 	{
 		this.resetCallback = resetCallback == null ? () -> {} : resetCallback;
+	}
+
+	/**
+	 * Removes every category canvas overlay any section has added (via its
+	 * "Add to canvas" menu item), so a plugin toggle or client shutdown
+	 * doesn't leak stale XP-Tracker-style overlays. Delegates to each
+	 * section that owns a {@link com.ospulse.ui.category.CategoryController}.
+	 */
+	public void removeAllCategoryOverlays()
+	{
+		for (CollapsibleSection section : sectionList)
+		{
+			section.removeAllCategoryOverlays();
+		}
 	}
 
 	@Override

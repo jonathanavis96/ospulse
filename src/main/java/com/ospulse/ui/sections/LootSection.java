@@ -7,13 +7,19 @@ import com.ospulse.session.SourceLoot;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.GpFormat;
 import com.ospulse.ui.PanelWidgets;
+import com.ospulse.ui.category.CategoryOverlay;
+import com.ospulse.ui.category.CategorySectionSupport;
 
+import net.runelite.api.Client;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.plugins.Plugin;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
+import net.runelite.client.ui.overlay.OverlayManager;
 
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.SwingConstants;
 import javax.swing.border.EmptyBorder;
 import java.awt.BorderLayout;
@@ -24,14 +30,26 @@ import java.awt.Dimension;
 import java.awt.GridLayout;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
  * Loot feed: a "Loot Tracker"-style list grouped by source (boss/NPC/activity),
  * each source header itself collapsible. Collapsed section summary shows total
  * loot value.
+ *
+ * <p>Each source header carries an XP-Tracker-style right-click menu (see
+ * {@code com.ospulse.ui.category.CategoryContextMenu}, ported from RuneLite's
+ * XP Tracker plugin). Loot sources are aggregated by the single {@code
+ * SessionEngine} accumulator rather than each having independent state, so
+ * "Reset"/"Reset others"/"Reset all" here hide the source(s) from this
+ * section's display (a UI-level filter) rather than clearing any
+ * engine-level totals; "Pause" freezes a source's row at its last-seen
+ * figures instead of stopping the engine from tallying new loot from it.
  */
 public final class LootSection extends CollapsibleSection
 {
@@ -41,6 +59,7 @@ public final class LootSection extends CollapsibleSection
 
 	private final OSPulseConfig config;
 	private final ItemManager itemManager;
+	private final CategorySectionSupport categorySupport;
 
 	private final JLabel totalValue;
 	private final JPanel lootListPanel;
@@ -49,14 +68,20 @@ public final class LootSection extends CollapsibleSection
 	private List<SourceLoot> lastLootSources = List.of();
 	/** Sources the user has collapsed (by name); persists across updates. */
 	private final Set<String> collapsedSources = new HashSet<>();
+	/** Sources hidden via "Reset"/"Reset others"/"Reset all" (by category id). */
+	private final Set<String> hiddenSources = new HashSet<>();
+	/** Last-seen SourceLoot per category id, retained so a paused row keeps showing its frozen figures. */
+	private final Map<String, SourceLoot> lastSeenBySource = new HashMap<>();
 
 	private long total;
 
-	public LootSection(CollapseStore store, OSPulseConfig config, ItemManager itemManager)
+	public LootSection(CollapseStore store, OSPulseConfig config, ItemManager itemManager,
+		Plugin plugin, Client client, OverlayManager overlayManager)
 	{
 		super(KEY, "Loot feed", store);
 		this.config = config;
 		this.itemManager = itemManager;
+		this.categorySupport = new CategorySectionSupport(plugin, client, overlayManager);
 
 		totalValue = PanelWidgets.statRow(body(), "Total value");
 		lootListPanel = new JPanel();
@@ -66,10 +91,66 @@ public final class LootSection extends CollapsibleSection
 		body().add(lootListPanel);
 	}
 
+	private static String categoryId(String source)
+	{
+		return "loot:" + source;
+	}
+
+	/** Reset-epoch last observed per category id, so a "Reset" click is detected exactly once. */
+	private final Map<String, Integer> lastSeenEpoch = new HashMap<>();
+
 	@Override
 	public void apply(SessionSnapshot snapshot)
 	{
-		rebuild(snapshot.getLootSources());
+		List<SourceLoot> sources = snapshot.getLootSources();
+		for (SourceLoot src : sources == null ? List.<SourceLoot>of() : sources)
+		{
+			String catId = categoryId(src.getSource());
+			detectReset(catId);
+			if (!categorySupport.controller().isPaused(catId))
+			{
+				lastSeenBySource.put(catId, src);
+			}
+			// Register/refresh the canvas line supplier for this source
+			// every apply, since sources can appear mid-session (XP Tracker
+			// instead pre-registers one per Skill; loot sources are dynamic,
+			// so we lazily register here).
+			categorySupport.setLinesSupplier(catId, () -> canvasLines(catId));
+		}
+		rebuild(sources);
+	}
+
+	/** Marks {@code catId} hidden the moment its reset epoch advances (a "Reset"/"Reset others"/"Reset all" click). */
+	private void detectReset(String catId)
+	{
+		int epoch = categorySupport.controller().resetEpoch(catId);
+		Integer lastEpoch = lastSeenEpoch.get(catId);
+		if (lastEpoch == null)
+		{
+			lastSeenEpoch.put(catId, epoch);
+			return;
+		}
+		if (epoch != lastEpoch)
+		{
+			hiddenSources.add(catId);
+			lastSeenEpoch.put(catId, epoch);
+		}
+	}
+
+	/** Re-applies the latest known sources, e.g. after a collapse-toggle click that doesn't change reset/pause state. */
+	private void applyResetsThenRebuild()
+	{
+		rebuild(lastLootSources);
+	}
+
+	private List<CategoryOverlay.Line> canvasLines(String catId)
+	{
+		SourceLoot src = lastSeenBySource.get(catId);
+		if (src == null)
+		{
+			return List.of();
+		}
+		return List.of(new CategoryOverlay.Line("Value", GpFormat.format(src.getTotalValue())));
 	}
 
 	private void rebuild(List<SourceLoot> sources)
@@ -77,21 +158,41 @@ public final class LootSection extends CollapsibleSection
 		lastLootSources = sources == null ? List.of() : sources;
 		lootListPanel.removeAll();
 
-		total = 0L;
+		// Build the display list: paused sources are frozen at their
+		// last-seen figures (not the just-applied live ones); reset sources
+		// are hidden entirely until they next appear with a genuinely new
+		// pickup (handled naturally since hiddenSources is keyed by id and
+		// cleared only by unpausing / the source reappearing after a client
+		// restart clears in-memory state).
+		List<SourceLoot> display = new ArrayList<>();
 		for (SourceLoot src : lastLootSources)
+		{
+			String catId = categoryId(src.getSource());
+			if (hiddenSources.contains(catId))
+			{
+				continue;
+			}
+			SourceLoot toShow = categorySupport.controller().isPaused(catId)
+				? lastSeenBySource.getOrDefault(catId, src)
+				: src;
+			display.add(toShow);
+		}
+
+		total = 0L;
+		for (SourceLoot src : display)
 		{
 			total += src.getTotalValue();
 		}
 		totalValue.setText(GpFormat.format(total));
 
-		if (lastLootSources.isEmpty())
+		if (display.isEmpty())
 		{
 			lootListPanel.add(PanelWidgets.emptyRowLabel("No loot yet."));
 		}
 		else
 		{
 			int minLootValue = config.minLootValue();
-			for (SourceLoot src : lastLootSources)
+			for (SourceLoot src : display)
 			{
 				lootListPanel.add(sourceHeaderRow(src));
 				if (collapsedSources.contains(src.getSource()))
@@ -204,19 +305,40 @@ public final class LootSection extends CollapsibleSection
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
 
 		final String source = src.getSource();
+		final String catId = categoryId(source);
+
+		JPopupMenu popupMenu = categorySupport.buildMenu(catId, null);
+		row.setComponentPopupMenu(popupMenu);
+		leftLabel.setComponentPopupMenu(popupMenu);
+		rightLabel.setComponentPopupMenu(popupMenu);
+
 		row.addMouseListener(new MouseAdapter()
 		{
 			@Override
 			public void mousePressed(MouseEvent e)
 			{
+				// Right-click (popup trigger) opens the context menu instead
+				// of toggling collapse - matches XpInfoBox, where the
+				// right-click menu and left-click collapse toggle coexist on
+				// the same component.
+				if (e.isPopupTrigger() || javax.swing.SwingUtilities.isRightMouseButton(e))
+				{
+					return;
+				}
 				if (!collapsedSources.remove(source))
 				{
 					collapsedSources.add(source);
 				}
-				rebuild(lastLootSources);
+				applyResetsThenRebuild();
 			}
 		});
 		return row;
+	}
+
+	@Override
+	public void removeAllCategoryOverlays()
+	{
+		categorySupport.removeAllOverlays();
 	}
 
 	@Override
