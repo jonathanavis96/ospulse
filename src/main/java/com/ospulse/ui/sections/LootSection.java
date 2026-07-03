@@ -18,6 +18,7 @@ import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.overlay.OverlayManager;
 
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingConstants;
@@ -72,6 +73,12 @@ public final class LootSection extends CollapsibleSection
 	private final Set<String> hiddenSources = new HashSet<>();
 	/** Last-seen SourceLoot per category id, retained so a paused row keeps showing its frozen figures. */
 	private final Map<String, SourceLoot> lastSeenBySource = new HashMap<>();
+	/**
+	 * "Hide item" / "Hide loot" state: persistent hides distinct from {@link
+	 * #hiddenSources}' reset-until-next-pickup semantics. See {@link
+	 * LootHiddenState} javadoc.
+	 */
+	private final LootHiddenState hiddenState = new LootHiddenState();
 
 	private long total;
 
@@ -168,7 +175,7 @@ public final class LootSection extends CollapsibleSection
 		for (SourceLoot src : lastLootSources)
 		{
 			String catId = categoryId(src.getSource());
-			if (hiddenSources.contains(catId))
+			if (hiddenSources.contains(catId) || hiddenState.isSourceHidden(catId))
 			{
 				continue;
 			}
@@ -208,6 +215,10 @@ public final class LootSection extends CollapsibleSection
 				for (ItemStack item : src.getItems())
 				{
 					if (item.value() < minLootValue)
+					{
+						continue;
+					}
+					if (hiddenState.isItemFiltered(item))
 					{
 						continue;
 					}
@@ -271,7 +282,26 @@ public final class LootSection extends CollapsibleSection
 		tooltip.append("</html>");
 		icon.setToolTipText(tooltip.toString());
 
+		icon.setComponentPopupMenu(buildItemMenu(item));
+
 		return icon;
+	}
+
+	/** Right-click menu for a single item cell: just "Hide item". */
+	private JPopupMenu buildItemMenu(ItemStack item)
+	{
+		JPopupMenu menu = new JPopupMenu();
+		menu.setBorder(new EmptyBorder(5, 5, 5, 5));
+
+		JMenuItem hideItem = new JMenuItem("Hide item");
+		hideItem.addActionListener(e ->
+		{
+			hiddenState.hideItem(item);
+			applyResetsThenRebuild();
+		});
+		menu.add(hideItem);
+
+		return menu;
 	}
 
 	/**
@@ -307,7 +337,7 @@ public final class LootSection extends CollapsibleSection
 		final String source = src.getSource();
 		final String catId = categoryId(source);
 
-		JPopupMenu popupMenu = categorySupport.buildMenu(catId, null);
+		JPopupMenu popupMenu = buildSourceMenu(catId, source);
 		row.setComponentPopupMenu(popupMenu);
 		leftLabel.setComponentPopupMenu(popupMenu);
 		rightLabel.setComponentPopupMenu(popupMenu);
@@ -333,6 +363,124 @@ public final class LootSection extends CollapsibleSection
 			}
 		});
 		return row;
+	}
+
+	/**
+	 * Loot-tailored right-click menu for a source header: "Hide loot",
+	 * "Reset", "View hidden items", and "Add to canvas"/"Remove from
+	 * canvas". Deliberately does not reuse {@code categorySupport.buildMenu}
+	 * (the generic XP-Tracker-style menu) since "Open Wise Old Man", "Reset
+	 * others", "Reset all" and "Pause" don't fit a loot source.
+	 */
+	private JPopupMenu buildSourceMenu(String catId, String source)
+	{
+		JPopupMenu menu = new JPopupMenu();
+		menu.setBorder(new EmptyBorder(5, 5, 5, 5));
+
+		JMenuItem hideLoot = new JMenuItem("Hide loot");
+		hideLoot.addActionListener(e ->
+		{
+			hiddenState.hideSource(catId, source);
+			applyResetsThenRebuild();
+		});
+		menu.add(hideLoot);
+
+		JMenuItem reset = new JMenuItem("Reset");
+		reset.addActionListener(e -> categorySupport.controller().reset(catId, System.currentTimeMillis()));
+		menu.add(reset);
+
+		JMenuItem viewHidden = new JMenuItem("View hidden items");
+		viewHidden.addActionListener(e -> showHiddenItemsMenu(viewHidden));
+		menu.add(viewHidden);
+
+		JMenuItem canvas = new JMenuItem(
+			categorySupport.controller().isOnCanvas(catId) ? "Remove from canvas" : "Add to canvas");
+		canvas.addActionListener(e ->
+			categorySupport.controller().setOnCanvas(catId, !categorySupport.controller().isOnCanvas(catId)));
+		menu.add(canvas);
+
+		menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener()
+		{
+			@Override
+			public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e)
+			{
+				canvas.setText(categorySupport.controller().isOnCanvas(catId)
+					? "Remove from canvas" : "Add to canvas");
+			}
+
+			@Override
+			public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e)
+			{
+			}
+
+			@Override
+			public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e)
+			{
+			}
+		});
+
+		return menu;
+	}
+
+	/**
+	 * Shows a small popup listing every currently-hidden item and
+	 * manually-hidden source, each with an "Unhide" action. Item names are
+	 * taken from {@link LootHiddenState}'s retained last-seen names rather
+	 * than re-resolved via {@code ItemManager#getItemComposition} (which
+	 * asserts the client thread - see the warning in {@link #iconCell}).
+	 */
+	private void showHiddenItemsMenu(Component invoker)
+	{
+		JPopupMenu menu = new JPopupMenu();
+		menu.setBorder(new EmptyBorder(5, 5, 5, 5));
+
+		if (hiddenState.isEmpty())
+		{
+			JMenuItem none = new JMenuItem("Nothing hidden.");
+			none.setEnabled(false);
+			menu.add(none);
+		}
+		else
+		{
+			for (Map.Entry<Integer, String> entry : hiddenState.hiddenItems().entrySet())
+			{
+				int itemId = entry.getKey();
+				String name = entry.getValue() == null || entry.getValue().isEmpty()
+					? ("Item #" + itemId) : entry.getValue();
+				JMenuItem unhide = new JMenuItem("Unhide item: " + name);
+				unhide.addActionListener(e ->
+				{
+					hiddenState.unhideItem(itemId);
+					applyResetsThenRebuild();
+				});
+				menu.add(unhide);
+			}
+
+			for (Map.Entry<String, String> entry : hiddenState.hiddenSources().entrySet())
+			{
+				String catId = entry.getKey();
+				String name = entry.getValue();
+				JMenuItem unhide = new JMenuItem("Unhide loot: " + name);
+				unhide.addActionListener(e ->
+				{
+					hiddenState.unhideSource(catId);
+					applyResetsThenRebuild();
+				});
+				menu.add(unhide);
+			}
+		}
+
+		menu.show(invoker, 0, invoker.getHeight());
+	}
+
+	/**
+	 * Clears every "Hide item" / "Hide loot" hide, e.g. as part of a
+	 * panel-wide full reset. Does not affect {@link #hiddenSources} (the
+	 * separate Reset/Reset-others/Reset-all "hidden until next pickup" set).
+	 */
+	public void clearHidden()
+	{
+		hiddenState.clear();
 	}
 
 	@Override
