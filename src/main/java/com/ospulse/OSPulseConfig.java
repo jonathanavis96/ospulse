@@ -73,6 +73,20 @@ public interface OSPulseConfig extends Config
 		return true;
 	}
 
+	@ConfigItem(
+		keyName = "verboseDiagnostics",
+		name = "Verbose diagnostics (dev)",
+		description = "Log the per-update wealth breakdown and per-item profit attribution to the "
+			+ "RuneLite client log at INFO level (normally DEBUG, so hidden). Turn on only to "
+			+ "diagnose profit misattribution such as a phantom gain on a gear swap.",
+		position = 2,
+		section = sessionSection
+	)
+	default boolean verboseDiagnostics()
+	{
+		return false;
+	}
+
 	// ---------------------------------------------------------- Price trends
 
 	@ConfigItem(

@@ -1213,4 +1213,54 @@ public class SessionEngineTest
 			0L, result.getProfit());
 		assertTrue("drinking the last dose must not appear as loot", result.getLoot().isEmpty());
 	}
+
+	@Test
+	public void verboseDiagnostics_promotesPerUpdateAttributionToInfo()
+	{
+		ch.qos.logback.classic.Logger logger =
+			(ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(SessionEngine.class);
+		ch.qos.logback.classic.Level originalLevel = logger.getLevel();
+		ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+			new ch.qos.logback.core.read.ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		// Pin the logger at INFO so DEBUG is definitively off (independent of
+		// logback-test.xml): only the verbose(INFO) diagnostics can then surface.
+		logger.setLevel(ch.qos.logback.classic.Level.INFO);
+		try
+		{
+			// Verbose OFF: the loot attribution logs at DEBUG -> filtered at INFO.
+			engine.setVerboseDiagnostics(false);
+			runLootUpdate(engine);
+			assertTrue("no INFO diagnostics should appear when verbose is off",
+				appender.list.stream().noneMatch(e -> e.getLevel() == ch.qos.logback.classic.Level.INFO));
+
+			// Verbose ON: the same per-update/[attrib] diagnostics now log at INFO
+			// (this is what lets a phantom gear-swap gain be captured from the
+			// default INFO client.log). Guards against the isDebugEnabled()
+			// short-circuit that previously suppressed them even in verbose mode.
+			appender.list.clear();
+			SessionEngine verbose = new SessionEngine();
+			verbose.setVerboseDiagnostics(true);
+			runLootUpdate(verbose);
+			assertTrue("verbose must surface the per-update attribution diagnostics at INFO",
+				appender.list.stream().anyMatch(e -> e.getLevel() == ch.qos.logback.classic.Level.INFO
+					&& (e.getFormattedMessage().contains("[attrib]")
+						|| e.getFormattedMessage().startsWith("update:"))));
+		}
+		finally
+		{
+			logger.detachAppender(appender);
+			logger.setLevel(originalLevel);
+		}
+	}
+
+	/** Drives a startSession + a loot-producing update (triggers a LOOT [attrib] + the update: breakdown). */
+	private static void runLootUpdate(SessionEngine engine)
+	{
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		Map<Integer, ItemStack> tracked = new LinkedHashMap<>();
+		tracked.put(DRAGON_BONES, new ItemStack(DRAGON_BONES, "Dragon bones", 100L, 10_000L));
+		engine.update(snap(11_000_000L, tracked, 0L, false, 1000L), Collections.emptySet(), 1000L);
+	}
 }

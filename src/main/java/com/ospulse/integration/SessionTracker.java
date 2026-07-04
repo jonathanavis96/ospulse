@@ -130,6 +130,7 @@ public class SessionTracker implements SessionService
 		this.valuation = new RuneLiteItemValuation(itemManager);
 		this.configManager = configManager;
 		this.gson = gson;
+		engine.setVerboseDiagnostics(config.verboseDiagnostics());
 	}
 
 	// ------------------------------------------------------------- lifecycle
@@ -362,6 +363,9 @@ public class SessionTracker implements SessionService
 	{
 		WealthSnapshot current = buildWealth(ts);
 		Set<Integer> geAttributedItemIds = geReconciler.drainAttributedItemIds();
+		// Keep the engine's verbose-diagnostics flag current so the config toggle
+		// takes effect live (no restart) for the per-update wealth/attribution log.
+		engine.setVerboseDiagnostics(config.verboseDiagnostics());
 		engine.update(current, geAttributedItemIds, ts);
 		publish(buildSnapshot(current, ts));
 	}

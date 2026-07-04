@@ -41,6 +41,15 @@ import java.util.Set;
 @Slf4j
 public final class SessionEngine
 {
+	/**
+	 * When true, the per-update wealth/attribution diagnostics below log at INFO
+	 * instead of DEBUG, so they appear in RuneLite's default (INFO) client.log
+	 * without changing the root log level — a dev aid for diagnosing profit
+	 * misattribution (e.g. a phantom gain on a gear swap). Driven by the
+	 * {@code verboseDiagnostics} config via {@code SessionTracker}.
+	 */
+	private boolean verboseDiagnostics;
+
 	/** Tracked wealth that currently defines zero profit. */
 	private long baseline;
 	private long startMs;
@@ -263,9 +272,9 @@ public final class SessionEngine
 	 */
 	public void startSession(WealthSnapshot initial, long tsMs)
 	{
-		if (log.isDebugEnabled())
+		if (diagEnabled())
 		{
-			log.debug("[reanchor] session RESET baseline {} -> {} startNetWorth {} -> {} bankOpenWasTrue={}",
+			logDiag("[reanchor] session RESET baseline {} -> {} startNetWorth {} -> {} bankOpenWasTrue={}",
 				this.baseline, initial.tracked(), this.startNetWorth, initial.netWorth(), this.bankOpen);
 		}
 		this.baseline = initial.tracked();
@@ -307,9 +316,9 @@ public final class SessionEngine
 			this.trackedAtBankOpen = current.tracked();
 			this.bankValueAtOpenKnown = current.isBankKnown();
 			this.bankValueAtOpen = current.isBankKnown() ? current.getBankValue() : 0L;
-			if (log.isDebugEnabled())
+			if (diagEnabled())
 			{
-				log.debug("[reanchor] bank OPEN tracked={} bankValueAtOpen={}/known={} baseline={}",
+				logDiag("[reanchor] bank OPEN tracked={} bankValueAtOpen={}/known={} baseline={}",
 					trackedAtBankOpen, bankValueAtOpen, bankValueAtOpenKnown, baseline);
 			}
 		}
@@ -320,9 +329,9 @@ public final class SessionEngine
 			long oldBaseline = this.baseline;
 			long shift = bankVisitBaselineShift(current);
 			this.baseline += shift;
-			if (log.isDebugEnabled())
+			if (diagEnabled())
 			{
-				log.debug("[reanchor] bank CLOSE netTransferShift={} baseline {} -> {}",
+				logDiag("[reanchor] bank CLOSE netTransferShift={} baseline {} -> {}",
 					shift, oldBaseline, this.baseline);
 			}
 		}
@@ -382,6 +391,35 @@ public final class SessionEngine
 			return 0L;
 		}
 		return current.getBankValue() - bankValueAtOpen;
+	}
+
+	/** Enables/disables promoting the per-update wealth/attribution diagnostics to INFO — see {@link #verboseDiagnostics}. */
+	public void setVerboseDiagnostics(boolean enabled)
+	{
+		this.verboseDiagnostics = enabled;
+	}
+
+	/** Logs a diagnostic line at INFO when {@link #verboseDiagnostics} is on (dev), else DEBUG (default). */
+	private void logDiag(String format, Object... args)
+	{
+		if (verboseDiagnostics)
+		{
+			log.info(format, args);
+		}
+		else
+		{
+			log.debug(format, args);
+		}
+	}
+
+	/**
+	 * Whether the guarded diagnostic breakdowns should be built at all: true
+	 * when verbose diagnostics is on (they log at INFO) OR DEBUG is enabled.
+	 * Used to skip the (cheap) string/figure assembly when it would go nowhere.
+	 */
+	private boolean diagEnabled()
+	{
+		return verboseDiagnostics || log.isDebugEnabled();
 	}
 
 	/**
@@ -797,11 +835,11 @@ public final class SessionEngine
 		long lootRecorded, long suppliesRecorded, long lootReversed, long suppliesReversed,
 		long m2mDelta)
 	{
-		if (!log.isDebugEnabled())
+		if (!diagEnabled())
 		{
 			return;
 		}
-		log.debug("update: tracked={} (inv={} equip={} ge={} pouch={}) bank={}/known={} bankOpen={} "
+		logDiag("update: tracked={} (inv={} equip={} ge={} pouch={}) bank={}/known={} bankOpen={} "
 				+ "Δtracked={} loot+={} supplies+={} lootReversed={} suppliesReversed={} baseline={} ΔprofitM2m={}",
 			current.tracked(), current.getInventoryValue(), current.getEquipmentValue(),
 			current.getGeInFlightValue(), current.getPouchValue(),
@@ -820,11 +858,14 @@ public final class SessionEngine
 	 */
 	private void logAttribution(int itemId, String name, long signedQty, long signedValue, String bucket)
 	{
-		if (!log.isDebugEnabled())
+		// Skip building the line only when it would go nowhere — i.e. neither the
+		// verbose-diagnostics INFO path nor DEBUG is active. (Verbose mode is the
+		// whole point of surfacing per-item [attrib] lines under the INFO default.)
+		if (!diagEnabled())
 		{
 			return;
 		}
-		log.debug("[attrib] id={} name='{}' dq={} val={} -> {}",
+		logDiag("[attrib] id={} name='{}' dq={} val={} -> {}",
 			itemId, name, signedQty, signedValue, bucket);
 	}
 
@@ -1016,7 +1057,7 @@ public final class SessionEngine
 		long profitPerHour = elapsedMs > 0 ? profit * 3600000L / elapsedMs : 0L;
 		long netWorthDelta = current.netWorth() - startNetWorth;
 
-		if (log.isDebugEnabled())
+		if (diagEnabled())
 		{
 			// Guarded wealth breakdown so a "profit jumped for no reason"
 			// report can be fact-checked from client.log. Includes the delta
@@ -1026,7 +1067,7 @@ public final class SessionEngine
 			long profitDelta = prev == null ? 0L : profit - prev.profit;
 			long unrealizedDelta = prev == null ? 0L : unrealizedPnl - prev.unrealizedPnl;
 			long netWorthDeltaDelta = prev == null ? 0L : netWorthDelta - prev.netWorthDelta;
-			log.debug("wealth: tracked={} (inv={} equip={} ge={} pouch={}) bank={}/known={} "
+			logDiag("wealth: tracked={} (inv={} equip={} ge={} pouch={}) bank={}/known={} "
 					+ "bankOpen={} transferOffset={} baseline={} m2m={} realised={} unrealized={} netWorthDelta={} "
 					+ "| Δrealised={} Δunrealized={} ΔnetWorthDelta={}",
 				current.tracked(), current.getInventoryValue(), current.getEquipmentValue(),
@@ -1074,9 +1115,9 @@ public final class SessionEngine
 			long oldStartNetWorth = startNetWorth;
 			startNetWorth += current.getBankValue();
 			startBankKnown = true;
-			if (log.isDebugEnabled())
+			if (diagEnabled())
 			{
-				log.debug("[reanchor] bank newly known, folding into startNetWorth: bankValue={} startNetWorth {} -> {}",
+				logDiag("[reanchor] bank newly known, folding into startNetWorth: bankValue={} startNetWorth {} -> {}",
 					current.getBankValue(), oldStartNetWorth, startNetWorth);
 			}
 		}
