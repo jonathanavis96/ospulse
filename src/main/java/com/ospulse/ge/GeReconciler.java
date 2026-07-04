@@ -1,6 +1,8 @@
 package com.ospulse.ge;
 
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
@@ -29,10 +31,49 @@ public final class GeReconciler
 		long avgUnitCost;
 	}
 
+	/**
+	 * Per-item Grand Exchange sales tax, matching the live game: 2% of the sale
+	 * price per item (raised from 1% on 29 May 2025), rounded down, capped at
+	 * {@link #GE_TAX_CAP_PER_ITEM} gp per item. Because it rounds down, any item
+	 * sold below 50 gp incurs less than 1 gp of tax and so pays nothing — that
+	 * threshold falls out of the integer division and needs no special case.
+	 * Integer {@code price / 50} is exactly {@code floor(price * 0.02)} and
+	 * avoids floating-point drift on large prices.
+	 */
+	private static final long GE_TAX_DIVISOR = 50L; // 1/50 == 2%
+	private static final long GE_TAX_CAP_PER_ITEM = 5_000_000L;
+
+	/**
+	 * Items the Grand Exchange never taxes regardless of price. The full live
+	 * list (OSRS Wiki "Items exempt from Grand Exchange tax" category) is large
+	 * and grows over time — mostly cheap, high-volume items (runes, food, early
+	 * ammo, tools) where 2% is negligible to flip P&amp;L. This curated set
+	 * carries the only items where omitting the exemption would be materially
+	 * wrong: the Old school bond (id 13190), a routinely-flipped ~8M item.
+	 * Extend with one id per entry if other high-value exempt items appear.
+	 */
+	private static final Set<Integer> TAX_EXEMPT_ITEM_IDS = new HashSet<>(Arrays.asList(
+		13190 // Old school bond (tradeable)
+	));
+
 	private final Map<Integer, SlotTracker> slots = new HashMap<>();
 	private final Map<Integer, CostBasis> costBasis = new HashMap<>();
 	private final Set<Integer> attributedItemIds = new LinkedHashSet<>();
 	private long realizedPnl;
+
+	/**
+	 * The per-item GE sales tax on a sale of {@code itemId} at
+	 * {@code pricePerItem}: 2% floored, capped at 5M/item, zero for tax-exempt
+	 * items and for anything whose 2% rounds down to nothing (sub-50 gp).
+	 */
+	static long saleTaxPerItem(int itemId, long pricePerItem)
+	{
+		if (pricePerItem <= 0 || TAX_EXEMPT_ITEM_IDS.contains(itemId))
+		{
+			return 0L;
+		}
+		return Math.min(pricePerItem / GE_TAX_DIVISOR, GE_TAX_CAP_PER_ITEM);
+	}
 
 	/**
 	 * Feeds an offer update into the reconciler.
@@ -140,7 +181,12 @@ public final class GeReconciler
 		// Only the quantity that was actually bought via the GE counts as a
 		// flip; any excess sold beyond the tracked basis is not flip profit.
 		long matched = Math.min(qty, basis.qty);
-		realizedPnl += (pricePerItem - basis.avgUnitCost) * matched;
+
+		// The seller nets the sale price minus the GE's per-item sales tax, so
+		// realised flip profit is (net proceeds - avg cost). Without this the
+		// stat overstates profit by the tax the player actually paid.
+		long netProceedsPerItem = pricePerItem - saleTaxPerItem(itemId, pricePerItem);
+		realizedPnl += (netProceedsPerItem - basis.avgUnitCost) * matched;
 
 		basis.qty -= matched;
 		if (basis.qty == 0)

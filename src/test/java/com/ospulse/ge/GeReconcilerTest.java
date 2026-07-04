@@ -12,6 +12,7 @@ import static org.junit.Assert.assertTrue;
 public class GeReconcilerTest
 {
 	private static final int WHIP = 4151;
+	private static final int OLD_SCHOOL_BOND = 13190; // GE-tax exempt
 
 	private GeReconciler reconciler;
 
@@ -34,8 +35,9 @@ public class GeReconcilerTest
 		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
 			10L, 10L, 12_000_000L, 1_200_000L, 2000L);
 
-		// (1,200,000 - 1,000,000) * 10 = 2,000,000 profit.
-		assertEquals(2_000_000L, reconciler.realizedPnl());
+		// Sale nets the price minus 2% GE tax: 1,200,000 - (1,200,000/50=24,000)
+		// = 1,176,000 per whip. (1,176,000 - 1,000,000) * 10 = 1,760,000 profit.
+		assertEquals(1_760_000L, reconciler.realizedPnl());
 	}
 
 	@Test
@@ -46,7 +48,7 @@ public class GeReconcilerTest
 			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
 		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
 			10L, 10L, 12_000_000L, 1_200_000L, 2000L);
-		assertEquals(2_000_000L, reconciler.realizedPnl());
+		assertEquals(1_760_000L, reconciler.realizedPnl());
 
 		reconciler.reset();
 
@@ -80,7 +82,8 @@ public class GeReconcilerTest
 		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
 			10L, 10L, 12_000_000L, 1_200_000L, 2100L);
 
-		assertEquals(2_000_000L, reconciler.realizedPnl());
+		// 10 whips sold at 1.2M, net of 2% tax (24,000/ea) -> 1,760,000 profit.
+		assertEquals(1_760_000L, reconciler.realizedPnl());
 	}
 
 	@Test
@@ -93,11 +96,12 @@ public class GeReconcilerTest
 		reconciler.onOfferUpdate(1, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
 			10L, 10L, 12_000_000L, 1_200_000L, 1500L);
 
-		// Sell all 20 at 1,300,000 -> pnl = (1,300,000 - 1,100,000) * 20 = 4,000,000
+		// Sell all 20 at 1,300,000, net of 2% tax (1,300,000/50 = 26,000/ea) ->
+		// (1,274,000 - 1,100,000) * 20 = 3,480,000
 		reconciler.onOfferUpdate(2, GeOfferState.SOLD, WHIP, "Abyssal whip",
 			20L, 20L, 26_000_000L, 1_300_000L, 2000L);
 
-		assertEquals(4_000_000L, reconciler.realizedPnl());
+		assertEquals(3_480_000L, reconciler.realizedPnl());
 	}
 
 	@Test
@@ -161,13 +165,13 @@ public class GeReconcilerTest
 	public void sellingMoreThanBoughtOnlyCountsFlippedQuantity()
 	{
 		// Bought 5 @ 1,000,000, then sold 10 @ 1,200,000: only the 5 that were
-		// actually flipped count -> (1,200,000 - 1,000,000) * 5 = 1,000,000.
+		// actually flipped count -> (1,176,000 net-of-tax - 1,000,000) * 5 = 880,000.
 		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
 			5L, 5L, 5_000_000L, 1_000_000L, 1000L);
 		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
 			10L, 10L, 12_000_000L, 1_200_000L, 2000L);
 
-		assertEquals(1_000_000L, reconciler.realizedPnl());
+		assertEquals(880_000L, reconciler.realizedPnl());
 	}
 
 	@Test
@@ -183,5 +187,44 @@ public class GeReconcilerTest
 
 		// No new quantity moved on the cancellation event itself.
 		assertTrue(reconciler.drainAttributedItemIds().isEmpty());
+	}
+
+	@Test
+	public void geTaxIsCappedAtFiveMillionPerItem()
+	{
+		// Buy 1 @ 200M, sell 1 @ 300M. Uncapped 2% would be 6M; the tax is
+		// capped at 5M/item, so net proceeds = 295M and pnl = 295M - 200M = 95M.
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			1L, 1L, 200_000_000L, 200_000_000L, 1000L);
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			1L, 1L, 300_000_000L, 300_000_000L, 2000L);
+
+		assertEquals(95_000_000L, reconciler.realizedPnl());
+	}
+
+	@Test
+	public void taxExemptItemPaysNoGeTax()
+	{
+		// The Old school bond is exempt from GE tax: a flat buy-and-sell at the
+		// same price realises exactly zero, not a small tax-driven loss.
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, OLD_SCHOOL_BOND, "Old school bond",
+			1L, 1L, 8_000_000L, 8_000_000L, 1000L);
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, OLD_SCHOOL_BOND, "Old school bond",
+			1L, 1L, 8_000_000L, 8_000_000L, 2000L);
+
+		assertEquals(0L, reconciler.realizedPnl());
+	}
+
+	@Test
+	public void subFiftyGpSaleIncursNoTax()
+	{
+		// 2% of a sub-50 gp sale rounds down to 0, so no tax is charged:
+		// buy 10 @ 40, sell 10 @ 49 -> (49 - 40) * 10 = 90 (no tax deducted).
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 400L, 40L, 1000L);
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 490L, 49L, 2000L);
+
+		assertEquals(90L, reconciler.realizedPnl());
 	}
 }
