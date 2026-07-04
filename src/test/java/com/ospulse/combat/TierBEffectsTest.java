@@ -152,6 +152,20 @@ public class TierBEffectsTest {
     }
 
     @Test
+    public void twistedBowDamage_matchesWeirdgloopWhen3xMagicNotMultipleOf10() {
+        // Regression: the linear term must use raw 3*Magic, not 10*floor(3*Magic/10).
+        // At these target magic levels 3*Magic is not a multiple of 10, where the old
+        // pre-truncating formula under-counted damage% by exactly 1 (e.g. 84 not 85).
+        // Values verified against weirdgloop osrs-dps-calc's tbowScaling.
+        assertEquals(85, CombatMath.twistedBowDamagePercent(38));
+        assertEquals(85, CombatMath.twistedBowDamagePercent(39));
+        assertEquals(111, CombatMath.twistedBowDamagePercent(72));
+        assertEquals(111, CombatMath.twistedBowDamagePercent(73));
+        assertEquals(194, CombatMath.twistedBowDamagePercent(205));
+        assertEquals(194, CombatMath.twistedBowDamagePercent(206));
+    }
+
+    @Test
     public void twistedBow_scalesWithTargetMagic_throughFullComputePath() {
         EquipmentStats tbow = plainRangedGear().twistedBow(true).build();
         Monster highMagic = monster(300).magicLevel(250).build();

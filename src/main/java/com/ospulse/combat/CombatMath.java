@@ -164,18 +164,20 @@ final class CombatMath {
      * Twisted bow accuracy modifier (percent), per the published formula on the
      * <a href="https://oldschool.runescape.wiki/w/Twisted_bow">Twisted bow</a> page:
      * <pre>
-     * Accuracy% = 140 + (10*(3*Magic/10) - 10)/100 - ((3*Magic/10 - 100)^2)/100,  clamped to [0, 140]
+     * Accuracy% = 140 + (3*Magic - 10)/100 - ((3*Magic/10 - 100)^2)/100,  clamped to [0, 140]
      * </pre>
      * where {@code Magic} is the target's magic level (or magic attack bonus if
      * higher — the bundled monster data has no magic attack bonus field, so the
      * level alone is used), capped at 250 outside the Chambers of Xeric (the
      * CoX 350 cap is not modelled — Tier C). Integer-step truncation matches the
-     * weirdgloop reference implementation, our parity oracle.
+     * weirdgloop reference implementation ({@code tbowScaling}), our parity
+     * oracle: the linear term uses the RAW {@code 3*Magic}; only the squared
+     * term pre-truncates {@code 3*Magic/10}.
      */
     static int twistedBowAccuracyPercent(int targetMagic) {
         int m = Math.min(Math.max(targetMagic, 0), 250);
         int t = (3 * m) / 10;
-        int pct = 140 + (10 * t - 10) / 100 - ((t - 100) * (t - 100)) / 100;
+        int pct = 140 + (3 * m - 10) / 100 - ((t - 100) * (t - 100)) / 100;
         return Math.max(0, Math.min(140, pct));
     }
 
@@ -183,13 +185,18 @@ final class CombatMath {
      * Twisted bow damage modifier (percent), same source/shape as
      * {@link #twistedBowAccuracyPercent}:
      * <pre>
-     * Damage% = 250 + (10*(3*Magic/10) - 14)/100 - ((3*Magic/10 - 140)^2)/100,  clamped to [0, 250]
+     * Damage% = 250 + (3*Magic - 14)/100 - ((3*Magic/10 - 140)^2)/100,  clamped to [0, 250]
      * </pre>
+     * As with the accuracy term, the linear part uses the RAW {@code 3*Magic}
+     * (not {@code 10*(3*Magic/10)}); only the squared term pre-truncates. This
+     * matches weirdgloop's {@code tbowScaling} exactly and fixes a 1%
+     * under-count at target magic levels where {@code 3*Magic} is not a
+     * multiple of 10 (e.g. magic 38: 85%, not 84%).
      */
     static int twistedBowDamagePercent(int targetMagic) {
         int m = Math.min(Math.max(targetMagic, 0), 250);
         int t = (3 * m) / 10;
-        int pct = 250 + (10 * t - 14) / 100 - ((t - 140) * (t - 140)) / 100;
+        int pct = 250 + (3 * m - 14) / 100 - ((t - 140) * (t - 140)) / 100;
         return Math.max(0, Math.min(250, pct));
     }
 

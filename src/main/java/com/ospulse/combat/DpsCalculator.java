@@ -164,10 +164,12 @@ public final class DpsCalculator {
         // to both the effective-attack and effective-strength calculations.
         int styleBonus = player.stance() == Stance.ACCURATE ? 3 : 0;
 
-        double voidMult = gear.voidSet().rangedMultiplier();
-
-        int effStr = CombatMath.effectiveMeleeOrRangedLevel(boostedRanged, prayerStrMult, styleBonus, 8, voidMult);
-        int effAtt = CombatMath.effectiveMeleeOrRangedLevel(boostedRanged, prayerAttMult, styleBonus, 8, voidMult);
+        // Elite ranged void boosts max hit (+12.5%) more than accuracy (+10%),
+        // so the strength and attack sides take DIFFERENT void multipliers.
+        int effStr = CombatMath.effectiveMeleeOrRangedLevel(boostedRanged, prayerStrMult, styleBonus, 8,
+                gear.voidSet().rangedStrengthMultiplier());
+        int effAtt = CombatMath.effectiveMeleeOrRangedLevel(boostedRanged, prayerAttMult, styleBonus, 8,
+                gear.voidSet().rangedAccuracyMultiplier());
 
         TargetBonus targetGearBonus = salveOrSlayerTargetBonus(CombatStyle.RANGED, gear, target, player);
 
