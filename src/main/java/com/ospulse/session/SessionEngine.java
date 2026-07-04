@@ -263,6 +263,11 @@ public final class SessionEngine
 	 */
 	public void startSession(WealthSnapshot initial, long tsMs)
 	{
+		if (log.isDebugEnabled())
+		{
+			log.debug("[reanchor] session RESET baseline {} -> {} startNetWorth {} -> {} bankOpenWasTrue={}",
+				this.baseline, initial.tracked(), this.startNetWorth, initial.netWorth(), this.bankOpen);
+		}
 		this.baseline = initial.tracked();
 		this.startMs = tsMs;
 		this.previous = initial;
@@ -302,12 +307,24 @@ public final class SessionEngine
 			this.trackedAtBankOpen = current.tracked();
 			this.bankValueAtOpenKnown = current.isBankKnown();
 			this.bankValueAtOpen = current.isBankKnown() ? current.getBankValue() : 0L;
+			if (log.isDebugEnabled())
+			{
+				log.debug("[reanchor] bank OPEN tracked={} bankValueAtOpen={}/known={} baseline={}",
+					trackedAtBankOpen, bankValueAtOpen, bankValueAtOpenKnown, baseline);
+			}
 		}
 		else if (this.bankOpen && !open)
 		{
 			// TRUE -> FALSE: bank just closed. Make the visit's net transfer
 			// permanently neutral.
-			this.baseline += bankVisitBaselineShift(current);
+			long oldBaseline = this.baseline;
+			long shift = bankVisitBaselineShift(current);
+			this.baseline += shift;
+			if (log.isDebugEnabled())
+			{
+				log.debug("[reanchor] bank CLOSE netTransferShift={} baseline {} -> {}",
+					shift, oldBaseline, this.baseline);
+			}
 		}
 
 		this.previous = current;
@@ -460,10 +477,13 @@ public final class SessionEngine
 			}
 			if (geAttributedItemIds != null && geAttributedItemIds.contains(itemId))
 			{
+				logAttribution(itemId, currentStack.getName(), delta, delta * currentStack.getUnitValue(),
+					"GE(reconciled, excluded from loot/supplies)");
 				continue;
 			}
 			if (currentStack.getUnitValue() <= 0)
 			{
+				logAttribution(itemId, currentStack.getName(), delta, 0L, "SKIP(no unit value)");
 				continue;
 			}
 
@@ -498,10 +518,15 @@ public final class SessionEngine
 			ItemStack previousStack = entry.getValue();
 			if (geAttributedItemIds != null && geAttributedItemIds.contains(itemId))
 			{
+				logAttribution(itemId, previousStack.getName(), -previousStack.getQuantity(),
+					-previousStack.getQuantity() * previousStack.getUnitValue(),
+					"GE(reconciled, excluded from loot/supplies)");
 				continue;
 			}
 			if (previousStack.getUnitValue() <= 0)
 			{
+				logAttribution(itemId, previousStack.getName(), -previousStack.getQuantity(), 0L,
+					"SKIP(no unit value)");
 				continue;
 			}
 			vanished.add(new Swing(itemId, previousStack.getName(), previousStack.getQuantity(),
@@ -533,6 +558,8 @@ public final class SessionEngine
 				{
 					basisCarries.add(new BasisCarry(a.itemId, a.quantity, v.basisTotalCost));
 				}
+				logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue, "TRANSFER(id-swap out)");
+				logAttribution(a.itemId, a.name, a.quantity, a.quantity * a.unitValue, "TRANSFER(id-swap in)");
 				a.quantity = 0L;
 				v.quantity = 0L;
 				break;
@@ -576,6 +603,8 @@ public final class SessionEngine
 				{
 					recordSupplyConsumed(consumedValue);
 				}
+				logAttribution(v.itemId, v.name, -n, -consumedValue, "DOSE-SWAP");
+				logAttribution(a.itemId, a.name, n, 0L, "DOSE-SWAP(residual dose, no charge)");
 				a.quantity -= n;
 				v.quantity -= n;
 				break;
@@ -619,6 +648,13 @@ public final class SessionEngine
 						suppliesUsed -= reversedValue;
 						this.baseline += reversedValue;
 						suppliesReversed += reversedValue;
+						logAttribution(a.itemId, a.name, reversedQty, reversedValue,
+							"REVERSAL-NET(un-charge supply, equip transient)");
+					}
+					else
+					{
+						logAttribution(a.itemId, a.name, reversedQty, reversedQty * p.unitValue,
+							"REVERSAL-NET(equip transient, guarded from loot)");
 					}
 					a.quantity -= reversedQty;
 					p.quantity -= reversedQty;
@@ -642,6 +678,7 @@ public final class SessionEngine
 				long lootValue = a.quantity * a.unitValue;
 				addLoot(new LootEntry(a.itemId, a.name, a.quantity, lootValue, tsMs));
 				lootRecorded += lootValue;
+				logAttribution(a.itemId, a.name, a.quantity, lootValue, "LOOT");
 				newPendingLooted.add(new PendingSwing(a.itemId, a.quantity, a.unitValue,
 					a.fullSwing, false, a.hadBasis, a.basisQuantity, a.basisTotalCost, tsMs));
 			}
@@ -673,6 +710,8 @@ public final class SessionEngine
 					long reversedValue = reversedQty * p.unitValue;
 					retractLoot(p.itemId, reversedQty, reversedValue);
 					lootReversed += reversedValue;
+					logAttribution(v.itemId, v.name, -reversedQty, -reversedValue,
+						"REVERSAL-NET(retract loot, equip transient)");
 					v.quantity -= reversedQty;
 					p.quantity -= reversedQty;
 					if (fullReversal)
@@ -710,6 +749,12 @@ public final class SessionEngine
 					long consumedValue = v.quantity * v.unitValue;
 					recordSupplyConsumed(consumedValue);
 					suppliesRecorded += consumedValue;
+					logAttribution(v.itemId, v.name, -v.quantity, -consumedValue, "SUPPLY");
+				}
+				else
+				{
+					logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue,
+						"VANISH(untracked, not booked as supply or loot)");
 				}
 				// Remember ALL surviving vanishes (consumable or not) so a
 				// reappearance next update is netted instead of read as loot.
@@ -763,6 +808,24 @@ public final class SessionEngine
 			current.getBankValue(), current.isBankKnown(), bankOpen,
 			trackedDelta, lootRecorded, suppliesRecorded, lootReversed, suppliesReversed,
 			baseline, m2mDelta);
+	}
+
+	/**
+	 * Guarded compact per-item attribution DEBUG line for a single quantity
+	 * swing classified during {@link #update}, e.g.
+	 * {@code [attrib] id=560 name='Death rune' dq=-42 val=-8.4k -> SUPPLY}.
+	 * Purely diagnostic — never affects any profit/wealth computation. Value
+	 * is the signed gp value of the swing (quantity * unit value, negated for
+	 * vanishes) so a bucket's total is scannable at a glance.
+	 */
+	private void logAttribution(int itemId, String name, long signedQty, long signedValue, String bucket)
+	{
+		if (!log.isDebugEnabled())
+		{
+			return;
+		}
+		log.debug("[attrib] id={} name='{}' dq={} val={} -> {}",
+			itemId, name, signedQty, signedValue, bucket);
 	}
 
 	/**
@@ -1008,8 +1071,14 @@ public final class SessionEngine
 	{
 		if (!startBankKnown && current.isBankKnown())
 		{
+			long oldStartNetWorth = startNetWorth;
 			startNetWorth += current.getBankValue();
 			startBankKnown = true;
+			if (log.isDebugEnabled())
+			{
+				log.debug("[reanchor] bank newly known, folding into startNetWorth: bankValue={} startNetWorth {} -> {}",
+					current.getBankValue(), oldStartNetWorth, startNetWorth);
+			}
 		}
 	}
 
