@@ -332,6 +332,16 @@ public final class DpsCalculator {
             maxHit += CombatMath.elementalWeaknessBonus(baseSpellMaxHit, target.weaknessSeverity());
         }
 
+        // Charged elemental tome (fire/water/earth): +10% damage vs NPCs to the
+        // matching-element standard-spellbook spell. weirdgloop's MAX_HIT_TOME
+        // step (floor(maxHit * 11/10)) is the FINAL magic-damage modifier —
+        // applied AFTER the elemental-weakness bonus above, as its own floored
+        // multiplicative step. spellElement is null for powered staves / Ancient
+        // / non-elemental casts, so those never receive it.
+        if (spellElement != null && gear.tome().boosts(spellElement)) {
+            maxHit = (int) new Fraction(11, 10).applyFloor(maxHit);
+        }
+
         return finish(maxHit, accuracyRoll, defenceRoll, castSpeedTicks, target.hitpoints(), approximate);
     }
 

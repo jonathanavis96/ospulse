@@ -5,6 +5,7 @@ import com.ospulse.combat.DragonHunterWeapon;
 import com.ospulse.combat.PoweredStaff;
 import com.ospulse.combat.SalveType;
 import com.ospulse.combat.SlayerHeadgear;
+import com.ospulse.combat.Tome;
 import com.ospulse.combat.VoidSet;
 
 import java.util.HashSet;
@@ -314,6 +315,16 @@ final class GearVariants
 	private static final int OSMUMTENS_FANG_OR = 27246;
 	private static final int FANG_OF_THE_HOUND = 33249;
 
+	/**
+	 * CHARGED elemental tome shield-slot ids (the empty variants +2 give no
+	 * bonus and are deliberately excluded): Tome of fire 20714 (empty 20716),
+	 * Tome of water 25574 (empty 25576), Tome of earth 30064 (empty 30066).
+	 * Verified vs the OSRS Wiki + the bundled equipment_index 2026-07-04.
+	 */
+	private static final int TOME_OF_FIRE = 20714;
+	private static final int TOME_OF_WATER = 25574;
+	private static final int TOME_OF_EARTH = 30064;
+
 	/** Maps a worn WEAPON-slot item id to its {@link DragonHunterWeapon} ({@link DragonHunterWeapon#NONE} if not dragonbane). */
 	static DragonHunterWeapon dragonHunterWeaponFor(int weaponItemId)
 	{
@@ -340,6 +351,22 @@ final class GearVariants
 	static boolean isOsmumtensFang(int weaponItemId)
 	{
 		return weaponItemId == OSMUMTENS_FANG || weaponItemId == OSMUMTENS_FANG_OR || weaponItemId == FANG_OF_THE_HOUND;
+	}
+
+	/** Maps a worn SHIELD-slot item id to its charged {@link Tome} ({@link Tome#NONE} if empty/not a tome). */
+	static Tome tomeFor(int shieldItemId)
+	{
+		switch (shieldItemId)
+		{
+			case TOME_OF_FIRE:
+				return Tome.FIRE;
+			case TOME_OF_WATER:
+				return Tome.WATER;
+			case TOME_OF_EARTH:
+				return Tome.EARTH;
+			default:
+				return Tome.NONE;
+		}
 	}
 
 	// ==== Powered staves ==================================================================

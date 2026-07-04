@@ -34,6 +34,7 @@ public final class EquipmentStats {
     private final boolean twistedBow;
     private final boolean osmumtensFang;
     private final PoweredStaff poweredStaff;
+    private final Tome tome;
 
     private EquipmentStats(Builder b) {
         this.astab = b.astab;
@@ -60,6 +61,7 @@ public final class EquipmentStats {
         this.twistedBow = b.twistedBow;
         this.osmumtensFang = b.osmumtensFang;
         this.poweredStaff = b.poweredStaff;
+        this.tome = b.tome;
     }
 
     public int astab() {
@@ -183,6 +185,11 @@ public final class EquipmentStats {
         return poweredStaff;
     }
 
+    /** The charged shield-slot elemental tome (fire/water/earth), or {@link Tome#NONE}. */
+    public Tome tome() {
+        return tome;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -212,6 +219,7 @@ public final class EquipmentStats {
         private boolean twistedBow;
         private boolean osmumtensFang;
         private PoweredStaff poweredStaff = PoweredStaff.NONE;
+        private Tome tome = Tome.NONE;
 
         private Builder() {
         }
@@ -286,6 +294,11 @@ public final class EquipmentStats {
 
         public Builder osmumtensFang(boolean value) {
             this.osmumtensFang = value;
+            return this;
+        }
+
+        public Builder tome(Tome value) {
+            this.tome = value;
             return this;
         }
 

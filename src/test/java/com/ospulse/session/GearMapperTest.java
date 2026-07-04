@@ -102,6 +102,28 @@ public class GearMapperTest
 	}
 
 	@Test
+	public void buildEquipmentStats_detectsChargedTomeInShieldSlotButNotEmpty()
+	{
+		int[] chargedFire = new int[14];
+		java.util.Arrays.fill(chargedFire, -1);
+		chargedFire[5] = 20714; // shield: charged Tome of fire
+		assertEquals(com.ospulse.combat.Tome.FIRE,
+			GearMapper.buildEquipmentStats(chargedFire, WEAPON_SLOT, id -> null).tome());
+
+		int[] emptyFire = new int[14];
+		java.util.Arrays.fill(emptyFire, -1);
+		emptyFire[5] = 20716; // shield: empty Tome of fire -> no bonus
+		assertEquals(com.ospulse.combat.Tome.NONE,
+			GearMapper.buildEquipmentStats(emptyFire, WEAPON_SLOT, id -> null).tome());
+
+		int[] chargedWater = new int[14];
+		java.util.Arrays.fill(chargedWater, -1);
+		chargedWater[5] = 25574; // shield: charged Tome of water
+		assertEquals(com.ospulse.combat.Tome.WATER,
+			GearMapper.buildEquipmentStats(chargedWater, WEAPON_SLOT, id -> null).tome());
+	}
+
+	@Test
 	public void buildEquipmentStats_detectsImbuedSlayerHelmAndNoSalveOrVoid()
 	{
 		int[] equippedItemIds = new int[14];

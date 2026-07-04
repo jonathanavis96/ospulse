@@ -22,6 +22,7 @@ public final class GearMapper
 	private static final int SLOT_HEAD = 0;
 	private static final int SLOT_AMULET = 2;
 	private static final int SLOT_BODY = 4;
+	private static final int SLOT_SHIELD = 5;
 	private static final int SLOT_LEGS = 7;
 	private static final int SLOT_GLOVES = 9;
 
@@ -128,6 +129,7 @@ public final class GearMapper
 		builder.twistedBow(GearVariants.isTwistedBow(weaponItemId));
 		builder.osmumtensFang(GearVariants.isOsmumtensFang(weaponItemId));
 		builder.poweredStaff(GearVariants.poweredStaffFor(weaponItemId));
+		builder.tome(GearVariants.tomeFor(slotItemId(equippedItemIds, SLOT_SHIELD)));
 		builder.voidSet(GearVariants.voidSetFor(
 			slotItemId(equippedItemIds, SLOT_HEAD),
 			slotItemId(equippedItemIds, SLOT_BODY),
