@@ -455,6 +455,21 @@ public class SessionTracker implements SessionService
 		EquipmentStats equipmentStats = GearMapper.buildEquipmentStats(
 			equippedItemIds, EquipmentInventorySlot.WEAPON.ordinal(), lookup);
 
+		// The player's set autocast spell, as the game's internal autocast id
+		// (VarbitID.AUTOCAST_SPELL, 276). We don't yet have the value->Spell
+		// mapping (it's cache data), so capture the raw value on the snapshot and
+		// log it: an in-client pass that autocasts each spell reveals the mapping,
+		// which then lets the magic readout show the actual current cast instead
+		// of the next-best-DPS fallback (GearSection secondary readout TODO).
+		int autocastSpellId = client.getVarbitValue(net.runelite.api.gameval.VarbitID.AUTOCAST_SPELL);
+		if (log.isDebugEnabled())
+		{
+			log.debug("[autocast] varbit276={} spellbook={} weaponId={}",
+				autocastSpellId,
+				client.getVarbitValue(net.runelite.api.gameval.VarbitID.SPELLBOOK),
+				equippedItemIds[EquipmentInventorySlot.WEAPON.ordinal()]);
+		}
+
 		return GearSnapshot.builder()
 			.equippedItemIds(equippedItemIds)
 			.attack(client.getRealSkillLevel(Skill.ATTACK), client.getBoostedSkillLevel(Skill.ATTACK))
@@ -468,6 +483,7 @@ public class SessionTracker implements SessionService
 			// TODO Phase 2+: on-task Slayer detection has no confirmed live read yet.
 			.onSlayerTask(false)
 			.equipmentStats(equipmentStats)
+			.autocastSpellId(autocastSpellId)
 			.build();
 	}
 

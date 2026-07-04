@@ -633,8 +633,12 @@ public final class GearSection extends CollapsibleSection
 		// -------------------------------- primary/secondary cast readout
 		// Magic-weapon view only: primary = the auto-selected highest-DPS cast;
 		// secondary = the next-best-DPS cast.
-		// TODO: current-cast spell when the snapshot exposes it — the secondary
-		// should then prefer the spell the player is actually autocasting.
+		// TODO: prefer the player's actual autocast spell for the secondary.
+		// GearSnapshot.autocastSpellId() now exposes the raw autocast varbit (276),
+		// and SessionTracker logs it ([autocast] ...). Still needed: the
+		// value->Spell mapping (cache data), captured from one in-client pass, to
+		// resolve that raw id to a named spell here. Until then, secondary stays
+		// the next-best-DPS fallback below.
 		primaryValue = readoutValueLabel();
 		primaryRow = readoutRow("Primary", primaryValue,
 			"The auto-selected highest-DPS cast for this weapon and target");

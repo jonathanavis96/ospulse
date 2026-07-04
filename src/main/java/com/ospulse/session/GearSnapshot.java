@@ -61,6 +61,18 @@ public final class GearSnapshot
 	 * gear has been resolved yet.
 	 */
 	private final EquipmentStats equipmentStats;
+	/**
+	 * Raw value of the in-game autocast-spell varbit ({@code
+	 * gameval.VarbitID.AUTOCAST_SPELL}, id 276): the spell the player has set to
+	 * auto-cast, as the game's internal autocast id. This is NOT one of our
+	 * {@link com.ospulse.combat.Spell} ids — the value-&gt;spell mapping is cache
+	 * data that must be captured in-client (see {@code SessionTracker.buildGear}'s
+	 * debug log) before the magic readout can resolve it. {@code -1} (or {@code 0})
+	 * means no autocast spell is set. Exposed so the {@code GearSection} secondary
+	 * readout can eventually show the actual current cast instead of the
+	 * next-best-DPS fallback.
+	 */
+	private final int autocastSpellId;
 
 	private GearSnapshot(Builder b)
 	{
@@ -84,6 +96,7 @@ public final class GearSnapshot
 			: Collections.unmodifiableSet(EnumSet.copyOf(b.activePrayers));
 		this.onSlayerTask = b.onSlayerTask;
 		this.equipmentStats = b.equipmentStats;
+		this.autocastSpellId = b.autocastSpellId;
 	}
 
 	private static int[] normalizeSlots(int[] raw)
@@ -213,6 +226,17 @@ public final class GearSnapshot
 		return equipmentStats;
 	}
 
+	/**
+	 * Raw in-game autocast-spell varbit value (id 276); {@code -1}/{@code 0} =
+	 * none set. See the field javadoc — this is the game's internal autocast id,
+	 * not a {@link com.ospulse.combat.Spell} id, and needs an in-client-captured
+	 * mapping before it can be resolved to a named spell.
+	 */
+	public int autocastSpellId()
+	{
+		return autocastSpellId;
+	}
+
 	public static final class Builder
 	{
 		private int[] equippedItemIds;
@@ -233,6 +257,7 @@ public final class GearSnapshot
 		private Set<OffensivePrayer> activePrayers = EnumSet.noneOf(OffensivePrayer.class);
 		private boolean onSlayerTask;
 		private EquipmentStats equipmentStats;
+		private int autocastSpellId = -1;
 
 		private Builder()
 		{
@@ -310,6 +335,13 @@ public final class GearSnapshot
 		public Builder equipmentStats(EquipmentStats equipmentStats)
 		{
 			this.equipmentStats = equipmentStats;
+			return this;
+		}
+
+		/** Raw autocast-spell varbit value (id 276); {@code -1}/{@code 0} = none. */
+		public Builder autocastSpellId(int id)
+		{
+			this.autocastSpellId = id;
 			return this;
 		}
 
