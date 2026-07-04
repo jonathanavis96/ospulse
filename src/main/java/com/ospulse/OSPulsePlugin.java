@@ -116,6 +116,22 @@ public class OSPulsePlugin extends Plugin
 			{
 				if (!valuation.isTradeable(id))
 				{
+					// Curated exception: a few best-in-slot items are untradeable
+					// but assembled from a tradeable component (e.g. an Avernic
+					// defender is made from a tradeable Avernic defender hilt on a
+					// dragon defender). Price such an item at its component's GE
+					// cost so the optimiser can still recommend it; the readout
+					// keeps the assembled item's own name.
+					Integer component = com.ospulse.combat.AssembledItemComponents.priceSourceComponent(id);
+					if (component != null && valuation.isTradeable(component))
+					{
+						long cv = valuation.unitValue(component);
+						if (cv > 0)
+						{
+							m.put(id, cv);
+							continue;
+						}
+					}
 					untradeable.add(id);
 					continue;
 				}
