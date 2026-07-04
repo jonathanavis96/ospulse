@@ -158,6 +158,22 @@ public final class GeReconciler
 	}
 
 	/**
+	 * Clears all per-session state (open-slot tracking, cost-basis ledger,
+	 * attributed ids and realised P&amp;L) so a new tracking window starts from
+	 * zero. Must be called whenever the session is reset or re-bootstrapped
+	 * (manual reset button, login/relogin) — otherwise realised flip P&amp;L
+	 * carries over into the "new" session and keeps accumulating, unlike every
+	 * other per-session stat.
+	 */
+	public void reset()
+	{
+		slots.clear();
+		costBasis.clear();
+		attributedItemIds.clear();
+		realizedPnl = 0L;
+	}
+
+	/**
 	 * Returns the set of item ids that had GE-driven quantity movement since
 	 * the last drain, and clears that set.
 	 */

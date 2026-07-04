@@ -310,6 +310,7 @@ public class SessionTracker implements SessionService
 		long ts = System.currentTimeMillis();
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
+		geReconciler.reset();
 		WealthSnapshot current = buildWealth(ts);
 		engine.startSession(current, ts);
 		if (lastBankOpenState)
@@ -350,6 +351,7 @@ public class SessionTracker implements SessionService
 		loadBankCache();
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
+		geReconciler.reset();
 		WealthSnapshot initial = buildWealth(ts);
 		engine.startSession(initial, ts);
 		started = true;

@@ -39,6 +39,29 @@ public class GeReconcilerTest
 	}
 
 	@Test
+	public void resetClearsRealisedPnlCostBasisAndAttribution()
+	{
+		// Realise some flip P&L and leave an open cost basis + attributed ids.
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 2000L);
+		assertEquals(2_000_000L, reconciler.realizedPnl());
+
+		reconciler.reset();
+
+		// Everything is back to a fresh-session zero.
+		assertEquals(0L, reconciler.realizedPnl());
+		assertTrue(reconciler.drainAttributedItemIds().isEmpty());
+
+		// Cost basis was cleared too: selling the same item now has no basis, so
+		// it realises nothing (rather than resurrecting the pre-reset basis).
+		reconciler.onOfferUpdate(0, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			5L, 5L, 6_000_000L, 1_200_000L, 3000L);
+		assertEquals(0L, reconciler.realizedPnl());
+	}
+
+	@Test
 	public void repeatedUpdatesForSameOfferDoNotDoubleCount()
 	{
 		// Partial fill progression on the same slot: 0 -> 3 -> 3 (repeat) -> 7 -> 10.

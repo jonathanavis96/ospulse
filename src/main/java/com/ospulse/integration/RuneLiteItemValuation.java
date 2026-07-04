@@ -18,12 +18,27 @@ public class RuneLiteItemValuation
 	}
 
 	/**
-	 * GE unit price for the given item, canonicalized first. Returns 0 for
-	 * untradeable items — that's correct, they contribute 0 to wealth.
+	 * GE unit price for the given item, canonicalized first, or 0 for
+	 * untradeable items (they contribute 0 to tradeable wealth).
+	 *
+	 * <p>The untradeable guard is load-bearing: {@link ItemManager#getItemPrice(int)}
+	 * routes trouver-locked untradeables (e.g. Fire cape (l), Dragon defender (l))
+	 * through the {@code ITEM_TROUVER_PARCHMENT} GE mapping and returns ~1,000,000gp
+	 * rather than 0, which would otherwise inflate wealth and produce phantom
+	 * ~1M loot/loss entries the moment such an item enters or leaves the player's
+	 * containers. Because it reads {@link ItemManager#getItemComposition(int)} it
+	 * asserts the RuneLite client thread — every caller (SessionTracker's
+	 * accumulate* methods and OSPulsePlugin's clientThread.invoke-wrapped optimizer
+	 * resolver) already runs there.
 	 */
 	public long unitValue(int itemId)
 	{
 		int canonicalId = itemManager.canonicalize(itemId);
+		ItemComposition comp = itemManager.getItemComposition(canonicalId);
+		if (comp == null || !comp.isTradeable())
+		{
+			return 0L;
+		}
 		return itemManager.getItemPrice(canonicalId);
 	}
 
