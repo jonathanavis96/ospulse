@@ -1,16 +1,15 @@
 # OSPulse
 
-**An all‑in‑one dashboard for Old School RuneScape, in a single RuneLite side panel** — one place for everything you'd otherwise spread across separate plugins and browser tabs, headlined by a **live gear max‑hit & DPS calculator** that reads straight from your worn gear. It also tracks banking‑aware session profit, a complete loot feed, total net worth, XP gained and Grand Exchange flip P&L — all valued with RuneLite's own Grand Exchange prices, with no third‑party service required.
+An all‑in‑one information dashboard for Old School RuneScape, in a single RuneLite side panel: a live gear DPS / max‑hit calculator alongside banking‑aware session profit, a complete loot feed, total net worth, XP gained and Grand Exchange flip P&L. Everything is valued with RuneLite's own Grand Exchange prices, with no third‑party service required.
 
-- **Plugin name:** OSPulse
 - **License:** BSD‑2‑Clause (see [`LICENSE`](LICENSE))
-- **Third‑party data & code attribution:** see [`NOTICE`](NOTICE)
+- **Attribution:** third‑party data & code credited in [`NOTICE`](NOTICE)
 
 ---
 
-## ⭐ Live gear max hit & DPS — the headline feature
+## Gear DPS & max hit
 
-The centrepiece is a combat calculator that is **auto‑filled from your worn gear, live boosted stats and active prayers** — no manual entry, always reflecting your real current setup. Where a standalone DPS calculator makes you type in your gear, levels and boosts, OSPulse reads them straight from the client and recomputes the moment you swap gear, sip a potion or flick a prayer.
+The gear calculator is auto‑filled from your worn gear, live boosted stats and active prayers — no manual entry, always reflecting your real current setup. Where a standalone DPS calculator makes you type in your gear, levels and boosts, OSPulse reads them from the client and recomputes as you swap gear, sip a potion or flick a prayer.
 
 - Live **max hit, accuracy, average hit, DPS and time‑to‑kill**, across the weapon's real in‑game attack styles, ranked by DPS with the best auto‑selected.
 - A searchable target monster (per‑style defence applied), plus on‑task, potion and prayer toggles.
@@ -19,11 +18,13 @@ The centrepiece is a combat calculator that is **auto‑filled from your worn ge
 - **Gear optimiser:** "Find best setup" searches your owned and affordable items (with a GP budget) for the highest DPS, ranked by DPS‑per‑GP; include/exclude lists; apply the result to the readout.
 - **Monster‑mechanic overrides:** pins items required by mechanics rather than raw DPS (e.g. **Insulated boots vs Rune dragons**, which reduce the lightning special‑attack damage) and shows the reason.
 
+Damage is calculated player‑vs‑monster (PvM); PvP is not modelled.
+
 ---
 
-## The rest of the dashboard
+## Session, wealth & XP tracking
 
-The same side panel gathers the tracking you'd otherwise run across several plugins — as collapsible, individually hideable sections:
+The same side panel gathers, as collapsible and individually hideable sections:
 
 | Section | What it shows |
 | --- | --- |
