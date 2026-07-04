@@ -61,13 +61,22 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	/** Config key (raw, not declared on the interface) for collapsed sections. */
 	private static final String COLLAPSED_KEY = "collapsedSections";
 
+	private final OSPulseConfig config;
 	private final ConfigManager configManager;
 
 	private final JPanel emptyStatePanel;
 	private final JPanel contentPanel;
 	private final CardHolder cardHolder;
 
+	/** Every section, always constructed (order = display order). Visibility is a
+	 *  layout decision, not a construction one — see {@link #rebuildSectionsColumn()}. */
 	private final List<CollapsibleSection> sectionList = new ArrayList<>();
+
+	/** The BoxLayout column that holds the currently-visible sections + spacers. */
+	private final JPanel sectionsColumn;
+
+	/** Most recent snapshot, retained so a section turned on live can be fed at once. */
+	private SessionSnapshot lastSnapshot;
 
 	private Runnable resetCallback = () -> {};
 
@@ -79,6 +88,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	{
 		super(false);
 		Objects.requireNonNull(config, "config");
+		this.config = config;
 		this.configManager = configManager;
 
 		setLayout(new BorderLayout());
@@ -91,60 +101,30 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 
 		CollapsibleSection.CollapseStore store = new ConfigCollapseStore();
 
-		// Feature: hideable panel sections (OSPulseConfig "Panel sections"). Each
-		// section is only constructed/added when its config flag is true; there is
-		// no ConfigChanged listener wiring the panel back up, so this is evaluated
-		// once at construction — toggling a flag takes effect on the next panel
-		// build (plugin restart), not live.
-		if (config.showSessionSection())
-		{
-			sectionList.add(new SessionSection(store, plugin, client, overlayManager));
-		}
-		if (config.showLootSection())
-		{
-			sectionList.add(new LootSection(store, config, itemManager, plugin, client, overlayManager));
-		}
-		if (config.showXpSection())
-		{
-			sectionList.add(new XpSection(store, skillIconManager, plugin, client, overlayManager));
-		}
-		if (config.showGearSection())
-		{
-			sectionList.add(new GearSection(store, itemManager, skillIconManager, spriteManager, configManager,
-				optimizerPriceResolver));
-		}
-		if (config.showGeSection())
-		{
-			sectionList.add(new GeSection(store, itemManager));
-		}
-		if (config.showWealthSection())
-		{
-			sectionList.add(new WealthSection(store));
-		}
-		if (config.showHoldingsSection())
-		{
-			sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService, configManager));
-		}
+		// Feature: hideable panel sections (OSPulseConfig "Panel sections"). Every
+		// section is constructed unconditionally (construction is inert — no
+		// threads/overlays), so a config toggle is purely a layout decision that
+		// {@link #applySectionVisibility()} can apply live without destroying any
+		// section's retained state. Which ones are actually shown is decided by
+		// {@link #rebuildSectionsColumn()} reading the {@code show*Section} flags.
+		sectionList.add(new SessionSection(store, plugin, client, overlayManager));
+		sectionList.add(new LootSection(store, config, itemManager, plugin, client, overlayManager));
+		sectionList.add(new XpSection(store, skillIconManager, plugin, client, overlayManager));
+		sectionList.add(new GearSection(store, itemManager, skillIconManager, spriteManager, configManager,
+			optimizerPriceResolver));
+		sectionList.add(new GeSection(store, itemManager));
+		sectionList.add(new WealthSection(store));
+		sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService, configManager));
 
 		// A width-tracking column so nothing is laid out wider than the fixed
 		// side-panel width; the widest row ellipsizes within its row instead of
 		// pushing content past the (horizontally non-scrolling) viewport edge.
-		JPanel sections = new ScrollablePanel();
-		sections.setLayout(new BoxLayout(sections, BoxLayout.Y_AXIS));
-		sections.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		sectionsColumn = new ScrollablePanel();
+		sectionsColumn.setLayout(new BoxLayout(sectionsColumn, BoxLayout.Y_AXIS));
+		sectionsColumn.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		rebuildSectionsColumn();
 
-		boolean first = true;
-		for (CollapsibleSection section : sectionList)
-		{
-			if (!first)
-			{
-				sections.add(PanelWidgets.spacer());
-			}
-			first = false;
-			sections.add(section);
-		}
-
-		JScrollPane scrollPane = new JScrollPane(sections);
+		JScrollPane scrollPane = new JScrollPane(sectionsColumn);
 		scrollPane.setBorder(BorderFactory.createEmptyBorder());
 		scrollPane.getVerticalScrollBar().setUnitIncrement(16);
 		scrollPane.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -195,6 +175,87 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		}
 	}
 
+	/** Whether {@code section} is switched on by its {@code show*Section} config flag. */
+	private boolean isSectionEnabled(CollapsibleSection section)
+	{
+		if (section instanceof SessionSection)
+		{
+			return config.showSessionSection();
+		}
+		if (section instanceof LootSection)
+		{
+			return config.showLootSection();
+		}
+		if (section instanceof XpSection)
+		{
+			return config.showXpSection();
+		}
+		if (section instanceof GearSection)
+		{
+			return config.showGearSection();
+		}
+		if (section instanceof GeSection)
+		{
+			return config.showGeSection();
+		}
+		if (section instanceof WealthSection)
+		{
+			return config.showWealthSection();
+		}
+		if (section instanceof HoldingsSection)
+		{
+			return config.showHoldingsSection();
+		}
+		return true;
+	}
+
+	/**
+	 * (Re)populates {@link #sectionsColumn} with only the enabled sections, in
+	 * {@link #sectionList} order, spacer-separated. Sections are re-parented, not
+	 * recreated, so their retained UI state survives a toggle. Must run on the EDT.
+	 */
+	private void rebuildSectionsColumn()
+	{
+		sectionsColumn.removeAll();
+		boolean first = true;
+		for (CollapsibleSection section : sectionList)
+		{
+			if (!isSectionEnabled(section))
+			{
+				continue;
+			}
+			if (!first)
+			{
+				sectionsColumn.add(PanelWidgets.spacer());
+			}
+			first = false;
+			sectionsColumn.add(section);
+		}
+	}
+
+	/**
+	 * Live-applies the {@code show*Section} toggles without a plugin restart:
+	 * re-lays-out the visible sections and feeds any newly-shown section the last
+	 * snapshot so it isn't blank until the next game tick. Called from the plugin's
+	 * {@code onConfigChanged}. Runs on the EDT.
+	 */
+	public void applySectionVisibility()
+	{
+		rebuildSectionsColumn();
+		if (lastSnapshot != null)
+		{
+			for (CollapsibleSection section : sectionList)
+			{
+				if (isSectionEnabled(section))
+				{
+					section.apply(lastSnapshot);
+				}
+			}
+		}
+		sectionsColumn.revalidate();
+		sectionsColumn.repaint();
+	}
+
 	/**
 	 * Removes every category canvas overlay any section has added (via its
 	 * "Add to canvas" menu item), so a plugin toggle or client shutdown
@@ -237,6 +298,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 
 	private void applySnapshot(SessionSnapshot snapshot)
 	{
+		lastSnapshot = snapshot;
 		if (snapshot == null)
 		{
 			showEmptyState();
@@ -246,7 +308,12 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		showContent();
 		for (CollapsibleSection section : sectionList)
 		{
-			section.apply(snapshot);
+			// Skip hidden sections: a disabled section stays inert (e.g. Holdings
+			// must not prefetch prices while switched off).
+			if (isSectionEnabled(section))
+			{
+				section.apply(snapshot);
+			}
 		}
 	}
 

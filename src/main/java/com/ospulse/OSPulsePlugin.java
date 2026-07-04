@@ -19,6 +19,7 @@ import net.runelite.api.events.StatChanged;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
@@ -32,6 +33,7 @@ import net.runelite.client.util.ImageUtil;
 import okhttp3.OkHttpClient;
 
 import javax.inject.Inject;
+import javax.swing.SwingUtilities;
 import java.awt.image.BufferedImage;
 
 /**
@@ -245,6 +247,23 @@ public class OSPulsePlugin extends Plugin
 	public void onLootReceived(LootReceived event)
 	{
 		tracker.onLootReceived(event.getName(), event.getAmount(), event.getItems());
+	}
+
+	@Subscribe
+	public void onConfigChanged(ConfigChanged event)
+	{
+		if (!OSPulseConfig.GROUP.equals(event.getGroup()) || panel == null)
+		{
+			return;
+		}
+
+		// Panel-section show/hide toggles apply live (no plugin restart): the panel
+		// keeps every section constructed and just re-lays-out the visible set.
+		final String key = event.getKey();
+		if (key != null && key.startsWith("show") && key.endsWith("Section"))
+		{
+			SwingUtilities.invokeLater(panel::applySectionVisibility);
+		}
 	}
 
 	@Provides
