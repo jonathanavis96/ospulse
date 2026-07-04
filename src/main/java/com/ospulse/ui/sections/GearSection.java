@@ -1064,7 +1064,25 @@ public final class GearSection extends CollapsibleSection
 				@Override
 				public void mousePressed(MouseEvent e)
 				{
-					toggleItemSearch(clickedSlot);
+					// Right-click (popup trigger) on a cell showing a real item
+					// offers "Exclude from suggestions" — Jonathan wanted this while
+					// previewing an optimiser setup. Left-click still opens the
+					// item-swap search. (Popup trigger fires on press on Linux and
+					// release on Windows, so it is checked in both handlers.)
+					if (maybeShowSlotExcludePopup(e, clickedSlot))
+					{
+						return;
+					}
+					if (SwingUtilities.isLeftMouseButton(e))
+					{
+						toggleItemSearch(clickedSlot);
+					}
+				}
+
+				@Override
+				public void mouseReleased(MouseEvent e)
+				{
+					maybeShowSlotExcludePopup(e, clickedSlot);
 				}
 			});
 			grid.add(cell);
@@ -2152,8 +2170,13 @@ public final class GearSection extends CollapsibleSection
 			: MonsterGearOverrideRepository.getInstance().forMonster(selectedMonster.name());
 		for (MonsterGearOverride override : overrides)
 		{
-			JLabel line = PanelWidgets.emptyRowLabel("⚠ vs " + selectedMonster.name() + ": equip "
-				+ override.itemName() + " (" + slotDisplayName(override.slot()) + ") — " + override.reason());
+			String raw = "⚠ vs " + selectedMonster.name() + ": equip "
+				+ override.itemName() + " (" + slotDisplayName(override.slot()) + ") — " + override.reason();
+			// A plain JLabel does not wrap, so the long advisory line was clipped
+			// in the narrow side panel (Jonathan saw "...equip in selected boot..."
+			// cut off). Render as width-constrained HTML so the FULL reason wraps
+			// onto multiple lines. Escape the data-driven text first.
+			JLabel line = PanelWidgets.emptyRowLabel("<html><div style='width:200px'>" + escapeHtml(raw) + "</div></html>");
 			line.setForeground(ColorScheme.BRAND_ORANGE);
 			gearOverrideNotePanel.add(line);
 		}
@@ -2167,6 +2190,12 @@ public final class GearSection extends CollapsibleSection
 	{
 		String raw = slot.name().toLowerCase(Locale.ROOT);
 		return Character.toUpperCase(raw.charAt(0)) + raw.substring(1);
+	}
+
+	/** Minimal HTML escaping for text placed inside an {@code <html>} JLabel (ampersand first). */
+	private static String escapeHtml(String text)
+	{
+		return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
 	}
 
 	// ------------------------------------------------- Phase 2: what-if swaps
@@ -3497,6 +3526,30 @@ public final class GearSection extends CollapsibleSection
 		return icon;
 	}
 
+	/**
+	 * If {@code e} is a right-click/popup trigger over a slot cell currently
+	 * SHOWING a real item (the previewed optimiser suggestion, a what-if swap,
+	 * or live gear), pops the "Exclude from suggestions" menu for that item and
+	 * returns {@code true}. The shown item id is read from {@link #renderedSlotIds}
+	 * (what the cell last drew). Returns {@code false} for a non-popup click or
+	 * an empty cell, so the caller falls through to the left-click swap search.
+	 */
+	private boolean maybeShowSlotExcludePopup(MouseEvent e, int slot)
+	{
+		if (!e.isPopupTrigger())
+		{
+			return false;
+		}
+		int shownId = slot >= 0 && slot < renderedSlotIds.length ? renderedSlotIds[slot] : -1;
+		if (shownId <= 0)
+		{
+			return false;
+		}
+		String name = itemDisplayName(EquipmentIndexRepository.getInstance(), shownId);
+		buildExcludeItemPopup(shownId, name).show(e.getComponent(), e.getX(), e.getY());
+		return true;
+	}
+
 	/** Right-click menu for a suggested-swap icon (item #6a): a single "Exclude from suggestions" action. */
 	private javax.swing.JPopupMenu buildExcludeItemPopup(int itemId, String itemName)
 	{
@@ -3962,6 +4015,21 @@ public final class GearSection extends CollapsibleSection
 	int renderedSlotIdForTest(int slotOrdinal)
 	{
 		return renderedSlotIds[slotOrdinal];
+	}
+
+	/**
+	 * Test hook mirroring the right-click "Exclude from suggestions" on a slot
+	 * cell: excludes whatever item that cell is currently SHOWING (read from
+	 * {@link #renderedSlotIds}, exactly as {@link #maybeShowSlotExcludePopup}
+	 * does), or no-ops for an empty cell.
+	 */
+	void rightClickExcludeSlotForTest(int slot)
+	{
+		int shownId = slot >= 0 && slot < renderedSlotIds.length ? renderedSlotIds[slot] : -1;
+		if (shownId > 0)
+		{
+			excludeItemFromSuggestions(shownId);
+		}
 	}
 
 	// --------------------------------------- Phase 3 optimiser test seams

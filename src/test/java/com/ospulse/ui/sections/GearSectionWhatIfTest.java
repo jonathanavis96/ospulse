@@ -167,6 +167,26 @@ public class GearSectionWhatIfTest
 	}
 
 	@Test
+	public void rightClickingASlot_excludesTheShownItemFromSuggestions()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(3, ABYSSAL_WHIP))));
+			pickCerberus(section);
+
+			// The weapon cell is showing the live whip; right-clicking it must
+			// exclude that item from optimiser suggestions (item #5, batch 6).
+			assertEquals(ABYSSAL_WHIP, section.renderedSlotIdForTest(3));
+			assertFalse(section.excludedItemIdsForTest().contains(ABYSSAL_WHIP));
+
+			section.rightClickExcludeSlotForTest(3);
+			assertTrue("right-click on the slot cell must exclude the shown item",
+				section.excludedItemIdsForTest().contains(ABYSSAL_WHIP));
+		});
+	}
+
+	@Test
 	public void clickingASlot_opensSearchScopedToThatSlot()
 	{
 		onEdt(() ->
