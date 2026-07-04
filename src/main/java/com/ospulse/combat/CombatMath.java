@@ -158,6 +158,24 @@ final class CombatMath {
         return (int) new Fraction(23, 20).applyFloor(primaryDamage); // +15%
     }
 
+    /**
+     * Elemental-weakness bonus damage, per the OSRS Wiki
+     * <a href="https://oldschool.runescape.wiki/w/Maximum_magic_hit">Maximum
+     * magic hit</a> and weirdgloop/osrs-dps-calc: {@code floor(baseSpellMaxHit *
+     * severity%)}, computed from the SPELL'S BASE max hit (not the gear-boosted
+     * value) and floored on its own. The caller ADDS this to the max hit as the
+     * final damage modifier — a separate additive term with its own floor, which
+     * is why it must NOT be folded into {@link #magicPrimaryDamage}'s damage
+     * percent (that single fold diverges by 1 in ~12% of gear/level combos).
+     *
+     * @param weaknessSeverityPercent the monster's weakness severity in whole
+     *                                percent (e.g. 50 for a 50% weakness)
+     */
+    static int elementalWeaknessBonus(int baseSpellMaxHit, double weaknessSeverityPercent) {
+        long basisPoints = Math.round(weaknessSeverityPercent * 100.0);
+        return (int) Math.floorDiv((long) baseSpellMaxHit * basisPoints, 10_000L);
+    }
+
     // ---- Twisted bow ----------------------------------------------------------------------
 
     /**

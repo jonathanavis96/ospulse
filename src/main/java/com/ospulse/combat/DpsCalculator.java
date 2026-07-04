@@ -298,16 +298,16 @@ public final class DpsCalculator {
         // Blast, Magic Dart/powered staves, god spells, all Ancient Magicks -
         // spellElement is null for those) never get this bonus, and a monster
         // with no weakness (weaknessElement() null) never grants it.
+        // It is NOT folded into the magic-damage percent below; it is a separate
+        // additive term applied last (see the elemental-weakness step at the end).
         boolean weaknessApplies = spellElement != null
                 && target.weaknessElement() != null
                 && target.weaknessElement().equals(spellElement.name());
-        double weaknessBonusPercent = weaknessApplies ? target.weaknessSeverity() : 0;
 
         double totalDamagePercent = gear.mdmg()
                 + gear.voidSet().eliteMagicDamageBonusPercent()
                 + (target.isUndead() ? gear.salveType().magicDamagePercent() : 0.0)
-                + prayerDamagePercent
-                + weaknessBonusPercent;
+                + prayerDamagePercent;
         int primaryDamage = CombatMath.magicPrimaryDamage(baseSpellMaxHit, totalDamagePercent);
 
         // Slayer on-task +15% never stacks with an active Salve bonus (per wiki).
@@ -320,6 +320,16 @@ public final class DpsCalculator {
         if (target.isDragon() && dh.appliesTo(CombatStyle.MAGIC)) {
             maxHit = (int) dh.damageMult().applyFloor(maxHit);
             accuracyRoll = (int) dh.accuracyMult().applyFloor(accuracyRoll);
+        }
+
+        // Elemental weakness — the FINAL damage modifier: a separate additive term,
+        // floor(baseSpellMaxHit * severity%), computed from the base spell max hit
+        // and floored independently, then added on. This is weirdgloop/osrs-dps-calc's
+        // exact stage (maxHit += trunc(baseMax * severity/100)) and the OSRS Wiki
+        // "Maximum magic hit" (two floors, not one — folding it into the damage
+        // percent above over-/under-shoots by 1 in ~12% of gear/level combos).
+        if (weaknessApplies) {
+            maxHit += CombatMath.elementalWeaknessBonus(baseSpellMaxHit, target.weaknessSeverity());
         }
 
         return finish(maxHit, accuracyRoll, defenceRoll, castSpeedTicks, target.hitpoints(), approximate);

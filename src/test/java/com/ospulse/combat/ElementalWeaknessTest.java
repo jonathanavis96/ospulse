@@ -14,12 +14,16 @@ import static org.junit.Assert.assertTrue;
  * strictly more damage/DPS than the other three elements of the same tier;
  * a monster with no weakness must rank all four elements equal.
  *
- * <p>Formula under test (DpsCalculator.computeMagic): the monster's
- * {@code weaknessSeverity} is added as a percent straight into the caster's
- * magic-damage percent when the cast spell's {@link Spell.Element} matches
- * the monster's {@code weaknessElement} — matching weirdgloop/osrs-dps-calc
- * semantics. This is an explicit assumption (additive-to-magic-damage-%,
- * not a separate multiplicative step) called out in the fix's commit.
+ * <p>Formula under test (DpsCalculator.computeMagic): when the cast spell's
+ * {@link Spell.Element} matches the monster's {@code weaknessElement}, the
+ * bonus is a SEPARATE additive term {@code floor(baseSpellMaxHit *
+ * weaknessSeverity%)}, computed from the spell's base max hit and floored on
+ * its own, then added to the max hit as the final damage modifier — matching
+ * weirdgloop/osrs-dps-calc ({@code maxHit += trunc(baseMax * severity/100)})
+ * and the OSRS Wiki "Maximum magic hit" (two independent floors). It is NOT
+ * folded into the caster's magic-damage percent; that single fold diverges
+ * by 1 in ~12% of gear/level combos, which
+ * {@link #weaknessIsASeparateFlooredTermNotFoldedIntoTheDamagePercent()} pins.
  */
 public class ElementalWeaknessTest {
     private static PlayerCombat mage99() {
@@ -90,6 +94,32 @@ public class ElementalWeaknessTest {
         assertEquals(fireDps, waterDps, 1e-9);
         assertEquals(fireDps, windDps, 1e-9);
         assertEquals(fireDps, earthDps, 1e-9);
+    }
+
+    @Test
+    public void weaknessIsASeparateFlooredTermNotFoldedIntoTheDamagePercent() {
+        // Fire Blast (base max 16, FIRE) vs a FIRE-weak monster with severity 56,
+        // wearing 13% magic-damage gear. The two approaches diverge here:
+        //   separate (correct): floor(16 * 1.13)=18, + floor(16 * 0.56)=8  -> 26
+        //   folded  (rejected): floor(16 * (1 + 0.13 + 0.56)) = floor(27.04) -> 27
+        // Asserting 26 pins the two-independent-floor semantics and would fail if
+        // the weakness bonus were ever folded back into the magic-damage percent.
+        Monster fireWeak = Monster.builder()
+                .name("Fire-weak target")
+                .magicLevel(1)
+                .defenceBonuses(0, 0, 0, 0, 0)
+                .hitpoints(100)
+                .weakness("FIRE", 56)
+                .build();
+        EquipmentStats gear = EquipmentStats.builder()
+                .add(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13.0, 0) // 13% magic damage
+                .weaponSpeedTicks(5)
+                .build();
+        PlayerCombat player = mage99();
+
+        assertEquals(16, Spell.FIRE_BLAST.baseMaxHit());
+        int maxHit = DpsCalculator.compute(gear, player, CombatStyle.MAGIC, fireWeak, Spell.FIRE_BLAST).maxHit();
+        assertEquals(26, maxHit);
     }
 
     @Test
