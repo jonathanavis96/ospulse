@@ -147,7 +147,13 @@ public class OSPulsePlugin extends Plugin
 
 		panel = new OSPulsePanel(config, itemManager, configManager, priceTrendService, skillIconManager,
 			spriteManager, this, client, overlayManager, optimizerPriceResolver);
-		panel.setResetCallback(tracker::resetSession);
+		// resetSession() reads live item containers (buildWealth ->
+		// client.getItemContainer), which asserts the client thread; the Reset
+		// button fires on the Swing EDT, so marshal the engine reset onto the
+		// client thread here. The panel's own resetSections() still runs first
+		// on the EDT (clearing UI baselines before the re-anchored snapshot is
+		// published back), preserving the phantom-profit-on-reset ordering.
+		panel.setResetCallback(() -> clientThread.invoke(tracker::resetSession));
 		tracker.addListener(panel);
 
 		final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "/icon.png");
