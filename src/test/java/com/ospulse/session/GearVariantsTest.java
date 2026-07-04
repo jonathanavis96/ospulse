@@ -208,4 +208,19 @@ public class GearVariantsTest
 		assertEquals(DemonbaneWeapon.NONE, GearVariants.demonbaneWeaponFor(20997)); // Twisted bow
 		assertEquals(DemonbaneWeapon.NONE, GearVariants.demonbaneWeaponFor(-1)); // empty slot
 	}
+
+	// ==== Blowpipe ========================================================================
+
+	@Test
+	public void isBlowpipe_toxicBlowpipe_returnsTrue()
+	{
+		org.junit.Assert.assertTrue(GearVariants.isBlowpipe(12926)); // Toxic blowpipe
+	}
+
+	@Test
+	public void isBlowpipe_nonBlowpipeWeapon_returnsFalse()
+	{
+		org.junit.Assert.assertFalse(GearVariants.isBlowpipe(861)); // Magic shortbow
+		org.junit.Assert.assertFalse(GearVariants.isBlowpipe(-1)); // empty slot
+	}
 }

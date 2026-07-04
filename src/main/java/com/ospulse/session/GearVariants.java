@@ -2,6 +2,7 @@ package com.ospulse.session;
 
 import com.ospulse.combat.DemonbaneWeapon;
 import com.ospulse.combat.DragonHunterWeapon;
+import com.ospulse.combat.EquipmentIndexRepository;
 import com.ospulse.combat.PoweredStaff;
 import com.ospulse.combat.SalveType;
 import com.ospulse.combat.SlayerHeadgear;
@@ -9,6 +10,7 @@ import com.ospulse.combat.Tome;
 import com.ospulse.combat.VoidSet;
 
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -397,6 +399,23 @@ final class GearVariants
 			default:
 				return PoweredStaff.NONE;
 		}
+	}
+
+	// ==== Blowpipe (loads darts internally, ignores worn ammo) ============================
+
+	/**
+	 * True when {@code weaponItemId} is any blowpipe variant (Toxic/Blazing/
+	 * Drygore/Camphor/Ironwood/Rosewood blowpipe, including future variants).
+	 * Resolved via the bundled {@link EquipmentIndexRepository} display name
+	 * rather than a hard-coded id list, since every current and future
+	 * blowpipe variant's name contains "blowpipe" (verified against the
+	 * bundled equipment_index.min.json 2026-07-04: Toxic/Blazing/Drygore/
+	 * Camphor/Ironwood/Rosewood blowpipe, each with 1-2 ids per variant).
+	 */
+	static boolean isBlowpipe(int weaponItemId)
+	{
+		EquipmentIndexRepository.Entry entry = EquipmentIndexRepository.getInstance().entryFor(weaponItemId);
+		return entry != null && entry.name().toLowerCase(Locale.ROOT).contains("blowpipe");
 	}
 
 	private static Set<Integer> setOf(int... ids)

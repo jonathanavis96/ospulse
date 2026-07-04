@@ -25,6 +25,16 @@ public final class GearMapper
 	private static final int SLOT_SHIELD = 5;
 	private static final int SLOT_LEGS = 7;
 	private static final int SLOT_GLOVES = 9;
+	private static final int AMMO_SLOT = 13;
+
+	/**
+	 * Ranged strength assumed for a blowpipe's internally-loaded dart when the
+	 * caller doesn't supply one explicitly (the what-if/optimiser paths use
+	 * the 3-arg {@link #buildEquipmentStats(int[], int, SlotStatsLookup)}
+	 * overload) — Dragon dart, the best-in-slot choice, matching Gearscape's
+	 * default assumption.
+	 */
+	private static final int DEFAULT_BLOWPIPE_DART_RANGED_STRENGTH = 35;
 
 	private GearMapper()
 	{
@@ -86,18 +96,45 @@ public final class GearMapper
 	}
 
 	/**
+	 * As {@link #buildEquipmentStats(int[], int, SlotStatsLookup, int)}, using
+	 * {@link #DEFAULT_BLOWPIPE_DART_RANGED_STRENGTH} (Dragon dart) as the
+	 * assumed blowpipe dart. Used by the what-if/optimiser paths, which have
+	 * no config to read a user-selected dart from.
+	 */
+	public static EquipmentStats buildEquipmentStats(int[] equippedItemIds, int weaponSlotIndex, SlotStatsLookup lookup)
+	{
+		return buildEquipmentStats(equippedItemIds, weaponSlotIndex, lookup, DEFAULT_BLOWPIPE_DART_RANGED_STRENGTH);
+	}
+
+	/**
 	 * Sums every worn slot's {@link SlotStats} into one loadout-wide
 	 * {@link EquipmentStats}, skipping empty slots ({@code itemId <= 0}) and
 	 * anything the lookup can't resolve (non-equipable/unknown items). The
 	 * weapon slot's {@code aspeed}/{@code isTwoHanded} drive the loadout's
 	 * attack speed and two-handed flag (every other slot's aspeed is normally
 	 * 0 and would otherwise be nonsensical to sum).
+	 *
+	 * <p>A blowpipe loads darts internally and ignores whatever is worn in the
+	 * ammo slot: when the weapon is a blowpipe ({@link GearVariants#isBlowpipe}),
+	 * the ammo slot is skipped entirely in the summation (worn ammo contributes
+	 * nothing), and {@code blowpipeDartRangedStrength} is added on top instead
+	 * (the blowpipe's own bonuses, including its own rstr, still come from its
+	 * weapon-slot {@link SlotStats} as normal).
 	 */
-	public static EquipmentStats buildEquipmentStats(int[] equippedItemIds, int weaponSlotIndex, SlotStatsLookup lookup)
+	public static EquipmentStats buildEquipmentStats(int[] equippedItemIds, int weaponSlotIndex, SlotStatsLookup lookup,
+									int blowpipeDartRangedStrength)
 	{
+		int weaponItemId = slotItemId(equippedItemIds, weaponSlotIndex);
+		boolean weaponIsBlowpipe = GearVariants.isBlowpipe(weaponItemId);
+
 		EquipmentStats.Builder builder = EquipmentStats.builder();
 		for (int slot = 0; slot < equippedItemIds.length; slot++)
 		{
+			if (slot == AMMO_SLOT && weaponIsBlowpipe)
+			{
+				// Blowpipes ignore worn ammo entirely - the loaded dart is internal.
+				continue;
+			}
 			int itemId = equippedItemIds[slot];
 			if (itemId <= 0)
 			{
@@ -121,7 +158,11 @@ public final class GearMapper
 			}
 		}
 
-		int weaponItemId = slotItemId(equippedItemIds, weaponSlotIndex);
+		if (weaponIsBlowpipe)
+		{
+			builder.add(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, blowpipeDartRangedStrength, 0.0, 0);
+		}
+
 		builder.salveType(GearVariants.salveTypeFor(slotItemId(equippedItemIds, SLOT_AMULET)));
 		builder.slayerHeadgear(GearVariants.slayerHeadgearFor(slotItemId(equippedItemIds, SLOT_HEAD)));
 		builder.demonbaneWeapon(GearVariants.demonbaneWeaponFor(weaponItemId));

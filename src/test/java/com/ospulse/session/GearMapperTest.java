@@ -138,6 +138,62 @@ public class GearMapperTest
 	}
 
 	@Test
+	public void buildEquipmentStats_blowpipeIgnoresWornAmmoAndAddsConfiguredDartRstr()
+	{
+		int[] equippedItemIds = new int[14];
+		java.util.Arrays.fill(equippedItemIds, -1);
+		equippedItemIds[WEAPON_SLOT] = 12926; // Toxic blowpipe
+		equippedItemIds[13] = 9999; // ammo slot: a high-rstr item that must be ignored
+
+		Map<Integer, GearMapper.SlotStats> table = Map.of(
+			12926, new GearMapper.SlotStats(0, 0, 0, 0, 30, 0, 0, 0, 0, 0, 0, 20, 0.0, 0, 3, true),
+			9999, new GearMapper.SlotStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0.0, 0, 0, false));
+
+		GearMapper.SlotStatsLookup lookup = table::get;
+
+		EquipmentStats result = GearMapper.buildEquipmentStats(equippedItemIds, WEAPON_SLOT, lookup, 35);
+
+		// 20 (blowpipe's own rstr) + 35 (configured dart) - NOT +100 from the worn ammo.
+		assertEquals(55, result.rstr());
+	}
+
+	@Test
+	public void buildEquipmentStats_nonBlowpipeWeaponStillSumsAmmoSlotNormally()
+	{
+		int[] equippedItemIds = new int[14];
+		java.util.Arrays.fill(equippedItemIds, -1);
+		equippedItemIds[WEAPON_SLOT] = 861; // some non-blowpipe weapon (magic shortbow), not indexed - resolves to null stats but not a blowpipe
+		equippedItemIds[13] = 9999; // ammo slot: worn ammo must still count
+
+		Map<Integer, GearMapper.SlotStats> table = Map.of(
+			9999, new GearMapper.SlotStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0.0, 0, 0, false));
+
+		GearMapper.SlotStatsLookup lookup = table::get;
+
+		EquipmentStats result = GearMapper.buildEquipmentStats(equippedItemIds, WEAPON_SLOT, lookup, 35);
+
+		assertEquals(100, result.rstr());
+	}
+
+	@Test
+	public void buildEquipmentStats_threeArgOverloadDefaultsToDragonDartRstr()
+	{
+		int[] equippedItemIds = new int[14];
+		java.util.Arrays.fill(equippedItemIds, -1);
+		equippedItemIds[WEAPON_SLOT] = 12926; // Toxic blowpipe
+
+		Map<Integer, GearMapper.SlotStats> table = Map.of(
+			12926, new GearMapper.SlotStats(0, 0, 0, 0, 30, 0, 0, 0, 0, 0, 0, 20, 0.0, 0, 3, true));
+
+		GearMapper.SlotStatsLookup lookup = table::get;
+
+		EquipmentStats result = GearMapper.buildEquipmentStats(equippedItemIds, WEAPON_SLOT, lookup);
+
+		// 20 (blowpipe) + 35 (default Dragon dart, no config supplied).
+		assertEquals(55, result.rstr());
+	}
+
+	@Test
 	public void toPlayerCombat_mapsLevelsPrayersStanceAndToggles()
 	{
 		GearSnapshot gear = GearSnapshot.builder()
