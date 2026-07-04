@@ -37,6 +37,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Loot feed: a "Loot Tracker"-style list grouped by source (boss/NPC/activity),
@@ -71,8 +72,14 @@ public final class LootSection extends CollapsibleSection
 	private final Set<String> collapsedSources = new HashSet<>();
 	/** Sources hidden via "Reset"/"Reset others"/"Reset all" (by category id). */
 	private final Set<String> hiddenSources = new HashSet<>();
-	/** Last-seen SourceLoot per category id, retained so a paused row keeps showing its frozen figures. */
-	private final Map<String, SourceLoot> lastSeenBySource = new HashMap<>();
+	/**
+	 * Last-seen SourceLoot per category id, retained so a paused row keeps
+	 * showing its frozen figures. ConcurrentHashMap because the canvas overlay's
+	 * line supplier reads this on the CLIENT (render) thread while section
+	 * rebuilds mutate it on the EDT — a plain HashMap can corrupt / CME under
+	 * that concurrent get/put.
+	 */
+	private final Map<String, SourceLoot> lastSeenBySource = new ConcurrentHashMap<>();
 	/**
 	 * "Hide item" / "Hide loot" state: persistent hides distinct from {@link
 	 * #hiddenSources}' reset-until-next-pickup semantics. See {@link

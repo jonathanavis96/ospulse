@@ -194,6 +194,12 @@ public class OSPulsePlugin extends Plugin
 		}
 		tracker = null;
 		panel = null;
+		if (priceTrendService != null)
+		{
+			// Cancel in-flight price-trend fetches so a late callback can't run
+			// Swing work against the now-detached panel.
+			priceTrendService.shutdown();
+		}
 		priceTrendService = null;
 		lastBankOpen = false;
 

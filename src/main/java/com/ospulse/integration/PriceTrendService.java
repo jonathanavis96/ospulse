@@ -50,8 +50,10 @@ public final class PriceTrendService
 
 	private final Map<Integer, CacheEntry> cache = new ConcurrentHashMap<>();
 	private final Set<Integer> inFlight = ConcurrentHashMap.newKeySet();
+	private final Set<Call> activeCalls = ConcurrentHashMap.newKeySet();
 
 	private volatile Runnable onUpdate = () -> {};
+	private volatile boolean stopped;
 
 	public PriceTrendService(OkHttpClient httpClient, OSPulseConfig config)
 	{
@@ -135,11 +137,14 @@ public final class PriceTrendService
 			.header("User-Agent", USER_AGENT)
 			.build();
 
-		httpClient.newCall(request).enqueue(new Callback()
+		Call call = httpClient.newCall(request);
+		activeCalls.add(call);
+		call.enqueue(new Callback()
 		{
 			@Override
 			public void onFailure(Call call, IOException e)
 			{
+				activeCalls.remove(call);
 				log.debug("Price trend fetch failed for item {}", itemId, e);
 				completeWith(itemId, OptionalDouble.empty());
 			}
@@ -147,6 +152,7 @@ public final class PriceTrendService
 			@Override
 			public void onResponse(Call call, Response response)
 			{
+				activeCalls.remove(call);
 				OptionalDouble trend = OptionalDouble.empty();
 				try (Response r = response)
 				{
@@ -177,7 +183,30 @@ public final class PriceTrendService
 	{
 		cache.put(itemId, new CacheEntry(trend, System.currentTimeMillis()));
 		inFlight.remove(itemId);
-		onUpdate.run();
+		// Don't fire the UI callback after shutdown(): a late okhttp completion
+		// must not run Swing work (HoldingsSection::render) against a panel that
+		// has already been detached by the plugin's shutDown().
+		if (!stopped)
+		{
+			onUpdate.run();
+		}
+	}
+
+	/**
+	 * Cancels every in-flight fetch and permanently stops firing the update
+	 * callback, so a late HTTP completion after the plugin's {@code shutDown()}
+	 * never touches a detached panel. Idempotent; the plugin calls this from
+	 * {@code shutDown()}.
+	 */
+	public void shutdown()
+	{
+		stopped = true;
+		for (Call call : activeCalls)
+		{
+			call.cancel();
+		}
+		activeCalls.clear();
+		inFlight.clear();
 	}
 
 	/**

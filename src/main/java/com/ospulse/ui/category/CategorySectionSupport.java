@@ -1,6 +1,7 @@
 package com.ospulse.ui.category;
 
 import net.runelite.api.Client;
+import net.runelite.api.Player;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.ui.overlay.OverlayManager;
 
@@ -77,11 +78,17 @@ public final class CategorySectionSupport
 
 	private String currentRsn()
 	{
-		if (client == null || client.getLocalPlayer() == null)
+		if (client == null)
 		{
 			return null;
 		}
-		return client.getLocalPlayer().getName();
+		// Read the local player exactly once: this runs on the Swing EDT (fired
+		// from the "Open Wise Old Man" menu item) while the client thread can
+		// null/replace getLocalPlayer() on logout/world-hop. Re-reading it for
+		// the name after a separate null check is a TOCTOU that intermittently
+		// NPEs; snapshot the reference and derive the name from that.
+		Player local = client.getLocalPlayer();
+		return local == null ? null : local.getName();
 	}
 
 	private void onCanvasChange(CategoryController.CanvasChange change)

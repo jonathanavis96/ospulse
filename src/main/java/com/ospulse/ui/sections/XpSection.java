@@ -36,6 +36,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * XP gained this session, in this plugin's own compact card style rather than
@@ -80,8 +81,14 @@ public final class XpSection extends CollapsibleSection
 	private final SkillIconManager skillIconManager;
 	private final CategorySectionSupport categorySupport;
 
-	/** Last-seen view per skill category id, so a paused card keeps showing its frozen figures. */
-	private final Map<String, XpSkillView> lastSeenBySkill = new HashMap<>();
+	/**
+	 * Last-seen view per skill category id, so a paused card keeps showing its
+	 * frozen figures. ConcurrentHashMap because the canvas overlay's line
+	 * supplier reads this on the CLIENT (render) thread while section rebuilds
+	 * mutate it on the EDT — a plain HashMap can corrupt / CME under that
+	 * concurrent get/put.
+	 */
+	private final Map<String, XpSkillView> lastSeenBySkill = new ConcurrentHashMap<>();
 	/** Skills hidden via "Reset"/"Reset others"/"Reset all". */
 	private final java.util.Set<String> hiddenSkills = new java.util.HashSet<>();
 	/** Reset-epoch last observed per category id, so a "Reset" click is detected exactly once. */
