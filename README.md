@@ -1,6 +1,6 @@
 # OSPulse
 
-**Accurate, banking-aware session tracking for Old School RuneScape** — session profit, a complete loot feed, net worth, XP/levels, Grand Exchange flip P&L, and a live gear/DPS calculator with a gear optimiser. Everything is valued with RuneLite's own Grand Exchange prices, works fully offline of any third‑party service, and is presented in a single side panel.
+**An all‑in‑one dashboard for Old School RuneScape, in a single RuneLite side panel** — one place for everything you'd otherwise spread across separate plugins and browser tabs, headlined by a **live gear max‑hit & DPS calculator** that reads straight from your worn gear. It also tracks banking‑aware session profit, a complete loot feed, total net worth, XP gained and Grand Exchange flip P&L — all valued with RuneLite's own Grand Exchange prices, with no third‑party service required.
 
 - **Plugin name:** OSPulse
 - **License:** BSD‑2‑Clause (see [`LICENSE`](LICENSE))
@@ -8,9 +8,22 @@
 
 ---
 
-## What it does
+## ⭐ Live gear max hit & DPS — the headline feature
 
-OSPulse adds one side panel made up of collapsible, individually hideable sections:
+The centrepiece is a combat calculator that is **auto‑filled from your worn gear, live boosted stats and active prayers** — no manual entry, always reflecting your real current setup. Where a standalone DPS calculator makes you type in your gear, levels and boosts, OSPulse reads them straight from the client and recomputes the moment you swap gear, sip a potion or flick a prayer.
+
+- Live **max hit, accuracy, average hit, DPS and time‑to‑kill**, across the weapon's real in‑game attack styles, ranked by DPS with the best auto‑selected.
+- A searchable target monster (per‑style defence applied), plus on‑task, potion and prayer toggles.
+- Variant/effect handling: Salve (e)(i), Slayer helm/black mask (i), Void, demonbane and dragon hunter weapons, powered staves and standard/ancient spells.
+- **What‑if swaps:** click any slot, search an item, and see the DPS delta before committing.
+- **Gear optimiser:** "Find best setup" searches your owned and affordable items (with a GP budget) for the highest DPS, ranked by DPS‑per‑GP; include/exclude lists; apply the result to the readout.
+- **Monster‑mechanic overrides:** pins items required by mechanics rather than raw DPS (e.g. **Insulated boots vs Rune dragons**, which reduce the lightning special‑attack damage) and shows the reason.
+
+---
+
+## The rest of the dashboard
+
+The same side panel gathers the tracking you'd otherwise run across several plugins — as collapsible, individually hideable sections:
 
 | Section | What it shows |
 | --- | --- |
@@ -20,18 +33,6 @@ OSPulse adds one side panel made up of collapsible, individually hideable sectio
 | **Grand Exchange** | Realised **flip P&L** (average‑cost), reconciled against the loot feed so flips are never double‑counted as loot. Progress bars for in‑flight offers. |
 | **Wealth** | **Net worth** = bank + inventory + equipment + Grand Exchange, with an "Unrealized P/L" line for mark‑to‑market price movement on items you're carrying. |
 | **Top Holdings** | Your most valuable items with per‑holding value drift, paged. |
-| **Gear / DPS** | A live combat calculator and gear optimiser — see below. |
-
-### Gear / DPS calculator and optimiser
-
-Auto‑filled from your **worn gear, live boosted stats, and active prayers** — no manual entry:
-
-- Live readout of **max hit, accuracy, average hit, DPS and time‑to‑kill** across the weapon's real in‑game attack styles, ranked by DPS with the best auto‑selected.
-- A searchable target monster (per‑style defence applied), plus on‑task, potion and prayer toggles.
-- Variant/effect handling: Salve (e)(i), Slayer helm/black mask (i), Void, demonbane and dragon hunter weapons, powered staves and standard/ancient spells.
-- **What‑if swaps:** click any slot, search an item, see the DPS delta before committing.
-- **Gear optimiser:** "Find best setup" searches your owned and affordable items (with a GP budget) for the highest DPS, ranked by DPS‑per‑GP; include/exclude lists; apply the result to the readout.
-- **Monster‑mechanic overrides:** a small curated table pins items required by mechanics rather than raw DPS (e.g. **Insulated boots vs Rune dragons**, which reduce the lightning special‑attack damage) and shows the reason.
 
 ---
 
