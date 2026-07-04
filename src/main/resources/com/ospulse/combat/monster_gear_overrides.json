@@ -1,0 +1,11 @@
+{
+  "overrides": [
+    {
+      "monsters": ["Rune dragon", "Rune dragon (Construction)"],
+      "slot": "BOOTS",
+      "itemId": 7159,
+      "itemName": "Insulated boots",
+      "reason": "Halves the lightning special-attack damage from Rune dragons."
+    }
+  ]
+}

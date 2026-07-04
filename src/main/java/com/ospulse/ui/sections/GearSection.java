@@ -9,6 +9,8 @@ import com.ospulse.combat.DpsResult;
 import com.ospulse.combat.EquipmentIndexRepository;
 import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.Monster;
+import com.ospulse.combat.MonsterGearOverride;
+import com.ospulse.combat.MonsterGearOverrideRepository;
 import com.ospulse.combat.MonsterRepository;
 import com.ospulse.combat.OffensivePrayer;
 import com.ospulse.combat.PlayerCombat;
@@ -260,6 +262,13 @@ public final class GearSection extends CollapsibleSection
 	private final JLabel ttkValue;
 	private final JLabel overkillValue;
 	private final JLabel baseEstimateNote;
+	/**
+	 * Container for the mechanic-override advisory rows (e.g. "vs Rune dragon:
+	 * equip Insulated boots") — one label per {@link MonsterGearOverride} on the
+	 * selected target, rebuilt in {@link #updateGearOverrideNote()} whenever the
+	 * target changes. Hidden entirely (zero height) when the target has none.
+	 */
+	private final JPanel gearOverrideNotePanel;
 
 	private List<Monster> filteredMonsters = Collections.emptyList();
 	private Monster selectedMonster;
@@ -766,6 +775,18 @@ public final class GearSection extends CollapsibleSection
 		targetLabel.setForeground(java.awt.Color.WHITE);
 		targetLabel.setToolTipText("The monster the DPS numbers below are computed against");
 		body().add(targetLabel);
+		body().add(Box.createRigidArea(new Dimension(0, 6)));
+
+		// Monster-mechanic gear override advisory (e.g. Insulated boots vs Rune
+		// dragons) — a curated, DPS-blind requirement the optimiser would never
+		// suggest on its own. Empty/invisible until updateGearOverrideNote()
+		// finds one for the selected target.
+		gearOverrideNotePanel = new JPanel();
+		gearOverrideNotePanel.setLayout(new BoxLayout(gearOverrideNotePanel, BoxLayout.Y_AXIS));
+		gearOverrideNotePanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		gearOverrideNotePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		gearOverrideNotePanel.setVisible(false);
+		body().add(gearOverrideNotePanel);
 		body().add(Box.createRigidArea(new Dimension(0, 6)));
 
 		// ------------------------------------------------------- outputs
@@ -2108,6 +2129,40 @@ public final class GearSection extends CollapsibleSection
 		targetLabel.setForeground(selectedMonster == null
 			? ColorScheme.LIGHT_GRAY_COLOR
 			: java.awt.Color.WHITE);
+		updateGearOverrideNote();
+	}
+
+	/**
+	 * Rebuilds {@link #gearOverrideNotePanel} from {@link MonsterGearOverrideRepository}
+	 * for the currently selected target — one small orange advisory line per
+	 * override (e.g. "vs Rune dragon: equip Insulated boots (Boots) — Halves
+	 * the lightning special-attack damage."), hidden entirely when the target
+	 * has none or no target is selected. Called whenever {@link #selectedMonster}
+	 * changes (every {@link #updateTargetLabel} call site).
+	 */
+	private void updateGearOverrideNote()
+	{
+		gearOverrideNotePanel.removeAll();
+		List<MonsterGearOverride> overrides = selectedMonster == null
+			? Collections.emptyList()
+			: MonsterGearOverrideRepository.getInstance().forMonster(selectedMonster.name());
+		for (MonsterGearOverride override : overrides)
+		{
+			JLabel line = PanelWidgets.emptyRowLabel("⚠ vs " + selectedMonster.name() + ": equip "
+				+ override.itemName() + " (" + slotDisplayName(override.slot()) + ") — " + override.reason());
+			line.setForeground(ColorScheme.BRAND_ORANGE);
+			gearOverrideNotePanel.add(line);
+		}
+		gearOverrideNotePanel.setVisible(!overrides.isEmpty());
+		gearOverrideNotePanel.revalidate();
+		gearOverrideNotePanel.repaint();
+	}
+
+	/** Human-readable slot name for the advisory note, e.g. {@code BOOTS} -&gt; {@code "Boots"}. */
+	private static String slotDisplayName(MonsterGearOverride.Slot slot)
+	{
+		String raw = slot.name().toLowerCase(Locale.ROOT);
+		return Character.toUpperCase(raw.charAt(0)) + raw.substring(1);
 	}
 
 	// ------------------------------------------------- Phase 2: what-if swaps
@@ -3153,6 +3208,32 @@ public final class GearSection extends CollapsibleSection
 		return ids;
 	}
 
+	/**
+	 * Item ids the optimiser search MUST use for {@code target} (via
+	 * {@link GearOptimizer.Request.Builder#include}) — the curated
+	 * {@link MonsterGearOverrideRepository} entries for that monster, so a
+	 * mechanic-critical item (e.g. Insulated boots vs Rune dragons) can never
+	 * be dropped by DPS ranking. A user's explicit slot exclusion still wins
+	 * (an item present in {@code exclusions} is left out of the forced set
+	 * rather than fighting the exclude list).
+	 */
+	private static java.util.Set<Integer> mandatoryOverrideItemIds(Monster target, java.util.Set<Integer> exclusions)
+	{
+		if (target == null)
+		{
+			return Collections.emptySet();
+		}
+		java.util.Set<Integer> ids = new java.util.LinkedHashSet<>();
+		for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(target.name()))
+		{
+			if (!exclusions.contains(override.itemId()))
+			{
+				ids.add(override.itemId());
+			}
+		}
+		return ids;
+	}
+
 	/** Builds the {@link GearOptimizer.Request} shared by both the resolver and no-resolver {@link #runOptimizer} paths. */
 	private GearOptimizer.Request buildOptimizerRequest(long budget, java.util.Map<Integer, Long> ownedPrices,
 		GearOptimizer.PriceSource priceSource)
@@ -3181,6 +3262,7 @@ public final class GearSection extends CollapsibleSection
 			.budget(budget)
 			.owned(ownedPrices.keySet())
 			.exclude(exclusions)
+			.include(mandatoryOverrideItemIds(target, exclusions))
 			.priceSource(priceSource)
 			.expensiveItemCount(resolvedExpensiveCount())
 			.expensiveItemThreshold(resolvedExpensiveThreshold())
