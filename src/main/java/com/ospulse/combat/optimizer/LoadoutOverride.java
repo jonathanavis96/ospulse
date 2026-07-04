@@ -18,6 +18,16 @@ import java.util.Map;
  * Swing/RuneLite dependency.
  */
 public final class LoadoutOverride {
+    /**
+     * Sentinel override value meaning "this slot is explicitly EMPTIED
+     * (unequipped)" — distinct from having no override at all. Needed because
+     * the override map can only <em>replace</em> a slot, so 2H/shield
+     * exclusivity could not otherwise unequip a LIVE weapon/shield that has no
+     * override entry (see {@link #withWeaponSlot}/{@link #withShieldSlot}). Real
+     * item ids are always {@code > 0}, so {@code 0} is unambiguous.
+     */
+    public static final int EMPTIED = 0;
+
     private static final LoadoutOverride EMPTY = new LoadoutOverride(Collections.emptyMap());
 
     private final Map<Integer, Integer> bySlot;
@@ -36,7 +46,12 @@ public final class LoadoutOverride {
         return bySlot.isEmpty();
     }
 
-    /** The overridden item id for a slot, or {@code -1} if that slot is not overridden. */
+    /**
+     * The overridden item id for a slot, or {@code -1} if that slot is not
+     * overridden. A return of {@code 0} ({@link #EMPTIED}) means the slot is
+     * overridden to <em>empty</em> (explicitly unequipped) — callers already
+     * treat {@code id <= 0} as an empty slot.
+     */
     public int itemIdFor(int slotOrdinal) {
         Integer id = bySlot.get(slotOrdinal);
         return id == null ? -1 : id;
@@ -60,6 +75,19 @@ public final class LoadoutOverride {
         return new LoadoutOverride(next);
     }
 
+    /**
+     * Returns a new override with {@code slotOrdinal} explicitly EMPTIED
+     * (unequipped). Unlike {@link #withoutSlot} — which clears the override so
+     * the LIVE item shows again — this forces the slot empty in the effective
+     * loadout, which is what 2H/shield exclusivity needs to unequip a live
+     * weapon/shield the override map could not otherwise reach.
+     */
+    public LoadoutOverride withEmptiedSlot(int slotOrdinal) {
+        Map<Integer, Integer> next = new LinkedHashMap<>(bySlot);
+        next.put(slotOrdinal, EMPTIED);
+        return new LoadoutOverride(next);
+    }
+
     /** Returns a new override with {@code slotOrdinal}'s override cleared ("reset slot" — live gear shows again). */
     public LoadoutOverride withoutSlot(int slotOrdinal) {
         if (!bySlot.containsKey(slotOrdinal)) {
@@ -77,10 +105,15 @@ public final class LoadoutOverride {
      * matching in-game behaviour. {@code weaponIsTwoHanded} is resolved by the
      * caller (see {@link WhatIfLoadout#isTwoHanded}) since this class has no
      * item-data dependency.
+     *
+     * <p>A 2H weapon EMPTIES the shield slot ({@link #withEmptiedSlot}) rather
+     * than merely clearing its override — otherwise a LIVE shield (with no
+     * override entry) would survive into the effective loadout alongside the 2H
+     * weapon, an impossible in-game combination whose summed bonuses inflate DPS.
      */
     public LoadoutOverride withWeaponSlot(int weaponSlotOrdinal, int shieldSlotOrdinal, int itemId, boolean itemIsTwoHanded) {
         LoadoutOverride next = withSlot(weaponSlotOrdinal, itemId);
-        return itemIsTwoHanded ? next.withoutSlot(shieldSlotOrdinal) : next;
+        return itemIsTwoHanded ? next.withEmptiedSlot(shieldSlotOrdinal) : next;
     }
 
     /**
@@ -90,10 +123,16 @@ public final class LoadoutOverride {
      * with a shield. {@code currentWeaponIsTwoHanded} is resolved by the
      * caller from the CURRENT effective weapon (live gear, unless already
      * overridden).
+     *
+     * <p>Equipping a shield over a two-handed weapon EMPTIES the weapon slot
+     * ({@link #withEmptiedSlot}) rather than clearing its override — otherwise a
+     * LIVE 2H weapon (no override entry) would survive alongside the shield, the
+     * exact bug where the optimiser recommended e.g. a buckler on top of a live
+     * blowpipe and summed both sets of bonuses.
      */
     public LoadoutOverride withShieldSlot(int weaponSlotOrdinal, int shieldSlotOrdinal, int itemId, boolean currentWeaponIsTwoHanded) {
         LoadoutOverride next = withSlot(shieldSlotOrdinal, itemId);
-        return currentWeaponIsTwoHanded ? next.withoutSlot(weaponSlotOrdinal) : next;
+        return currentWeaponIsTwoHanded ? next.withEmptiedSlot(weaponSlotOrdinal) : next;
     }
 
     /** All overridden slot ordinals (unspecified order — this is a value type, not a UI model). */

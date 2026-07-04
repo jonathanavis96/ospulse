@@ -80,13 +80,27 @@ public class WhatIfLoadoutTest {
     // -------------------------------------------------- equipWeapon / equipShield exclusivity
 
     @Test
-    public void equipWeapon_twoHanded_clearsExistingShieldOverride() {
+    public void equipWeapon_twoHanded_emptiesExistingShieldOverride() {
         LoadoutOverride override = LoadoutOverride.empty().withSlot(WhatIfLoadout.SHIELD_SLOT, RUNE_KITESHIELD);
         LoadoutOverride afterEquip = WhatIfLoadout.equipWeapon(override, TWISTED_BOW);
 
         assertEquals(TWISTED_BOW, afterEquip.itemIdFor(WhatIfLoadout.WEAPON_SLOT));
-        assertFalse("equipping a 2H weapon must clear the shield override",
-                afterEquip.hasOverride(WhatIfLoadout.SHIELD_SLOT));
+        // 2H empties the shield slot rather than clearing its override — so a LIVE
+        // shield is dropped too (see equipWeapon_twoHanded_dropsLiveShield).
+        assertTrue(afterEquip.hasOverride(WhatIfLoadout.SHIELD_SLOT));
+        assertEquals(LoadoutOverride.EMPTIED, afterEquip.itemIdFor(WhatIfLoadout.SHIELD_SLOT));
+    }
+
+    @Test
+    public void equipWeapon_twoHanded_dropsLiveShield() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.SHIELD_SLOT] = RUNE_KITESHIELD; // live shield, no override
+
+        LoadoutOverride afterEquip = WhatIfLoadout.equipWeapon(LoadoutOverride.empty(), TWISTED_BOW);
+        int[] effective = WhatIfLoadout.effectiveItemIds(live, afterEquip);
+
+        assertEquals(TWISTED_BOW, effective[WhatIfLoadout.WEAPON_SLOT]);
+        assertEquals("a live shield must be unequipped by a 2H weapon", 0, effective[WhatIfLoadout.SHIELD_SLOT]);
     }
 
     @Test
@@ -100,22 +114,25 @@ public class WhatIfLoadoutTest {
     }
 
     @Test
-    public void equipShield_whenLiveWeaponTwoHanded_clearsWeaponBackToLive() {
+    public void equipShield_whenLiveWeaponTwoHanded_emptiesTheLiveWeapon() {
         int[] live = emptyLoadout();
         live[WhatIfLoadout.WEAPON_SLOT] = TWISTED_BOW;
 
-        LoadoutOverride override = LoadoutOverride.empty(); // no weapon override yet — live gear IS the 2H bow
+        LoadoutOverride override = LoadoutOverride.empty(); // no weapon override — live gear IS the 2H bow
         LoadoutOverride afterShield = WhatIfLoadout.equipShield(override, live, RUNE_KITESHIELD);
 
         assertEquals(RUNE_KITESHIELD, afterShield.itemIdFor(WhatIfLoadout.SHIELD_SLOT));
-        // No weapon OVERRIDE should be introduced (the "clear" is just not overriding it away from live);
-        // critically it must not force live's 2H weapon to remain overridden as itself either way —
-        // here the real assertion is that the resulting effective loadout has no weapon+shield clash.
-        assertFalse(afterShield.hasOverride(WhatIfLoadout.WEAPON_SLOT));
+        // Clearing an (absent) override could never unequip the live 2H bow — the slot
+        // is EMPTIED so the effective loadout has no weapon+shield clash (the #3a bug).
+        assertTrue(afterShield.hasOverride(WhatIfLoadout.WEAPON_SLOT));
+        assertEquals(LoadoutOverride.EMPTIED, afterShield.itemIdFor(WhatIfLoadout.WEAPON_SLOT));
+        int[] effective = WhatIfLoadout.effectiveItemIds(live, afterShield);
+        assertEquals("live 2H weapon must be unequipped by the shield", 0, effective[WhatIfLoadout.WEAPON_SLOT]);
+        assertEquals(RUNE_KITESHIELD, effective[WhatIfLoadout.SHIELD_SLOT]);
     }
 
     @Test
-    public void equipShield_whenOverriddenWeaponTwoHanded_clearsWeaponOverride() {
+    public void equipShield_whenOverriddenWeaponTwoHanded_emptiesWeapon() {
         int[] live = emptyLoadout();
         live[WhatIfLoadout.WEAPON_SLOT] = ABYSSAL_WHIP; // live weapon is 1H
 
@@ -123,8 +140,11 @@ public class WhatIfLoadoutTest {
         LoadoutOverride afterShield = WhatIfLoadout.equipShield(override, live, RUNE_KITESHIELD);
 
         assertEquals(RUNE_KITESHIELD, afterShield.itemIdFor(WhatIfLoadout.SHIELD_SLOT));
-        assertFalse("shield must clear the 2H weapon OVERRIDE, reverting to live 1H gear",
-                afterShield.hasOverride(WhatIfLoadout.WEAPON_SLOT));
+        // The effective (overridden) weapon is 2H, so equipping the shield empties the
+        // weapon slot. (A friendlier "revert to the live 1H" is a deliberate non-goal —
+        // both are clash-free; emptying keeps the exclusivity rule uniform.)
+        assertTrue(afterShield.hasOverride(WhatIfLoadout.WEAPON_SLOT));
+        assertEquals(LoadoutOverride.EMPTIED, afterShield.itemIdFor(WhatIfLoadout.WEAPON_SLOT));
     }
 
     @Test
@@ -192,13 +212,16 @@ public class WhatIfLoadoutTest {
         LoadoutOverride override = WhatIfLoadout.equipWeapon(LoadoutOverride.empty(), TWISTED_BOW);
         EquipmentStats whatIfStats = WhatIfLoadout.buildEquipmentStats(live, override);
 
-        // With the shield override cleared, effective loadout = twisted bow only
-        // (live's kiteshield is no longer in the shield slot's override, and the
-        // shield slot falls back to LIVE gear, i.e. the kiteshield still applies
-        // unless the caller explicitly overrides slot 5 to empty). This test
-        // documents that equipWeapon() clearing the OVERRIDE reverts to LIVE gear
-        // in that slot, not to "no shield" — the live kiteshield is still worn.
-        assertEquals("clearing a shield OVERRIDE reverts to the live shield, not empty",
-                liveDstab, whatIfStats.dstab());
+        // Equipping the 2H bow EMPTIES the shield slot, so the effective loadout is
+        // the twisted bow ONLY — the live kiteshield is unequipped and its defence
+        // contribution dropped. (Previously equipWeapon merely cleared the shield
+        // OVERRIDE, leaving the live kiteshield worn alongside a 2H weapon — an
+        // impossible loadout whose summed bonuses inflated the readout/optimiser DPS.)
+        int[] bowOnly = emptyLoadout();
+        bowOnly[WhatIfLoadout.WEAPON_SLOT] = TWISTED_BOW;
+        EquipmentStats bowOnlyStats = WhatIfLoadout.buildEquipmentStats(bowOnly, LoadoutOverride.empty());
+        assertEquals("2H weapon must drop the live shield's contribution",
+                bowOnlyStats.dstab(), whatIfStats.dstab());
+        assertTrue("live kiteshield defence must be gone", whatIfStats.dstab() < liveDstab);
     }
 }

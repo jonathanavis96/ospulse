@@ -95,11 +95,14 @@ public class LoadoutOverrideTest {
     }
 
     @Test
-    public void withWeaponSlot_twoHandedClearsShield() {
+    public void withWeaponSlot_twoHandedEmptiesShield() {
         LoadoutOverride base = LoadoutOverride.empty().withSlot(5, 1201); // shield override present
         LoadoutOverride afterTwoHandedWeapon = base.withWeaponSlot(3, 5, 20997, true);
         assertEquals(20997, afterTwoHandedWeapon.itemIdFor(3));
-        assertFalse("2H weapon must clear the shield override", afterTwoHandedWeapon.hasOverride(5));
+        // A 2H weapon EMPTIES the shield slot (unequips a live shield too), not merely
+        // clears the override — so the slot stays overridden, to EMPTIED.
+        assertTrue("2H weapon must empty the shield slot", afterTwoHandedWeapon.hasOverride(5));
+        assertEquals(LoadoutOverride.EMPTIED, afterTwoHandedWeapon.itemIdFor(5));
     }
 
     @Test
@@ -112,11 +115,14 @@ public class LoadoutOverrideTest {
     }
 
     @Test
-    public void withShieldSlot_whenCurrentWeaponTwoHanded_clearsWeapon() {
+    public void withShieldSlot_whenCurrentWeaponTwoHanded_emptiesWeapon() {
         LoadoutOverride base = LoadoutOverride.empty().withSlot(3, 20997); // 2H weapon override present
         LoadoutOverride afterShield = base.withShieldSlot(3, 5, 1201, true);
         assertEquals(1201, afterShield.itemIdFor(5));
-        assertFalse("equipping a shield must clear a 2H weapon override", afterShield.hasOverride(3));
+        // Equipping a shield over a 2H weapon EMPTIES the weapon slot (unequips a live
+        // 2H weapon too), so the slot stays overridden, to EMPTIED.
+        assertTrue("equipping a shield must empty a 2H weapon", afterShield.hasOverride(3));
+        assertEquals(LoadoutOverride.EMPTIED, afterShield.itemIdFor(3));
     }
 
     @Test

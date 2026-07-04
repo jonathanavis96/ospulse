@@ -334,12 +334,15 @@ public class GearSectionWhatIfTest
 			section.pickItemForTest(twistedBowIdx);
 
 			assertEquals(TWISTED_BOW, section.overrideForTest().itemIdFor(3));
-			assertFalse("2H weapon override must clear the shield override", section.overrideForTest().hasOverride(5));
+			// A 2H weapon EMPTIES the shield slot (so a live shield would drop too),
+			// not merely clears its override — the slot is overridden to EMPTIED.
+			assertTrue("2H weapon must empty the shield slot", section.overrideForTest().hasOverride(5));
+			assertEquals(LoadoutOverride.EMPTIED, section.overrideForTest().itemIdFor(5));
 		});
 	}
 
 	@Test
-	public void overridingShield_whenLiveWeaponIsTwoHanded_clearsWeaponBackToLive()
+	public void overridingShield_whenLiveWeaponIsTwoHanded_emptiesTheLiveWeapon()
 	{
 		onEdt(() ->
 		{
@@ -363,11 +366,12 @@ public class GearSectionWhatIfTest
 			section.pickItemForTest(kiteshieldIdx);
 
 			assertEquals(RUNE_KITESHIELD, section.overrideForTest().itemIdFor(5));
-			// No weapon OVERRIDE should exist (equipShield's contract is "no override",
-			// which for a live 2H weapon means the effective loadout would still compute
-			// with both — the real 2H/shield conflict resolution used by the live game
-			// engine is out of scope here; this asserts the override-map contract only).
-			assertFalse(section.overrideForTest().hasOverride(3));
+			// Equipping a shield over a LIVE 2H weapon must EMPTY the weapon slot —
+			// clearing an (absent) override cannot unequip the live blowpipe/bow, the
+			// bug where the optimiser paired a shield with a live 2H weapon and summed
+			// both. The effective loadout therefore carries no weapon.
+			assertTrue(section.overrideForTest().hasOverride(3));
+			assertEquals(LoadoutOverride.EMPTIED, section.overrideForTest().itemIdFor(3));
 		});
 	}
 }
