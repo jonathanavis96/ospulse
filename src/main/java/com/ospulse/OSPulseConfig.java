@@ -1,5 +1,6 @@
 package com.ospulse;
 
+import com.ospulse.combat.BlowpipeDart;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
@@ -34,6 +35,14 @@ public interface OSPulseConfig extends Config
 		closedByDefault = true
 	)
 	String panelSectionsSection = "panelSections";
+
+	@ConfigSection(
+		name = "Gear & optimiser",
+		description = "Options affecting the DPS calculator's gear readout and the gear optimiser.",
+		position = 3,
+		closedByDefault = true
+	)
+	String gearSection = "gear";
 
 	// ---------------------------------------------------------------- Session
 
@@ -188,5 +197,20 @@ public interface OSPulseConfig extends Config
 	default boolean showHoldingsSection()
 	{
 		return true;
+	}
+
+	// ------------------------------------------------------------------ Gear
+
+	@ConfigItem(
+		keyName = "blowpipeDart",
+		name = "Blowpipe dart",
+		description = "Which dart the calculator assumes is loaded in a blowpipe (its ranged "
+			+ "strength is added; a blowpipe ignores worn ammo).",
+		position = 0,
+		section = gearSection
+	)
+	default BlowpipeDart blowpipeDart()
+	{
+		return BlowpipeDart.DRAGON;
 	}
 }

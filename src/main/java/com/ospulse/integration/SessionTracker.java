@@ -455,7 +455,7 @@ public class SessionTracker implements SessionService
 
 		GearMapper.SlotStatsLookup lookup = this::lookupSlotStats;
 		EquipmentStats equipmentStats = GearMapper.buildEquipmentStats(
-			equippedItemIds, EquipmentInventorySlot.WEAPON.ordinal(), lookup);
+			equippedItemIds, EquipmentInventorySlot.WEAPON.ordinal(), lookup, config.blowpipeDart().rangedStrength());
 
 		// The player's set autocast spell, as the game's internal autocast id
 		// (VarbitID.AUTOCAST_SPELL, 276). We don't yet have the value->Spell
