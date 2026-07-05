@@ -3,15 +3,21 @@ package com.ospulse.ui.category;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.ui.overlay.OverlayPanel;
 import net.runelite.client.ui.overlay.OverlayPosition;
+import net.runelite.client.ui.overlay.components.ComponentConstants;
+import net.runelite.client.ui.overlay.components.LayoutableRenderableEntity;
 import net.runelite.client.ui.overlay.components.LineComponent;
-import net.runelite.client.ui.overlay.components.ProgressBarComponent;
+import net.runelite.client.ui.overlay.components.TextComponent;
 import net.runelite.client.ui.overlay.components.TitleComponent;
 
+import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Supplier;
 
 /**
@@ -138,16 +144,96 @@ public class CategoryOverlay extends OverlayPanel
 			if (progress != null)
 			{
 				double clamped = Math.max(0.0, Math.min(1.0, progress));
-				ProgressBarComponent progressBar = new ProgressBarComponent();
-				progressBar.setMinimum(0);
-				progressBar.setMaximum(100);
-				progressBar.setValue(clamped * 100.0);
-				progressBar.setLabelDisplayMode(ProgressBarComponent.LabelDisplayMode.PERCENTAGE);
+				ThinProgressBar progressBar = new ThinProgressBar();
+				progressBar.value = clamped;
+				progressBar.label = String.format(Locale.ROOT, "%.1f%%", clamped * 100.0);
 				panelComponent.getChildren().add(progressBar);
 			}
 		}
 
 		return super.render(graphics);
+	}
+
+	/**
+	 * A slim RuneLite-style progress bar for the overlay: a dark trough with a
+	 * coloured fill, with the percentage rendered as centred text BELOW the bar
+	 * rather than inside it. RuneLite's stock {@link
+	 * net.runelite.client.ui.overlay.components.ProgressBarComponent} can't do
+	 * either — it clamps its height to a minimum of 16px and always draws its
+	 * labels inside the bar — so this reimplements the same {@link
+	 * LayoutableRenderableEntity} contract (colours matched to XpInfoBoxOverlay's
+	 * bar: {@code (61,56,49)} trough, {@code (82,161,82)} fill) with the two
+	 * requested tweaks: thinner, and text below.
+	 */
+	private static final class ThinProgressBar implements LayoutableRenderableEntity
+	{
+		private static final int BAR_HEIGHT = 5;
+		/** Vertical gap between the bar and the percentage text below it. */
+		private static final int TEXT_GAP = 2;
+
+		/** Fill fraction, 0..1. */
+		private double value;
+		/** Percentage text drawn centred below the bar; empty draws no text. */
+		private String label = "";
+		private Color foregroundColor = new Color(82, 161, 82);
+		private Color backgroundColor = new Color(61, 56, 49);
+		private Color fontColor = Color.WHITE;
+		private Point preferredLocation = new Point();
+		private Dimension preferredSize = new Dimension(ComponentConstants.STANDARD_WIDTH, 0);
+		private final Rectangle bounds = new Rectangle();
+
+		@Override
+		public Dimension render(Graphics2D graphics)
+		{
+			final FontMetrics metrics = graphics.getFontMetrics();
+			final int x = preferredLocation.x;
+			final int y = preferredLocation.y;
+			final int width = preferredSize.width;
+			final double pc = Math.max(0.0, Math.min(1.0, value));
+			final int fill = (int) (width * pc);
+
+			// Thin bar: trough first, coloured fill from the left over it.
+			graphics.setColor(backgroundColor);
+			graphics.fillRect(x, y, width, BAR_HEIGHT);
+			graphics.setColor(foregroundColor);
+			graphics.fillRect(x, y, fill, BAR_HEIGHT);
+
+			int totalHeight = BAR_HEIGHT;
+			if (label != null && !label.isEmpty())
+			{
+				final int textX = x + (width - metrics.stringWidth(label)) / 2;
+				final int textY = y + BAR_HEIGHT + TEXT_GAP + metrics.getAscent();
+				final TextComponent text = new TextComponent();
+				text.setPosition(textX, textY);
+				text.setColor(fontColor);
+				text.setText(label);
+				text.render(graphics);
+				totalHeight = BAR_HEIGHT + TEXT_GAP + metrics.getHeight();
+			}
+
+			final Dimension dimension = new Dimension(width, totalHeight);
+			bounds.setLocation(preferredLocation);
+			bounds.setSize(dimension);
+			return dimension;
+		}
+
+		@Override
+		public Rectangle getBounds()
+		{
+			return bounds;
+		}
+
+		@Override
+		public void setPreferredLocation(Point location)
+		{
+			this.preferredLocation = location;
+		}
+
+		@Override
+		public void setPreferredSize(Dimension dimension)
+		{
+			this.preferredSize = dimension;
+		}
 	}
 
 	@Override
