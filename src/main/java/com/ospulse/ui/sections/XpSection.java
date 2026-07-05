@@ -31,6 +31,7 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.GridLayout;
 import java.awt.Image;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -151,6 +152,13 @@ public final class XpSection extends CollapsibleSection
 			detectReset(catId);
 			categorySupport.setLinesSupplier(catId, () -> canvasLines(catId));
 			categorySupport.setProgressSupplier(catId, () -> canvasProgress(catId));
+			// RuneLite-XpInfoBox-style canvas overlay: icon + colour are constant
+			// per skill (captured here), figures are read live in buildXpModel.
+			Skill overlaySkill = parseSkill(view.getSkillName());
+			BufferedImage overlayIcon = overlayIcon(overlaySkill);
+			Color overlayColor = overlaySkill != null
+				? SkillColor.find(overlaySkill).getColor() : ColorScheme.BRAND_ORANGE;
+			categorySupport.setXpModelSupplier(catId, () -> buildXpModel(catId, overlayIcon, overlayColor));
 
 			if (categorySupport.controller().isPaused(catId))
 			{
@@ -231,6 +239,50 @@ public final class XpSection extends CollapsibleSection
 	{
 		XpSkillView view = lastSeenBySkill.get(catId);
 		return view == null ? null : view.getProgressToNextLevel();
+	}
+
+	/**
+	 * The RuneLite-XpInfoBox-style model for {@code catId}'s canvas overlay:
+	 * skill icon + colour (passed in, constant per skill) plus XP-gained / XP-hr
+	 * lines and the current-level / % / next-level bar labels, read live from
+	 * the same last-seen {@link XpSkillView} the panel card uses. Returns {@code
+	 * null} before the skill has been seen, so the overlay falls back to the
+	 * generic look for that one frame.
+	 */
+	private CategoryOverlay.XpModel buildXpModel(String catId, BufferedImage icon, Color color)
+	{
+		XpSkillView view = lastSeenBySkill.get(catId);
+		if (view == null)
+		{
+			return null;
+		}
+		boolean maxed = view.getCurrentLevel() >= VirtualLevelTable.MAX_LEVEL;
+		String percent = Math.round(view.getProgressToNextLevel() * 100.0) + "%";
+		return new CategoryOverlay.XpModel(
+			icon, color,
+			"XP gained", GpFormat.format(view.getGained()),
+			"XP/hr", GpFormat.format(view.getXpPerHour()),
+			String.valueOf(view.getCurrentLevel()),
+			maxed ? "" : percent,
+			maxed ? "Max" : String.valueOf(view.getCurrentLevel() + 1),
+			view.getProgressToNextLevel());
+	}
+
+	/** The raw (small) skill sprite for the canvas overlay icon, or {@code null} — the overlay then draws no icon. */
+	private BufferedImage overlayIcon(Skill skill)
+	{
+		if (skillIconManager == null || skill == null)
+		{
+			return null;
+		}
+		try
+		{
+			return skillIconManager.getSkillImage(skill, true);
+		}
+		catch (RuntimeException e)
+		{
+			return null;
+		}
 	}
 
 	/**

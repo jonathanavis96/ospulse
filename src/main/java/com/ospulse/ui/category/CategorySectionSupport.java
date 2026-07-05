@@ -6,7 +6,6 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.ui.overlay.OverlayManager;
 
 import javax.swing.JPopupMenu;
-import java.awt.Point;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,25 +25,6 @@ import java.util.function.Supplier;
  */
 public final class CategorySectionSupport
 {
-	/**
-	 * Default on-canvas cascade: RuneLite anchors a DETACHED overlay with no
-	 * preferred location at a fixed default spot, so with no staggering every
-	 * "Add to canvas" overlay lands exactly on top of the last one. Each
-	 * newly added overlay (across every section sharing an {@link
-	 * OverlayManager}) instead gets offset down-and-right from the last by
-	 * roughly one XP-Tracker-style box's height, cascading like RuneLite's
-	 * own multi-skill XP Tracker boxes do; it wraps back to the origin after
-	 * a handful of steps so a long cascade doesn't run off-screen. The user
-	 * dragging an overlay overrides this (RuneLite persists their location).
-	 */
-	private static final int CASCADE_STEP_X = 20;
-	private static final int CASCADE_STEP_Y = 32;
-	private static final int CASCADE_MAX_STEPS = 8;
-	private static final Point CASCADE_ORIGIN = new Point(20, 20);
-
-	/** Shared across every {@code CategorySectionSupport} instance so cascading spans all sections, not just one. */
-	private static int cascadeIndex = 0;
-
 	private final Plugin plugin;
 	private final Client client;
 	private final OverlayManager overlayManager;
@@ -112,18 +92,10 @@ public final class CategorySectionSupport
 		removeOverlay(categoryId);
 		CategoryOverlay overlay = new CategoryOverlay(plugin, categoryId, categoryId,
 			lineSuppliers.getOrDefault(categoryId, List::of),
-			progressSuppliers.get(categoryId));
-		overlay.setDefaultLocation(nextCascadeLocation());
+			progressSuppliers.get(categoryId),
+			xpModelSuppliers.get(categoryId));
 		activeOverlays.put(categoryId, overlay);
 		overlayManager.add(overlay);
-	}
-
-	/** Next cascade point, stepping down-and-right and wrapping back to the origin after a few steps. */
-	private static Point nextCascadeLocation()
-	{
-		int step = cascadeIndex % CASCADE_MAX_STEPS;
-		cascadeIndex++;
-		return new Point(CASCADE_ORIGIN.x + step * CASCADE_STEP_X, CASCADE_ORIGIN.y + step * CASCADE_STEP_Y);
 	}
 
 	private void removeOverlay(String categoryId)
@@ -158,6 +130,20 @@ public final class CategorySectionSupport
 	public void setProgressSupplier(String categoryId, Supplier<Double> supplier)
 	{
 		progressSuppliers.put(categoryId, supplier);
+	}
+
+	/**
+	 * Optional RuneLite-XpInfoBox-style model source for {@code categoryId}'s
+	 * canvas overlay (skill icon + stats + skill-coloured bar). Registered by
+	 * the XP section only; categories without one (loot/session) render the
+	 * generic title/lines/bar look. When set, it takes precedence over the
+	 * lines/progress suppliers for that overlay.
+	 */
+	private final Map<String, Supplier<CategoryOverlay.XpModel>> xpModelSuppliers = new LinkedHashMap<>();
+
+	public void setXpModelSupplier(String categoryId, Supplier<CategoryOverlay.XpModel> supplier)
+	{
+		xpModelSuppliers.put(categoryId, supplier);
 	}
 
 	/** Removes every active canvas overlay this support instance has registered. Idempotent. */
