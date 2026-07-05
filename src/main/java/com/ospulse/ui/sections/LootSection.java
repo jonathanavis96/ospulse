@@ -18,11 +18,14 @@ import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.overlay.OverlayManager;
 
 import javax.swing.JLabel;
+import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingConstants;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.MenuEvent;
+import javax.swing.event.MenuListener;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -396,8 +399,31 @@ public final class LootSection extends CollapsibleSection
 		reset.addActionListener(e -> categorySupport.controller().reset(catId, System.currentTimeMillis()));
 		menu.add(reset);
 
-		JMenuItem viewHidden = new JMenuItem("View hidden items");
-		viewHidden.addActionListener(e -> showHiddenItemsMenu(viewHidden));
+		// A nested submenu rather than a JMenuItem-that-opens-a-second-popup:
+		// clicking a JMenuItem dismisses its parent popup *before* its action
+		// fires, so anchoring a fresh popup to the (now un-showing) item threw
+		// from getLocationOnScreen and nothing appeared. A JMenu cascades
+		// natively and is repopulated lazily on open so it always reflects the
+		// current hidden set.
+		JMenu viewHidden = new JMenu("View hidden items");
+		viewHidden.addMenuListener(new MenuListener()
+		{
+			@Override
+			public void menuSelected(MenuEvent e)
+			{
+				populateHiddenItemsSubmenu(viewHidden);
+			}
+
+			@Override
+			public void menuDeselected(MenuEvent e)
+			{
+			}
+
+			@Override
+			public void menuCanceled(MenuEvent e)
+			{
+			}
+		});
 		menu.add(viewHidden);
 
 		JMenuItem canvas = new JMenuItem(
@@ -430,16 +456,17 @@ public final class LootSection extends CollapsibleSection
 	}
 
 	/**
-	 * Shows a small popup listing every currently-hidden item and
-	 * manually-hidden source, each with an "Unhide" action. Item names are
-	 * taken from {@link LootHiddenState}'s retained last-seen names rather
-	 * than re-resolved via {@code ItemManager#getItemComposition} (which
-	 * asserts the client thread - see the warning in {@link #iconCell}).
+	 * (Re)fills the "View hidden items" submenu with one "Unhide" action per
+	 * currently-hidden item and manually-hidden source (or a disabled "Nothing
+	 * hidden." placeholder). Called lazily each time the submenu opens so it
+	 * always reflects the live hidden set. Item names are taken from {@link
+	 * LootHiddenState}'s retained last-seen names rather than re-resolved via
+	 * {@code ItemManager#getItemComposition} (which asserts the client thread -
+	 * see the warning in {@link #iconCell}).
 	 */
-	private void showHiddenItemsMenu(Component invoker)
+	private void populateHiddenItemsSubmenu(JMenu menu)
 	{
-		JPopupMenu menu = new JPopupMenu();
-		menu.setBorder(new EmptyBorder(5, 5, 5, 5));
+		menu.removeAll();
 
 		if (hiddenState.isEmpty())
 		{
@@ -476,8 +503,6 @@ public final class LootSection extends CollapsibleSection
 				menu.add(unhide);
 			}
 		}
-
-		menu.show(invoker, 0, invoker.getHeight());
 	}
 
 	/**
