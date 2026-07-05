@@ -53,6 +53,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JToggleButton;
 import javax.swing.ListSelectionModel;
+import javax.swing.OverlayLayout;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.border.Border;
@@ -364,10 +365,12 @@ public final class GearSection extends CollapsibleSection
 	private final JPanel optimizerSwapList;
 	private final JButton applyOptimizerResultButton;
 	private final JButton clearOptimizerPreviewButton;
-	/** The excluded-items viewer container (heading + list); hidden when nothing is excluded — see {@link #renderExcludedItemsList}. */
+	/** The excluded-items viewer container (heading + search + scrollable icon grid); hidden when nothing is excluded — see {@link #renderExcludedItemsList}. */
 	private final JPanel excludedItemsPanel;
-	/** One row per excluded item (icon + name + remove ✕) inside {@link #excludedItemsPanel}. */
+	/** Icon-only grid ({@link #ITEM_GRID_COLUMNS} per row) of excluded items, each cell carrying a top-right ✕ — see {@link #buildExcludedCell}. */
 	private final JPanel excludedItemsList;
+	/** Filters {@link #excludedItemsList} by item name (case-insensitive substring). */
+	private final IconTextField excludedSearchField;
 	private GearOptimizer.Result lastOptimizerResult;
 	/**
 	 * Item ids the user right-clicked "Exclude from suggestions" on (item #6a)
@@ -998,12 +1001,13 @@ public final class GearSection extends CollapsibleSection
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
 
 		// Excluded-from-suggestions viewer: the items the user has right-clicked
-		// to exclude, shown as a compact icon+name list so they can see AND
-		// manage their exclusions at any time — not just at the moment of
-		// excluding. Persisted across reloads (loadExcludedItemsPref above
+		// to exclude, shown as an icon-only grid (4 per row, ~2 rows before it
+		// scrolls) with a search box, mirroring the item-picker grid above so
+		// the two read as one design. Each icon carries a top-right ✕ to stop
+		// excluding it. Persisted across reloads (loadExcludedItemsPref above
 		// already populated the set), so this renders whatever was excluded in a
-		// previous session. Each row's ✕ button stops excluding that item. The
-		// whole panel hides itself when nothing is excluded (renderExcludedItemsList).
+		// previous session. The whole panel hides itself when nothing is
+		// excluded (renderExcludedItemsList).
 		excludedItemsPanel = new JPanel();
 		excludedItemsPanel.setLayout(new BoxLayout(excludedItemsPanel, BoxLayout.Y_AXIS));
 		excludedItemsPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -1012,11 +1016,51 @@ public final class GearSection extends CollapsibleSection
 		excludedHeading.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		excludedHeading.setToolTipText("Items you've excluded from optimiser suggestions — click a ✕ to stop excluding one");
 		excludedItemsPanel.add(excludedHeading);
-		excludedItemsList = new JPanel();
-		excludedItemsList.setLayout(new BoxLayout(excludedItemsList, BoxLayout.Y_AXIS));
+
+		excludedSearchField = new IconTextField();
+		excludedSearchField.setIcon(IconTextField.Icon.SEARCH);
+		excludedSearchField.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		excludedSearchField.setHoverBackgroundColor(ColorScheme.DARK_GRAY_HOVER_COLOR);
+		excludedSearchField.setPreferredSize(new Dimension(100, 24));
+		excludedSearchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		excludedSearchField.setAlignmentX(Component.LEFT_ALIGNMENT);
+		excludedSearchField.getDocument().addDocumentListener(new DocumentListener()
+		{
+			@Override
+			public void insertUpdate(DocumentEvent e)
+			{
+				renderExcludedItemsList();
+			}
+
+			@Override
+			public void removeUpdate(DocumentEvent e)
+			{
+				renderExcludedItemsList();
+			}
+
+			@Override
+			public void changedUpdate(DocumentEvent e)
+			{
+				renderExcludedItemsList();
+			}
+		});
+		excludedItemsPanel.add(excludedSearchField);
+		excludedItemsPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+
+		excludedItemsList = new JPanel(new GridLayout(0, ITEM_GRID_COLUMNS, 2, 2));
 		excludedItemsList.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		excludedItemsList.setAlignmentX(Component.LEFT_ALIGNMENT);
-		excludedItemsPanel.add(excludedItemsList);
+		JScrollPane excludedScroll = new JScrollPane(excludedItemsList);
+		excludedScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+		excludedScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+		excludedScroll.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
+		excludedScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+		excludedScroll.getVerticalScrollBar().setUnitIncrement(ITEM_GRID_CELL_SIZE);
+		// ~2 rows visible before scrolling — matches the item-picker grid above.
+		int excludedViewportHeight = ITEM_GRID_CELL_SIZE * 2 + 4;
+		excludedScroll.setPreferredSize(new Dimension(0, excludedViewportHeight));
+		excludedScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, excludedViewportHeight));
+		excludedItemsPanel.add(excludedScroll);
 		body().add(excludedItemsPanel);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
 		renderExcludedItemsList();
@@ -2820,11 +2864,14 @@ public final class GearSection extends CollapsibleSection
 
 	/**
 	 * Rebuilds the excluded-items viewer ({@link #excludedItemsList}) from
-	 * {@link #excludedItemIds} — one icon+name row per excluded item, each with a
-	 * ✕ to stop excluding it. The whole {@link #excludedItemsPanel} hides when
-	 * nothing is excluded so it never adds empty clutter. Only the user's manual
-	 * exclusions appear here; mode-based {@code restrictedItemIds()} (Deadman/LMS
-	 * filters) are deliberately not shown.
+	 * {@link #excludedItemIds} — one icon-only cell per excluded item (a ✕ in
+	 * the top-right corner stops excluding it), filtered by the
+	 * {@link #excludedSearchField} text. The whole {@link #excludedItemsPanel}
+	 * hides when nothing is excluded (regardless of the current filter) so it
+	 * never adds empty clutter, but a filter that matches nothing still leaves
+	 * the panel (and its search box) up so the user can clear the filter. Only
+	 * the user's manual exclusions appear here; mode-based
+	 * {@code restrictedItemIds()} (Deadman/LMS filters) are deliberately not shown.
 	 */
 	private void renderExcludedItemsList()
 	{
@@ -2834,46 +2881,68 @@ public final class GearSection extends CollapsibleSection
 		}
 		excludedItemsList.removeAll();
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		String filter = excludedSearchField == null ? "" : excludedSearchField.getText().trim().toLowerCase(java.util.Locale.ROOT);
 		for (int itemId : excludedItemIds)
 		{
-			excludedItemsList.add(buildExcludedRow(index, itemId));
-			excludedItemsList.add(Box.createRigidArea(new Dimension(0, 2)));
+			String name = itemDisplayName(index, itemId);
+			if (!filter.isEmpty() && !name.toLowerCase(java.util.Locale.ROOT).contains(filter))
+			{
+				continue;
+			}
+			excludedItemsList.add(buildExcludedCell(itemId, name));
 		}
 		excludedItemsPanel.setVisible(!excludedItemIds.isEmpty());
 		excludedItemsPanel.revalidate();
 		excludedItemsPanel.repaint();
 	}
 
-	/** One "icon + name ........ ✕" row for the excluded-items viewer — see {@link #renderExcludedItemsList}. */
-	private JPanel buildExcludedRow(EquipmentIndexRepository index, int itemId)
+	/**
+	 * One icon-only cell for the excluded-items grid: the item sprite filling
+	 * the cell with a small ✕ overlaid in the top-right corner (via
+	 * {@link OverlayLayout}) that stops excluding the item. The name is carried
+	 * only as a tooltip — see {@link #renderExcludedItemsList}.
+	 */
+	private JPanel buildExcludedCell(int itemId, String name)
 	{
-		String name = itemDisplayName(index, itemId);
+		JLabel icon = swapItemIcon(itemId, name);
+		icon.setAlignmentX(0.5f);
+		icon.setAlignmentY(0.5f);
 
-		JPanel row = new JPanel(new BorderLayout(4, 0));
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-		JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
-		left.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		left.add(swapItemIcon(itemId, name));
-		JLabel nameLabel = new JLabel(name);
-		nameLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		nameLabel.setFont(FontManager.getRunescapeSmallFont());
-		left.add(nameLabel);
-		row.add(left, BorderLayout.WEST);
-
+		// A transparent overlay the exact same size + alignment as the icon, so
+		// OverlayLayout stacks the two dead-centre on each other; the ✕ is then
+		// pinned to this overlay's own top-right via BorderLayout.NORTH. (Giving
+		// the two cell children mismatched alignments instead would offset them,
+		// since OverlayLayout aligns by each child's alignment *point*.)
 		JButton remove = new JButton("✕"); // ✕ — stop excluding this item
 		remove.setFont(FontManager.getRunescapeSmallFont());
 		remove.setFocusPainted(false);
-		remove.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		remove.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		remove.setBorder(null);
+		remove.setMargin(new Insets(0, 0, 0, 0));
+		remove.setContentAreaFilled(false);
+		remove.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
 		remove.setToolTipText("Stop excluding " + name + " — allow it in suggestions again");
 		remove.addActionListener(e -> removeExcludedItem(itemId));
-		row.add(remove, BorderLayout.EAST);
 
-		row.setToolTipText(name + " — excluded from optimiser suggestions");
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		JPanel topRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+		topRight.setOpaque(false);
+		topRight.add(remove);
+
+		JPanel overlay = new JPanel(new BorderLayout());
+		overlay.setOpaque(false);
+		overlay.setAlignmentX(0.5f);
+		overlay.setAlignmentY(0.5f);
+		overlay.setPreferredSize(new Dimension(ITEM_GRID_CELL_SIZE, ITEM_GRID_CELL_SIZE));
+		overlay.setMaximumSize(new Dimension(ITEM_GRID_CELL_SIZE, ITEM_GRID_CELL_SIZE));
+		overlay.setToolTipText(name + " — excluded from optimiser suggestions");
+		overlay.add(topRight, BorderLayout.NORTH);
+
+		JPanel cell = new JPanel();
+		cell.setLayout(new OverlayLayout(cell));
+		cell.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		// The overlay is added first so it (and its ✕) paints on top of the icon.
+		cell.add(overlay);
+		cell.add(icon);
+		return cell;
 	}
 
 	/**
