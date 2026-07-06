@@ -19,13 +19,27 @@ import java.util.Set;
  * equipment + GE-in-flight + pouches. While away from a bank, any change in
  * tracked wealth is real profit/loss. Bank visits are transfers of cold
  * storage into/out of tracked wealth and must not register as profit — not
- * even transiently. While the bank is open its value is live, and the bank's
- * change since open is exactly the net amount transferred (nothing else can
- * move the bank), so profit adds that change back on top of tracked wealth,
- * making every deposit/withdrawal zero-sum in real time. On close the same
- * net transfer is folded into the profit {@code baseline} permanently, so the
- * figure is continuous across the close. Genuine gains while the bank happens
- * to be open (e.g. a GE fill) don't move the bank and therefore still count.
+ * even transiently. A bank transfer conserves total net worth (tracked +
+ * bank); a genuine gain (e.g. a GE fill while the bank happens to be open)
+ * changes it — that is the invariant everything below protects.
+ *
+ * <p>RuneLite updates the inventory container instantly but the bank
+ * container's value can lag by several seconds and arrives as a separate
+ * event, so the two halves of one transfer are often observed in DIFFERENT
+ * snapshots — potentially straddling the visit's close, or even a later
+ * visit, when the player opens/closes the bank faster than the lag. The
+ * engine therefore keeps ONE continuous bank-value anchor and classifies
+ * every observed bank movement exactly once, at the moment it is observed
+ * (see {@link #reconcileBankMovement}): while the bank is open the movement
+ * is a live transfer folded straight into the {@code baseline} (making a
+ * settled deposit/withdrawal zero-sum in real time, with nothing left to do
+ * at close); while closed it is a lagged transfer tail if it settles a
+ * pending in-flight expectation or lands within the post-close grace window,
+ * else a passive revaluation. The in-flight expectations
+ * ({@link #pendingBankSettles}) hold a deposit's fresh tracked-side drop out
+ * of profit until its lagged bank-side rise lands, so a transfer stays
+ * zero-sum even mid-lag; genuine gains never involve the bank side and keep
+ * counting immediately.
  *
  * <p>"Profit" is realised activity only (loot, trade P&amp;L, genuine quantity
  * changes) — passive price drift on held items must never move it. Each held
@@ -54,38 +68,66 @@ public final class SessionEngine
 	private long baseline;
 	private long startMs;
 	private boolean bankOpen;
-	private long trackedAtBankOpen;
 	/**
-	 * Live bank value captured when the current bank visit began (or the
-	 * first moment during the visit the bank value became known). The bank's
-	 * movement away from this anchor is the net amount deposited so far.
+	 * Tracked wealth at the moment the current visit opened. Only used by the
+	 * blind-visit fallback at close time: if the bank value never became
+	 * visible during the visit, the whole tracked-wealth change is
+	 * neutralised instead (the pre-live behaviour), since no bank-side
+	 * measurement ever existed.
 	 */
-	private long bankValueAtOpen;
-	/** Whether {@link #bankValueAtOpen} has been captured for this visit. */
-	private boolean bankValueAtOpenKnown;
+	private long trackedAtBankOpen;
+	/** Whether the bank value has been visible at any point during the current visit. */
+	private boolean visitSawBank;
 	/**
 	 * Grace window (ms) after a bank close during which a movement of the
-	 * bank's value observed while the bank is CLOSED is still treated as part
-	 * of the visit's net transfer. RuneLite can deliver the bank-container
-	 * update AFTER the widget-closed event, so the close-time reanchor reads a
-	 * stale bank value and under-neutralises the visit (observed in the wild:
-	 * a 22.98M withdrawal whose bank update landed ~2s after the close booked
-	 * as +22.98M phantom profit, permanently). Movements seen inside this
-	 * window are folded into the baseline exactly as the close reanchor would
-	 * have; see {@link #reconcileClosedBankMovement}.
+	 * bank's value observed while the bank is CLOSED is still treated as a
+	 * lagged transfer tail of the visit. RuneLite can deliver the
+	 * bank-container update AFTER the widget-closed event (observed in the
+	 * wild: a 22.98M withdrawal whose bank update landed ~2s after the close
+	 * booked as +22.98M phantom profit, permanently). This is the only
+	 * discriminator available for the WITHDRAWAL direction (a bank drop);
+	 * deposits are additionally covered — beyond this window too — by their
+	 * in-flight expectation in {@link #pendingBankSettles}.
 	 */
 	private static final long BANK_CLOSE_TRANSFER_GRACE_MS = 5_000L;
 	/**
-	 * Last bank value seen while the bank was closed — the anchor
-	 * {@link #reconcileClosedBankMovement} measures closed-bank movements
-	 * from. Valid only while {@link #closedBankAnchorKnown}.
+	 * Last observed bank value — the single continuous anchor
+	 * {@link #reconcileBankMovement} measures ALL bank movements from,
+	 * whether the bank is open or closed. One anchor means every movement is
+	 * classified exactly once; the previous per-visit open anchor plus a
+	 * separate closed anchor let a lagged movement that straddled an
+	 * open/close boundary be booked by BOTH channels, oscillating the
+	 * baseline by the full transfer amount on every rapid open/close cycle
+	 * (observed: a 57.1M shuffle flip-flopping the baseline for seconds).
+	 * Valid only while {@link #bankAnchorKnown}.
 	 */
-	private long closedBankAnchor;
-	private boolean closedBankAnchorKnown;
+	private long bankAnchor;
+	private boolean bankAnchorKnown;
 	/** Timestamp of the last bank close; meaningful only while {@link #closeGraceArmed}. */
 	private long lastBankCloseTsMs;
 	/** True once a bank visit has closed with a known bank value, arming the grace window. */
 	private boolean closeGraceArmed;
+	/**
+	 * How long (ms) a one-sided tracked-wealth drop observed while banking is
+	 * held as the in-flight half of a transfer (see
+	 * {@link #pendingBankSettles}) before it expires and books as the genuine
+	 * loss it then must be. Comfortably above the largest bank-container lag
+	 * seen in the wild (~3.6s), while still bounding how long a real loss can
+	 * be masked.
+	 */
+	private static final long BANK_TRANSFER_SETTLE_WINDOW_MS = 10_000L;
+	/**
+	 * In-flight deposit expectations: value that left tracked wealth while
+	 * the bank was open without a matching bank-side rise in the same
+	 * observation. The wealth is still owned — it is merely between container
+	 * events — so the total is added back into both the mark-to-market and
+	 * the net-worth delta until the bank-side rise lands (settling the entry,
+	 * see {@link #reconcileBankMovement}), an offsetting tracked-side rise
+	 * cancels it (equip flicker / an in-flight withdrawal netting against it,
+	 * see {@link #trackOpenTrackedSwing}), or it expires after
+	 * {@link #BANK_TRANSFER_SETTLE_WINDOW_MS}. FIFO.
+	 */
+	private final List<PendingBankSettle> pendingBankSettles = new ArrayList<>();
 	private WealthSnapshot previous;
 	/**
 	 * Loot aggregated per item across the whole session (like the Loot Tracker
@@ -159,6 +201,20 @@ public final class SessionEngine
 	private List<PendingSwing> pendingVanished = new ArrayList<>();
 	/** Loot recorded by the PREVIOUS update, reversible symmetrically. */
 	private List<PendingSwing> pendingLooted = new ArrayList<>();
+
+	/** One in-flight deposit expectation — see {@link #pendingBankSettles}. */
+	private static final class PendingBankSettle
+	{
+		/** Remaining unsettled value; whittled down by settles/cancels. */
+		long amount;
+		final long tsMs;
+
+		PendingBankSettle(long amount, long tsMs)
+		{
+			this.amount = amount;
+			this.tsMs = tsMs;
+		}
+	}
 
 	/**
 	 * One classified quantity swing (vanish or loot) kept for one interval so
@@ -329,10 +385,10 @@ public final class SessionEngine
 		this.startBankKnown = initial.isBankKnown();
 		this.bankOpen = false;
 		this.trackedAtBankOpen = 0L;
-		this.bankValueAtOpen = 0L;
-		this.bankValueAtOpenKnown = false;
-		this.closedBankAnchorKnown = initial.isBankKnown();
-		this.closedBankAnchor = initial.isBankKnown() ? initial.getBankValue() : 0L;
+		this.visitSawBank = false;
+		this.bankAnchorKnown = initial.isBankKnown();
+		this.bankAnchor = initial.isBankKnown() ? initial.getBankValue() : 0L;
+		this.pendingBankSettles.clear();
 		this.closeGraceArmed = false;
 		this.lastBankCloseTsMs = 0L;
 		this.lootTotals.clear();
@@ -348,52 +404,69 @@ public final class SessionEngine
 
 	/**
 	 * Reports a bank-open/close transition. On open, records the tracked
-	 * wealth and live bank value at that instant. On close, folds the net
-	 * amount transferred during the visit (measured by the bank's own change,
-	 * see {@link #bankVisitBaselineShift}) into the baseline, so
-	 * deposits/withdrawals never register as profit or loss — matching the
-	 * live offset {@link #snapshot} applied while the bank was open, so the
-	 * profit figure is continuous across the close. No loot diffing happens
-	 * while the bank is open (see {@link #update}).
+	 * wealth at that instant (blind-visit fallback anchor only — bank
+	 * movements themselves are folded into the baseline continuously by
+	 * {@link #reconcileBankMovement} as their readings arrive, so a visit
+	 * needs no bank-value anchor of its own and nothing transfer-related is
+	 * left to reconcile at close). On close, arms the post-close grace window
+	 * for the visit's still-lagging bank updates, and — only if the bank
+	 * value was never visible during the whole visit — falls back to
+	 * neutralising the visit's entire tracked-wealth change. No loot diffing
+	 * happens while the bank is open (see {@link #update}).
 	 */
 	public void setBankOpen(boolean open, WealthSnapshot current, long tsMs)
 	{
 		syncCostBasis(current);
-		// Catch any closed-bank movement (lagged transfer from the previous
-		// visit, or a revaluation) delivered in the same batch as this
-		// transition, BEFORE this visit anchors to the current bank value.
-		reconcileClosedBankMovement(current, tsMs);
+		// Whether the bank had been visible during the visit BEFORE this
+		// transition's own observation (the pre-rewrite semantics: a bank
+		// value first revealed by the close snapshot itself never yielded a
+		// usable bank-side measurement, so the blind fallback still applies).
+		boolean sawBankBeforeTransition = this.visitSawBank;
+		// Book any bank movement delivered in the same batch as this
+		// transition against the state the movement was observed in (still
+		// open for a close, still closed for an open).
+		long bankDelta = reconcileBankMovement(current, tsMs);
 		if (!this.bankOpen && open)
 		{
-			// FALSE -> TRUE: bank just opened. Anchor the visit.
+			// FALSE -> TRUE: bank just opened. Anchor the blind-visit fallback.
 			this.trackedAtBankOpen = current.tracked();
-			this.bankValueAtOpenKnown = current.isBankKnown();
-			this.bankValueAtOpen = current.isBankKnown() ? current.getBankValue() : 0L;
+			this.visitSawBank = current.isBankKnown();
 			if (diagEnabled())
 			{
-				logDiag("[reanchor] bank OPEN tracked={} bankValueAtOpen={}/known={} baseline={}",
-					trackedAtBankOpen, bankValueAtOpen, bankValueAtOpenKnown, baseline);
+				logDiag("[reanchor] bank OPEN tracked={} bankKnown={} baseline={}",
+					trackedAtBankOpen, current.isBankKnown(), baseline);
 			}
 		}
 		else if (this.bankOpen && !open)
 		{
-			// TRUE -> FALSE: bank just closed. Make the visit's net transfer
-			// permanently neutral.
-			long oldBaseline = this.baseline;
-			long shift = bankVisitBaselineShift(current);
-			this.baseline += shift;
-			if (diagEnabled())
+			// TRUE -> FALSE: bank just closed. The close snapshot can carry a
+			// last-instant deposit whose bank side is still in flight — hold
+			// it pending exactly like a mid-visit one.
+			trackOpenTrackedSwing(current, bankDelta, tsMs);
+			if (!sawBankBeforeTransition)
 			{
-				logDiag("[reanchor] bank CLOSE netTransferShift={} baseline {} -> {}",
-					shift, oldBaseline, this.baseline);
+				// The bank value never became visible during the visit, so no
+				// bank-side measurement of the visit's transfers ever existed
+				// (or ever will): neutralise the whole tracked-wealth change
+				// instead (the pre-live behaviour; genuine gains made during
+				// such a blind visit are swallowed too — accepted).
+				long oldBaseline = this.baseline;
+				this.baseline += current.tracked() - trackedAtBankOpen;
+				if (diagEnabled())
+				{
+					logDiag("[reanchor] bank CLOSE (blind visit) trackedShift={} baseline {} -> {}",
+						current.tracked() - trackedAtBankOpen, oldBaseline, this.baseline);
+				}
 			}
-			// The bank-container update for a transfer made at the very end of
-			// the visit can arrive AFTER this close event; anchor the close-time
-			// bank value and keep reconciling briefly (see
-			// reconcileClosedBankMovement) so the late tail of the transfer is
-			// still neutralised instead of booking as phantom profit.
-			this.closedBankAnchorKnown = current.isBankKnown();
-			this.closedBankAnchor = current.isBankKnown() ? current.getBankValue() : 0L;
+			else if (diagEnabled())
+			{
+				logDiag("[reanchor] bank CLOSE baseline={} pendingSettle={}", baseline, pendingSettleTotal());
+			}
+			// Transfers made at the very end of the visit can have their
+			// bank-container update arrive AFTER this close event; keep
+			// treating closed-bank movements as transfer tails briefly (see
+			// reconcileBankMovement) so the late tail is still neutralised
+			// instead of booking as phantom profit.
 			this.closeGraceArmed = current.isBankKnown();
 			this.lastBankCloseTsMs = tsMs;
 		}
@@ -407,72 +480,42 @@ public final class SessionEngine
 	}
 
 	/**
-	 * Baseline shift that neutralises the current bank visit at close time.
-	 * The bank's change since open is exactly the net amount deposited
-	 * (nothing but transfers can move the bank while it is open), so shifting
-	 * the baseline by minus that change keeps a pure transfer at zero profit
-	 * while leaving genuine tracked-wealth gains made during the visit
-	 * counted. Falls back to neutralising the whole tracked-wealth change
-	 * (the pre-live behaviour) only if the bank value somehow never became
-	 * visible during the visit.
-	 */
-	private long bankVisitBaselineShift(WealthSnapshot current)
-	{
-		if (bankValueAtOpenKnown && current.isBankKnown())
-		{
-			return -(current.getBankValue() - bankValueAtOpen);
-		}
-		return current.tracked() - trackedAtBankOpen;
-	}
-
-	/**
-	 * If the bank value only became known partway through the current visit,
-	 * anchor {@link #bankValueAtOpen} at its first known reading (treating
-	 * the blind interval as transfer-free). Idempotent.
-	 */
-	private void captureLateKnownBank(WealthSnapshot current)
-	{
-		if (bankOpen && !bankValueAtOpenKnown && current.isBankKnown())
-		{
-			this.bankValueAtOpen = current.getBankValue();
-			this.bankValueAtOpenKnown = true;
-		}
-	}
-
-	/**
-	 * While the bank is open, the net amount deposited so far this visit
-	 * (withdrawals negative); added to tracked wealth it makes inventory/bank
-	 * transfers zero-sum in real time. Zero while the bank is closed — after
-	 * a close the same amount lives in the baseline instead (see
-	 * {@link #setBankOpen}).
-	 */
-	private long liveBankTransferOffset(WealthSnapshot current)
-	{
-		if (!bankOpen || !bankValueAtOpenKnown || !current.isBankKnown())
-		{
-			return 0L;
-		}
-		return current.getBankValue() - bankValueAtOpen;
-	}
-
-	/**
-	 * Books any movement of the bank's value observed while the bank is
-	 * CLOSED. Nothing this engine models can move a closed bank, so a change
-	 * is one of two things:
+	 * Books the movement of the bank's value since the last observation —
+	 * the single classification point for ALL bank movements, open or
+	 * closed, so a movement whose delivery straddles an open/close boundary
+	 * (or lands during a completely different visit) is still booked exactly
+	 * once. Classification:
 	 * <ul>
-	 *   <li><b>A lagged transfer</b> — RuneLite can deliver the bank-container
-	 *       update after the widget-closed event, so the tail of the visit's
-	 *       net transfer lands moments after {@link #setBankOpen} already
-	 *       reconciled the visit. Within {@link #BANK_CLOSE_TRANSFER_GRACE_MS}
-	 *       of the last close the movement is folded into the baseline exactly
-	 *       as {@link #bankVisitBaselineShift} would have at close time.</li>
-	 *   <li><b>A passive revaluation</b> — the bank is valued at live prices,
-	 *       so a GE price reload can move a large bank by millions with no
-	 *       transfer at all (observed: +4.09M on a ~1.1B bank). That paper
-	 *       drift is folded into {@link #startNetWorth} (mirroring
-	 *       {@link #foldNewlyKnownBankIntoStart}), so the "Net worth Δ"
-	 *       reflects session activity rather than price drift on cold
-	 *       storage, and the accounting identity
+	 *   <li><b>While the bank is open</b> — nothing but transfers is modelled
+	 *       to move an open bank, so the movement is a live transfer of value
+	 *       to/from tracked wealth and is folded into the {@code baseline}
+	 *       immediately. A settled deposit/withdrawal is thereby zero-sum in
+	 *       real time, and nothing remains to reconcile at close. Note the
+	 *       movement may belong to an EARLIER visit whose reading lagged into
+	 *       this one — the fold is identical either way, which is exactly why
+	 *       the single anchor cannot double-book what the old per-visit
+	 *       anchors did.</li>
+	 *   <li><b>While closed, a rise that settles an in-flight deposit</b>
+	 *       (see {@link #pendingBankSettles}) — the lagged half of a deposit
+	 *       whose tracked-side drop is already being held out of profit:
+	 *       folded into the baseline (permanently neutralising the deposit)
+	 *       and the expectation consumed, so the settle itself moves nothing.
+	 *       This works however late the reading lands, unlike the grace
+	 *       window below.</li>
+	 *   <li><b>While closed, within {@link #BANK_CLOSE_TRANSFER_GRACE_MS} of
+	 *       the last close</b> — a lagged transfer tail (this is the only
+	 *       available discriminator for a withdrawal's bank-side drop, which
+	 *       has no expectation ledger: a tracked-wealth RISE while banking is
+	 *       observationally identical to a genuine gain, e.g. a GE fill, and
+	 *       gains must keep counting immediately): folded into the
+	 *       baseline.</li>
+	 *   <li><b>Otherwise a passive revaluation</b> — the bank is valued at
+	 *       live prices, so a GE price reload can move a large closed bank by
+	 *       millions with no transfer at all (observed: +4.09M on a ~1.1B
+	 *       bank). That paper drift is folded into {@link #startNetWorth}
+	 *       (mirroring {@link #foldNewlyKnownBankIntoStart}), so the "Net
+	 *       worth Δ" reflects session activity rather than price drift on
+	 *       cold storage, and the accounting identity
 	 *       {@code netWorthDelta == profit - suppliesUsed + unrealizedPnl}
 	 *       survives the reload. An out-of-band deposit this engine doesn't
 	 *       model (e.g. GE collect-to-bank) is also folded here — the
@@ -481,35 +524,62 @@ public final class SessionEngine
 	 * </ul>
 	 * Anchor-based and idempotent: safe to call from {@link #update},
 	 * {@link #snapshot} and {@link #setBankOpen} in any order and repeatedly.
-	 * No-op while the bank is open (movements are live transfers handled by
-	 * {@link #liveBankTransferOffset}) or while the bank value is unknown.
+	 * Also expires overdue in-flight expectations. No-op while the bank value
+	 * is unknown.
+	 *
+	 * @return the observed bank movement (0 if none / bank unknown), so a
+	 *         caller diffing tracked wealth over the same observation can
+	 *         pair the two sides (see {@link #trackOpenTrackedSwing}).
 	 */
-	private void reconcileClosedBankMovement(WealthSnapshot current, long tsMs)
+	private long reconcileBankMovement(WealthSnapshot current, long tsMs)
 	{
-		if (bankOpen || !current.isBankKnown())
+		expirePendingSettles(tsMs);
+		if (!current.isBankKnown())
 		{
-			return;
+			return 0L;
 		}
-		if (!closedBankAnchorKnown)
+		if (bankOpen)
 		{
-			this.closedBankAnchor = current.getBankValue();
-			this.closedBankAnchorKnown = true;
-			return;
+			this.visitSawBank = true;
 		}
-		long delta = current.getBankValue() - closedBankAnchor;
+		if (!bankAnchorKnown)
+		{
+			this.bankAnchor = current.getBankValue();
+			this.bankAnchorKnown = true;
+			return 0L;
+		}
+		long delta = current.getBankValue() - bankAnchor;
 		if (delta == 0)
 		{
-			return;
+			return 0L;
 		}
-		this.closedBankAnchor = current.getBankValue();
-		if (closeGraceArmed && tsMs - lastBankCloseTsMs <= BANK_CLOSE_TRANSFER_GRACE_MS)
+		this.bankAnchor = current.getBankValue();
+		boolean withinGrace = closeGraceArmed
+			&& tsMs - lastBankCloseTsMs <= BANK_CLOSE_TRANSFER_GRACE_MS;
+		long oldBaseline = this.baseline;
+		if (delta > 0)
 		{
-			long oldBaseline = this.baseline;
+			// A rise first settles in-flight deposit expectations: the settled
+			// portion's baseline fold and expectation consumption cancel in the
+			// mark-to-market, so the (already-neutral) deposit stays neutral.
+			long settled = consumePendingSettles(delta);
+			long transfer = (bankOpen || withinGrace) ? delta : settled;
+			long revaluation = delta - transfer;
+			this.baseline -= transfer;
+			this.startNetWorth += revaluation;
+			if (diagEnabled() && (transfer != 0 || revaluation != 0))
+			{
+				logDiag("[reanchor] bank rise {} (open={} settled={} reval={}): baseline {} -> {}",
+					delta, bankOpen, settled, revaluation, oldBaseline, this.baseline);
+			}
+		}
+		else if (bankOpen || withinGrace)
+		{
 			this.baseline -= delta;
 			if (diagEnabled())
 			{
-				logDiag("[reanchor] late bank update {}ms after close: transferShift={} baseline {} -> {}",
-					tsMs - lastBankCloseTsMs, -delta, oldBaseline, this.baseline);
+				logDiag("[reanchor] bank drop {} (open={} grace={}): transferShift={} baseline {} -> {}",
+					delta, bankOpen, withinGrace, -delta, oldBaseline, this.baseline);
 			}
 		}
 		else
@@ -520,6 +590,113 @@ public final class SessionEngine
 			{
 				logDiag("[reanchor] closed-bank revaluation {}: startNetWorth {} -> {}",
 					delta, oldStart, this.startNetWorth);
+			}
+		}
+		return delta;
+	}
+
+	/**
+	 * Pairs one banking observation's tracked-wealth change against its
+	 * bank-side movement (both measured over the same {@link #previous} →
+	 * {@code current} interval — callers must advance {@code previous} right
+	 * after). A tracked DROP not covered by a same-observation bank rise is
+	 * held as an in-flight deposit (see {@link #pendingBankSettles}) rather
+	 * than dipping profit; a tracked RISE not explained by a same-observation
+	 * bank drop first cancels outstanding expectations (an equip flicker
+	 * returning, or an in-flight withdrawal whose expected bank drop nets
+	 * against an in-flight deposit's expected rise) before anything counts as
+	 * live profit via the mark-to-market. Only meaningful while banking with
+	 * a visible bank value — with no bank channel to ever settle against, a
+	 * hold would just delay the pre-live blind-visit accounting.
+	 */
+	private void trackOpenTrackedSwing(WealthSnapshot current, long bankDelta, long tsMs)
+	{
+		if (previous == null || !current.isBankKnown() || !bankAnchorKnown)
+		{
+			return;
+		}
+		long trackedDelta = current.tracked() - previous.tracked();
+		if (trackedDelta < 0)
+		{
+			long uncovered = -trackedDelta - Math.min(-trackedDelta, Math.max(0L, bankDelta));
+			if (uncovered > 0)
+			{
+				pendingBankSettles.add(new PendingBankSettle(uncovered, tsMs));
+				if (diagEnabled())
+				{
+					logDiag("[reanchor] in-flight deposit hold {} (pendingSettle total {})",
+						uncovered, pendingSettleTotal());
+				}
+			}
+		}
+		else if (trackedDelta > 0)
+		{
+			long unexplained = trackedDelta - Math.min(trackedDelta, Math.max(0L, -bankDelta));
+			if (unexplained > 0)
+			{
+				long cancelled = consumePendingSettles(unexplained);
+				if (cancelled > 0 && diagEnabled())
+				{
+					logDiag("[reanchor] tracked rise cancels {} of pendingSettle (remaining {})",
+						cancelled, pendingSettleTotal());
+				}
+			}
+		}
+	}
+
+	/** Sum of the outstanding in-flight deposit expectations. */
+	private long pendingSettleTotal()
+	{
+		long total = 0L;
+		for (PendingBankSettle p : pendingBankSettles)
+		{
+			total += p.amount;
+		}
+		return total;
+	}
+
+	/**
+	 * Consumes up to {@code amount} from the in-flight expectations, oldest
+	 * first, returning how much was actually consumed.
+	 */
+	private long consumePendingSettles(long amount)
+	{
+		long consumed = 0L;
+		java.util.Iterator<PendingBankSettle> it = pendingBankSettles.iterator();
+		while (it.hasNext() && consumed < amount)
+		{
+			PendingBankSettle p = it.next();
+			long take = Math.min(p.amount, amount - consumed);
+			p.amount -= take;
+			consumed += take;
+			if (p.amount == 0)
+			{
+				it.remove();
+			}
+		}
+		return consumed;
+	}
+
+	/**
+	 * Drops in-flight expectations older than
+	 * {@link #BANK_TRANSFER_SETTLE_WINDOW_MS}: the bank side never arrived,
+	 * so the held tracked drop was a genuine loss and now books as one (the
+	 * mark-to-market simply stops adding the expired amount back).
+	 */
+	private void expirePendingSettles(long tsMs)
+	{
+		java.util.Iterator<PendingBankSettle> it = pendingBankSettles.iterator();
+		while (it.hasNext())
+		{
+			PendingBankSettle p = it.next();
+			if (tsMs - p.tsMs > BANK_TRANSFER_SETTLE_WINDOW_MS)
+			{
+				if (diagEnabled())
+				{
+					logDiag("[reanchor] in-flight hold {} expired after {}ms — booking as loss",
+						p.amount, tsMs - p.tsMs);
+				}
+				it.remove();
 			}
 		}
 	}
@@ -614,13 +791,14 @@ public final class SessionEngine
 		if (bankOpen)
 		{
 			syncCostBasis(current);
-			captureLateKnownBank(current);
+			long bankDelta = reconcileBankMovement(current, tsMs);
+			trackOpenTrackedSwing(current, bankDelta, tsMs);
 			logUpdateBreakdown(current, 0L, 0L, 0L, 0L, 0L, 0L);
 			this.previous = current;
 			return;
 		}
 
-		reconcileClosedBankMovement(current, tsMs);
+		reconcileBankMovement(current, tsMs);
 
 		long trackedBefore = previous == null ? current.tracked() : previous.tracked();
 		long baselineBefore = baseline;
@@ -1191,15 +1369,15 @@ public final class SessionEngine
 		long tsMs)
 	{
 		foldNewlyKnownBankIntoStart(current);
-		captureLateKnownBank(current);
-		reconcileClosedBankMovement(current, tsMs);
+		reconcileBankMovement(current, tsMs);
 		syncCostBasis(current);
 
-		// While the bank is open, add back the net amount deposited so far so
-		// in-progress transfers are zero-sum immediately rather than only
-		// after the bank closes.
-		long transferOffset = liveBankTransferOffset(current);
-		long markToMarket = current.tracked() + transferOffset - baseline;
+		// In-flight deposits (tracked drop observed, lagged bank rise not
+		// yet) are still owned wealth: add them back so a transfer is
+		// zero-sum even mid-lag. They settle/cancel/expire via
+		// reconcileBankMovement / trackOpenTrackedSwing.
+		long pendingSettle = pendingSettleTotal();
+		long markToMarket = current.tracked() + pendingSettle - baseline;
 
 		// Split the raw mark-to-market delta: paper gains on current holdings
 		// (live value vs cost basis) are unrealized; whatever remains is
@@ -1215,7 +1393,11 @@ public final class SessionEngine
 
 		long elapsedMs = tsMs - startMs;
 		long profitPerHour = elapsedMs > 0 ? profit * 3600000L / elapsedMs : 0L;
-		long netWorthDelta = current.netWorth() - startNetWorth;
+		// In-flight deposits count as owned net worth too — the observed bank
+		// value simply hasn't caught up — keeping the accounting identity
+		// (netWorthDelta == profit - suppliesUsed + unrealizedPnl) intact
+		// during the lag window.
+		long netWorthDelta = current.netWorth() + pendingSettle - startNetWorth;
 
 		if (diagEnabled())
 		{
@@ -1228,12 +1410,12 @@ public final class SessionEngine
 			long unrealizedDelta = prev == null ? 0L : unrealizedPnl - prev.unrealizedPnl;
 			long netWorthDeltaDelta = prev == null ? 0L : netWorthDelta - prev.netWorthDelta;
 			logDiag("wealth: tracked={} (inv={} equip={} ge={} pouch={}) bank={}/known={} "
-					+ "bankOpen={} transferOffset={} baseline={} m2m={} realised={} unrealized={} netWorthDelta={} "
+					+ "bankOpen={} pendingSettle={} baseline={} m2m={} realised={} unrealized={} netWorthDelta={} "
 					+ "| Δrealised={} Δunrealized={} ΔnetWorthDelta={}",
 				current.tracked(), current.getInventoryValue(), current.getEquipmentValue(),
 				current.getGeInFlightValue(), current.getPouchValue(),
 				current.getBankValue(), current.isBankKnown(),
-				bankOpen, transferOffset, baseline, markToMarket, profit, unrealizedPnl, netWorthDelta,
+				bankOpen, pendingSettle, baseline, markToMarket, profit, unrealizedPnl, netWorthDelta,
 				profitDelta, unrealizedDelta, netWorthDeltaDelta);
 			lastLoggedFigures = new DebugFigures(netWorthDelta, profit, unrealizedPnl);
 		}

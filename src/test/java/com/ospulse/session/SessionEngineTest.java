@@ -289,6 +289,196 @@ public class SessionEngineTest
 		assertEquals(0L, engine.snapshot(later, 0L, Collections.emptyMap(), 0L, 10_000L).getProfit());
 	}
 
+	/** Asserts the accounting identity netWorthDelta == profit - suppliesUsed + unrealizedPnl. */
+	private static void assertIdentity(String context, SessionSnapshot s)
+	{
+		assertEquals("identity must hold: " + context,
+			s.getProfit() - s.getSuppliesUsed() + s.getUnrealizedPnl(),
+			s.getNetWorthDelta());
+	}
+
+	@Test
+	public void depositWhoseBankUpdateLagsIsNotAPhantomLossWhileBankOpen()
+	{
+		// Regression (real session, 12:27:2x): RuneLite updates the inventory
+		// container instantly but the bank-container value can lag by up to
+		// ~3.6s and arrives as a separate ItemContainerChanged. A 365,183
+		// deposit therefore produced a snapshot where tracked wealth had
+		// already dropped while the bank value was still stale — and because
+		// the live transfer offset is derived from the (stale) bank side only,
+		// profit dipped by the full deposit (-365,183, realised 312,552 ->
+		// -52,631) for ~3s until the bank caught up. The in-flight half of a
+		// transfer must not read as a loss, not even transiently.
+		WealthSnapshot initial = snap(100_000_000L, Collections.emptyMap(), 50_000_000L, true, 0L);
+		engine.startSession(initial, 0L);
+
+		engine.setBankOpen(true, snap(100_000_000L, Collections.emptyMap(), 50_000_000L, true, 100L), 100L);
+
+		// Deposited 365,183: the inventory reflects it instantly, the bank
+		// value is still stale.
+		WealthSnapshot invOnly = snap(99_634_817L, Collections.emptyMap(), 50_000_000L, true, 200L);
+		engine.update(invOnly, Collections.emptySet(), 200L);
+
+		SessionSnapshot midLag = engine.snapshot(invOnly, 0L, Collections.emptyMap(), 0L, 200L);
+		assertEquals("an in-flight deposit must not dip profit while the bank value lags",
+			0L, midLag.getProfit());
+		assertEquals(0L, midLag.getProfitPerHour());
+		assertEquals("in-flight wealth is still owned — net worth must not dip",
+			0L, midLag.getNetWorthDelta());
+		assertIdentity("during the bank-update lag", midLag);
+
+		// The bank container catches up ~3.6s later, bank still open.
+		WealthSnapshot caughtUp = snap(99_634_817L, Collections.emptyMap(), 50_365_183L, true, 3_800L);
+		engine.update(caughtUp, Collections.emptySet(), 3_800L);
+		SessionSnapshot settled = engine.snapshot(caughtUp, 0L, Collections.emptyMap(), 0L, 3_800L);
+		assertEquals("the catch-up must not move profit either", 0L, settled.getProfit());
+		assertEquals(0L, settled.getNetWorthDelta());
+		assertIdentity("after the bank caught up", settled);
+
+		// Continuous across the close and later quiet ticks.
+		engine.setBankOpen(false, caughtUp, 4_000L);
+		assertEquals(0L, engine.snapshot(caughtUp, 0L, Collections.emptyMap(), 0L, 4_000L).getProfit());
+		WealthSnapshot later = snap(99_634_817L, Collections.emptyMap(), 50_365_183L, true, 8_000L);
+		engine.update(later, Collections.emptySet(), 8_000L);
+		assertEquals(0L, engine.snapshot(later, 0L, Collections.emptyMap(), 0L, 8_000L).getProfit());
+	}
+
+	@Test
+	public void rapidBankShuffleWithLaggedBankUpdatesDoesNotOscillateProfit()
+	{
+		// Regression (real session, 12:27:27-12:28:05): the user opened/closed
+		// the bank every 1-2s while shuffling 57,149,628 back and forth. The
+		// bank-container reading lags ~2s, longer than a visit cycle, so each
+		// movement's reading landed during the WRONG visit's open window or
+		// closed gap. The close-time anchor diff and the closed-state grace
+		// reconciler each booked the same movements against different visits,
+		// so the baseline flip-flopped between 274,550,507 and 331,700,135
+		// repeatedly and profit swung by +-57.1M for seconds at a time. A pure
+		// shuffle conserves total net worth: profit must never dip negative
+		// and must settle at exactly zero.
+		long w = 57_149_628L;
+		WealthSnapshot initial = snap(100_000_000L, Collections.emptyMap(), 200_000_000L, true, 0L);
+		engine.startSession(initial, 0L);
+
+		// Visit 1: withdraw 57.1M. Inventory updates instantly; the bank
+		// reading stays stale for the whole visit.
+		engine.setBankOpen(true, snap(100_000_000L, Collections.emptyMap(), 200_000_000L, true, 1_000L), 1_000L);
+		engine.update(snap(100_000_000L + w, Collections.emptyMap(), 200_000_000L, true, 1_500L),
+			Collections.emptySet(), 1_500L);
+		engine.setBankOpen(false, snap(100_000_000L + w, Collections.emptyMap(), 200_000_000L, true, 2_000L), 2_000L);
+
+		// Visit 2: deposit the 57.1M back. Visit 1's bank reading is STILL in
+		// flight when this visit opens.
+		engine.setBankOpen(true, snap(100_000_000L + w, Collections.emptyMap(), 200_000_000L, true, 2_500L), 2_500L);
+		engine.update(snap(100_000_000L, Collections.emptyMap(), 200_000_000L, true, 3_000L),
+			Collections.emptySet(), 3_000L);
+
+		// Visit 1's withdrawal reading finally lands — during visit 2's open
+		// window. Total net worth is conserved (the deposit is in flight, the
+		// withdrawal reading just caught up): profit must read 0, not -57.1M.
+		engine.update(snap(100_000_000L, Collections.emptyMap(), 200_000_000L - w, true, 3_500L),
+			Collections.emptySet(), 3_500L);
+		SessionSnapshot midVisit2 = engine.snapshot(
+			snap(100_000_000L, Collections.emptyMap(), 200_000_000L - w, true, 3_500L),
+			0L, Collections.emptyMap(), 0L, 3_500L);
+		assertEquals("a lagged withdrawal reading landing in the next visit must not dip profit",
+			0L, midVisit2.getProfit());
+
+		WealthSnapshot atClose2 = snap(100_000_000L, Collections.emptyMap(), 200_000_000L - w, true, 4_000L);
+		engine.setBankOpen(false, atClose2, 4_000L);
+		SessionSnapshot afterClose2 = engine.snapshot(atClose2, 0L, Collections.emptyMap(), 0L, 4_000L);
+		assertEquals("closing the mis-paired visit must not book a phantom -57.1M",
+			0L, afterClose2.getProfit());
+
+		// Visit 3: withdraw again; visit 2's deposit reading lands mid-visit.
+		engine.setBankOpen(true, snap(100_000_000L, Collections.emptyMap(), 200_000_000L - w, true, 4_500L), 4_500L);
+		engine.update(snap(100_000_000L + w, Collections.emptyMap(), 200_000_000L - w, true, 5_000L),
+			Collections.emptySet(), 5_000L);
+		SessionSnapshot midVisit3 = engine.snapshot(
+			snap(100_000_000L + w, Collections.emptyMap(), 200_000_000L - w, true, 5_000L),
+			0L, Collections.emptyMap(), 0L, 5_000L);
+		assertEquals(0L, midVisit3.getProfit());
+		engine.update(snap(100_000_000L + w, Collections.emptyMap(), 200_000_000L, true, 5_500L),
+			Collections.emptySet(), 5_500L);
+		engine.setBankOpen(false, snap(100_000_000L + w, Collections.emptyMap(), 200_000_000L, true, 6_000L), 6_000L);
+
+		// Visit 3's withdrawal reading lands 1s after its close.
+		WealthSnapshot settledSnap = snap(100_000_000L + w, Collections.emptyMap(), 200_000_000L - w, true, 7_000L);
+		engine.update(settledSnap, Collections.emptySet(), 7_000L);
+		SessionSnapshot settled = engine.snapshot(settledSnap, 0L, Collections.emptyMap(), 0L, 7_000L);
+		assertEquals("a pure shuffle must settle at exactly zero profit", 0L, settled.getProfit());
+		assertEquals(0L, settled.getNetWorthDelta());
+		assertEquals(0L, settled.getSuppliesUsed());
+		assertTrue(settled.getLoot().isEmpty());
+		assertIdentity("after the shuffle settles", settled);
+
+		// Stable on later quiet ticks — no re-application, no oscillation.
+		WealthSnapshot quiet = snap(100_000_000L + w, Collections.emptyMap(), 200_000_000L - w, true, 8_000L);
+		engine.update(quiet, Collections.emptySet(), 8_000L);
+		assertEquals(0L, engine.snapshot(quiet, 0L, Collections.emptyMap(), 0L, 8_000L).getProfit());
+	}
+
+	@Test
+	public void depositCatchUpArrivingAfterCloseGraceWindowIsStillNeutralised()
+	{
+		// The close grace window alone cannot cover a deposit whose bank
+		// update lags past it: the movement was then folded into startNetWorth
+		// as a "revaluation", leaving the deposit's tracked-side drop booked
+		// as a permanent phantom loss. The deposit's in-flight expectation
+		// (created when the tracked drop was observed with no matching bank
+		// rise) must settle the late catch-up regardless of the grace window.
+		WealthSnapshot initial = snap(100_000_000L, Collections.emptyMap(), 50_000_000L, true, 0L);
+		engine.startSession(initial, 0L);
+
+		engine.setBankOpen(true, snap(100_000_000L, Collections.emptyMap(), 50_000_000L, true, 100L), 100L);
+		WealthSnapshot invOnly = snap(99_634_817L, Collections.emptyMap(), 50_000_000L, true, 200L);
+		engine.update(invOnly, Collections.emptySet(), 200L);
+		engine.setBankOpen(false, invOnly, 1_000L);
+
+		// The bank catch-up lands 6.5s after the close — outside the 5s grace
+		// window but well inside the deposit's settle expectation.
+		WealthSnapshot caughtUp = snap(99_634_817L, Collections.emptyMap(), 50_365_183L, true, 7_500L);
+		engine.update(caughtUp, Collections.emptySet(), 7_500L);
+
+		SessionSnapshot result = engine.snapshot(caughtUp, 0L, Collections.emptyMap(), 0L, 7_500L);
+		assertEquals("a deposit catch-up beyond the grace window must still be neutralised",
+			0L, result.getProfit());
+		assertEquals(0L, result.getNetWorthDelta());
+		assertIdentity("after the late catch-up", result);
+
+		// Still neutral later — the settlement must not re-apply.
+		WealthSnapshot later = snap(99_634_817L, Collections.emptyMap(), 50_365_183L, true, 20_000L);
+		engine.update(later, Collections.emptySet(), 20_000L);
+		assertEquals(0L, engine.snapshot(later, 0L, Collections.emptyMap(), 0L, 20_000L).getProfit());
+	}
+
+	@Test
+	public void unmatchedTrackedDropWhileBankOpenBooksAsLossAfterSettleWindow()
+	{
+		// Guard: the in-flight hold is bounded. A tracked-wealth drop while
+		// the bank is open whose bank-side counterpart NEVER arrives (e.g. an
+		// item genuinely lost/dropped mid-visit) is held as in-flight only for
+		// the settle window, then books as the real loss it is.
+		WealthSnapshot initial = snap(100_000_000L, Collections.emptyMap(), 50_000_000L, true, 0L);
+		engine.startSession(initial, 0L);
+
+		engine.setBankOpen(true, snap(100_000_000L, Collections.emptyMap(), 50_000_000L, true, 100L), 100L);
+		WealthSnapshot dropped = snap(90_000_000L, Collections.emptyMap(), 50_000_000L, true, 200L);
+		engine.update(dropped, Collections.emptySet(), 200L);
+
+		// While the drop could still be a lagging transfer, profit holds.
+		assertEquals(0L, engine.snapshot(dropped, 0L, Collections.emptyMap(), 0L, 200L).getProfit());
+
+		// Far past any plausible container lag, the bank never moved: loss.
+		WealthSnapshot stale = snap(90_000_000L, Collections.emptyMap(), 50_000_000L, true, 12_000L);
+		engine.update(stale, Collections.emptySet(), 12_000L);
+		SessionSnapshot result = engine.snapshot(stale, 0L, Collections.emptyMap(), 0L, 12_000L);
+		assertEquals("an unmatched drop must eventually book as a loss",
+			-10_000_000L, result.getProfit());
+		assertEquals(-10_000_000L, result.getNetWorthDelta());
+		assertIdentity("after the settle window expires", result);
+	}
+
 	@Test
 	public void restartWhileBankOpenKeepsPostResetTransfersZeroSum()
 	{
