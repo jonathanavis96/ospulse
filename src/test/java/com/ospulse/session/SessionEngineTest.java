@@ -2508,4 +2508,88 @@ public class SessionEngineTest
 			0L, Collections.emptyMap(), 0L, 3000L);
 		assertEquals("pre-owned drop/re-pick never becomes loot", 0L, s.getLootValue());
 	}
+
+	@Test
+	public void partialRepickLeavesRemainderOnGroundThenNetsToOriginal()
+	{
+		// Loot 10 bird nests @5k = 50k.
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		Map<Integer, ItemStack> looted = items(new ItemStack(BIRD_NEST, "Bird nest", 10L, 5_000L));
+		engine.update(snap(10_050_000L, looted, 0L, false, 1000L), Collections.emptySet(), 1000L);
+
+		// Drop all 10 at 5k/ea: parcel on the ground holds qty=10, lootedQty=10,
+		// unitValue=5,000 (the price AT DROP TIME, frozen into the parcel).
+		MovementSignals dropped = MovementSignals.builder().dropped(BIRD_NEST).build();
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L),
+			(GeAttributions) null, dropped, 2000L);
+
+		// GE price rises to 6k/ea before the re-pick. This is the discriminator:
+		// the parcel restores at its FROZEN 5k drop-time price
+		// (restore * g.unitValue), whereas a stack that fell through to the
+		// generic fresh-loot path would be booked at the CURRENT 6k price
+		// (a.quantity * a.unitValue). Re-pick only 4 of the 10 (partial
+		// re-pick, well outside the ~600ms equip-transient window and using a
+		// price the whole-stack reversal-netting path never sees, since a
+		// signalled drop never enters pendingVanished at all).
+		Map<Integer, ItemStack> partial = items(new ItemStack(BIRD_NEST, "Bird nest", 4L, 6_000L));
+		engine.update(snap(10_024_000L, partial, 0L, false, 3000L), Collections.emptySet(), 3000L);
+
+		SessionSnapshot mid = engine.snapshot(snap(10_024_000L, partial, 0L, false, 3000L),
+			0L, Collections.emptyMap(), 0L, 3000L);
+		assertEquals("only the 4 re-picked nests are restored, at the frozen 5k drop-time "
+			+ "price (not the current 6k price a fresh-loot fallback would use); the "
+			+ "other 6 stay off Loot",
+			20_000L, mid.getLootValue());
+
+		// Re-pick the remaining 6, still at 6k/ea: the parcel must have
+		// survived with the correct remainder (qty=6, lootedQty=6) between the
+		// two pickups, and must still restore at its frozen 5k price so the
+		// two partial re-picks net back to exactly the original 50k loot.
+		Map<Integer, ItemStack> full = items(new ItemStack(BIRD_NEST, "Bird nest", 10L, 6_000L));
+		engine.update(snap(10_060_000L, full, 0L, false, 4000L), Collections.emptySet(), 4000L);
+
+		SessionSnapshot end = engine.snapshot(snap(10_060_000L, full, 0L, false, 4000L),
+			0L, Collections.emptyMap(), 0L, 4000L);
+		assertEquals("the two partial re-picks together net back to the original loot",
+			50_000L, end.getLootValue());
+		assertEquals(0L, end.getSuppliesUsed());
+	}
+
+	@Test
+	public void repickExceedingParcelBooksExcessAsFreshLoot()
+	{
+		// Loot 10 bird nests @5k = 50k.
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		Map<Integer, ItemStack> looted = items(new ItemStack(BIRD_NEST, "Bird nest", 10L, 5_000L));
+		engine.update(snap(10_050_000L, looted, 0L, false, 1000L), Collections.emptySet(), 1000L);
+
+		// Drop all 10 at 5k/ea: parcel on the ground holds qty=10, lootedQty=10,
+		// unitValue=5,000 (frozen at drop time).
+		MovementSignals dropped = MovementSignals.builder().dropped(BIRD_NEST).build();
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L),
+			(GeAttributions) null, dropped, 2000L);
+
+		// GE price rises to 6k/ea, then a single appearance of MORE than the
+		// parcel held: 13 nests (10 from the parcel + 3 genuinely fresh, e.g.
+		// someone else's kill dropped on the same tile). The parcel restores
+		// its 10 units at the frozen 5k price (50k), and the 3-unit excess
+		// that falls through to the generic loot path is booked at the
+		// CURRENT 6k price (18k) — the two prices being different is what
+		// proves the excess went through fresh-loot booking and not a naive
+		// whole-stack reversal at the parcel's price. A whole-stack
+		// reversal-netting path cannot produce this split at all: a signalled
+		// drop never enters pendingVanished (it is parked in onGround
+		// instead), so without the onGround-return block being exercised,
+		// nothing would restore any of the 10 and all 13 would price at 6k
+		// (78k) instead.
+		Map<Integer, ItemStack> overPicked = items(new ItemStack(BIRD_NEST, "Bird nest", 13L, 6_000L));
+		engine.update(snap(10_078_000L, overPicked, 0L, false, 3000L), Collections.emptySet(), 3000L);
+
+		SessionSnapshot s = engine.snapshot(snap(10_078_000L, overPicked, 0L, false, 3000L),
+			0L, Collections.emptyMap(), 0L, 3000L);
+		assertEquals("the original 10 are restored at the frozen 5k drop-time price (50k) "
+			+ "plus the 3 excess booked as fresh loot at the current 6k price (18k)",
+			68_000L, s.getLootValue());
+		assertEquals(0L, s.getSuppliesUsed());
+	}
 }
