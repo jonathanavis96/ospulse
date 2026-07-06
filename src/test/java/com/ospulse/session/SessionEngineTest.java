@@ -1897,6 +1897,54 @@ public class SessionEngineTest
 		assertEquals(0L, result.getSuppliesUsed());
 	}
 
+	private static final int CANNON_BASE = 6;
+	private static final int CANNON_STAND = 8;
+	private static final int CANNON_BARRELS = 10;
+	private static final int CANNON_FURNACE = 12;
+
+	@Test
+	public void cannonDeployIsNetWorthAndProfitNeutral()
+	{
+		// Cannon parts in inventory at session start (pre-owned).
+		Map<Integer, ItemStack> withCannon = new HashMap<>();
+		withCannon.put(CANNON_BASE, new ItemStack(CANNON_BASE, "Cannon base", 1L, 200_000L));
+		withCannon.put(CANNON_STAND, new ItemStack(CANNON_STAND, "Cannon stand", 1L, 200_000L));
+		withCannon.put(CANNON_BARRELS, new ItemStack(CANNON_BARRELS, "Cannon barrels", 1L, 200_000L));
+		withCannon.put(CANNON_FURNACE, new ItemStack(CANNON_FURNACE, "Cannon furnace", 1L, 200_000L));
+		engine.startSession(snap(10_800_000L, withCannon, 0L, false, 0L), 0L);
+
+		SessionSnapshot before = engine.snapshot(snap(10_800_000L, withCannon, 0L, false, 0L),
+			0L, Collections.emptyMap(), 0L, 0L);
+
+		// Deploy: all 4 parts leave the inventory (tracked drops 800k).
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			Collections.emptySet(), 1000L);
+
+		SessionSnapshot after = engine.snapshot(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("deploy is net-worth-neutral", before.getNetWorthDelta(), after.getNetWorthDelta());
+		assertEquals("deploy books no loot", 0L, after.getLootValue());
+		assertEquals("deploy books no supplies", 0L, after.getSuppliesUsed());
+	}
+
+	@Test
+	public void cannonPickupRestoresHoldingWithNoLoot()
+	{
+		Map<Integer, ItemStack> withCannon = new HashMap<>();
+		withCannon.put(CANNON_BASE, new ItemStack(CANNON_BASE, "Cannon base", 1L, 200_000L));
+		engine.startSession(snap(10_200_000L, withCannon, 0L, false, 0L), 0L);
+		SessionSnapshot start = engine.snapshot(snap(10_200_000L, withCannon, 0L, false, 0L),
+			0L, Collections.emptyMap(), 0L, 0L);
+
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L), Collections.emptySet(), 1000L); // deploy
+		engine.update(snap(10_200_000L, withCannon, 0L, false, 2000L), Collections.emptySet(), 2000L);            // pickup
+
+		SessionSnapshot end = engine.snapshot(snap(10_200_000L, withCannon, 0L, false, 2000L),
+			0L, Collections.emptyMap(), 0L, 2000L);
+		assertEquals("pickup restores net worth", start.getNetWorthDelta(), end.getNetWorthDelta());
+		assertEquals("cannon pickup is never loot", 0L, end.getLootValue());
+	}
+
 	@Test
 	public void equalStackLootedBeyondReturnWindowStillCountsAsLoot()
 	{

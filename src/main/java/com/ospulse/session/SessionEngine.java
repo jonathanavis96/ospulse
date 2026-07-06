@@ -7,7 +7,9 @@ import com.ospulse.wealth.WealthSnapshot;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -215,6 +217,19 @@ public final class SessionEngine
 	 * re-picked, and only the looted portion's removal from Loot is booked.
 	 */
 	private final Map<Integer, Parcel> onGround = new LinkedHashMap<>();
+	/**
+	 * Dwarf multicannon part ids: base, stand, barrels, furnace. A deployed
+	 * cannon still belongs to the player, so its parts leaving tracked wealth
+	 * must not book as a drop/loss — see {@link #deployed}.
+	 */
+	private static final Set<Integer> CANNON_PART_IDS =
+		new HashSet<>(Arrays.asList(6, 8, 10, 12));
+	/**
+	 * Cannon parts parked out of tracked wealth by deployment — still an
+	 * owned holding (unlike {@link #onGround}), so its value is folded back
+	 * into net worth via {@link #deployedValue()} rather than left as a loss.
+	 */
+	private final Map<Integer, Parcel> deployed = new LinkedHashMap<>();
 	/**
 	 * Figures from the previous {@link #snapshot} call, kept only so the
 	 * per-snapshot debug log can report a delta. {@code null} until the first
@@ -483,6 +498,7 @@ public final class SessionEngine
 		this.costBasis.clear();
 		this.lootLedger.reset();
 		this.onGround.clear();
+		this.deployed.clear();
 		this.lastLoggedFigures = null;
 		this.pendingVanished = new ArrayList<>();
 		this.pendingLooted = new ArrayList<>();
@@ -931,6 +947,17 @@ public final class SessionEngine
 		for (PendingBankSettle p : pendingBankSettles)
 		{
 			total += p.amount;
+		}
+		return total;
+	}
+
+	/** Sum of the value of cannon parts currently parked as deployed. */
+	private long deployedValue()
+	{
+		long total = 0L;
+		for (Parcel p : deployed.values())
+		{
+			total += p.qty * p.unitValue;
 		}
 		return total;
 	}
@@ -1457,6 +1484,22 @@ public final class SessionEngine
 
 			if (a.quantity > 0)
 			{
+				Parcel d = deployed.get(a.itemId);
+				if (d != null && d.qty > 0)
+				{
+					long ret = Math.min(a.quantity, d.qty);
+					d.qty -= ret;
+					if (d.qty <= 0)
+					{
+						deployed.remove(a.itemId);
+					}
+					a.quantity -= ret;
+					logAttribution(a.itemId, a.name, ret, ret * a.unitValue, "CANNON-PICKUP(owned holding restored)");
+				}
+			}
+
+			if (a.quantity > 0)
+			{
 				Parcel g = onGround.get(a.itemId);
 				if (g != null && g.qty > 0)
 				{
@@ -1534,6 +1577,26 @@ public final class SessionEngine
 				logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue,
 					"DESTROY(permanent; " + looted + " looted units removed from Loot)");
 				v.quantity = 0L; // no parcel — permanent
+				continue;
+			}
+
+			if (CANNON_PART_IDS.contains(v.itemId) && v.quantity > 0)
+			{
+				// DEPLOY: a cannon part leaving tracked wealth to be set up is
+				// still owned (deployed, not dropped) — park it and fold its
+				// value back into net worth via deployedValue(), never loot/supplies.
+				Parcel d = deployed.get(v.itemId);
+				if (d == null)
+				{
+					deployed.put(v.itemId, new Parcel(v.quantity, 0L, v.unitValue, tsMs));
+				}
+				else
+				{
+					d.qty += v.quantity;
+				}
+				logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue,
+					"CANNON-DEPLOY(owned holding)");
+				v.quantity = 0L;
 				continue;
 			}
 			for (int pass = 0; pass < 2 && v.quantity > 0; pass++)
@@ -1877,7 +1940,8 @@ public final class SessionEngine
 		// zero-sum even mid-lag. They settle/cancel/expire via
 		// reconcileBankMovement / trackOpenTrackedSwing.
 		long pendingSettle = pendingSettleTotal();
-		long markToMarket = current.tracked() + pendingSettle - baseline;
+		long deployedHeld = deployedValue();
+		long markToMarket = current.tracked() + pendingSettle + deployedHeld - baseline;
 
 		// Split the raw mark-to-market delta: paper gains on current holdings
 		// (live value vs cost basis) are unrealized; whatever remains is
@@ -1909,7 +1973,8 @@ public final class SessionEngine
 		// during the lag window. A confirmed stale re-read overstates the
 		// bank reading the opposite way, so the correction it still owes is
 		// subtracted for the same reason.
-		long netWorthDelta = current.netWorth() + pendingSettle - pendingStaleBankDrop - startNetWorth;
+		long netWorthDelta = current.netWorth() + pendingSettle + deployedHeld
+			- pendingStaleBankDrop - startNetWorth;
 
 		if (diagEnabled())
 		{
