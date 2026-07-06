@@ -126,9 +126,55 @@ public final class SessionEngine
 	 * see {@link #reconcileBankMovement}), an offsetting tracked-side rise
 	 * cancels it (equip flicker / an in-flight withdrawal netting against it,
 	 * see {@link #trackOpenTrackedSwing}), or it expires after
-	 * {@link #BANK_TRANSFER_SETTLE_WINDOW_MS}. FIFO.
+	 * {@link #BANK_TRANSFER_SETTLE_WINDOW_MS}. FIFO. (The symmetric
+	 * withdrawal-direction debt from a confirmed stale re-read lives in
+	 * {@link #pendingStaleBankDrop}.)
 	 */
 	private final List<PendingBankSettle> pendingBankSettles = new ArrayList<>();
+	/**
+	 * The last transfer fold {@link #reconcileBankMovement} booked: the anchor
+	 * value the movement started FROM, its signed delta, and when. Kept only
+	 * so the very next movement can be recognised as that fold's exact undo —
+	 * the first half of a stale container re-read (see
+	 * {@link #maybeSuspectStaleReread}). Valid while
+	 * {@link #lastTransferFoldKnown}.
+	 */
+	private long lastTransferFoldBankFrom;
+	private long lastTransferFoldDelta;
+	private long lastTransferFoldTsMs;
+	private boolean lastTransferFoldKnown;
+	/**
+	 * A just-folded bank rise that exactly undid the previous transfer fold —
+	 * bank back at its pre-transfer value AND tracked wealth back at its
+	 * pre-transfer value in the same observation. RuneLite can briefly
+	 * re-serve the pre-transfer state of BOTH containers around a rapid bank
+	 * close/reopen (observed in the wild: a 58.38M withdrawal whose
+	 * containers rewound to their exact pre-withdrawal values seconds later).
+	 * The shape is also observationally identical to the player genuinely
+	 * depositing the withdrawal straight back, so the fold stands — arming
+	 * this suspicion changes nothing on its own. It only lets
+	 * {@link #trackOpenTrackedSwing} intercept the one continuation a genuine
+	 * re-deposit can never produce: the tracked side snapping forward again
+	 * to exactly {@link #revertSuspectTracked} with the bank reading unmoved.
+	 * {@code revertSuspectAmount == 0} means no suspicion is armed; cleared
+	 * by any other bank movement (the world moved on) and ignored after
+	 * {@link #BANK_TRANSFER_SETTLE_WINDOW_MS}.
+	 */
+	private long revertSuspectAmount;
+	private long revertSuspectTracked;
+	private long revertSuspectTsMs;
+	/**
+	 * Outstanding bank-side drop still owed by a confirmed stale re-read: the
+	 * bank reading is known to be overstated by this amount (the tracked side
+	 * has already been accounted), so the eventual correcting drop — often
+	 * not until the NEXT visit's first read — must be swallowed rather than
+	 * folded as a fresh withdrawal, and the overstatement is subtracted from
+	 * the net-worth delta meanwhile (mirroring how {@link #pendingBankSettles}
+	 * is added). Deliberately NOT time-bounded: the correction cannot arrive
+	 * while the bank is closed, so an expiry would let it book as a phantom
+	 * transfer at the next open however long that takes.
+	 */
+	private long pendingStaleBankDrop;
 	private WealthSnapshot previous;
 	/**
 	 * Loot aggregated per item across the whole session (like the Loot Tracker
@@ -390,6 +436,9 @@ public final class SessionEngine
 		this.bankAnchorKnown = initial.isBankKnown();
 		this.bankAnchor = initial.isBankKnown() ? initial.getBankValue() : 0L;
 		this.pendingBankSettles.clear();
+		this.lastTransferFoldKnown = false;
+		this.revertSuspectAmount = 0L;
+		this.pendingStaleBankDrop = 0L;
 		this.closeGraceArmed = false;
 		this.lastBankCloseTsMs = 0L;
 		this.lootTotals.clear();
@@ -523,7 +572,23 @@ public final class SessionEngine
 	 *       matching tracked-wealth movement books to profit/supplies, so the
 	 *       identity still holds; only the transfer's label is lost.</li>
 	 * </ul>
-	 * Anchor-based and idempotent: safe to call from {@link #update},
+	 * One shape is deliberately second-guessed: around a rapid bank
+	 * close/reopen RuneLite can re-serve a STALE snapshot of both containers,
+	 * momentarily rewinding the inventory and the bank to their exact
+	 * pre-transfer values (observed: a 58.38M withdrawal re-served seconds
+	 * later; the stale bank rise booked as a deposit and the inventory's
+	 * forward snap-back then double-counted the withdrawal as +58.38M phantom
+	 * profit — permanent whenever the bank closed before a correcting read).
+	 * The rise still folds here — it is observationally identical to
+	 * genuinely re-depositing the withdrawal, for which the fold is correct —
+	 * but its exact-undo shape arms {@link #maybeSuspectStaleReread}, letting
+	 * the one continuation a genuine re-deposit cannot produce be held out of
+	 * profit (see {@link #trackOpenTrackedSwing}), with the overstated bank
+	 * reading owed back via {@link #pendingStaleBankDrop}: a later drop pays
+	 * that debt down before anything is classified, so the correction moves
+	 * nothing whenever it lands.
+	 *
+	 * <p>Anchor-based and idempotent: safe to call from {@link #update},
 	 * {@link #snapshot} and {@link #setBankOpen} in any order and repeatedly.
 	 * Also expires overdue in-flight expectations. No-op while the bank value
 	 * is unknown.
@@ -554,10 +619,12 @@ public final class SessionEngine
 		{
 			return 0L;
 		}
+		long anchorFrom = this.bankAnchor;
 		this.bankAnchor = current.getBankValue();
 		boolean withinGrace = closeGraceArmed
 			&& tsMs - lastBankCloseTsMs <= BANK_CLOSE_TRANSFER_GRACE_MS;
 		long oldBaseline = this.baseline;
+		boolean suspectArmed = false;
 		if (delta > 0)
 		{
 			// A rise first settles in-flight deposit expectations: the settled
@@ -568,32 +635,114 @@ public final class SessionEngine
 			long revaluation = delta - transfer;
 			this.baseline -= transfer;
 			this.startNetWorth += revaluation;
+			if (transfer != 0)
+			{
+				suspectArmed = maybeSuspectStaleReread(current, delta, tsMs);
+				rememberTransferFold(anchorFrom, delta, tsMs);
+			}
 			if (diagEnabled() && (transfer != 0 || revaluation != 0))
 			{
 				logDiag("[reanchor] bank rise {} (open={} settled={} reval={}): baseline {} -> {}",
 					delta, bankOpen, settled, revaluation, oldBaseline, this.baseline);
 			}
 		}
-		else if (bankOpen || withinGrace)
-		{
-			this.baseline -= delta;
-			if (diagEnabled())
-			{
-				logDiag("[reanchor] bank drop {} (open={} grace={}): transferShift={} baseline {} -> {}",
-					delta, bankOpen, withinGrace, -delta, oldBaseline, this.baseline);
-			}
-		}
 		else
 		{
-			long oldStart = this.startNetWorth;
-			this.startNetWorth += delta;
-			if (diagEnabled())
+			// A drop first pays down the correction still owed by a confirmed
+			// stale re-read (see pendingStaleBankDrop): that portion was never
+			// real bank wealth, so it must move nothing — not the baseline,
+			// not the start net worth.
+			long swallowed = consumePendingStaleDrop(-delta);
+			long remaining = delta + swallowed;
+			if (remaining != 0 && (bankOpen || withinGrace))
 			{
-				logDiag("[reanchor] closed-bank revaluation {}: startNetWorth {} -> {}",
-					delta, oldStart, this.startNetWorth);
+				this.baseline -= remaining;
+				rememberTransferFold(anchorFrom, delta, tsMs);
+				if (diagEnabled())
+				{
+					logDiag("[reanchor] bank drop {} (open={} grace={} staleSwallowed={}): transferShift={} baseline {} -> {}",
+						delta, bankOpen, withinGrace, swallowed, -remaining, oldBaseline, this.baseline);
+				}
+			}
+			else if (remaining != 0)
+			{
+				long oldStart = this.startNetWorth;
+				this.startNetWorth += remaining;
+				if (diagEnabled())
+				{
+					logDiag("[reanchor] closed-bank revaluation {} (staleSwallowed={}): startNetWorth {} -> {}",
+						remaining, swallowed, oldStart, this.startNetWorth);
+				}
+			}
+			else if (diagEnabled())
+			{
+				logDiag("[reanchor] bank drop {} fully swallowed by stale re-read expectation (remaining owed {})",
+					delta, pendingStaleBankDrop);
 			}
 		}
+		if (!suspectArmed)
+		{
+			// Any other bank movement means the world moved on: a snap-back
+			// arriving after it is no longer the re-read's predicted shape.
+			this.revertSuspectAmount = 0L;
+		}
 		return delta;
+	}
+
+	/**
+	 * Recognises a just-folded bank rise as the possible first half of a
+	 * stale container re-read: the bank is back at the exact value the
+	 * previous transfer fold started from, within the settle window, AND the
+	 * same observation's tracked wealth is back at its pre-fold value — i.e.
+	 * the whole snapshot rewound past a movement already booked. The fold
+	 * itself stands (the shape is observationally identical to the player
+	 * genuinely depositing the withdrawal straight back, and for that case
+	 * the fold is correct); arming the suspicion merely records what a stale
+	 * re-read would look like one observation later, for
+	 * {@link #trackOpenTrackedSwing} to intercept.
+	 *
+	 * @return whether the suspicion was armed by this movement.
+	 */
+	private boolean maybeSuspectStaleReread(WealthSnapshot current, long delta, long tsMs)
+	{
+		if (!lastTransferFoldKnown
+			|| delta != -lastTransferFoldDelta
+			|| current.getBankValue() != lastTransferFoldBankFrom
+			|| tsMs - lastTransferFoldTsMs > BANK_TRANSFER_SETTLE_WINDOW_MS
+			|| previous == null
+			|| previous.tracked() - current.tracked() != delta)
+		{
+			return false;
+		}
+		this.revertSuspectAmount = delta;
+		this.revertSuspectTracked = previous.tracked();
+		this.revertSuspectTsMs = tsMs;
+		if (diagEnabled())
+		{
+			logDiag("[reanchor] bank rise {} exactly undoes the last transfer fold — possible stale re-read (snap-back tracked would be {})",
+				delta, revertSuspectTracked);
+		}
+		return true;
+	}
+
+	/** Records the transfer fold just booked so the next movement can be recognised as its exact undo. */
+	private void rememberTransferFold(long bankFrom, long delta, long tsMs)
+	{
+		this.lastTransferFoldBankFrom = bankFrom;
+		this.lastTransferFoldDelta = delta;
+		this.lastTransferFoldTsMs = tsMs;
+		this.lastTransferFoldKnown = true;
+	}
+
+	/**
+	 * Pays up to {@code amount} off the drop still owed by a confirmed stale
+	 * re-read, returning the portion actually swallowed.
+	 */
+	private long consumePendingStaleDrop(long amount)
+	{
+		long swallowed = Math.min(pendingStaleBankDrop, amount);
+		this.pendingStaleBankDrop -= swallowed;
+		return swallowed;
 	}
 
 	/**
@@ -605,7 +754,10 @@ public final class SessionEngine
 	 * than dipping profit; a tracked RISE not explained by a same-observation
 	 * bank drop first cancels outstanding expectations (an equip flicker
 	 * returning, or an in-flight withdrawal whose expected bank drop nets
-	 * against an in-flight deposit's expected rise) before anything counts as
+	 * against an in-flight deposit's expected rise), and then — only when it
+	 * is the exact snap-back an armed re-read suspicion predicted (see
+	 * {@link #maybeSuspectStaleReread}) — is held out of profit as the
+	 * confirmed second half of a stale re-read, before anything counts as
 	 * live profit via the mark-to-market. Only meaningful while banking with
 	 * a visible bank value — with no bank channel to ever settle against, a
 	 * hold would just delay the pre-live blind-visit accounting.
@@ -640,6 +792,27 @@ public final class SessionEngine
 				{
 					logDiag("[reanchor] tracked rise cancels {} of pendingSettle (remaining {})",
 						cancelled, pendingSettleTotal());
+				}
+				long surviving = unexplained - cancelled;
+				if (surviving > 0 && revertSuspectAmount != 0
+					&& surviving == revertSuspectAmount
+					&& current.tracked() == revertSuspectTracked
+					&& tsMs - revertSuspectTsMs <= BANK_TRANSFER_SETTLE_WINDOW_MS)
+				{
+					// The exact snap-back a stale re-read predicts and a
+					// genuine re-deposit can never produce: the suspected
+					// rise really was a stale reading, so this "gain" is just
+					// the already-booked withdrawal being re-served. Undo the
+					// mistaken deposit fold and note the drop the overstated
+					// bank reading still owes.
+					this.baseline += surviving;
+					this.pendingStaleBankDrop += surviving;
+					this.revertSuspectAmount = 0L;
+					if (diagEnabled())
+					{
+						logDiag("[reanchor] tracked snap-back {} confirms stale bank re-read: baseline {} -> {}, bank drop owed {}",
+							surviving, this.baseline - surviving, this.baseline, pendingStaleBankDrop);
+					}
 				}
 			}
 		}
@@ -1475,8 +1648,10 @@ public final class SessionEngine
 		// In-flight deposits count as owned net worth too — the observed bank
 		// value simply hasn't caught up — keeping the accounting identity
 		// (netWorthDelta == profit - suppliesUsed + unrealizedPnl) intact
-		// during the lag window.
-		long netWorthDelta = current.netWorth() + pendingSettle - startNetWorth;
+		// during the lag window. A confirmed stale re-read overstates the
+		// bank reading the opposite way, so the correction it still owes is
+		// subtracted for the same reason.
+		long netWorthDelta = current.netWorth() + pendingSettle - pendingStaleBankDrop - startNetWorth;
 
 		if (diagEnabled())
 		{
@@ -1489,12 +1664,12 @@ public final class SessionEngine
 			long unrealizedDelta = prev == null ? 0L : unrealizedPnl - prev.unrealizedPnl;
 			long netWorthDeltaDelta = prev == null ? 0L : netWorthDelta - prev.netWorthDelta;
 			logDiag("wealth: tracked={} (inv={} equip={} ge={} pouch={}) bank={}/known={} "
-					+ "bankOpen={} pendingSettle={} baseline={} m2m={} realised={} unrealized={} netWorthDelta={} "
+					+ "bankOpen={} pendingSettle={} staleDropOwed={} baseline={} m2m={} realised={} unrealized={} netWorthDelta={} "
 					+ "| Δrealised={} Δunrealized={} ΔnetWorthDelta={}",
 				current.tracked(), current.getInventoryValue(), current.getEquipmentValue(),
 				current.getGeInFlightValue(), current.getPouchValue(),
 				current.getBankValue(), current.isBankKnown(),
-				bankOpen, pendingSettle, baseline, markToMarket, profit, unrealizedPnl, netWorthDelta,
+				bankOpen, pendingSettle, pendingStaleBankDrop, baseline, markToMarket, profit, unrealizedPnl, netWorthDelta,
 				profitDelta, unrealizedDelta, netWorthDeltaDelta);
 			lastLoggedFigures = new DebugFigures(netWorthDelta, profit, unrealizedPnl);
 		}

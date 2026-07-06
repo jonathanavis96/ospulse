@@ -455,6 +455,198 @@ public class SessionEngineTest
 	}
 
 	@Test
+	public void staleBankRereadAfterWithdrawalDoesNotBookPhantomProfit()
+	{
+		// Regression (real session, verbose diag trace): a 58,388,197
+		// withdrawal was observed and booked correctly (both halves, bank
+		// open), the bank was closed and reopened within seconds, and
+		// RuneLite then briefly re-served the PRE-withdrawal state of BOTH
+		// containers — the inventory AND the bank rewound to their exact
+		// pre-withdrawal values in one observation. The engine read the bank
+		// rise as a deposit and folded the baseline back down; when the
+		// inventory then snapped FORWARD to the true withdrawn state while
+		// the bank reading stayed stale-high, the snapshot double-counted the
+		// withdrawal and realised profit jumped by +58.38M. If the bank is
+		// closed during the spike no correcting read arrives, and the
+		// phantom sticks until the next visit.
+		long inv = 22_475_227L;
+		long bank = 1_019_158_757L;
+		long w = 58_388_197L;
+		engine.startSession(snap(inv, Collections.emptyMap(), bank, true, 0L), 0L);
+
+		// Withdraw w, both halves observed while open — zero-sum.
+		engine.setBankOpen(true, snap(inv, Collections.emptyMap(), bank, true, 1_000L), 1_000L);
+		WealthSnapshot withdrawn = snap(inv + w, Collections.emptyMap(), bank - w, true, 2_000L);
+		engine.update(withdrawn, Collections.emptySet(), 2_000L);
+		assertEquals(0L, engine.snapshot(withdrawn, 0L, Collections.emptyMap(), 0L, 2_000L).getProfit());
+
+		// Rapid close -> reopen.
+		engine.setBankOpen(false, withdrawn, 3_000L);
+		engine.setBankOpen(true, withdrawn, 4_000L);
+
+		// Stale re-read: both containers momentarily rewind to the exact
+		// pre-withdrawal snapshot. Indistinguishable from re-depositing the
+		// withdrawal, and internally consistent either way: profit holds.
+		WealthSnapshot stale = snap(inv, Collections.emptyMap(), bank, true, 4_600L);
+		engine.update(stale, Collections.emptySet(), 4_600L);
+		assertEquals(0L, engine.snapshot(stale, 0L, Collections.emptyMap(), 0L, 4_600L).getProfit());
+
+		// The inventory snaps forward to the true withdrawn state while the
+		// bank reading stays stale-high: the snapshot now carries the
+		// withdrawal twice. This must NOT book as +58.38M profit.
+		WealthSnapshot bounced = snap(inv + w, Collections.emptyMap(), bank, true, 5_200L);
+		engine.update(bounced, Collections.emptySet(), 5_200L);
+		SessionSnapshot spike = engine.snapshot(bounced, 0L, Collections.emptyMap(), 0L, 5_200L);
+		assertEquals("a stale bank re-read must not book the withdrawal as fresh profit",
+			0L, spike.getProfit());
+		assertEquals(0L, spike.getNetWorthDelta());
+		assertIdentity("while the bank reading is stale-high", spike);
+
+		// The bank closes during the spike, so no correcting read arrives
+		// for the rest of the away stretch. The phantom must not stick.
+		engine.setBankOpen(false, bounced, 6_000L);
+		WealthSnapshot closedStale = snap(inv + w, Collections.emptyMap(), bank, true, 20_000L);
+		engine.update(closedStale, Collections.emptySet(), 20_000L);
+		SessionSnapshot heldClosed = engine.snapshot(closedStale, 0L, Collections.emptyMap(), 0L, 20_000L);
+		assertEquals("closing on the stale reading must not lock in the phantom",
+			0L, heldClosed.getProfit());
+		assertEquals(0L, heldClosed.getNetWorthDelta());
+		assertIdentity("closed on the stale reading", heldClosed);
+
+		// The next visit's first read serves the true bank value: the
+		// correction must be swallowed, not booked as a fresh withdrawal.
+		WealthSnapshot corrected = snap(inv + w, Collections.emptyMap(), bank - w, true, 60_000L);
+		engine.setBankOpen(true, corrected, 60_000L);
+		SessionSnapshot settled = engine.snapshot(corrected, 0L, Collections.emptyMap(), 0L, 60_000L);
+		assertEquals(0L, settled.getProfit());
+		assertEquals(0L, settled.getNetWorthDelta());
+		assertIdentity("after the true reading returns", settled);
+
+		// Stable on later quiet ticks.
+		engine.setBankOpen(false, corrected, 61_000L);
+		WealthSnapshot quiet = snap(inv + w, Collections.emptyMap(), bank - w, true, 70_000L);
+		engine.update(quiet, Collections.emptySet(), 70_000L);
+		assertEquals(0L, engine.snapshot(quiet, 0L, Collections.emptyMap(), 0L, 70_000L).getProfit());
+	}
+
+	@Test
+	public void staleBankRereadCorrectingWithinTheVisitStaysNeutral()
+	{
+		// Same bounce, but the bank container corrects a few ticks later with
+		// the bank still open (the self-correcting shape actually seen in the
+		// trace). The correction must land on zero — neither the phantom gain
+		// nor an over-corrected phantom loss.
+		long inv = 22_475_227L;
+		long bank = 1_019_158_757L;
+		long w = 58_388_197L;
+		engine.startSession(snap(inv, Collections.emptyMap(), bank, true, 0L), 0L);
+
+		engine.setBankOpen(true, snap(inv, Collections.emptyMap(), bank, true, 1_000L), 1_000L);
+		WealthSnapshot withdrawn = snap(inv + w, Collections.emptyMap(), bank - w, true, 2_000L);
+		engine.update(withdrawn, Collections.emptySet(), 2_000L);
+		engine.setBankOpen(false, withdrawn, 3_000L);
+		engine.setBankOpen(true, withdrawn, 4_000L);
+
+		WealthSnapshot stale = snap(inv, Collections.emptyMap(), bank, true, 4_600L);
+		engine.update(stale, Collections.emptySet(), 4_600L);
+		WealthSnapshot bounced = snap(inv + w, Collections.emptyMap(), bank, true, 5_200L);
+		engine.update(bounced, Collections.emptySet(), 5_200L);
+
+		// The bank reading corrects mid-visit.
+		WealthSnapshot corrected = snap(inv + w, Collections.emptyMap(), bank - w, true, 5_800L);
+		engine.update(corrected, Collections.emptySet(), 5_800L);
+		SessionSnapshot settled = engine.snapshot(corrected, 0L, Collections.emptyMap(), 0L, 5_800L);
+		assertEquals("the correcting read must land on zero, not a phantom loss",
+			0L, settled.getProfit());
+		assertEquals(0L, settled.getNetWorthDelta());
+		assertIdentity("after the in-visit correction", settled);
+
+		// Continuous across the close and later quiet ticks.
+		engine.setBankOpen(false, corrected, 6_000L);
+		WealthSnapshot quiet = snap(inv + w, Collections.emptyMap(), bank - w, true, 12_000L);
+		engine.update(quiet, Collections.emptySet(), 12_000L);
+		assertEquals(0L, engine.snapshot(quiet, 0L, Collections.emptyMap(), 0L, 12_000L).getProfit());
+	}
+
+	@Test
+	public void genuineRedepositAfterWithdrawalIsNotMistakenForAStaleReread()
+	{
+		// Guard against over-correction: withdrawing and then genuinely
+		// depositing the exact amount straight back produces an observation
+		// identical to a stale re-read's first half. The re-deposit must stay
+		// zero-sum, and nothing may linger from the suspicion — a genuine
+		// gain afterwards still counts in full.
+		long inv = 22_475_227L;
+		long bank = 1_019_158_757L;
+		long w = 58_388_197L;
+		engine.startSession(snap(inv, Collections.emptyMap(), bank, true, 0L), 0L);
+
+		engine.setBankOpen(true, snap(inv, Collections.emptyMap(), bank, true, 1_000L), 1_000L);
+		WealthSnapshot withdrawn = snap(inv + w, Collections.emptyMap(), bank - w, true, 2_000L);
+		engine.update(withdrawn, Collections.emptySet(), 2_000L);
+		engine.setBankOpen(false, withdrawn, 3_000L);
+		engine.setBankOpen(true, withdrawn, 4_000L);
+
+		// Changed mind: the whole withdrawal goes straight back in.
+		WealthSnapshot redeposited = snap(inv, Collections.emptyMap(), bank, true, 4_600L);
+		engine.update(redeposited, Collections.emptySet(), 4_600L);
+		assertEquals("a genuine re-deposit must stay zero-sum",
+			0L, engine.snapshot(redeposited, 0L, Collections.emptyMap(), 0L, 4_600L).getProfit());
+
+		engine.setBankOpen(false, redeposited, 5_000L);
+		SessionSnapshot closed = engine.snapshot(redeposited, 0L, Collections.emptyMap(), 0L, 5_000L);
+		assertEquals(0L, closed.getProfit());
+		assertEquals(0L, closed.getNetWorthDelta());
+
+		// A genuine 5M loot gain much later counts in full.
+		Map<Integer, ItemStack> looted = new LinkedHashMap<>();
+		looted.put(DRAGON_BONES, new ItemStack(DRAGON_BONES, "Dragon bones", 500L, 10_000L));
+		WealthSnapshot after = snap(inv + 5_000_000L, looted, bank, true, 30_000L);
+		engine.update(after, Collections.emptySet(), 30_000L);
+		SessionSnapshot result = engine.snapshot(after, 0L, Collections.emptyMap(), 0L, 30_000L);
+		assertEquals(5_000_000L, result.getProfit());
+		assertEquals(5_000_000L, result.getNetWorthDelta());
+		assertIdentity("after the later genuine gain", result);
+	}
+
+	@Test
+	public void genuineGainWhileOpenAfterARedepositShapedObservationStillCounts()
+	{
+		// Guard against over-correction, live variant: with the suspicion
+		// armed by a re-deposit-shaped observation, a genuine gain landing
+		// while the bank is still open (e.g. a GE fill) does not match the
+		// stale snap-back shape and must keep counting immediately.
+		long inv = 22_475_227L;
+		long bank = 1_019_158_757L;
+		long w = 58_388_197L;
+		engine.startSession(snap(inv, Collections.emptyMap(), bank, true, 0L), 0L);
+
+		engine.setBankOpen(true, snap(inv, Collections.emptyMap(), bank, true, 1_000L), 1_000L);
+		WealthSnapshot withdrawn = snap(inv + w, Collections.emptyMap(), bank - w, true, 2_000L);
+		engine.update(withdrawn, Collections.emptySet(), 2_000L);
+		engine.setBankOpen(false, withdrawn, 3_000L);
+		engine.setBankOpen(true, withdrawn, 4_000L);
+
+		WealthSnapshot redeposited = snap(inv, Collections.emptyMap(), bank, true, 4_600L);
+		engine.update(redeposited, Collections.emptySet(), 4_600L);
+
+		// A genuine 5M gain while the bank is still open: tracked up 5M,
+		// bank untouched. Real profit, counted live.
+		WealthSnapshot midGain = snap(inv + 5_000_000L, Collections.emptyMap(), bank, true, 5_200L);
+		engine.update(midGain, Collections.emptySet(), 5_200L);
+		SessionSnapshot live = engine.snapshot(midGain, 0L, Collections.emptyMap(), 0L, 5_200L);
+		assertEquals("a genuine gain must not be swallowed by the stale-read suspicion",
+			5_000_000L, live.getProfit());
+		assertEquals(5_000_000L, live.getNetWorthDelta());
+
+		// ...and it survives the close unchanged.
+		engine.setBankOpen(false, midGain, 6_000L);
+		SessionSnapshot closed = engine.snapshot(midGain, 0L, Collections.emptyMap(), 0L, 6_000L);
+		assertEquals(5_000_000L, closed.getProfit());
+		assertEquals(5_000_000L, closed.getNetWorthDelta());
+	}
+
+	@Test
 	public void unmatchedTrackedDropWhileBankOpenBooksAsLossAfterSettleWindow()
 	{
 		// Guard: the in-flight hold is bounded. A tracked-wealth drop while
