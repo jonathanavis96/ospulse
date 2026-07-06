@@ -20,6 +20,7 @@ public class SessionEngineTest
 {
 	private static final int DRAGON_BONES = 536;
 	private static final int RUNE_ITEM = 561;
+	private static final int RUNE_SQ_SHIELD = 1201;
 
 	private SessionEngine engine;
 
@@ -2244,5 +2245,77 @@ public class SessionEngineTest
 		SessionSnapshot result = engine.snapshot(drops, 0L, Collections.emptyMap(), 0L, 21_000L);
 		assertEquals(1, result.getLoot().size());
 		assertEquals(100L, result.getLoot().get(0).getQuantity());
+	}
+
+	@Test
+	public void lootedItemSoldOnGeRealisesAfterTax()
+	{
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+		GeReconciler ge = new GeReconciler();
+
+		// Tick 1: loot a shield (GE value 22,400).
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(RUNE_SQ_SHIELD, new ItemStack(RUNE_SQ_SHIELD, "Rune sq shield", 1L, 22_400L));
+		WealthSnapshot looted = snap(10_022_400L, held, 0L, false, 1000L);
+		ge.expireAttributions(1000L);
+		engine.update(looted, ge, 1000L);
+		assertEquals(22_400L, engine.snapshot(looted, ge.realizedPnl(),
+			Collections.emptyMap(), 0L, 1000L).getLootValue());
+
+		// Tick 2: sell it on the GE at 22,400 (fills fully); the shield leaves the
+		// inventory the same tick and the proceeds are still in the collection box.
+		ge.onOfferUpdate(0, GeOfferState.SOLD, RUNE_SQ_SHIELD, "Rune sq shield",
+			1, 1, 22_400L, 22_400L, 2000L);
+		WealthSnapshot afterSale = snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L);
+		ge.expireAttributions(2000L);
+		engine.update(afterSale, ge, 2000L);
+
+		SessionSnapshot s = engine.snapshot(afterSale, ge.realizedPnl(),
+			Collections.emptyMap(), 0L, 2000L);
+		assertEquals("loot realised to after-tax proceeds", 21_952L, s.getLootValue());
+	}
+
+	@Test
+	public void bankedLootStaysCountedAndSellingRealises()
+	{
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+		GeReconciler ge = new GeReconciler();
+
+		// Loot a shield.
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(RUNE_SQ_SHIELD, new ItemStack(RUNE_SQ_SHIELD, "Rune sq shield", 1L, 22_400L));
+		WealthSnapshot looted = snap(10_022_400L, held, 0L, false, 1000L);
+		ge.expireAttributions(1000L);
+		engine.update(looted, ge, 1000L);
+
+		// Open bank, deposit the shield (tracked drops, bank rises), close bank.
+		WealthSnapshot atOpen = snap(10_022_400L, held, 0L, true, 1100L);
+		engine.setBankOpen(true, atOpen, 1100L);
+		WealthSnapshot afterDeposit = snap(10_000_000L, Collections.emptyMap(), 22_400L, true, 1200L);
+		engine.setBankOpen(false, afterDeposit, 1200L);
+
+		SessionSnapshot afterBank = engine.snapshot(afterDeposit, ge.realizedPnl(),
+			Collections.emptyMap(), 0L, 1200L);
+		assertEquals("banking is loot-neutral", 22_400L, afterBank.getLootValue());
+	}
+
+	@Test
+	public void skillingGainWithNoLootEventStillCountsAsLoot()
+	{
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+		GeReconciler ge = new GeReconciler();
+
+		// A redwood log appears in the inventory with no GE activity (skilling).
+		Map<Integer, ItemStack> logs = new LinkedHashMap<>();
+		logs.put(19_669, new ItemStack(19_669, "Redwood logs", 10L, 300L)); // 3,000
+		WealthSnapshot chopped = snap(10_003_000L, logs, 0L, false, 1000L);
+		ge.expireAttributions(1000L);
+		engine.update(chopped, ge, 1000L);
+
+		assertEquals(3_000L, engine.snapshot(chopped, ge.realizedPnl(),
+			Collections.emptyMap(), 0L, 1000L).getLootValue());
 	}
 }

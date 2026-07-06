@@ -199,6 +199,8 @@ public final class SessionEngine
 	 * latest snapshot's tracked items by {@link #syncCostBasis}.
 	 */
 	private final Map<Integer, Basis> costBasis = new LinkedHashMap<>();
+	/** Bottom-up "Loot" figure — see {@link LootLedger}. */
+	private final LootLedger lootLedger = new LootLedger();
 	/**
 	 * Figures from the previous {@link #snapshot} call, kept only so the
 	 * per-snapshot debug log can report a delta. {@code null} until the first
@@ -444,6 +446,7 @@ public final class SessionEngine
 		this.lootTotals.clear();
 		this.suppliesUsed = 0L;
 		this.costBasis.clear();
+		this.lootLedger.reset();
 		this.lastLoggedFigures = null;
 		this.pendingVanished = new ArrayList<>();
 		this.pendingLooted = new ArrayList<>();
@@ -1081,6 +1084,13 @@ public final class SessionEngine
 	 */
 	public void update(WealthSnapshot current, GeAttributions ge, long tsMs)
 	{
+		if (ge != null)
+		{
+			for (com.ospulse.ge.LootSale sale : ge.drainLootSales())
+			{
+				lootLedger.realiseSale(sale.itemId, sale.quantity, sale.netProceeds);
+			}
+		}
 		if (bankOpen)
 		{
 			syncCostBasis(current);
@@ -1377,6 +1387,7 @@ public final class SessionEngine
 			{
 				long lootValue = a.quantity * a.unitValue;
 				addLoot(new LootEntry(a.itemId, a.name, a.quantity, lootValue, tsMs));
+				lootLedger.recordLoot(a.itemId, a.quantity, a.unitValue);
 				lootRecorded += lootValue;
 				logAttribution(a.itemId, a.name, a.quantity, lootValue, "LOOT");
 				newPendingLooted.add(new PendingSwing(a.itemId, a.quantity, a.unitValue,
@@ -1409,6 +1420,7 @@ public final class SessionEngine
 					boolean fullReversal = reversedQty == p.quantity;
 					long reversedValue = reversedQty * p.unitValue;
 					retractLoot(p.itemId, reversedQty, reversedValue);
+					lootLedger.reverseLoot(p.itemId, reversedQty);
 					lootReversed += reversedValue;
 					logAttribution(v.itemId, v.name, -reversedQty, -reversedValue,
 						"REVERSAL-NET(retract loot, equip transient)");
@@ -1729,14 +1741,10 @@ public final class SessionEngine
 		}
 		long profit = markToMarket - unrealizedPnl;
 
-		// "Loot" = value of items actually picked up: realised wealth gains with
-		// GE flip winnings removed. A completed flip's proceeds land in tracked
-		// wealth and so are already inside `profit`; the flip is also surfaced on
-		// its own line (geRealizedPnl), so subtract it here to avoid double-
-		// counting. Selling looted items is NOT a flip in GeReconciler (no GE
-		// cost basis), so sold-loot correctly stays in loot. This preserves the
-		// identity netWorthDelta == (loot - suppliesUsed) + geRealizedPnl + unrealizedPnl.
-		long loot = profit - geRealizedPnl;
+		// "Loot" is now a bottom-up figure: value of items picked up, realised to
+		// their after-tax GE sale proceeds when sold. The top-down `profit` local
+		// is kept only for the diagnostic `wealth:` line below.
+		long loot = lootLedger.lootValue();
 
 		long elapsedMs = tsMs - startMs;
 		// Profit/hr extrapolates NET profit — realised gains minus the
