@@ -35,6 +35,7 @@ import net.runelite.api.ItemContainer;
 import net.runelite.api.Prayer;
 import net.runelite.api.Skill;
 import net.runelite.api.Varbits;
+import net.runelite.api.gameval.ItemID;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemEquipmentStats;
 import net.runelite.client.game.ItemManager;
@@ -770,6 +771,7 @@ public class SessionTracker implements SessionService
 		if (config.includePouches())
 		{
 			pouchValue = accumulateRunePouch(tracked, allHoldings);
+			pouchValue += accumulateEssencePouches(tracked, allHoldings);
 		}
 		// TODO pouch valuation: looting bag contents are not reliably
 		// readable client-side and are intentionally skipped.
@@ -1015,6 +1017,70 @@ public class SessionTracker implements SessionService
 			int canonicalId = valuation.canonical(itemId);
 			long unit = valuation.unitValue(itemId);
 			String name = valuation.name(itemId);
+
+			total += unit * amount;
+			mergeItem(tracked, canonicalId, name, amount, unit);
+			mergeItem(allHoldings, canonicalId, name, amount, unit);
+		}
+		return total;
+	}
+
+	/**
+	 * Essence-pouch capacities (small/medium/large/giant/colossal), each keyed to
+	 * its held-amount varbit. There is no per-slot rune/type varbit to resolve
+	 * here (unlike the rune pouch) — a pouch just holds a count of essence.
+	 */
+	private enum EssencePouch
+	{
+		SMALL(Varbits.ESSENCE_POUCH_SMALL_AMOUNT),
+		MEDIUM(Varbits.ESSENCE_POUCH_MEDIUM_AMOUNT),
+		LARGE(Varbits.ESSENCE_POUCH_LARGE_AMOUNT),
+		GIANT(Varbits.ESSENCE_POUCH_GIANT_AMOUNT),
+		COLOSSAL(Varbits.ESSENCE_POUCH_COLOSSAL_AMOUNT);
+
+		private final int amountVarbit;
+
+		EssencePouch(int amountVarbit)
+		{
+			this.amountVarbit = amountVarbit;
+		}
+
+		int amountVarbit()
+		{
+			return amountVarbit;
+		}
+	}
+
+	/**
+	 * Essence-pouch contents are readable client-side via the pouch amount varbits
+	 * (small/medium/large/giant/colossal), so their held essence is folded into
+	 * tracked wealth rather than being invisible until emptied. Mirrors
+	 * {@link #accumulateRunePouch}. Returns the total essence value added.
+	 *
+	 * <p><b>Limitation:</b> pouches don't expose a per-slot type varbit the way
+	 * the rune pouch does, and the essence-type encoding (pure vs regular vs
+	 * daeyalt) is not currently confirmed in-client, so all pouch contents are
+	 * priced as pure essence ({@link ItemID#BLANKRUNE_HIGH}) regardless of what
+	 * is actually stored. This keeps the common case (pure essence, which is
+	 * what most players store and what nearly all pouches hold post-Priff)
+	 * correct and empty-neutral; a pouch filled with regular or daeyalt essence
+	 * may not net perfectly neutral on empty until the type varbit is confirmed
+	 * and this is refined to price per-slot like the rune pouch does.
+	 */
+	private long accumulateEssencePouches(Map<Integer, ItemStack> tracked, Map<Integer, ItemStack> allHoldings)
+	{
+		long total = 0L;
+		for (EssencePouch pouch : EssencePouch.values())
+		{
+			int amount = client.getVarbitValue(pouch.amountVarbit());
+			if (amount <= 0)
+			{
+				continue;
+			}
+
+			int canonicalId = valuation.canonical(ItemID.BLANKRUNE_HIGH);
+			long unit = valuation.unitValue(ItemID.BLANKRUNE_HIGH);
+			String name = valuation.name(ItemID.BLANKRUNE_HIGH);
 
 			total += unit * amount;
 			mergeItem(tracked, canonicalId, name, amount, unit);
