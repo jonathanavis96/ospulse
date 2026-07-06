@@ -1,5 +1,6 @@
 package com.ospulse.session;
 
+import com.ospulse.ge.GeAttributions;
 import com.ospulse.ge.GeOfferState;
 import com.ospulse.ge.GeReconciler;
 import com.ospulse.model.ItemStack;
@@ -8,6 +9,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -2405,5 +2407,20 @@ public class SessionEngineTest
 
 		assertEquals(3_000L, engine.snapshot(chopped, ge.realizedPnl(),
 			Collections.emptyMap(), 0L, 1000L).getLootValue());
+	}
+
+	@Test
+	public void signalledUpdateWithNoSignalsMatchesLegacyLoot()
+	{
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		Map<Integer, ItemStack> tracked = new HashMap<>();
+		tracked.put(DRAGON_BONES, new ItemStack(DRAGON_BONES, "Dragon bones", 100L, 10_000L));
+		WealthSnapshot current = snap(11_000_000L, tracked, 0L, false, 1000L);
+		engine.update(current, (GeAttributions) null, MovementSignals.NONE, 1000L);
+
+		SessionSnapshot s = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals(1_000_000L, s.getLootValue());
 	}
 }

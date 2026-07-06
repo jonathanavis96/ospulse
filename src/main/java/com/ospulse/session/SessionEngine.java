@@ -1092,6 +1092,18 @@ public final class SessionEngine
 	 */
 	public void update(WealthSnapshot current, GeAttributions ge, long tsMs)
 	{
+		update(current, ge, MovementSignals.NONE, tsMs);
+	}
+
+	/**
+	 * As {@link #update(WealthSnapshot, GeAttributions, long)}, additionally
+	 * fed explicit per-tick item-movement signals ({@code signals}) that
+	 * disambiguate deliberate player actions (drops, destroys, death) from
+	 * other inventory swings. Unused until a later task wires signal-aware
+	 * classification through the method body.
+	 */
+	public void update(WealthSnapshot current, GeAttributions ge, MovementSignals signals, long tsMs)
+	{
 		if (ge != null)
 		{
 			for (com.ospulse.ge.LootSale sale : ge.drainLootSales())
