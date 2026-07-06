@@ -24,7 +24,6 @@ public class SessionEngineTest
 	private static final int RUNE_ITEM = 561;
 	private static final int RUNE_SQ_SHIELD = 1201;
 	private static final int BIRD_NEST = 5075;
-	private static final int PRAYER_POT = 2434;
 	private static final int BARLEY_SEED = 5305;
 
 	private SessionEngine engine;
@@ -2548,10 +2547,10 @@ public class SessionEngineTest
 		engine.startSession(initial, 0L);
 
 		// Pre-owned prayer potions present, then dropped (NOT drunk).
-		Map<Integer, ItemStack> owned = items(new ItemStack(PRAYER_POT, "Prayer potion(4)", 3L, 9_000L));
+		Map<Integer, ItemStack> owned = items(new ItemStack(PRAYER_POTION, "Prayer potion(4)", 3L, 9_000L));
 		engine.update(snap(10_000_000L, owned, 0L, false, 1000L), Collections.emptySet(), 1000L);
 
-		MovementSignals dropped = MovementSignals.builder().dropped(PRAYER_POT).build();
+		MovementSignals dropped = MovementSignals.builder().dropped(PRAYER_POTION).build();
 		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L),
 			(GeAttributions) null, dropped, 2000L);
 

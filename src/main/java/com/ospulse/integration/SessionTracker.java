@@ -354,6 +354,9 @@ public class SessionTracker implements SessionService
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
 		geReconciler.reset();
+		// Drop any signals accumulated in the tick preceding this reset so they
+		// don't leak into the fresh session's first #refresh.
+		pendingSignals = MovementSignals.builder();
 		primeGeOffers();
 		WealthSnapshot current = buildWealth(ts);
 		engine.startSession(current, ts);
@@ -396,6 +399,8 @@ public class SessionTracker implements SessionService
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
 		geReconciler.reset();
+		// Start the fresh session with an empty signal builder (see #refresh).
+		pendingSignals = MovementSignals.builder();
 		primeGeOffers();
 		WealthSnapshot initial = buildWealth(ts);
 		engine.startSession(initial, ts);
