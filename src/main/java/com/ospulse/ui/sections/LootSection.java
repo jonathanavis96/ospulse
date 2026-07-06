@@ -17,21 +17,23 @@ import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.overlay.OverlayManager;
 
+import javax.swing.JButton;
 import javax.swing.JLabel;
-import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.OverlayLayout;
 import javax.swing.SwingConstants;
 import javax.swing.border.EmptyBorder;
-import javax.swing.event.MenuEvent;
-import javax.swing.event.MenuListener;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Graphics;
 import java.awt.GridLayout;
+import java.awt.Insets;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -89,6 +91,21 @@ public final class LootSection extends CollapsibleSection
 	 * LootHiddenState} javadoc.
 	 */
 	private final LootHiddenState hiddenState = new LootHiddenState();
+
+	/**
+	 * Whether the grayed "hidden items" tray is revealed at the bottom of the
+	 * feed. Toggled by a source menu's "View hidden items" — a clickable toggle
+	 * rather than a submenu list, so restoring an item is a single ✕ click on
+	 * its grayed icon.
+	 */
+	private boolean showHiddenTray = false;
+	/**
+	 * Signature of the last rendered feed. A matching signature short-circuits
+	 * {@link #rebuild} so an idle snapshot (identical loot) doesn't tear down
+	 * and recreate every cell under the mouse — which previously made a hovered
+	 * tooltip flicker/regenerate and often fail to appear at all.
+	 */
+	private String lastRenderSignature = null;
 
 	private long total;
 
@@ -170,21 +187,43 @@ public final class LootSection extends CollapsibleSection
 		return List.of(new CategoryOverlay.Line("Value", GpFormat.format(src.getTotalValue())));
 	}
 
+	/** One source's resolved display model for a render pass (post source/item hides). */
+	private static final class DisplaySource
+	{
+		final SourceLoot src;
+		final long shownValue;
+		final boolean collapsed;
+
+		DisplaySource(SourceLoot src, long shownValue, boolean collapsed)
+		{
+			this.src = src;
+			this.shownValue = shownValue;
+			this.collapsed = collapsed;
+		}
+	}
+
 	private void rebuild(List<SourceLoot> sources)
 	{
 		lastLootSources = sources == null ? List.of() : sources;
-		lootListPanel.removeAll();
 
-		// Build the display list: paused sources are frozen at their
-		// last-seen figures (not the just-applied live ones); reset sources
-		// are hidden entirely until they next appear with a genuinely new
-		// pickup (handled naturally since hiddenSources is keyed by id and
-		// cleared only by unpausing / the source reappearing after a client
-		// restart clears in-memory state).
-		List<SourceLoot> display = new ArrayList<>();
+		// Tolerate a null config the same way the pre-two-pass render did (it
+		// only read config inside the non-empty branch) — some section tests
+		// construct the feed without one.
+		int minLootValue = config != null ? config.minLootValue() : 0;
+
+		// ---- Pass 1: resolve the display model + a render signature WITHOUT
+		// touching Swing. Paused sources are frozen at their last-seen figures;
+		// reset/manually-hidden sources are dropped. Per-item "Hide item" hides
+		// are subtracted from BOTH the grid and the value, so hiding an item
+		// recalculates the loot value rather than only removing its icon.
+		List<DisplaySource> display = new ArrayList<>();
+		long newTotal = 0L;
+		StringBuilder sig = new StringBuilder("min=").append(minLootValue)
+			.append(";tray=").append(showHiddenTray).append(';');
 		for (SourceLoot src : lastLootSources)
 		{
-			String catId = categoryId(src.getSource());
+			String source = src.getSource();
+			String catId = categoryId(source);
 			if (hiddenSources.contains(catId) || hiddenState.isSourceHidden(catId))
 			{
 				continue;
@@ -192,27 +231,68 @@ public final class LootSection extends CollapsibleSection
 			SourceLoot toShow = categorySupport.controller().isPaused(catId)
 				? lastSeenBySource.getOrDefault(catId, src)
 				: src;
-			display.add(toShow);
-		}
 
-		total = 0L;
-		for (SourceLoot src : display)
+			long hiddenValue = 0L;
+			for (ItemStack item : toShow.getItems())
+			{
+				if (hiddenState.isItemFiltered(item))
+				{
+					hiddenValue += item.value();
+				}
+			}
+			long shownValue = toShow.getTotalValue() - hiddenValue;
+			boolean collapsed = collapsedSources.contains(source);
+
+			display.add(new DisplaySource(toShow, shownValue, collapsed));
+			newTotal += shownValue;
+
+			sig.append(source).append('#').append(toShow.getCount())
+				.append('|').append(shownValue).append('|').append(collapsed ? 'C' : 'E').append('|');
+			if (!collapsed)
+			{
+				for (ItemStack item : toShow.getItems())
+				{
+					if (item.value() < minLootValue || hiddenState.isItemFiltered(item))
+					{
+						continue;
+					}
+					sig.append(item.getId()).append('x').append(item.getQuantity())
+						.append('=').append(item.value()).append(',');
+				}
+			}
+			sig.append(';');
+		}
+		if (showHiddenTray)
 		{
-			total += src.getTotalValue();
+			sig.append("hiddenItems=").append(hiddenState.hiddenItems().keySet())
+				.append(";hiddenSrc=").append(hiddenState.hiddenSources().keySet());
 		}
-		totalValue.setText(GpFormat.format(total));
 
-		if (display.isEmpty())
+		// ---- Short-circuit: nothing visible changed, so leave the existing
+		// components (and any hovered tooltip) exactly as they are.
+		String signature = sig.toString();
+		if (signature.equals(lastRenderSignature))
+		{
+			return;
+		}
+		lastRenderSignature = signature;
+
+		// ---- Pass 2: render.
+		total = newTotal;
+		totalValue.setText(GpFormat.format(total));
+		lootListPanel.removeAll();
+
+		boolean trayHasContent = showHiddenTray && !hiddenState.isEmpty();
+		if (display.isEmpty() && !trayHasContent)
 		{
 			lootListPanel.add(PanelWidgets.emptyRowLabel("No loot yet."));
 		}
 		else
 		{
-			int minLootValue = config.minLootValue();
-			for (SourceLoot src : display)
+			for (DisplaySource ds : display)
 			{
-				lootListPanel.add(sourceHeaderRow(src));
-				if (collapsedSources.contains(src.getSource()))
+				lootListPanel.add(sourceHeaderRow(ds.src, ds.shownValue));
+				if (ds.collapsed)
 				{
 					continue;
 				}
@@ -222,13 +302,9 @@ public final class LootSection extends CollapsibleSection
 				grid.setAlignmentX(Component.LEFT_ALIGNMENT);
 
 				int shown = 0;
-				for (ItemStack item : src.getItems())
+				for (ItemStack item : ds.src.getItems())
 				{
-					if (item.value() < minLootValue)
-					{
-						continue;
-					}
-					if (hiddenState.isItemFiltered(item))
+					if (item.value() < minLootValue || hiddenState.isItemFiltered(item))
 					{
 						continue;
 					}
@@ -247,6 +323,11 @@ public final class LootSection extends CollapsibleSection
 					grid.setMaximumSize(new Dimension(Integer.MAX_VALUE, grid.getPreferredSize().height));
 					lootListPanel.add(grid);
 				}
+			}
+
+			if (showHiddenTray)
+			{
+				appendHiddenTray();
 			}
 		}
 
@@ -318,7 +399,7 @@ public final class LootSection extends CollapsibleSection
 	 * A clickable collapsible header for one loot source, e.g.
 	 * "▾ Cerberus x206 … 24m". Clicking toggles the source's expanded state.
 	 */
-	private JPanel sourceHeaderRow(SourceLoot src)
+	private JPanel sourceHeaderRow(SourceLoot src, long shownValue)
 	{
 		boolean collapsed = collapsedSources.contains(src.getSource());
 		String triangle = collapsed ? "▸" : "▾";
@@ -335,7 +416,8 @@ public final class LootSection extends CollapsibleSection
 		leftLabel.setForeground(ColorScheme.BRAND_ORANGE);
 		leftLabel.setFont(FontManager.getRunescapeSmallFont());
 
-		JLabel rightLabel = new JLabel(GpFormat.format(src.getTotalValue()));
+		// Value shown excludes any per-item "Hide item" hides in this source.
+		JLabel rightLabel = new JLabel(GpFormat.format(shownValue));
 		rightLabel.setForeground(Color.WHITE);
 		rightLabel.setFont(FontManager.getRunescapeSmallFont());
 		rightLabel.setHorizontalAlignment(SwingConstants.RIGHT);
@@ -399,30 +481,14 @@ public final class LootSection extends CollapsibleSection
 		reset.addActionListener(e -> categorySupport.controller().reset(catId, System.currentTimeMillis()));
 		menu.add(reset);
 
-		// A nested submenu rather than a JMenuItem-that-opens-a-second-popup:
-		// clicking a JMenuItem dismisses its parent popup *before* its action
-		// fires, so anchoring a fresh popup to the (now un-showing) item threw
-		// from getLocationOnScreen and nothing appeared. A JMenu cascades
-		// natively and is repopulated lazily on open so it always reflects the
-		// current hidden set.
-		JMenu viewHidden = new JMenu("View hidden items");
-		viewHidden.addMenuListener(new MenuListener()
+		// A clickable toggle (not a submenu list): reveals/hides the grayed
+		// "hidden items" tray at the bottom of the feed, where each hidden item
+		// is a grayed icon carrying a ✕ that adds it straight back to the feed.
+		JMenuItem viewHidden = new JMenuItem(showHiddenTray ? "Hide hidden items" : "View hidden items");
+		viewHidden.addActionListener(e ->
 		{
-			@Override
-			public void menuSelected(MenuEvent e)
-			{
-				populateHiddenItemsSubmenu(viewHidden);
-			}
-
-			@Override
-			public void menuDeselected(MenuEvent e)
-			{
-			}
-
-			@Override
-			public void menuCanceled(MenuEvent e)
-			{
-			}
+			showHiddenTray = !showHiddenTray;
+			applyResetsThenRebuild();
 		});
 		menu.add(viewHidden);
 
@@ -455,54 +521,164 @@ public final class LootSection extends CollapsibleSection
 		return menu;
 	}
 
-	/**
-	 * (Re)fills the "View hidden items" submenu with one "Unhide" action per
-	 * currently-hidden item and manually-hidden source (or a disabled "Nothing
-	 * hidden." placeholder). Called lazily each time the submenu opens so it
-	 * always reflects the live hidden set. Item names are taken from {@link
-	 * LootHiddenState}'s retained last-seen names rather than re-resolved via
-	 * {@code ItemManager#getItemComposition} (which asserts the client thread -
-	 * see the warning in {@link #iconCell}).
-	 */
-	private void populateHiddenItemsSubmenu(JMenu menu)
-	{
-		menu.removeAll();
+	/** RuneLite item sprite footprint; the grayed tray cells are sized to it. */
+	private static final int ITEM_SPRITE_W = 36;
+	private static final int ITEM_SPRITE_H = 32;
 
-		if (hiddenState.isEmpty())
+	/**
+	 * Appends the grayed "hidden items" tray to the bottom of the feed: one
+	 * grayed icon per "Hide item" hide (a top-right ✕ adds it straight back to
+	 * the feed) plus a ✕ chip per "Hide loot" source hide. Shown only while
+	 * {@link #showHiddenTray} is on (toggled from a source's "View hidden
+	 * items"). Item names are the retained last-seen names from {@link
+	 * LootHiddenState} — never re-resolved via {@code
+	 * ItemManager#getItemComposition}, which asserts the client thread (see the
+	 * warning in {@link #iconCell}).
+	 */
+	private void appendHiddenTray()
+	{
+		JLabel heading = PanelWidgets.emptyRowLabel("Hidden items");
+		heading.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		heading.setToolTipText("Items hidden from the feed — click a ✕ to add one back");
+		heading.setBorder(new EmptyBorder(4, 0, 1, 0));
+		lootListPanel.add(heading);
+
+		Map<Integer, String> items = hiddenState.hiddenItems();
+		Map<String, String> srcs = hiddenState.hiddenSources();
+		if (items.isEmpty() && srcs.isEmpty())
 		{
-			JMenuItem none = new JMenuItem("Nothing hidden.");
-			none.setEnabled(false);
-			menu.add(none);
+			lootListPanel.add(PanelWidgets.emptyRowLabel("Nothing hidden."));
+			return;
 		}
-		else
+
+		if (!items.isEmpty())
 		{
-			for (Map.Entry<Integer, String> entry : hiddenState.hiddenItems().entrySet())
+			JPanel grid = new JPanel(new GridLayout(0, ICON_GRID_COLUMNS, 2, 2));
+			grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+			for (Map.Entry<Integer, String> entry : items.entrySet())
 			{
 				int itemId = entry.getKey();
 				String name = entry.getValue() == null || entry.getValue().isEmpty()
 					? ("Item #" + itemId) : entry.getValue();
-				JMenuItem unhide = new JMenuItem("Unhide item: " + name);
-				unhide.addActionListener(e ->
-				{
-					hiddenState.unhideItem(itemId);
-					applyResetsThenRebuild();
-				});
-				menu.add(unhide);
+				grid.add(buildHiddenItemCell(itemId, name));
 			}
-
-			for (Map.Entry<String, String> entry : hiddenState.hiddenSources().entrySet())
-			{
-				String catId = entry.getKey();
-				String name = entry.getValue();
-				JMenuItem unhide = new JMenuItem("Unhide loot: " + name);
-				unhide.addActionListener(e ->
-				{
-					hiddenState.unhideSource(catId);
-					applyResetsThenRebuild();
-				});
-				menu.add(unhide);
-			}
+			grid.setMaximumSize(new Dimension(Integer.MAX_VALUE, grid.getPreferredSize().height));
+			lootListPanel.add(grid);
 		}
+
+		for (Map.Entry<String, String> entry : srcs.entrySet())
+		{
+			lootListPanel.add(buildHiddenSourceChip(entry.getKey(), entry.getValue()));
+		}
+	}
+
+	/**
+	 * One grayed icon cell for the hidden-items tray: the item sprite dimmed by
+	 * a translucent overlay (marking it removed from the feed) with a small ✕
+	 * pinned top-right (via {@link OverlayLayout}) that un-hides it. Mirrors the
+	 * excluded-gear viewer's cell in {@code GearSection}.
+	 */
+	private JPanel buildHiddenItemCell(int itemId, String name)
+	{
+		JLabel icon = new JLabel();
+		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		icon.setVerticalAlignment(SwingConstants.CENTER);
+		icon.setAlignmentX(0.5f);
+		icon.setAlignmentY(0.5f);
+		if (itemManager != null && itemId > 0)
+		{
+			itemManager.getImage(itemId, 1, false).addTo(icon);
+		}
+
+		// A translucent gray panel the size of the sprite, painted over it so
+		// the hidden item reads as grayed-out regardless of async image load.
+		JPanel dim = new JPanel()
+		{
+			@Override
+			protected void paintComponent(Graphics g)
+			{
+				g.setColor(new Color(30, 30, 30, 150));
+				g.fillRect(0, 0, getWidth(), getHeight());
+			}
+		};
+		dim.setOpaque(false);
+		dim.setAlignmentX(0.5f);
+		dim.setAlignmentY(0.5f);
+		dim.setPreferredSize(new Dimension(ITEM_SPRITE_W, ITEM_SPRITE_H));
+		dim.setMaximumSize(new Dimension(ITEM_SPRITE_W, ITEM_SPRITE_H));
+
+		JButton restore = new JButton("✕");
+		restore.setFont(FontManager.getRunescapeSmallFont());
+		restore.setFocusPainted(false);
+		restore.setBorder(null);
+		restore.setMargin(new Insets(0, 0, 0, 0));
+		restore.setContentAreaFilled(false);
+		restore.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
+		restore.setToolTipText("Add " + name + " back to the loot feed");
+		restore.addActionListener(e ->
+		{
+			hiddenState.unhideItem(itemId);
+			applyResetsThenRebuild();
+		});
+
+		JPanel topRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+		topRight.setOpaque(false);
+		topRight.add(restore);
+
+		JPanel overlay = new JPanel(new BorderLayout());
+		overlay.setOpaque(false);
+		overlay.setAlignmentX(0.5f);
+		overlay.setAlignmentY(0.5f);
+		overlay.setPreferredSize(new Dimension(ITEM_SPRITE_W, ITEM_SPRITE_H));
+		overlay.setMaximumSize(new Dimension(ITEM_SPRITE_W, ITEM_SPRITE_H));
+		overlay.setToolTipText(name + " — hidden from the loot feed");
+		overlay.add(topRight, BorderLayout.NORTH);
+
+		JPanel cell = new JPanel();
+		cell.setLayout(new OverlayLayout(cell));
+		cell.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		// Added front-to-back: ✕ overlay on top, dim over the icon, sprite below.
+		cell.add(overlay);
+		cell.add(dim);
+		cell.add(icon);
+		return cell;
+	}
+
+	/**
+	 * A single ✕ chip for a whole hidden loot source ("Hide loot"), restoring
+	 * the entire source to the feed on click. Sources have no single icon, so
+	 * they render as a grayed name row rather than an icon cell.
+	 */
+	private JPanel buildHiddenSourceChip(String catId, String name)
+	{
+		JPanel chip = new JPanel(new BorderLayout(4, 0));
+		chip.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		chip.setBorder(new EmptyBorder(1, 0, 1, 0));
+		chip.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		JLabel label = new JLabel(name);
+		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		label.setFont(FontManager.getRunescapeSmallFont());
+
+		JButton restore = new JButton("✕");
+		restore.setFont(FontManager.getRunescapeSmallFont());
+		restore.setFocusPainted(false);
+		restore.setBorder(null);
+		restore.setMargin(new Insets(0, 0, 0, 0));
+		restore.setContentAreaFilled(false);
+		restore.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
+		restore.setToolTipText("Add the " + name + " loot back to the feed");
+		restore.addActionListener(e ->
+		{
+			hiddenState.unhideSource(catId);
+			applyResetsThenRebuild();
+		});
+
+		chip.add(label, BorderLayout.CENTER);
+		chip.add(restore, BorderLayout.EAST);
+		chip.setMaximumSize(new Dimension(Integer.MAX_VALUE, chip.getPreferredSize().height));
+		return chip;
 	}
 
 	/**
@@ -537,6 +713,8 @@ public final class LootSection extends CollapsibleSection
 		lastSeenBySource.clear();
 		lastSeenEpoch.clear();
 		hiddenState.clear();
+		showHiddenTray = false;
+		lastRenderSignature = null;
 		total = 0;
 		categorySupport.clearAll();
 		rebuild(List.of());
