@@ -1918,6 +1918,86 @@ public class SessionEngineTest
 		assertEquals("genuine loot beyond the window counts as profit", 4_000L, result.getLootValue());
 	}
 
+	// ------------------------------------------- dropping looted items lowers Loot
+
+	@Test
+	public void droppingALootedItemRemovesItFromLoot()
+	{
+		// A single looted item dropped and left on the ground (the player walks
+		// away, well beyond the 600ms transient window) is no longer held, so
+		// the bottom-up Loot must fall back by its value. Mirrors the live
+		// report: a 27k rune sq shield dropped for space then abandoned.
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		Map<Integer, ItemStack> looted = new LinkedHashMap<>();
+		looted.put(RUNE_SQ_SHIELD, new ItemStack(RUNE_SQ_SHIELD, "Rune sq shield", 1L, 27_000L));
+		engine.update(snap(10_027_000L, looted, 0L, false, 1_000L), Collections.emptySet(), 1_000L);
+		assertEquals(27_000L,
+			engine.snapshot(snap(10_027_000L, looted, 0L, false, 1_000L), 0L,
+				Collections.emptyMap(), 0L, 1_000L).getLootValue());
+
+		// Dropped a few seconds later and abandoned.
+		WealthSnapshot afterDrop = snap(10_000_000L, Collections.emptyMap(), 0L, false, 5_000L);
+		engine.update(afterDrop, Collections.emptySet(), 5_000L);
+
+		SessionSnapshot result = engine.snapshot(afterDrop, 0L, Collections.emptyMap(), 0L, 5_000L);
+		assertEquals("dropping a looted item removes its value from Loot",
+			0L, result.getLootValue());
+	}
+
+	@Test
+	public void droppingThenRepickingALootedItemNetsToTheOriginalLoot()
+	{
+		// Dropping a looted item for space and picking it back up (within the
+		// 30-min return window) must net to zero: Loot returns to the original
+		// value, never doubled. This is the exact live scenario — drop a single
+		// item, stand ~2s, pick it up — that previously inflated Loot.
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		Map<Integer, ItemStack> looted = new LinkedHashMap<>();
+		looted.put(RUNE_SQ_SHIELD, new ItemStack(RUNE_SQ_SHIELD, "Rune sq shield", 1L, 27_000L));
+		engine.update(snap(10_027_000L, looted, 0L, false, 1_000L), Collections.emptySet(), 1_000L);
+
+		// Dropped...
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 3_000L),
+			Collections.emptySet(), 3_000L);
+
+		// ...and picked back up two seconds later.
+		WealthSnapshot afterRepick = snap(10_027_000L, looted, 0L, false, 5_000L);
+		engine.update(afterRepick, Collections.emptySet(), 5_000L);
+
+		SessionSnapshot result = engine.snapshot(afterRepick, 0L, Collections.emptyMap(), 0L, 5_000L);
+		assertEquals("drop then re-pickup of looted item nets to the original Loot",
+			27_000L, result.getLootValue());
+	}
+
+	@Test
+	public void droppingThenRepickingAPreOwnedItemNeverCountsAsLoot()
+	{
+		// An item never looted this session (withdrawn from the bank / owned at
+		// session start) that is dropped and re-picked must stay out of Loot
+		// entirely — the re-pickup is not fresh loot, and the drop cannot push
+		// Loot below zero.
+		Map<Integer, ItemStack> owned = new LinkedHashMap<>();
+		owned.put(RUNE_SQ_SHIELD, new ItemStack(RUNE_SQ_SHIELD, "Rune sq shield", 1L, 27_000L));
+		WealthSnapshot initial = snap(10_027_000L, owned, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Dropped...
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 3_000L),
+			Collections.emptySet(), 3_000L);
+
+		// ...and picked back up.
+		WealthSnapshot afterRepick = snap(10_027_000L, owned, 0L, false, 5_000L);
+		engine.update(afterRepick, Collections.emptySet(), 5_000L);
+
+		SessionSnapshot result = engine.snapshot(afterRepick, 0L, Collections.emptyMap(), 0L, 5_000L);
+		assertEquals("re-picking a never-looted item is not loot",
+			0L, result.getLootValue());
+	}
+
 	@Test
 	public void suppliesUsedResetsOnNewSession()
 	{

@@ -40,20 +40,23 @@ public final class LootLedger
 	}
 
 	/**
-	 * Reverses {@code quantity} units of previously recorded loot (an
-	 * equip-transient / returned-stack reversal), removing value at the current
-	 * average and dropping the entry once empty.
+	 * Reverses up to {@code quantity} units of previously recorded loot (a drop,
+	 * equip-transient, or returned-stack reversal), removing value at the current
+	 * average and dropping the entry once empty. Returns the quantity actually
+	 * reversed — 0 if none of it was held as loot (e.g. dropping a never-looted,
+	 * pre-owned item) — so a caller can restore exactly that much if the units
+	 * legitimately return.
 	 */
-	public void reverseLoot(int itemId, long quantity)
+	public long reverseLoot(int itemId, long quantity)
 	{
 		if (quantity <= 0)
 		{
-			return;
+			return 0L;
 		}
 		Held h = held.get(itemId);
 		if (h == null || h.quantity <= 0)
 		{
-			return;
+			return 0L;
 		}
 		long remove = Math.min(quantity, h.quantity);
 		long removeValue = Math.round((double) h.value * remove / h.quantity);
@@ -63,6 +66,7 @@ public final class LootLedger
 		{
 			held.remove(itemId);
 		}
+		return remove;
 	}
 
 	/**

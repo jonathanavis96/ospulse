@@ -9,3 +9,9 @@ nb-configuration.xml
 nbproject/
 # graphify generated code graph (regenerable via: graphify update .)
 graphify-out/
+
+# Local design/planning docs — kept OUT of the public AI-free history
+docs/
+
+# SDD scratch
+.superpowers/

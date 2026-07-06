@@ -281,6 +281,14 @@ public final class SessionEngine
 		final boolean fullSwing;
 		/** Vanish side: {@link #recordSupplyConsumed} was applied and must be undone. */
 		final boolean suppliesCharged;
+		/**
+		 * Vanish side: loot units the {@link #lootLedger} actually reversed when
+		 * this stack dropped out (0 for a never-looted, pre-owned stack). If the
+		 * stack legitimately returns, exactly this much loot is restored so a
+		 * drop/re-pickup round trip nets to zero without re-counting pre-owned
+		 * items. Decremented as returns consume it.
+		 */
+		long reversedLootQty;
 		/** Cost-basis state just before the swing, to restore on full reversal. */
 		final boolean hadBasis;
 		final long basisQuantity;
@@ -1363,8 +1371,26 @@ public final class SessionEngine
 					}
 					else
 					{
-						logAttribution(a.itemId, a.name, reversedQty, reversedQty * p.unitValue,
-							"REVERSAL-NET(transient/returned stack, guarded from loot)");
+						// The stack returned. If its drop had retracted looted
+						// value, restore exactly that much so a drop/re-pickup
+						// nets to zero; a pre-owned stack reversed nothing, so it
+						// stays guarded from loot (never counted).
+						long restoreQty = Math.min(reversedQty, p.reversedLootQty);
+						if (restoreQty > 0)
+						{
+							long restoreValue = restoreQty * p.unitValue;
+							addLoot(new LootEntry(a.itemId, a.name, restoreQty, restoreValue, tsMs));
+							lootLedger.recordLoot(a.itemId, restoreQty, p.unitValue);
+							p.reversedLootQty -= restoreQty;
+							logAttribution(a.itemId, a.name, restoreQty, restoreValue,
+								"REVERSAL-NET(returned stack, restored to Loot)");
+						}
+						if (restoreQty < reversedQty)
+						{
+							logAttribution(a.itemId, a.name, reversedQty - restoreQty,
+								(reversedQty - restoreQty) * p.unitValue,
+								"REVERSAL-NET(transient/returned stack, guarded from loot)");
+						}
 					}
 					a.quantity -= reversedQty;
 					p.quantity -= reversedQty;
@@ -1456,6 +1482,7 @@ public final class SessionEngine
 			if (v.quantity > 0)
 			{
 				boolean charge = v.consumable;
+				long reversedLootQty = 0L;
 				if (charge)
 				{
 					long consumedValue = v.quantity * v.unitValue;
@@ -1465,13 +1492,26 @@ public final class SessionEngine
 				}
 				else
 				{
+					// A non-consumable stack leaving tracked wealth is a drop (or
+					// other loss). If any of it was looted this session, it is no
+					// longer held, so retract that value from Loot; a never-looted
+					// stack reverses nothing (floored at zero). The reversed
+					// quantity is remembered so a re-pickup within the return
+					// window restores exactly this much and the round trip nets.
+					reversedLootQty = lootLedger.reverseLoot(v.itemId, v.quantity);
+					if (reversedLootQty > 0)
+					{
+						retractLoot(v.itemId, reversedLootQty, reversedLootQty * v.unitValue);
+					}
 					logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue,
-						"VANISH(untracked, not booked as supply or loot)");
+						"VANISH(drop; " + reversedLootQty + " looted units removed from Loot)");
 				}
 				// Remember ALL surviving vanishes (consumable or not) so a
 				// reappearance next update is netted instead of read as loot.
-				newPendingVanished.add(new PendingSwing(v.itemId, v.quantity, v.unitValue,
-					v.fullSwing, charge, v.hadBasis, v.basisQuantity, v.basisTotalCost, tsMs));
+				PendingSwing pending = new PendingSwing(v.itemId, v.quantity, v.unitValue,
+					v.fullSwing, charge, v.hadBasis, v.basisQuantity, v.basisTotalCost, tsMs);
+				pending.reversedLootQty = reversedLootQty;
+				newPendingVanished.add(pending);
 			}
 		}
 
