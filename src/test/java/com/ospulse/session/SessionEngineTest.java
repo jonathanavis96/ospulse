@@ -2854,4 +2854,97 @@ public class SessionEngineTest
 			beforeDeposit.getNetWorthDelta(), afterDepositSnap.getNetWorthDelta());
 		assertEquals("Loot unchanged by the bank deposit", 80_000L, afterDepositSnap.getLootValue());
 	}
+
+	@Test
+	public void depositBoxSackEmptyTruesUpStoredLootAtNextBankOpen()
+	{
+		// I-1: emptying a storage sack into a DEPOSIT BOX happens with the bank
+		// CLOSED, so the bank-side rise is only observed at the NEXT bank open —
+		// via setBankOpen's own reconcile, before bankOpen turns true. That rise
+		// must still true up the stored-loot ledger; otherwise the stale ledger
+		// later eats genuine in-inventory loot of the same item (permanent
+		// undercount) and the rise is written off into startNetWorth.
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+
+		// Establish a known bank value (anchor 20M), then close.
+		WealthSnapshot atOpen = snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 100L);
+		engine.setBankOpen(true, atOpen, 100L);
+		engine.snapshot(atOpen, 0L, Collections.emptyMap(), 0L, 100L);
+		engine.setBankOpen(false, snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 200L), 200L);
+
+		// 10 ranarr looted straight into the herb sack (+80k Loot, held in the ledger).
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 1_000L),
+			(GeAttributions) null,
+			MovementSignals.builder().lootReceived(new LootReceipt(RANARR, 10L, 8_000L)).build(), 1_000L);
+
+		// Sack emptied into a deposit box: nothing observable while the bank is
+		// closed. The +80k bank reading first arrives at the next open, well
+		// beyond the post-close grace window.
+		WealthSnapshot nextOpen = snap(10_000_000L, Collections.emptyMap(), 20_080_000L, true, 60_000L);
+		engine.setBankOpen(true, nextOpen, 60_000L);
+		engine.setBankOpen(false, snap(10_000_000L, Collections.emptyMap(), 20_080_000L, true, 60_100L), 60_100L);
+
+		// Later, GENUINE ranarr loot lands in the inventory. The ledger must be
+		// empty by now — this is fresh loot, not a storage-empty to net out.
+		Map<Integer, ItemStack> inv = items(new ItemStack(RANARR, "Grimy ranarr", 10L, 8_000L));
+		WealthSnapshot afterLoot = snap(10_080_000L, inv, 20_080_000L, true, 70_000L);
+		engine.update(afterLoot, Collections.emptySet(), 70_000L);
+
+		SessionSnapshot s = engine.snapshot(afterLoot, 0L, Collections.emptyMap(), 0L, 70_000L);
+		assertEquals("genuine loot after a deposit-box sack-empty must not be eaten by the stale ledger",
+			160_000L, s.getLootValue());
+		assertEquals("net profit counts both the sack loot and the genuine loot",
+			160_000L, s.getNetProfit());
+		assertEquals("net worth rose by both loot events",
+			160_000L, s.getNetWorthDelta());
+	}
+
+	@Test
+	public void unrelatedDepositsDoNotDrainStoredLootLedger()
+	{
+		// I-2: while stored loot is outstanding, bank rises already explained by
+		// something else — a settling in-flight deposit (lagged bank reading) or
+		// a same-observation tracked drop (live deposit) — must NOT drain the
+		// stored-loot ledger. If they do, a later sack-empty to the inventory
+		// finds an empty ledger and re-books the herbs as fresh loot (permanent
+		// profit overstatement).
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+
+		// 10 ranarr looted into the herb sack (+80k Loot, held in the ledger).
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1_000L),
+			(GeAttributions) null,
+			MovementSignals.builder().lootReceived(new LootReceipt(RANARR, 10L, 8_000L)).build(), 1_000L);
+
+		WealthSnapshot atOpen = snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 2_000L);
+		engine.setBankOpen(true, atOpen, 2_000L);
+		engine.snapshot(atOpen, 0L, Collections.emptyMap(), 0L, 2_000L);
+
+		// Unrelated 100k deposit whose bank reading LAGS one observation: the
+		// tracked drop is held as an in-flight expectation, and the bank rise
+		// that settles it must not touch the stored-loot ledger.
+		engine.update(snap(9_900_000L, Collections.emptyMap(), 20_000_000L, true, 3_000L),
+			Collections.emptySet(), 3_000L);
+		engine.update(snap(9_900_000L, Collections.emptyMap(), 20_100_000L, true, 4_000L),
+			Collections.emptySet(), 4_000L);
+
+		// Second unrelated 100k deposit, both halves in the SAME observation:
+		// the rise is explained by the tracked drop, not by the sack.
+		engine.update(snap(9_800_000L, Collections.emptyMap(), 20_200_000L, true, 5_000L),
+			Collections.emptySet(), 5_000L);
+
+		engine.setBankOpen(false, snap(9_800_000L, Collections.emptyMap(), 20_200_000L, true, 6_000L), 6_000L);
+
+		// Empty the sack to the INVENTORY while the bank is closed: the ledger
+		// still holds the 10 ranarr, so this nets out — booked once, at receipt.
+		Map<Integer, ItemStack> inv = items(new ItemStack(RANARR, "Grimy ranarr", 10L, 8_000L));
+		WealthSnapshot afterEmpty = snap(9_880_000L, inv, 20_200_000L, true, 20_000L);
+		engine.update(afterEmpty, Collections.emptySet(), 20_000L);
+
+		SessionSnapshot s = engine.snapshot(afterEmpty, 0L, Collections.emptyMap(), 0L, 20_000L);
+		assertEquals("sack contents are booked as loot exactly once", 80_000L, s.getLootValue());
+		assertEquals("net profit must not be overstated by re-booked sack loot",
+			80_000L, s.getNetProfit());
+		assertEquals("net worth delta reflects only the 80k sack loot",
+			80_000L, s.getNetWorthDelta());
+	}
 }

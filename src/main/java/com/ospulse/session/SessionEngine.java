@@ -223,6 +223,17 @@ public final class SessionEngine
 	 * net worth like any other owned-but-untracked holding.
 	 */
 	private final Map<Integer, StoredLoot> storedLoot = new LinkedHashMap<>();
+	/**
+	 * How much of the bank rise most recently classified by
+	 * {@link #reconcileBankMovement} was consumed settling in-flight deposit
+	 * expectations ({@link #pendingBankSettles}). Reset on every reconcile.
+	 * Read by the open-bank branch of {@link #update} so the stored-loot
+	 * true-up only consumes the genuinely unexplained portion of a rise: a
+	 * settle-explained rise is a deposit's lagged bank half, not a storage
+	 * sack materialising, and drawing the ledger down against it lets a later
+	 * sack-empty to the inventory re-book the stored items as fresh loot.
+	 */
+	private long lastRiseSettled;
 
 	private long storedLootValue()
 	{
@@ -240,14 +251,13 @@ public final class SessionEngine
 	 * as bank value, so remove it from the held component to avoid double-counting.
 	 * Proportional across ids; capped at the rise and at outstanding stored value.
 	 * <p>
-	 * <b>Limitation (value-only heuristic):</b> this cannot distinguish a genuine
-	 * sack-deposit from an unrelated bank rise (e.g. a GE sale settling, a trade,
-	 * or any other deposit) — it draws stored-loot down against ANY positive bank
-	 * rise while stored-loot is outstanding. An unrelated bank rise can therefore
-	 * wrongly draw the ledger down, understating net worth, until the stored-loot
-	 * balance is exhausted. This is the accepted "late reconciliation" trade-off:
-	 * the true-up eventually self-corrects once the ledger empties, and a
-	 * genuine sack-deposit is the far more common case for the described bank rise.
+	 * <b>Limitation (value-only heuristic):</b> callers exclude the rise portions
+	 * the engine can explain otherwise — settled in-flight deposit expectations
+	 * and a same-observation tracked drop (see the open-bank branch of
+	 * {@link #update}) — but a rise the engine has no model for (e.g. an
+	 * out-of-band transfer landing while stored loot is outstanding) still draws
+	 * the ledger down. This is the accepted "late reconciliation" trade-off: a
+	 * genuine sack-deposit is the far more common case for an unexplained rise.
 	 */
 	private void drawDownStoredLoot(long bankRise)
 	{
@@ -566,6 +576,7 @@ public final class SessionEngine
 		this.deployed.clear();
 		this.atDeath.clear();
 		this.storedLoot.clear();
+		this.lastRiseSettled = 0L;
 		this.lastLoggedFigures = null;
 		this.pendingVanished = new ArrayList<>();
 		this.pendingLooted = new ArrayList<>();
@@ -721,6 +732,7 @@ public final class SessionEngine
 	 */
 	private long reconcileBankMovement(WealthSnapshot current, long tsMs)
 	{
+		this.lastRiseSettled = 0L;
 		expirePendingSettles(tsMs);
 		if (!current.isBankKnown())
 		{
@@ -753,19 +765,38 @@ public final class SessionEngine
 			// portion's baseline fold and expectation consumption cancel in the
 			// mark-to-market, so the (already-neutral) deposit stays neutral.
 			long settled = consumePendingSettles(delta);
+			this.lastRiseSettled = settled;
 			long transfer = (bankOpen || withinGrace) ? delta : settled;
 			long revaluation = delta - transfer;
-			this.baseline -= transfer;
+			// A closed-bank rise beyond the in-flight settles, while stored
+			// loot is outstanding, is a storage sack materialising in the bank
+			// — a deposit-box empty, whose bank reading only arrives at the
+			// next open (observed here via setBankOpen's reconcile, before
+			// bankOpen turns true). That value was already booked as Loot at
+			// receipt and is still held via storedLootValue(), so classifying
+			// the rise as passive revaluation would write the session gain off
+			// into startNetWorth AND leave the stale ledger to eat genuine
+			// later loot of the same items. Instead, true the ledger up and
+			// fold the drawn portion into the baseline like a transfer: the
+			// fold (+) and the drawdown (−) cancel in both the mark-to-market
+			// and the net-worth delta, counting the value exactly once.
+			long storedDraw = revaluation > 0 ? Math.min(revaluation, storedLootValue()) : 0L;
+			if (storedDraw > 0)
+			{
+				drawDownStoredLoot(storedDraw);
+				revaluation -= storedDraw;
+			}
+			this.baseline -= transfer + storedDraw;
 			this.startNetWorth += revaluation;
 			if (transfer != 0)
 			{
 				suspectArmed = maybeSuspectStaleReread(current, delta, tsMs);
 				rememberTransferFold(anchorFrom, delta, tsMs);
 			}
-			if (diagEnabled() && (transfer != 0 || revaluation != 0))
+			if (diagEnabled() && (transfer != 0 || revaluation != 0 || storedDraw != 0))
 			{
-				logDiag("[reanchor] bank rise {} (open={} settled={} reval={}): baseline {} -> {}",
-					delta, bankOpen, settled, revaluation, oldBaseline, this.baseline);
+				logDiag("[reanchor] bank rise {} (open={} settled={} storedDraw={} reval={}): baseline {} -> {}",
+					delta, bankOpen, settled, storedDraw, revaluation, oldBaseline, this.baseline);
 			}
 		}
 		else
@@ -1249,7 +1280,21 @@ public final class SessionEngine
 			long bankDelta = reconcileBankMovement(current, tsMs);
 			if (bankDelta > 0)
 			{
-				drawDownStoredLoot(bankDelta);
+				// Only the portion of the rise NOT already explained — by the
+				// in-flight deposit expectations it just settled, or by a
+				// same-observation tracked drop (the inventory half of a live
+				// deposit, which never creates an expectation) — can be a
+				// storage sack materialising in the bank. Drawing the ledger
+				// down by the raw delta let an unrelated deposit drain it, so
+				// a later sack-empty to the inventory found an empty ledger
+				// and re-booked the stored items as fresh loot.
+				long trackedDrop = previous == null ? 0L
+					: Math.max(0L, previous.tracked() - current.tracked());
+				long unexplainedRise = bankDelta - lastRiseSettled - trackedDrop;
+				if (unexplainedRise > 0)
+				{
+					drawDownStoredLoot(unexplainedRise);
+				}
 			}
 			trackOpenTrackedSwing(current, bankDelta, tsMs);
 			logUpdateBreakdown(current, 0L, 0L, 0L, 0L, 0L, 0L);
