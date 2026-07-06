@@ -1378,6 +1378,7 @@ public class SessionEngineTest
 	private static final int PRAYER_POTION = 2434;
 	private static final int ADAMANT_ARROW = 890;
 	private static final int SHARK = 385;
+	private static final int RANARR = 207;
 	private static final int COOKED_KARAMBWAN = 3144;
 	private static final int TELEPORT_TO_HOUSE = 8013;
 
@@ -2771,5 +2772,40 @@ public class SessionEngineTest
 			0L, Collections.emptyMap(), 0L, 3000L);
 		assertEquals("destroyed items never return; reappearance is fresh loot at the current price",
 			6_000L, after.getLootValue());
+	}
+
+	@Test
+	public void lootRoutedToStorageIsLootAndHeldNotDoubleCounted()
+	{
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		SessionSnapshot start = engine.snapshot(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L),
+			0L, Collections.emptyMap(), 0L, 0L);
+
+		// LootReceived: 10 grimy ranarr @ 8k. Inventory does NOT change (went to herb sack).
+		MovementSignals sig = MovementSignals.builder()
+			.lootReceived(new LootReceipt(RANARR, 10L, 8_000L)).build();
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			(GeAttributions) null, sig, 1000L);
+
+		SessionSnapshot s = engine.snapshot(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("storage loot is booked as Loot", 80_000L, s.getLootValue());
+		assertEquals("storage loot lifts net worth (held, not understated)",
+			start.getNetWorthDelta() + 80_000L, s.getNetWorthDelta());
+	}
+
+	@Test
+	public void lootLandingInInventoryIsNotDoubleCountedAgainstReceipt()
+	{
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		// Same tick: LootReceived 10 sharks AND 10 sharks appear in the inventory.
+		Map<Integer, ItemStack> inv = items(new ItemStack(SHARK, "Shark", 10L, 800L));
+		MovementSignals sig = MovementSignals.builder()
+			.lootReceived(new LootReceipt(SHARK, 10L, 800L)).build();
+		engine.update(snap(10_008_000L, inv, 0L, false, 1000L), (GeAttributions) null, sig, 1000L);
+
+		SessionSnapshot s = engine.snapshot(snap(10_008_000L, inv, 0L, false, 1000L),
+			0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("inventory-landed loot counts once", 8_000L, s.getLootValue());
 	}
 }

@@ -210,6 +210,28 @@ public final class SessionEngine
 	 * pass; ~3 minutes matches an item's real despawn timer.
 	 */
 	private static final long GROUND_DESPAWN_MS = 180_000L;
+	/** Shared empty stack for id/quantity lookups with no prior/current entry. */
+	private static final ItemStack ZERO_STACK = new ItemStack(0, "", 0L, 0L);
+	/** A single item id's holdings in {@link #storedLoot}: quantity and value. */
+	private static final class StoredLoot { long qty; long value; }
+	/**
+	 * Value of {@code LootReceipt}s that a RuneLite LootReceived event reported
+	 * this session but which never landed in tracked inventory (routed to a
+	 * non-readable storage sack, e.g. herb sack) — see the reconciliation in
+	 * {@link #update}. Booked as Loot at receipt time and held here so it lifts
+	 * net worth like any other owned-but-untracked holding.
+	 */
+	private final Map<Integer, StoredLoot> storedLoot = new LinkedHashMap<>();
+
+	private long storedLootValue()
+	{
+		long total = 0L;
+		for (StoredLoot s : storedLoot.values())
+		{
+			total += s.value;
+		}
+		return total;
+	}
 	/**
 	 * Quantities of tracked items parked outside tracked wealth by a
 	 * player-signalled drop — see {@link #update}. Deliberately not a
@@ -509,6 +531,7 @@ public final class SessionEngine
 		this.onGround.clear();
 		this.deployed.clear();
 		this.atDeath.clear();
+		this.storedLoot.clear();
 		this.lastLoggedFigures = null;
 		this.pendingVanished = new ArrayList<>();
 		this.pendingLooted = new ArrayList<>();
@@ -1766,6 +1789,34 @@ public final class SessionEngine
 		this.pendingVanished = retainedVanished;
 		this.pendingLooted = newPendingLooted;
 
+		// ---- 5. Reconcile LootReceived signals against what actually landed in
+		// tracked inventory this tick (the same previous/current diff the
+		// appeared/vanished pass above used). A RuneLite LootReceived event can
+		// report loot routed straight to a non-readable storage sack (e.g. herb
+		// sack) that never shows up in the inventory diff; the shortfall between
+		// what was received and what landed is booked as Loot and held in
+		// storedLoot so it still lifts net worth. Loot that did land in
+		// inventory is already booked by the diff loop above, so only the
+		// unlanded remainder is counted here — never double-counted.
+		for (LootReceipt r : signals.lootReceipts())
+		{
+			long prevQty = previousItems.getOrDefault(r.itemId, ZERO_STACK).getQuantity();
+			long currQty = current.getTrackedItems().getOrDefault(r.itemId, ZERO_STACK).getQuantity();
+			long landedInInventory = Math.max(0L, currQty - prevQty);
+			long toStorage = r.quantity - Math.min(r.quantity, landedInInventory);
+			if (toStorage <= 0)
+			{
+				continue; // fully landed in inventory: already booked by the diff loot path
+			}
+			long value = toStorage * r.unitValue;
+			addLoot(new LootEntry(r.itemId, "id" + r.itemId, toStorage, value, tsMs));
+			lootLedger.recordLoot(r.itemId, toStorage, r.unitValue);
+			StoredLoot s = storedLoot.computeIfAbsent(r.itemId, k -> new StoredLoot());
+			s.qty += toStorage;
+			s.value += value;
+			logAttribution(r.itemId, "id" + r.itemId, toStorage, value, "STORAGE-LOOT(held in stored-loot)");
+		}
+
 		syncCostBasis(current);
 		for (BasisCarry carry : basisCarries)
 		{
@@ -2003,7 +2054,8 @@ public final class SessionEngine
 		long pendingSettle = pendingSettleTotal();
 		long deployedHeld = deployedValue();
 		long deathHeld = atDeathValue();
-		long markToMarket = current.tracked() + pendingSettle + deployedHeld + deathHeld - baseline;
+		long storedHeld = storedLootValue();
+		long markToMarket = current.tracked() + pendingSettle + deployedHeld + deathHeld + storedHeld - baseline;
 
 		// Split the raw mark-to-market delta: paper gains on current holdings
 		// (live value vs cost basis) are unrealized; whatever remains is
@@ -2035,7 +2087,7 @@ public final class SessionEngine
 		// during the lag window. A confirmed stale re-read overstates the
 		// bank reading the opposite way, so the correction it still owes is
 		// subtracted for the same reason.
-		long netWorthDelta = current.netWorth() + pendingSettle + deployedHeld + deathHeld
+		long netWorthDelta = current.netWorth() + pendingSettle + deployedHeld + deathHeld + storedHeld
 			- pendingStaleBankDrop - startNetWorth;
 
 		if (diagEnabled())
