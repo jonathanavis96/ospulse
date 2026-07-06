@@ -25,6 +25,7 @@ public class SessionEngineTest
 	private static final int RUNE_SQ_SHIELD = 1201;
 	private static final int BIRD_NEST = 5075;
 	private static final int PRAYER_POT = 2434;
+	private static final int BARLEY_SEED = 5305;
 
 	private SessionEngine engine;
 
@@ -2467,5 +2468,44 @@ public class SessionEngineTest
 			0L, Collections.emptyMap(), 0L, 2000L);
 		assertEquals("loot drops by the 4 dropped nests", 30_000L, s.getLootValue());
 		assertEquals(0L, s.getSuppliesUsed());
+	}
+
+	@Test
+	public void droppedThenRepickedLootNetsToOriginal()
+	{
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		Map<Integer, ItemStack> looted = items(new ItemStack(BIRD_NEST, "Bird nest", 10L, 5_000L));
+		engine.update(snap(10_050_000L, looted, 0L, false, 1000L), Collections.emptySet(), 1000L);
+
+		MovementSignals dropped = MovementSignals.builder().dropped(BIRD_NEST).build();
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L),
+			(GeAttributions) null, dropped, 2000L);
+
+		// Re-pick all 10 (no drop signal on pickup).
+		engine.update(snap(10_050_000L, looted, 0L, false, 3000L), Collections.emptySet(), 3000L);
+
+		SessionSnapshot s = engine.snapshot(snap(10_050_000L, looted, 0L, false, 3000L),
+			0L, Collections.emptyMap(), 0L, 3000L);
+		assertEquals("round trip nets to original loot", 50_000L, s.getLootValue());
+		assertEquals(0L, s.getSuppliesUsed());
+	}
+
+	@Test
+	public void preOwnedPartialDropThenRepickStaysZeroLoot()
+	{
+		// Seed the pre-owned stack via startSession's INITIAL tracked items
+		// (not a subsequent update), so it is never booked as an in-session
+		// increase/loot.
+		Map<Integer, ItemStack> owned = items(new ItemStack(BARLEY_SEED, "Barley seed", 51L, 4L));
+		engine.startSession(snap(10_000_204L, owned, 0L, false, 0L), 0L);
+
+		MovementSignals dropped = MovementSignals.builder().dropped(BARLEY_SEED).build();
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L),
+			(GeAttributions) null, dropped, 2000L);
+		engine.update(snap(10_000_204L, owned, 0L, false, 3000L), Collections.emptySet(), 3000L);
+
+		SessionSnapshot s = engine.snapshot(snap(10_000_204L, owned, 0L, false, 3000L),
+			0L, Collections.emptyMap(), 0L, 3000L);
+		assertEquals("pre-owned drop/re-pick never becomes loot", 0L, s.getLootValue());
 	}
 }

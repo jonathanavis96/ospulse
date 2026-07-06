@@ -1451,6 +1451,30 @@ public final class SessionEngine
 
 			if (a.quantity > 0)
 			{
+				Parcel g = onGround.get(a.itemId);
+				if (g != null && g.qty > 0)
+				{
+					long ret = Math.min(a.quantity, g.qty);
+					long restore = Math.min(ret, g.lootedQty);
+					if (restore > 0)
+					{
+						addLoot(new LootEntry(a.itemId, a.name, restore, restore * g.unitValue, tsMs));
+						lootLedger.recordLoot(a.itemId, restore, g.unitValue);
+					}
+					g.qty -= ret;
+					g.lootedQty -= restore;
+					if (g.qty <= 0)
+					{
+						onGround.remove(a.itemId);
+					}
+					a.quantity -= ret;
+					logAttribution(a.itemId, a.name, ret, ret * a.unitValue,
+						"RETURN(from ground; " + restore + " restored to Loot)");
+				}
+			}
+
+			if (a.quantity > 0)
+			{
 				long lootValue = a.quantity * a.unitValue;
 				addLoot(new LootEntry(a.itemId, a.name, a.quantity, lootValue, tsMs));
 				lootLedger.recordLoot(a.itemId, a.quantity, a.unitValue);
