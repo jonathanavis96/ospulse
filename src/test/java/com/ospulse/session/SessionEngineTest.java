@@ -21,6 +21,7 @@ public class SessionEngineTest
 	private static final int DRAGON_BONES = 536;
 	private static final int RUNE_ITEM = 561;
 	private static final int RUNE_SQ_SHIELD = 1201;
+	private static final int BIRD_NEST = 5075;
 
 	private SessionEngine engine;
 
@@ -1996,6 +1997,37 @@ public class SessionEngineTest
 		SessionSnapshot result = engine.snapshot(afterRepick, 0L, Collections.emptyMap(), 0L, 5_000L);
 		assertEquals("re-picking a never-looted item is not loot",
 			0L, result.getLootValue());
+	}
+
+	@Test
+	public void droppingThenRepickingPartOfALootedStackNetsToTheOriginalLoot()
+	{
+		// The live scenario: bird nests aggregate by item id (non-stackable but
+		// merged), so dropping one of several is a PARTIAL decrease (fullSwing
+		// false), not a whole-stack vanish. Dropping one looted nest and picking
+		// it back up must net to zero, not inflate Loot by another nest's value.
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		Map<Integer, ItemStack> two = new LinkedHashMap<>();
+		two.put(BIRD_NEST, new ItemStack(BIRD_NEST, "Bird nest", 2L, 4_644L));
+		engine.update(snap(10_009_288L, two, 0L, false, 1_000L), Collections.emptySet(), 1_000L);
+		assertEquals(2L * 4_644L,
+			engine.snapshot(snap(10_009_288L, two, 0L, false, 1_000L), 0L,
+				Collections.emptyMap(), 0L, 1_000L).getLootValue());
+
+		// Drop one (2 -> 1)...
+		Map<Integer, ItemStack> one = new LinkedHashMap<>();
+		one.put(BIRD_NEST, new ItemStack(BIRD_NEST, "Bird nest", 1L, 4_644L));
+		engine.update(snap(10_004_644L, one, 0L, false, 3_000L), Collections.emptySet(), 3_000L);
+
+		// ...and pick it back up (1 -> 2).
+		WealthSnapshot afterRepick = snap(10_009_288L, two, 0L, false, 5_000L);
+		engine.update(afterRepick, Collections.emptySet(), 5_000L);
+
+		SessionSnapshot result = engine.snapshot(afterRepick, 0L, Collections.emptyMap(), 0L, 5_000L);
+		assertEquals("dropping and re-picking one of a looted stack must not inflate Loot",
+			2L * 4_644L, result.getLootValue());
 	}
 
 	@Test
