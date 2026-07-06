@@ -1559,6 +1559,27 @@ public final class SessionEngine
 
 			if (a.quantity > 0)
 			{
+				StoredLoot s = storedLoot.get(a.itemId);
+				if (s != null && s.qty > 0)
+				{
+					long ret = Math.min(a.quantity, s.qty);
+					long drawValue = Math.round((double) s.value * ret / s.qty);
+					s.qty -= ret;
+					s.value -= drawValue;
+					if (s.qty <= 0)
+					{
+						storedLoot.remove(a.itemId);
+					}
+					a.quantity -= ret;
+					// Already counted as loot when it entered storage; this is a transfer of
+					// held value into tracked wealth. storedLootValue() falls by drawValue and
+					// tracked() rises by the same, so net worth and Loot are both unchanged.
+					logAttribution(a.itemId, a.name, ret, drawValue, "STORAGE-EMPTY(inventory; ledger drawdown)");
+				}
+			}
+
+			if (a.quantity > 0)
+			{
 				Parcel g = onGround.get(a.itemId);
 				if (g != null && g.qty > 0)
 				{

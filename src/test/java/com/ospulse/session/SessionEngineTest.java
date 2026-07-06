@@ -2808,4 +2808,26 @@ public class SessionEngineTest
 			0L, Collections.emptyMap(), 0L, 1000L);
 		assertEquals("inventory-landed loot counts once", 8_000L, s.getLootValue());
 	}
+
+	@Test
+	public void emptyingStorageToInventoryDrawsDownLedgerNeutrally()
+	{
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		// 10 ranarr looted into the sack (held, +80k loot & net worth).
+		MovementSignals sig = MovementSignals.builder()
+			.lootReceived(new LootReceipt(RANARR, 10L, 8_000L)).build();
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			(GeAttributions) null, sig, 1000L);
+		SessionSnapshot afterLoot = engine.snapshot(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			0L, Collections.emptyMap(), 0L, 1000L);
+
+		// Empty sack to inventory: 10 ranarr appear, tracked +80k, NO receipt this tick.
+		Map<Integer, ItemStack> inv = items(new ItemStack(RANARR, "Grimy ranarr", 10L, 8_000L));
+		engine.update(snap(10_080_000L, inv, 0L, false, 2000L), Collections.emptySet(), 2000L);
+		SessionSnapshot afterEmpty = engine.snapshot(snap(10_080_000L, inv, 0L, false, 2000L),
+			0L, Collections.emptyMap(), 0L, 2000L);
+
+		assertEquals("emptying is not fresh loot", afterLoot.getLootValue(), afterEmpty.getLootValue());
+		assertEquals("emptying is net-worth-neutral", afterLoot.getNetWorthDelta(), afterEmpty.getNetWorthDelta());
+	}
 }
