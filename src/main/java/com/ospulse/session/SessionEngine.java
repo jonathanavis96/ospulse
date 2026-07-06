@@ -838,6 +838,53 @@ public final class SessionEngine
 		}
 	}
 
+	/**
+	 * Holds a Grand Exchange collect-to-bank as an in-flight deposit while the
+	 * bank is closed. GE proceeds awaiting collection are counted in tracked
+	 * wealth ({@link WealthSnapshot#getGeCollectableValue()}), so collecting
+	 * them straight into the bank — the collection box's "Bank" button, which
+	 * never opens the bank interface, so {@link #bankOpen} stays false — drops
+	 * tracked wealth with no offsetting item swing for the loot diff to see and
+	 * no {@link #trackOpenTrackedSwing} deposit hold (that only runs while
+	 * banking). Left alone the drop books straight to profit as a phantom loss,
+	 * while the matching bank rise is mis-classified as a passive revaluation
+	 * (see {@link #reconcileBankMovement}). Registering the collectable drop as
+	 * a {@link PendingBankSettle} makes the transfer zero-sum exactly like an
+	 * open-bank deposit: it is added back into the mark-to-market immediately
+	 * (no dip during the bank-reading lag) and the lagged bank rise settles it
+	 * into the baseline when it lands.
+	 *
+	 * <p>Only the portion that actually LEFT tracked wealth is held: collecting
+	 * to the inventory instead is offset by an inventory rise (net tracked
+	 * unchanged), so {@code min(collectableDrop, trackedDrop)} holds nothing and
+	 * no phantom gain is created. Must run BEFORE {@link #reconcileBankMovement}
+	 * so a bank rise delivered in the SAME observation settles the freshly-held
+	 * deposit rather than being booked as a revaluation.
+	 */
+	private void holdGeCollectableDeposit(WealthSnapshot current, long tsMs)
+	{
+		if (previous == null || !previous.isBankKnown() && !current.isBankKnown())
+		{
+			return;
+		}
+		long collectableDrop = previous.getGeCollectableValue() - current.getGeCollectableValue();
+		if (collectableDrop <= 0)
+		{
+			return;
+		}
+		long trackedDrop = previous.tracked() - current.tracked();
+		long deposit = Math.min(collectableDrop, trackedDrop);
+		if (deposit > 0)
+		{
+			pendingBankSettles.add(new PendingBankSettle(deposit, tsMs));
+			if (diagEnabled())
+			{
+				logDiag("[reanchor] GE collect-to-bank deposit hold {} (collectableDrop={} trackedDrop={} pendingSettle total {})",
+					deposit, collectableDrop, trackedDrop, pendingSettleTotal());
+			}
+		}
+	}
+
 	/** Sum of the outstanding in-flight deposit expectations. */
 	private long pendingSettleTotal()
 	{
@@ -1043,6 +1090,13 @@ public final class SessionEngine
 			this.previous = current;
 			return;
 		}
+
+		// GE proceeds collected straight to the bank leave tracked wealth with
+		// no item swing while the bank is closed; hold the transfer so the
+		// lagged bank rise settles it instead of it booking as a phantom loss.
+		// Must precede reconcileBankMovement so a same-observation bank rise
+		// settles the freshly-held deposit rather than revaluing.
+		holdGeCollectableDeposit(current, tsMs);
 
 		reconcileBankMovement(current, tsMs);
 

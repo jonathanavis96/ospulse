@@ -124,6 +124,114 @@ public class SessionEngineTest
 	}
 
 	@Test
+	public void geProceedsCollectedToBankWhileBankClosedIsNotBookedAsLoss()
+	{
+		// A GE sell has filled: 200k of proceeds sit in the collection box
+		// (geCollectableValue), already counted as tracked wealth so net worth
+		// didn't dip on fill. The bank has been opened earlier this session
+		// (bankKnown), but is NOT open now — the player is on the GE screen.
+		WealthSnapshot initial = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geCollectableValue(200_000L)
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(0L)
+			.build();
+		engine.startSession(initial, 0L);
+
+		// Collect the proceeds straight to the BANK (the collection box "Bank"
+		// button): coins bypass the inventory, so geCollectable drops to 0 and
+		// the bank rises by 200k, all while bankOpen stays false.
+		WealthSnapshot afterCollectToBank = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geCollectableValue(0L)
+			.bankValue(50_200_000L)
+			.bankKnown(true)
+			.timestampMs(1000L)
+			.build();
+		engine.update(afterCollectToBank, Collections.emptySet(), 1000L);
+
+		SessionSnapshot result = engine.snapshot(afterCollectToBank, 0L, Collections.emptyMap(), 0L, 1000L);
+		// Moving your own GE proceeds into the bank is a zero-sum transfer.
+		assertEquals(0L, result.getProfit());
+		assertTrue(result.getLoot().isEmpty());
+	}
+
+	@Test
+	public void geProceedsCollectedToBankWithLaggedBankUpdateIsNotBookedAsLoss()
+	{
+		WealthSnapshot initial = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geCollectableValue(200_000L)
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(0L)
+			.build();
+		engine.startSession(initial, 0L);
+
+		// Collect to bank: geCollectable drops immediately, but the bank
+		// container reading lags a few ticks (observed ~3.6s) so the bank rise
+		// isn't visible yet. The transfer must not dip profit meanwhile.
+		WealthSnapshot afterCollect = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geCollectableValue(0L)
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(1000L)
+			.build();
+		engine.update(afterCollect, Collections.emptySet(), 1000L);
+		SessionSnapshot midLag = engine.snapshot(afterCollect, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals(0L, midLag.getProfit());
+
+		// The lagged bank rise finally lands.
+		WealthSnapshot bankCaughtUp = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geCollectableValue(0L)
+			.bankValue(50_200_000L)
+			.bankKnown(true)
+			.timestampMs(4000L)
+			.build();
+		engine.update(bankCaughtUp, Collections.emptySet(), 4000L);
+
+		SessionSnapshot result = engine.snapshot(bankCaughtUp, 0L, Collections.emptyMap(), 0L, 4000L);
+		assertEquals(0L, result.getProfit());
+		assertTrue(result.getLoot().isEmpty());
+	}
+
+	@Test
+	public void geProceedsCollectedToInventoryDoesNotCreatePhantomGainOrLoss()
+	{
+		// Guards the collect-to-BANK fix from over-holding: collecting to the
+		// inventory is offset by an inventory rise (tracked unchanged), so no
+		// deposit must be held and no phantom profit created. The coin arrival
+		// is GE-attributed, so it is excluded from loot.
+		WealthSnapshot initial = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geCollectableValue(200_000L)
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(0L)
+			.build();
+		engine.startSession(initial, 0L);
+
+		Map<Integer, ItemStack> withCoins = new LinkedHashMap<>();
+		withCoins.put(COINS, new ItemStack(COINS, "Coins", 200_000L, 1L));
+		WealthSnapshot afterCollectToInv = WealthSnapshot.builder()
+			.inventoryValue(1_200_000L)
+			.geCollectableValue(0L)
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(1000L)
+			.trackedItems(withCoins)
+			.build();
+		engine.update(afterCollectToInv, new HashSet<>(Collections.singletonList(COINS)), 1000L);
+
+		SessionSnapshot result = engine.snapshot(afterCollectToInv, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals(0L, result.getProfit());
+		assertTrue(result.getLoot().isEmpty());
+	}
+
+	@Test
 	public void depositWithBankStillOpenIsZeroSumImmediately()
 	{
 		WealthSnapshot initial = snap(100_000_000L, Collections.emptyMap(), 50_000_000L, true, 0L);
