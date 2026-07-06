@@ -16,7 +16,7 @@ import java.util.List;
 
 /**
  * Session summary rows: elapsed, Loot, Supplies used, Profit, Profit/hr,
- * Net worth and GE flip P&L. "Loot" is gross realised gains and excludes
+ * GE flip P/L, Unrealized P/L and (at the bottom) Net worth. "Loot" is gross realised gains and excludes
  * consumption spend entirely (see {@link com.ospulse.session.SessionEngine#update});
  * Supplies used is shown below it as a separate spent/negative-styled readout;
  * "Profit" = Loot − Supplies used (the true bottom line), and Profit/hr is the
@@ -88,18 +88,21 @@ public final class SessionSection extends CollapsibleSection
 			categorySupport.buildMenu(CAT_NET_PROFIT, null));
 		profitPerHourValue = PanelWidgets.statRow(body(), "Profit/hr",
 			categorySupport.buildMenu(CAT_PROFIT_PER_HOUR, null));
-		netWorthDeltaValue = PanelWidgets.statRow(body(), "Net worth",
-			categorySupport.buildMenu(CAT_NET_WORTH_DELTA, null));
-		geRealizedPnlValue = PanelWidgets.statRow(body(), "GE flip P&L",
+		geRealizedPnlValue = PanelWidgets.statRow(body(), "GE flip P/L",
 			categorySupport.buildMenu(CAT_GE_PNL, null));
 		// Display-only duplicate of the Unrealized P/L figure that already
 		// lives at the top of the Holdings section (see HoldingsSection).
-		// Shown here too, directly below GE flip P&L, purely as a readout —
+		// Shown here too, directly below GE flip P/L, purely as a readout —
 		// it carries no category menu/reset/pause (there's nothing to
 		// reset independently; it always mirrors the live snapshot value)
 		// and is never folded into profit, net worth, or any other
 		// computation, so it cannot double-count.
 		unrealizedPnlValue = PanelWidgets.statRow(body(), "Unrealized P/L");
+		// Net worth sits at the very bottom: it's the widest measure of the
+		// session's wealth swing, folding in realised GE flip P/L and the
+		// unrealized P/L shown directly above it.
+		netWorthDeltaValue = PanelWidgets.statRow(body(), "Net worth",
+			categorySupport.buildMenu(CAT_NET_WORTH_DELTA, null));
 
 		categorySupport.setLinesSupplier(CAT_PROFIT, () -> List.of(
 			new CategoryOverlay.Line("Loot", GpFormat.format(displayedProfit))));
