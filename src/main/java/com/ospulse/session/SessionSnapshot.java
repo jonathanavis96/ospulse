@@ -19,7 +19,7 @@ public final class SessionSnapshot
 {
 	private final long startMs;
 	private final long elapsedMs;
-	private final long profit;
+	private final long lootValue;
 	private final long profitPerHour;
 	private final long geRealizedPnl;
 	private final long netWorthDelta;
@@ -44,7 +44,7 @@ public final class SessionSnapshot
 	public SessionSnapshot(
 		long startMs,
 		long elapsedMs,
-		long profit,
+		long lootValue,
 		long profitPerHour,
 		long geRealizedPnl,
 		long netWorthDelta,
@@ -54,7 +54,7 @@ public final class SessionSnapshot
 		long xpTotal,
 		WealthSnapshot wealth)
 	{
-		this(startMs, elapsedMs, profit, profitPerHour, geRealizedPnl, netWorthDelta,
+		this(startMs, elapsedMs, lootValue, profitPerHour, geRealizedPnl, netWorthDelta,
 			bankKnown, loot, xpGained, xpTotal, wealth, Collections.emptyList(),
 			Collections.emptyList());
 	}
@@ -66,7 +66,7 @@ public final class SessionSnapshot
 	public SessionSnapshot(
 		long startMs,
 		long elapsedMs,
-		long profit,
+		long lootValue,
 		long profitPerHour,
 		long geRealizedPnl,
 		long netWorthDelta,
@@ -78,7 +78,7 @@ public final class SessionSnapshot
 		List<GeOfferView> geOffers,
 		List<SourceLoot> lootSources)
 	{
-		this(startMs, elapsedMs, profit, profitPerHour, geRealizedPnl, netWorthDelta,
+		this(startMs, elapsedMs, lootValue, profitPerHour, geRealizedPnl, netWorthDelta,
 			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
 			Collections.emptyList(), 0L);
 	}
@@ -91,7 +91,7 @@ public final class SessionSnapshot
 	public SessionSnapshot(
 		long startMs,
 		long elapsedMs,
-		long profit,
+		long lootValue,
 		long profitPerHour,
 		long geRealizedPnl,
 		long netWorthDelta,
@@ -105,7 +105,7 @@ public final class SessionSnapshot
 		List<XpSkillView> xpSkills,
 		long xpPerHour)
 	{
-		this(startMs, elapsedMs, profit, profitPerHour, geRealizedPnl, netWorthDelta,
+		this(startMs, elapsedMs, lootValue, profitPerHour, geRealizedPnl, netWorthDelta,
 			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
 			xpSkills, xpPerHour, null);
 	}
@@ -118,7 +118,7 @@ public final class SessionSnapshot
 	public SessionSnapshot(
 		long startMs,
 		long elapsedMs,
-		long profit,
+		long lootValue,
 		long profitPerHour,
 		long geRealizedPnl,
 		long netWorthDelta,
@@ -133,7 +133,7 @@ public final class SessionSnapshot
 		long xpPerHour,
 		GearSnapshot gear)
 	{
-		this(startMs, elapsedMs, profit, profitPerHour, geRealizedPnl, netWorthDelta,
+		this(startMs, elapsedMs, lootValue, profitPerHour, geRealizedPnl, netWorthDelta,
 			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
 			xpSkills, xpPerHour, gear, 0L, Collections.emptyList());
 	}
@@ -141,7 +141,7 @@ public final class SessionSnapshot
 	public SessionSnapshot(
 		long startMs,
 		long elapsedMs,
-		long profit,
+		long lootValue,
 		long profitPerHour,
 		long geRealizedPnl,
 		long netWorthDelta,
@@ -158,7 +158,7 @@ public final class SessionSnapshot
 		long unrealizedPnl,
 		List<HoldingPnl> holdingPnls)
 	{
-		this(startMs, elapsedMs, profit, profitPerHour, geRealizedPnl, netWorthDelta,
+		this(startMs, elapsedMs, lootValue, profitPerHour, geRealizedPnl, netWorthDelta,
 			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
 			xpSkills, xpPerHour, gear, unrealizedPnl, holdingPnls, 0L);
 	}
@@ -166,14 +166,14 @@ public final class SessionSnapshot
 	/**
 	 * Full constructor including {@code suppliesUsed} — the running session
 	 * total (gp value) of consumable supplies (potions/food/ammo/runes)
-	 * consumed, as distinct from {@code profit} (unchanged: realised
+	 * consumed, as distinct from {@code lootValue} (unchanged: realised
 	 * activity only). See {@link SessionEngine#update} for how this is
 	 * detected and its heuristic's limitations.
 	 */
 	public SessionSnapshot(
 		long startMs,
 		long elapsedMs,
-		long profit,
+		long lootValue,
 		long profitPerHour,
 		long geRealizedPnl,
 		long netWorthDelta,
@@ -193,7 +193,7 @@ public final class SessionSnapshot
 	{
 		this.startMs = startMs;
 		this.elapsedMs = elapsedMs;
-		this.profit = profit;
+		this.lootValue = lootValue;
 		this.profitPerHour = profitPerHour;
 		this.geRealizedPnl = geRealizedPnl;
 		this.netWorthDelta = netWorthDelta;
@@ -234,22 +234,31 @@ public final class SessionSnapshot
 		return elapsedMs;
 	}
 
-	public long getProfit()
+	/**
+	 * Session "Loot": gp value of items actually picked up — realised wealth
+	 * gains with GE flip P&amp;L removed (flips are surfaced on their own line
+	 * via {@link #getGeRealizedPnl()} and would otherwise double-count). Distinct
+	 * from {@link #getLoot()}, which is the itemised loot FEED (all drops,
+	 * event-based) and need not equal this value: looting nothing leaves this at
+	 * zero even when the feed shows drops. Selling looted items is not a flip, so
+	 * that value stays here.
+	 */
+	public long getLootValue()
 	{
-		return profit;
+		return lootValue;
 	}
 
 	/**
-	 * Session net profit: realised {@link #getProfit() profit} minus the
+	 * Session net profit: {@link #getLootValue() loot value} minus the
 	 * {@link #getSuppliesUsed() consumable spend} burned to earn it. This is
 	 * the true bottom line — what you actually walked away with — whereas
-	 * {@code getProfit()} is gross realised gains before supply cost.
+	 * {@code getLootValue()} is gross loot before supply cost.
 	 * {@link #getProfitPerHour()} is the hourly extrapolation of THIS figure,
 	 * so an hour that nets negative after supplies reads negative here too.
 	 */
 	public long getNetProfit()
 	{
-		return profit - suppliesUsed;
+		return lootValue - suppliesUsed;
 	}
 
 	public long getProfitPerHour()
@@ -345,7 +354,7 @@ public final class SessionSnapshot
 	/**
 	 * Total unrealized P/L: current holdings valued at live price minus their
 	 * session cost basis. Pure price drift on held items moves this figure —
-	 * never {@link #getProfit()}, which is realised activity only.
+	 * never {@link #getLootValue()}, which is realised activity only.
 	 */
 	public long getUnrealizedPnl()
 	{
@@ -367,10 +376,10 @@ public final class SessionSnapshot
 	 * Running session total (gp value) of consumable supplies used
 	 * (potions/food/ammo/runes drained from inventory while away from the
 	 * bank and not attributable to a GE sale). This spend is excluded from
-	 * {@link #getProfit()} — consuming a supply neither gains nor loses
-	 * profit, it just moves value from "held" to "used" — so this figure is
+	 * {@link #getLootValue()} — consuming a supply neither gains nor loses
+	 * loot value, it just moves value from "held" to "used" — so this figure is
 	 * the dedicated place that spend is visible, not a duplicate of a
-	 * reduction already visible in profit. Zero for snapshots built before
+	 * reduction already visible in loot value. Zero for snapshots built before
 	 * this tracking existed (older constructors).
 	 */
 	public long getSuppliesUsed()

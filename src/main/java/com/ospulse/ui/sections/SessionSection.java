@@ -16,8 +16,10 @@ import java.util.List;
 
 /**
  * Session summary rows: elapsed, Loot, Supplies used, Profit, Profit/hr,
- * GE flip P/L, Unrealized P/L and (at the bottom) Net worth. "Loot" is gross realised gains and excludes
- * consumption spend entirely (see {@link com.ospulse.session.SessionEngine#update});
+ * GE flip P/L, Unrealized P/L and (at the bottom) Net worth. "Loot" is the gp
+ * value of items actually picked up — realised gains with GE flip P/L removed
+ * (flips have their own line) and excluding consumption spend entirely (see
+ * {@link com.ospulse.session.SessionEngine#update});
  * Supplies used is shown below it as a separate spent/negative-styled readout;
  * "Profit" = Loot − Supplies used (the true bottom line), and Profit/hr is the
  * hourly extrapolation of that net figure. Internal ids keep the older
@@ -112,7 +114,7 @@ public final class SessionSection extends CollapsibleSection
 	public void apply(SessionSnapshot snapshot)
 	{
 		elapsedMs = snapshot.getElapsedMs();
-		long rawProfit = snapshot.getProfit();
+		long rawProfit = snapshot.getLootValue();
 		long rawSuppliesUsed = snapshot.getSuppliesUsed();
 		long rawNetProfit = snapshot.getNetProfit();
 		long rawProfitPerHour = snapshot.getProfitPerHour();

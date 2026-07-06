@@ -58,12 +58,57 @@ public class SessionEngineTest
 
 		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
 
-		assertEquals(1_000_000L, result.getProfit());
+		assertEquals(1_000_000L, result.getLootValue());
 		assertEquals(1, result.getLoot().size());
 		LootEntry loot = result.getLoot().get(0);
 		assertEquals(DRAGON_BONES, loot.getItemId());
 		assertEquals(1_000_000L, loot.getValue());
 		assertEquals(100L, loot.getQuantity());
+	}
+
+	@Test
+	public void pureGeFlipIsNotLootAndReconciles()
+	{
+		// Start at 10M tracked, no bank.
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// A GE flip nets +500k: tracked wealth rises by the proceeds, and the
+		// reconciler reports the flip P&L separately. No ground loot, no supplies.
+		WealthSnapshot afterFlip = snap(10_500_000L, Collections.emptyMap(), 0L, false, 1000L);
+		engine.update(afterFlip, Collections.emptySet(), 1000L);
+
+		SessionSnapshot s = engine.snapshot(afterFlip, 500_000L, Collections.emptyMap(), 0L, 1000L);
+
+		assertEquals("flip winnings are not loot", 0L, s.getLootValue());
+		assertEquals(500_000L, s.getGeRealizedPnl());
+		assertEquals("profit = loot - supplies", 0L, s.getNetProfit());
+		assertEquals("net worth rose by the flip", 500_000L, s.getNetWorthDelta());
+		assertIdentity("pure GE flip", s);
+	}
+
+	@Test
+	public void lootPlusFlipReconcilesAndLootExcludesFlip()
+	{
+		// Start at 10M tracked, no bank.
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Picked up 300k of ground loot (dragon bones) AND a flip netted 200k of
+		// coins proceeds: tracked rises 500k total in one session.
+		Map<Integer, ItemStack> tracked = new LinkedHashMap<>();
+		tracked.put(DRAGON_BONES, new ItemStack(DRAGON_BONES, "Dragon bones", 30L, 10_000L)); // 300k
+		tracked.put(995, new ItemStack(995, "Coins", 200_000L, 1L)); // 200k flip proceeds
+		WealthSnapshot current = snap(10_500_000L, tracked, 0L, false, 1000L);
+		engine.update(current, Collections.emptySet(), 1000L);
+
+		SessionSnapshot s = engine.snapshot(current, 200_000L, Collections.emptyMap(), 0L, 1000L);
+
+		// realised wealth gain = 500k; loot = 500k - 200k flip = 300k (ground loot only).
+		assertEquals("loot excludes the flip", 300_000L, s.getLootValue());
+		assertEquals(200_000L, s.getGeRealizedPnl());
+		assertEquals("profit = loot - supplies", 300_000L, s.getNetProfit());
+		assertIdentity("loot plus flip", s);
 	}
 
 	@Test
@@ -80,7 +125,7 @@ public class SessionEngineTest
 		engine.setBankOpen(false, afterDeposit, 200L);
 
 		SessionSnapshot result = engine.snapshot(afterDeposit, 0L, Collections.emptyMap(), 0L, 200L);
-		assertEquals(0L, result.getProfit());
+		assertEquals(0L, result.getLootValue());
 	}
 
 	@Test
@@ -97,7 +142,7 @@ public class SessionEngineTest
 		engine.setBankOpen(false, afterWithdraw, 200L);
 
 		SessionSnapshot result = engine.snapshot(afterWithdraw, 0L, Collections.emptyMap(), 0L, 200L);
-		assertEquals(0L, result.getProfit());
+		assertEquals(0L, result.getLootValue());
 	}
 
 	@Test
@@ -119,7 +164,7 @@ public class SessionEngineTest
 		engine.update(afterConsume, Collections.emptySet(), 300L);
 
 		SessionSnapshot result = engine.snapshot(afterConsume, 0L, Collections.emptyMap(), 0L, 300L);
-		assertEquals(-20_000_000L, result.getProfit());
+		assertEquals(-20_000_000L, result.getLootValue());
 		assertTrue(result.getLoot().isEmpty());
 	}
 
@@ -153,7 +198,7 @@ public class SessionEngineTest
 
 		SessionSnapshot result = engine.snapshot(afterCollectToBank, 0L, Collections.emptyMap(), 0L, 1000L);
 		// Moving your own GE proceeds into the bank is a zero-sum transfer.
-		assertEquals(0L, result.getProfit());
+		assertEquals(0L, result.getLootValue());
 		assertTrue(result.getLoot().isEmpty());
 	}
 
@@ -181,7 +226,7 @@ public class SessionEngineTest
 			.build();
 		engine.update(afterCollect, Collections.emptySet(), 1000L);
 		SessionSnapshot midLag = engine.snapshot(afterCollect, 0L, Collections.emptyMap(), 0L, 1000L);
-		assertEquals(0L, midLag.getProfit());
+		assertEquals(0L, midLag.getLootValue());
 
 		// The lagged bank rise finally lands.
 		WealthSnapshot bankCaughtUp = WealthSnapshot.builder()
@@ -194,7 +239,7 @@ public class SessionEngineTest
 		engine.update(bankCaughtUp, Collections.emptySet(), 4000L);
 
 		SessionSnapshot result = engine.snapshot(bankCaughtUp, 0L, Collections.emptyMap(), 0L, 4000L);
-		assertEquals(0L, result.getProfit());
+		assertEquals(0L, result.getLootValue());
 		assertTrue(result.getLoot().isEmpty());
 	}
 
@@ -227,7 +272,7 @@ public class SessionEngineTest
 		engine.update(afterCollectToInv, new HashSet<>(Collections.singletonList(COINS)), 1000L);
 
 		SessionSnapshot result = engine.snapshot(afterCollectToInv, 0L, Collections.emptyMap(), 0L, 1000L);
-		assertEquals(0L, result.getProfit());
+		assertEquals(0L, result.getLootValue());
 		assertTrue(result.getLoot().isEmpty());
 	}
 
@@ -248,7 +293,7 @@ public class SessionEngineTest
 
 		SessionSnapshot result = engine.snapshot(midDeposit, 0L, Collections.emptyMap(), 0L, 200L);
 		assertEquals("deposit must not read as a loss while the bank is open",
-			0L, result.getProfit());
+			0L, result.getLootValue());
 		assertEquals(0L, result.getProfitPerHour());
 		assertEquals(0L, result.getNetWorthDelta());
 	}
@@ -269,7 +314,7 @@ public class SessionEngineTest
 
 		SessionSnapshot result = engine.snapshot(midWithdraw, 0L, Collections.emptyMap(), 0L, 200L);
 		assertEquals("withdrawal must not read as a gain while the bank is open",
-			0L, result.getProfit());
+			0L, result.getLootValue());
 		assertEquals(0L, result.getProfitPerHour());
 		assertEquals(0L, result.getNetWorthDelta());
 	}
@@ -290,14 +335,14 @@ public class SessionEngineTest
 		engine.update(midGain, Collections.emptySet(), 200L);
 
 		SessionSnapshot live = engine.snapshot(midGain, 0L, Collections.emptyMap(), 0L, 200L);
-		assertEquals(5_000_000L, live.getProfit());
+		assertEquals(5_000_000L, live.getLootValue());
 		assertEquals(5_000_000L, live.getNetWorthDelta());
 
 		// ...and must survive the close reconciliation (not be swallowed by
 		// the bank-visit neutralisation, and not be double-counted).
 		engine.setBankOpen(false, midGain, 300L);
 		SessionSnapshot closed = engine.snapshot(midGain, 0L, Collections.emptyMap(), 0L, 300L);
-		assertEquals(5_000_000L, closed.getProfit());
+		assertEquals(5_000_000L, closed.getLootValue());
 		assertEquals(5_000_000L, closed.getNetWorthDelta());
 	}
 
@@ -316,22 +361,22 @@ public class SessionEngineTest
 		engine.update(mid, Collections.emptySet(), 200L);
 
 		SessionSnapshot first = engine.snapshot(mid, 0L, Collections.emptyMap(), 0L, 200L);
-		assertEquals(5_000_000L, first.getProfit());
+		assertEquals(5_000_000L, first.getLootValue());
 		SessionSnapshot second = engine.snapshot(mid, 0L, Collections.emptyMap(), 0L, 250L);
 		assertEquals("repeated snapshots while the bank is open must not drift",
-			5_000_000L, second.getProfit());
+			5_000_000L, second.getLootValue());
 
 		// Closing must not change the figure (no jump, no double-count)...
 		engine.setBankOpen(false, mid, 300L);
 		SessionSnapshot closed = engine.snapshot(mid, 0L, Collections.emptyMap(), 0L, 300L);
-		assertEquals(5_000_000L, closed.getProfit());
+		assertEquals(5_000_000L, closed.getLootValue());
 		assertEquals(5_000_000L, closed.getNetWorthDelta());
 
 		// ...and a quiet away-tick after the close keeps it stable.
 		WealthSnapshot after = snap(75_000_000L, Collections.emptyMap(), 80_000_000L, true, 400L);
 		engine.update(after, Collections.emptySet(), 400L);
 		SessionSnapshot later = engine.snapshot(after, 0L, Collections.emptyMap(), 0L, 400L);
-		assertEquals(5_000_000L, later.getProfit());
+		assertEquals(5_000_000L, later.getLootValue());
 	}
 
 	@Test
@@ -344,17 +389,17 @@ public class SessionEngineTest
 		engine.setBankOpen(true, snap(100_000_000L, Collections.emptyMap(), 50_000_000L, true, 100L), 100L);
 		WealthSnapshot afterDeposit = snap(70_000_000L, Collections.emptyMap(), 80_000_000L, true, 200L);
 		engine.setBankOpen(false, afterDeposit, 200L);
-		assertEquals(0L, engine.snapshot(afterDeposit, 0L, Collections.emptyMap(), 0L, 200L).getProfit());
+		assertEquals(0L, engine.snapshot(afterDeposit, 0L, Collections.emptyMap(), 0L, 200L).getLootValue());
 
 		// Visit 2: withdraw 10M mid-visit. The offset must be measured from
 		// THIS visit's opening bank value, not the first visit's.
 		engine.setBankOpen(true, snap(70_000_000L, Collections.emptyMap(), 80_000_000L, true, 300L), 300L);
 		WealthSnapshot midWithdraw = snap(80_000_000L, Collections.emptyMap(), 70_000_000L, true, 400L);
 		engine.update(midWithdraw, Collections.emptySet(), 400L);
-		assertEquals(0L, engine.snapshot(midWithdraw, 0L, Collections.emptyMap(), 0L, 400L).getProfit());
+		assertEquals(0L, engine.snapshot(midWithdraw, 0L, Collections.emptyMap(), 0L, 400L).getLootValue());
 
 		engine.setBankOpen(false, midWithdraw, 500L);
-		assertEquals(0L, engine.snapshot(midWithdraw, 0L, Collections.emptyMap(), 0L, 500L).getProfit());
+		assertEquals(0L, engine.snapshot(midWithdraw, 0L, Collections.emptyMap(), 0L, 500L).getLootValue());
 	}
 
 	@Test
@@ -388,7 +433,7 @@ public class SessionEngineTest
 
 		SessionSnapshot result = engine.snapshot(bankCaughtUp, 0L, Collections.emptyMap(), 0L, 2_300L);
 		assertEquals("a withdrawal whose bank update lags the close must not read as profit",
-			0L, result.getProfit());
+			0L, result.getLootValue());
 		assertEquals(0L, result.getNetWorthDelta());
 		assertTrue(result.getLoot().isEmpty());
 
@@ -396,14 +441,19 @@ public class SessionEngineTest
 		// re-apply itself once the anchor has caught up).
 		WealthSnapshot later = snap(120_000_000L, Collections.emptyMap(), 30_000_000L, true, 10_000L);
 		engine.update(later, Collections.emptySet(), 10_000L);
-		assertEquals(0L, engine.snapshot(later, 0L, Collections.emptyMap(), 0L, 10_000L).getProfit());
+		assertEquals(0L, engine.snapshot(later, 0L, Collections.emptyMap(), 0L, 10_000L).getLootValue());
 	}
 
-	/** Asserts the accounting identity netWorthDelta == profit - suppliesUsed + unrealizedPnl. */
+	/**
+	 * Asserts the accounting identity
+	 * netWorthDelta == lootValue - suppliesUsed + geRealizedPnl + unrealizedPnl.
+	 * (geRealizedPnl is zero for most tests; included so the identity also holds
+	 * when a GE flip is present.)
+	 */
 	private static void assertIdentity(String context, SessionSnapshot s)
 	{
 		assertEquals("identity must hold: " + context,
-			s.getProfit() - s.getSuppliesUsed() + s.getUnrealizedPnl(),
+			s.getLootValue() - s.getSuppliesUsed() + s.getGeRealizedPnl() + s.getUnrealizedPnl(),
 			s.getNetWorthDelta());
 	}
 
@@ -431,7 +481,7 @@ public class SessionEngineTest
 
 		SessionSnapshot midLag = engine.snapshot(invOnly, 0L, Collections.emptyMap(), 0L, 200L);
 		assertEquals("an in-flight deposit must not dip profit while the bank value lags",
-			0L, midLag.getProfit());
+			0L, midLag.getLootValue());
 		assertEquals(0L, midLag.getProfitPerHour());
 		assertEquals("in-flight wealth is still owned — net worth must not dip",
 			0L, midLag.getNetWorthDelta());
@@ -441,16 +491,16 @@ public class SessionEngineTest
 		WealthSnapshot caughtUp = snap(99_634_817L, Collections.emptyMap(), 50_365_183L, true, 3_800L);
 		engine.update(caughtUp, Collections.emptySet(), 3_800L);
 		SessionSnapshot settled = engine.snapshot(caughtUp, 0L, Collections.emptyMap(), 0L, 3_800L);
-		assertEquals("the catch-up must not move profit either", 0L, settled.getProfit());
+		assertEquals("the catch-up must not move profit either", 0L, settled.getLootValue());
 		assertEquals(0L, settled.getNetWorthDelta());
 		assertIdentity("after the bank caught up", settled);
 
 		// Continuous across the close and later quiet ticks.
 		engine.setBankOpen(false, caughtUp, 4_000L);
-		assertEquals(0L, engine.snapshot(caughtUp, 0L, Collections.emptyMap(), 0L, 4_000L).getProfit());
+		assertEquals(0L, engine.snapshot(caughtUp, 0L, Collections.emptyMap(), 0L, 4_000L).getLootValue());
 		WealthSnapshot later = snap(99_634_817L, Collections.emptyMap(), 50_365_183L, true, 8_000L);
 		engine.update(later, Collections.emptySet(), 8_000L);
-		assertEquals(0L, engine.snapshot(later, 0L, Collections.emptyMap(), 0L, 8_000L).getProfit());
+		assertEquals(0L, engine.snapshot(later, 0L, Collections.emptyMap(), 0L, 8_000L).getLootValue());
 	}
 
 	@Test
@@ -492,13 +542,13 @@ public class SessionEngineTest
 			snap(100_000_000L, Collections.emptyMap(), 200_000_000L - w, true, 3_500L),
 			0L, Collections.emptyMap(), 0L, 3_500L);
 		assertEquals("a lagged withdrawal reading landing in the next visit must not dip profit",
-			0L, midVisit2.getProfit());
+			0L, midVisit2.getLootValue());
 
 		WealthSnapshot atClose2 = snap(100_000_000L, Collections.emptyMap(), 200_000_000L - w, true, 4_000L);
 		engine.setBankOpen(false, atClose2, 4_000L);
 		SessionSnapshot afterClose2 = engine.snapshot(atClose2, 0L, Collections.emptyMap(), 0L, 4_000L);
 		assertEquals("closing the mis-paired visit must not book a phantom -57.1M",
-			0L, afterClose2.getProfit());
+			0L, afterClose2.getLootValue());
 
 		// Visit 3: withdraw again; visit 2's deposit reading lands mid-visit.
 		engine.setBankOpen(true, snap(100_000_000L, Collections.emptyMap(), 200_000_000L - w, true, 4_500L), 4_500L);
@@ -507,7 +557,7 @@ public class SessionEngineTest
 		SessionSnapshot midVisit3 = engine.snapshot(
 			snap(100_000_000L + w, Collections.emptyMap(), 200_000_000L - w, true, 5_000L),
 			0L, Collections.emptyMap(), 0L, 5_000L);
-		assertEquals(0L, midVisit3.getProfit());
+		assertEquals(0L, midVisit3.getLootValue());
 		engine.update(snap(100_000_000L + w, Collections.emptyMap(), 200_000_000L, true, 5_500L),
 			Collections.emptySet(), 5_500L);
 		engine.setBankOpen(false, snap(100_000_000L + w, Collections.emptyMap(), 200_000_000L, true, 6_000L), 6_000L);
@@ -516,7 +566,7 @@ public class SessionEngineTest
 		WealthSnapshot settledSnap = snap(100_000_000L + w, Collections.emptyMap(), 200_000_000L - w, true, 7_000L);
 		engine.update(settledSnap, Collections.emptySet(), 7_000L);
 		SessionSnapshot settled = engine.snapshot(settledSnap, 0L, Collections.emptyMap(), 0L, 7_000L);
-		assertEquals("a pure shuffle must settle at exactly zero profit", 0L, settled.getProfit());
+		assertEquals("a pure shuffle must settle at exactly zero profit", 0L, settled.getLootValue());
 		assertEquals(0L, settled.getNetWorthDelta());
 		assertEquals(0L, settled.getSuppliesUsed());
 		assertTrue(settled.getLoot().isEmpty());
@@ -525,7 +575,7 @@ public class SessionEngineTest
 		// Stable on later quiet ticks — no re-application, no oscillation.
 		WealthSnapshot quiet = snap(100_000_000L + w, Collections.emptyMap(), 200_000_000L - w, true, 8_000L);
 		engine.update(quiet, Collections.emptySet(), 8_000L);
-		assertEquals(0L, engine.snapshot(quiet, 0L, Collections.emptyMap(), 0L, 8_000L).getProfit());
+		assertEquals(0L, engine.snapshot(quiet, 0L, Collections.emptyMap(), 0L, 8_000L).getLootValue());
 	}
 
 	@Test
@@ -552,14 +602,14 @@ public class SessionEngineTest
 
 		SessionSnapshot result = engine.snapshot(caughtUp, 0L, Collections.emptyMap(), 0L, 7_500L);
 		assertEquals("a deposit catch-up beyond the grace window must still be neutralised",
-			0L, result.getProfit());
+			0L, result.getLootValue());
 		assertEquals(0L, result.getNetWorthDelta());
 		assertIdentity("after the late catch-up", result);
 
 		// Still neutral later — the settlement must not re-apply.
 		WealthSnapshot later = snap(99_634_817L, Collections.emptyMap(), 50_365_183L, true, 20_000L);
 		engine.update(later, Collections.emptySet(), 20_000L);
-		assertEquals(0L, engine.snapshot(later, 0L, Collections.emptyMap(), 0L, 20_000L).getProfit());
+		assertEquals(0L, engine.snapshot(later, 0L, Collections.emptyMap(), 0L, 20_000L).getLootValue());
 	}
 
 	@Test
@@ -586,7 +636,7 @@ public class SessionEngineTest
 		engine.setBankOpen(true, snap(inv, Collections.emptyMap(), bank, true, 1_000L), 1_000L);
 		WealthSnapshot withdrawn = snap(inv + w, Collections.emptyMap(), bank - w, true, 2_000L);
 		engine.update(withdrawn, Collections.emptySet(), 2_000L);
-		assertEquals(0L, engine.snapshot(withdrawn, 0L, Collections.emptyMap(), 0L, 2_000L).getProfit());
+		assertEquals(0L, engine.snapshot(withdrawn, 0L, Collections.emptyMap(), 0L, 2_000L).getLootValue());
 
 		// Rapid close -> reopen.
 		engine.setBankOpen(false, withdrawn, 3_000L);
@@ -597,7 +647,7 @@ public class SessionEngineTest
 		// withdrawal, and internally consistent either way: profit holds.
 		WealthSnapshot stale = snap(inv, Collections.emptyMap(), bank, true, 4_600L);
 		engine.update(stale, Collections.emptySet(), 4_600L);
-		assertEquals(0L, engine.snapshot(stale, 0L, Collections.emptyMap(), 0L, 4_600L).getProfit());
+		assertEquals(0L, engine.snapshot(stale, 0L, Collections.emptyMap(), 0L, 4_600L).getLootValue());
 
 		// The inventory snaps forward to the true withdrawn state while the
 		// bank reading stays stale-high: the snapshot now carries the
@@ -606,7 +656,7 @@ public class SessionEngineTest
 		engine.update(bounced, Collections.emptySet(), 5_200L);
 		SessionSnapshot spike = engine.snapshot(bounced, 0L, Collections.emptyMap(), 0L, 5_200L);
 		assertEquals("a stale bank re-read must not book the withdrawal as fresh profit",
-			0L, spike.getProfit());
+			0L, spike.getLootValue());
 		assertEquals(0L, spike.getNetWorthDelta());
 		assertIdentity("while the bank reading is stale-high", spike);
 
@@ -617,7 +667,7 @@ public class SessionEngineTest
 		engine.update(closedStale, Collections.emptySet(), 20_000L);
 		SessionSnapshot heldClosed = engine.snapshot(closedStale, 0L, Collections.emptyMap(), 0L, 20_000L);
 		assertEquals("closing on the stale reading must not lock in the phantom",
-			0L, heldClosed.getProfit());
+			0L, heldClosed.getLootValue());
 		assertEquals(0L, heldClosed.getNetWorthDelta());
 		assertIdentity("closed on the stale reading", heldClosed);
 
@@ -626,7 +676,7 @@ public class SessionEngineTest
 		WealthSnapshot corrected = snap(inv + w, Collections.emptyMap(), bank - w, true, 60_000L);
 		engine.setBankOpen(true, corrected, 60_000L);
 		SessionSnapshot settled = engine.snapshot(corrected, 0L, Collections.emptyMap(), 0L, 60_000L);
-		assertEquals(0L, settled.getProfit());
+		assertEquals(0L, settled.getLootValue());
 		assertEquals(0L, settled.getNetWorthDelta());
 		assertIdentity("after the true reading returns", settled);
 
@@ -634,7 +684,7 @@ public class SessionEngineTest
 		engine.setBankOpen(false, corrected, 61_000L);
 		WealthSnapshot quiet = snap(inv + w, Collections.emptyMap(), bank - w, true, 70_000L);
 		engine.update(quiet, Collections.emptySet(), 70_000L);
-		assertEquals(0L, engine.snapshot(quiet, 0L, Collections.emptyMap(), 0L, 70_000L).getProfit());
+		assertEquals(0L, engine.snapshot(quiet, 0L, Collections.emptyMap(), 0L, 70_000L).getLootValue());
 	}
 
 	@Test
@@ -665,7 +715,7 @@ public class SessionEngineTest
 		engine.update(corrected, Collections.emptySet(), 5_800L);
 		SessionSnapshot settled = engine.snapshot(corrected, 0L, Collections.emptyMap(), 0L, 5_800L);
 		assertEquals("the correcting read must land on zero, not a phantom loss",
-			0L, settled.getProfit());
+			0L, settled.getLootValue());
 		assertEquals(0L, settled.getNetWorthDelta());
 		assertIdentity("after the in-visit correction", settled);
 
@@ -673,7 +723,7 @@ public class SessionEngineTest
 		engine.setBankOpen(false, corrected, 6_000L);
 		WealthSnapshot quiet = snap(inv + w, Collections.emptyMap(), bank - w, true, 12_000L);
 		engine.update(quiet, Collections.emptySet(), 12_000L);
-		assertEquals(0L, engine.snapshot(quiet, 0L, Collections.emptyMap(), 0L, 12_000L).getProfit());
+		assertEquals(0L, engine.snapshot(quiet, 0L, Collections.emptyMap(), 0L, 12_000L).getLootValue());
 	}
 
 	@Test
@@ -699,11 +749,11 @@ public class SessionEngineTest
 		WealthSnapshot redeposited = snap(inv, Collections.emptyMap(), bank, true, 4_600L);
 		engine.update(redeposited, Collections.emptySet(), 4_600L);
 		assertEquals("a genuine re-deposit must stay zero-sum",
-			0L, engine.snapshot(redeposited, 0L, Collections.emptyMap(), 0L, 4_600L).getProfit());
+			0L, engine.snapshot(redeposited, 0L, Collections.emptyMap(), 0L, 4_600L).getLootValue());
 
 		engine.setBankOpen(false, redeposited, 5_000L);
 		SessionSnapshot closed = engine.snapshot(redeposited, 0L, Collections.emptyMap(), 0L, 5_000L);
-		assertEquals(0L, closed.getProfit());
+		assertEquals(0L, closed.getLootValue());
 		assertEquals(0L, closed.getNetWorthDelta());
 
 		// A genuine 5M loot gain much later counts in full.
@@ -712,7 +762,7 @@ public class SessionEngineTest
 		WealthSnapshot after = snap(inv + 5_000_000L, looted, bank, true, 30_000L);
 		engine.update(after, Collections.emptySet(), 30_000L);
 		SessionSnapshot result = engine.snapshot(after, 0L, Collections.emptyMap(), 0L, 30_000L);
-		assertEquals(5_000_000L, result.getProfit());
+		assertEquals(5_000_000L, result.getLootValue());
 		assertEquals(5_000_000L, result.getNetWorthDelta());
 		assertIdentity("after the later genuine gain", result);
 	}
@@ -744,13 +794,13 @@ public class SessionEngineTest
 		engine.update(midGain, Collections.emptySet(), 5_200L);
 		SessionSnapshot live = engine.snapshot(midGain, 0L, Collections.emptyMap(), 0L, 5_200L);
 		assertEquals("a genuine gain must not be swallowed by the stale-read suspicion",
-			5_000_000L, live.getProfit());
+			5_000_000L, live.getLootValue());
 		assertEquals(5_000_000L, live.getNetWorthDelta());
 
 		// ...and it survives the close unchanged.
 		engine.setBankOpen(false, midGain, 6_000L);
 		SessionSnapshot closed = engine.snapshot(midGain, 0L, Collections.emptyMap(), 0L, 6_000L);
-		assertEquals(5_000_000L, closed.getProfit());
+		assertEquals(5_000_000L, closed.getLootValue());
 		assertEquals(5_000_000L, closed.getNetWorthDelta());
 	}
 
@@ -773,14 +823,14 @@ public class SessionEngineTest
 		engine.setBankOpen(true, snap(inv, Collections.emptyMap(), bank, true, 1_000L), 1_000L);
 		WealthSnapshot withdrawn = snap(inv + w, Collections.emptyMap(), bank - w, true, 2_000L);
 		engine.update(withdrawn, Collections.emptySet(), 2_000L);
-		assertEquals(0L, engine.snapshot(withdrawn, 0L, Collections.emptyMap(), 0L, 2_000L).getProfit());
+		assertEquals(0L, engine.snapshot(withdrawn, 0L, Collections.emptyMap(), 0L, 2_000L).getLootValue());
 
 		// Rapid close -> reopen, then the stale re-read arms the suspicion.
 		engine.setBankOpen(false, withdrawn, 3_000L);
 		engine.setBankOpen(true, withdrawn, 4_000L);
 		WealthSnapshot stale = snap(inv, Collections.emptyMap(), bank, true, 4_600L);
 		engine.update(stale, Collections.emptySet(), 4_600L);
-		assertEquals(0L, engine.snapshot(stale, 0L, Collections.emptyMap(), 0L, 4_600L).getProfit());
+		assertEquals(0L, engine.snapshot(stale, 0L, Collections.emptyMap(), 0L, 4_600L).getLootValue());
 
 		// The bank CLOSES before the inventory snaps forward.
 		engine.setBankOpen(false, stale, 5_000L);
@@ -792,7 +842,7 @@ public class SessionEngineTest
 		engine.update(bounced, Collections.emptySet(), 5_600L);
 		SessionSnapshot spike = engine.snapshot(bounced, 0L, Collections.emptyMap(), 0L, 5_600L);
 		assertEquals("a stale snap-forward while the bank is closed must not book the withdrawal as profit",
-			0L, spike.getProfit());
+			0L, spike.getLootValue());
 		assertEquals(0L, spike.getNetWorthDelta());
 		assertIdentity("closed-path stale snap-forward", spike);
 
@@ -801,7 +851,7 @@ public class SessionEngineTest
 		engine.update(closedStale, Collections.emptySet(), 20_000L);
 		SessionSnapshot held = engine.snapshot(closedStale, 0L, Collections.emptyMap(), 0L, 20_000L);
 		assertEquals("closing on the stale reading after a closed snap-forward must not lock in the phantom",
-			0L, held.getProfit());
+			0L, held.getLootValue());
 		assertEquals(0L, held.getNetWorthDelta());
 		assertIdentity("closed on the stale reading after a closed snap-forward", held);
 
@@ -810,7 +860,7 @@ public class SessionEngineTest
 		WealthSnapshot corrected = snap(inv + w, Collections.emptyMap(), bank - w, true, 60_000L);
 		engine.setBankOpen(true, corrected, 60_000L);
 		SessionSnapshot settled = engine.snapshot(corrected, 0L, Collections.emptyMap(), 0L, 60_000L);
-		assertEquals(0L, settled.getProfit());
+		assertEquals(0L, settled.getLootValue());
 		assertEquals(0L, settled.getNetWorthDelta());
 		assertIdentity("after the true reading returns", settled);
 	}
@@ -830,14 +880,14 @@ public class SessionEngineTest
 		engine.update(dropped, Collections.emptySet(), 200L);
 
 		// While the drop could still be a lagging transfer, profit holds.
-		assertEquals(0L, engine.snapshot(dropped, 0L, Collections.emptyMap(), 0L, 200L).getProfit());
+		assertEquals(0L, engine.snapshot(dropped, 0L, Collections.emptyMap(), 0L, 200L).getLootValue());
 
 		// Far past any plausible container lag, the bank never moved: loss.
 		WealthSnapshot stale = snap(90_000_000L, Collections.emptyMap(), 50_000_000L, true, 12_000L);
 		engine.update(stale, Collections.emptySet(), 12_000L);
 		SessionSnapshot result = engine.snapshot(stale, 0L, Collections.emptyMap(), 0L, 12_000L);
 		assertEquals("an unmatched drop must eventually book as a loss",
-			-10_000_000L, result.getProfit());
+			-10_000_000L, result.getLootValue());
 		assertEquals(-10_000_000L, result.getNetWorthDelta());
 		assertIdentity("after the settle window expires", result);
 	}
@@ -872,7 +922,7 @@ public class SessionEngineTest
 		engine.update(midWithdraw, Collections.emptySet(), 300L);
 		SessionSnapshot live = engine.snapshot(midWithdraw, 0L, Collections.emptyMap(), 0L, 300L);
 		assertEquals("post-reset transfer must not read as profit while the bank is open",
-			0L, live.getProfit());
+			0L, live.getLootValue());
 		assertEquals(0L, live.getProfitPerHour());
 		assertEquals(0L, live.getNetWorthDelta());
 
@@ -880,7 +930,7 @@ public class SessionEngineTest
 		engine.setBankOpen(false, midWithdraw, 400L);
 		SessionSnapshot closed = engine.snapshot(midWithdraw, 0L, Collections.emptyMap(), 0L, 400L);
 		assertEquals("post-reset transfer must still be neutral after the real close",
-			0L, closed.getProfit());
+			0L, closed.getLootValue());
 	}
 
 	@Test
@@ -901,7 +951,7 @@ public class SessionEngineTest
 		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
 		assertTrue("GE-attributed item gain must not appear as loot", result.getLoot().isEmpty());
 		// Profit still reflects the wealth change even though it's not "loot".
-		assertEquals(200_000L, result.getProfit());
+		assertEquals(200_000L, result.getLootValue());
 	}
 
 	@Test
@@ -915,7 +965,7 @@ public class SessionEngineTest
 
 		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1_800_000L);
 
-		assertEquals(3_600_000L, result.getProfit());
+		assertEquals(3_600_000L, result.getLootValue());
 		assertEquals(1_800_000L, result.getElapsedMs());
 		assertEquals(7_200_000L, result.getProfitPerHour());
 	}
@@ -943,7 +993,7 @@ public class SessionEngineTest
 
 		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1_800_000L);
 
-		assertEquals("gross profit is loot only", 1_000_000L, result.getProfit());
+		assertEquals("gross profit is loot only", 1_000_000L, result.getLootValue());
 		assertEquals("shark eaten is supplies used", 800L, result.getSuppliesUsed());
 		assertEquals("net profit subtracts supplies from gross profit",
 			999_200L, result.getNetProfit());
@@ -970,7 +1020,7 @@ public class SessionEngineTest
 
 		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1_800_000L);
 
-		assertEquals(1_000_000L, result.getProfit());
+		assertEquals(1_000_000L, result.getLootValue());
 		assertEquals(800L, result.getSuppliesUsed());
 		assertEquals("profit/hr extrapolates net profit (999,200) over 0.5h",
 			1_998_400L, result.getProfitPerHour());
@@ -998,11 +1048,11 @@ public class SessionEngineTest
 		engine.update(repriced, Collections.emptySet(), 600_000L);
 
 		SessionSnapshot result = engine.snapshot(repriced, 0L, Collections.emptyMap(), 0L, 600_000L);
-		assertEquals(0L, result.getProfit());
+		assertEquals(0L, result.getLootValue());
 		assertEquals("closed-bank revaluation is not a session gain",
 			0L, result.getNetWorthDelta());
 		assertEquals("identity must hold across a bank repricing",
-			result.getProfit() - result.getSuppliesUsed() + result.getUnrealizedPnl(),
+			result.getLootValue() - result.getSuppliesUsed() + result.getUnrealizedPnl(),
 			result.getNetWorthDelta());
 		assertTrue(result.isBankKnown());
 	}
@@ -1045,7 +1095,7 @@ public class SessionEngineTest
 		engine.update(current, Collections.emptySet(), 1000L);
 		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
 
-		assertEquals(huge, result.getProfit());
+		assertEquals(huge, result.getLootValue());
 		assertEquals(huge, result.getNetWorthDelta());
 	}
 
@@ -1142,7 +1192,7 @@ public class SessionEngineTest
 		engine.update(current, Collections.emptySet(), 1000L);
 
 		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
-		assertEquals("price drift alone must not move realised profit", 0L, result.getProfit());
+		assertEquals("price drift alone must not move realised profit", 0L, result.getLootValue());
 		assertEquals(0L, result.getProfitPerHour());
 		assertEquals("price drift belongs in unrealized P/L", 300_000L, result.getUnrealizedPnl());
 
@@ -1168,7 +1218,7 @@ public class SessionEngineTest
 		engine.update(current, Collections.emptySet(), 1000L);
 
 		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
-		assertEquals("loot is realised profit", 1_000_000L, result.getProfit());
+		assertEquals("loot is realised profit", 1_000_000L, result.getLootValue());
 		assertEquals("loot valued at pickup price has no paper gain yet",
 			0L, result.getUnrealizedPnl());
 		// Its cost basis is the pickup price, so the breakdown row is flat.
@@ -1193,7 +1243,7 @@ public class SessionEngineTest
 		engine.update(afterDrift, Collections.emptySet(), 1000L);
 
 		SessionSnapshot paper = engine.snapshot(afterDrift, 0L, Collections.emptyMap(), 0L, 1000L);
-		assertEquals(0L, paper.getProfit());
+		assertEquals(0L, paper.getLootValue());
 		assertEquals(50_000L, paper.getUnrealizedPnl());
 
 		// Sold the lot at 1.5k: coins in, item out. The paper gain is realised.
@@ -1207,7 +1257,7 @@ public class SessionEngineTest
 
 		SessionSnapshot result = engine.snapshot(afterSale, 0L, Collections.emptyMap(), 0L, 2000L);
 		assertEquals("sale converts the paper gain into realised profit",
-			50_000L, result.getProfit());
+			50_000L, result.getLootValue());
 		assertEquals(0L, result.getUnrealizedPnl());
 		assertTrue(result.getHoldingPnls().isEmpty());
 	}
@@ -1226,7 +1276,7 @@ public class SessionEngineTest
 		WealthSnapshot afterBuy1 = snap(10_000L, afterBuy1Items, 0L, false, 1000L);
 		engine.update(afterBuy1, geAttributed, 1000L);
 		SessionSnapshot s1 = engine.snapshot(afterBuy1, 0L, Collections.emptyMap(), 0L, 1000L);
-		assertEquals(0L, s1.getProfit());
+		assertEquals(0L, s1.getLootValue());
 		assertEquals(0L, s1.getUnrealizedPnl());
 
 		// Price doubles to 200 and buy 10 more @200: coins 7k + items 4k.
@@ -1237,7 +1287,7 @@ public class SessionEngineTest
 		WealthSnapshot afterBuy2 = snap(11_000L, afterBuy2Items, 0L, false, 2000L);
 		engine.update(afterBuy2, geAttributed, 2000L);
 		SessionSnapshot s2 = engine.snapshot(afterBuy2, 0L, Collections.emptyMap(), 0L, 2000L);
-		assertEquals(0L, s2.getProfit());
+		assertEquals(0L, s2.getLootValue());
 		assertEquals(1_000L, s2.getUnrealizedPnl());
 
 		// Sell 10 @200: coins 9k + items 2k. Sold units carried avg basis 150,
@@ -1247,7 +1297,7 @@ public class SessionEngineTest
 		WealthSnapshot afterSell = snap(11_000L, afterSellItems, 0L, false, 3000L);
 		engine.update(afterSell, geAttributed, 3000L);
 		SessionSnapshot s3 = engine.snapshot(afterSell, 0L, Collections.emptyMap(), 0L, 3000L);
-		assertEquals(500L, s3.getProfit());
+		assertEquals(500L, s3.getLootValue());
 		assertEquals(500L, s3.getUnrealizedPnl());
 		assertEquals(1, s3.getHoldingPnls().size());
 		assertEquals(1_500L, s3.getHoldingPnls().get(0).getCostBasis());
@@ -1272,7 +1322,7 @@ public class SessionEngineTest
 		engine.update(current, Collections.emptySet(), 1000L);
 
 		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
-		assertEquals(0L, result.getProfit());
+		assertEquals(0L, result.getLootValue());
 		assertEquals(1_000L, result.getUnrealizedPnl());
 
 		assertEquals(2, result.getHoldingPnls().size());
@@ -1316,13 +1366,13 @@ public class SessionEngineTest
 		engine.update(afterDeposit, Collections.emptySet(), 1200L);
 
 		SessionSnapshot live = engine.snapshot(afterDeposit, 0L, Collections.emptyMap(), 0L, 1200L);
-		assertEquals(50_000L, live.getProfit());
+		assertEquals(50_000L, live.getLootValue());
 		assertEquals(0L, live.getUnrealizedPnl());
 
 		// The figure survives the bank close unchanged.
 		engine.setBankOpen(false, afterDeposit, 1300L);
 		SessionSnapshot closed = engine.snapshot(afterDeposit, 0L, Collections.emptyMap(), 0L, 1300L);
-		assertEquals(50_000L, closed.getProfit());
+		assertEquals(50_000L, closed.getLootValue());
 		assertEquals(0L, closed.getUnrealizedPnl());
 	}
 
@@ -1372,7 +1422,7 @@ public class SessionEngineTest
 		// Regression: drinking a potion dose must not itself register as a
 		// profit loss — the spend belongs in suppliesUsed only.
 		assertEquals("drinking a potion dose must not reduce profit",
-			0L, result.getProfit());
+			0L, result.getLootValue());
 	}
 
 	@Test
@@ -1392,7 +1442,7 @@ public class SessionEngineTest
 		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
 
 		assertEquals("eating a shark must count as supplies used", 800L, result.getSuppliesUsed());
-		assertEquals("eating a shark must not register as a profit loss", 0L, result.getProfit());
+		assertEquals("eating a shark must not register as a profit loss", 0L, result.getLootValue());
 	}
 
 	@Test
@@ -1412,7 +1462,7 @@ public class SessionEngineTest
 		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
 
 		assertEquals("eating a karambwan must count as supplies used", 400L, result.getSuppliesUsed());
-		assertEquals("eating a karambwan must not register as a profit loss", 0L, result.getProfit());
+		assertEquals("eating a karambwan must not register as a profit loss", 0L, result.getLootValue());
 	}
 
 	@Test
@@ -1433,7 +1483,7 @@ public class SessionEngineTest
 		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
 
 		assertEquals("drinking the last dose must count as supplies used", 1_000L, result.getSuppliesUsed());
-		assertEquals("drinking the last dose must not register as a profit loss", 0L, result.getProfit());
+		assertEquals("drinking the last dose must not register as a profit loss", 0L, result.getLootValue());
 	}
 
 	@Test
@@ -1462,7 +1512,7 @@ public class SessionEngineTest
 		assertEquals("using a House Teleport tablet must count as supplies used",
 			747L, result.getSuppliesUsed());
 		assertEquals("using a House Teleport tablet must not register as a profit loss",
-			0L, result.getProfit());
+			0L, result.getLootValue());
 	}
 
 	@Test
@@ -1508,7 +1558,7 @@ public class SessionEngineTest
 		SessionSnapshot result = engine.snapshot(afterDeposit, 0L, Collections.emptyMap(), 0L, 200L);
 		assertEquals("depositing potions must not count as supplies used",
 			0L, result.getSuppliesUsed());
-		assertEquals(0L, result.getProfit());
+		assertEquals(0L, result.getLootValue());
 	}
 
 	@Test
@@ -1554,7 +1604,7 @@ public class SessionEngineTest
 		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
 
 		assertEquals(0L, result.getSuppliesUsed());
-		assertEquals(-500_000L, result.getProfit());
+		assertEquals(-500_000L, result.getLootValue());
 	}
 
 	// ------------------------------------------------- equip / unequip zero-sum
@@ -1593,7 +1643,7 @@ public class SessionEngineTest
 		engine.update(equipped, Collections.emptySet(), 1000L);
 
 		SessionSnapshot result = engine.snapshot(equipped, 0L, Collections.emptyMap(), 0L, 1000L);
-		assertEquals("pure equip must be zero profit", 0L, result.getProfit());
+		assertEquals("pure equip must be zero profit", 0L, result.getLootValue());
 		assertEquals(0L, result.getUnrealizedPnl());
 		assertTrue("pure equip must not appear as loot", result.getLoot().isEmpty());
 		assertEquals(0L, result.getSuppliesUsed());
@@ -1616,7 +1666,7 @@ public class SessionEngineTest
 		engine.update(equipped, Collections.emptySet(), 1000L);
 
 		SessionSnapshot result = engine.snapshot(equipped, 0L, Collections.emptyMap(), 0L, 1000L);
-		assertEquals("id-swap equip must be zero profit", 0L, result.getProfit());
+		assertEquals("id-swap equip must be zero profit", 0L, result.getLootValue());
 		assertEquals(0L, result.getUnrealizedPnl());
 		assertTrue("id-swap equip must not appear as loot", result.getLoot().isEmpty());
 		assertEquals(0L, result.getSuppliesUsed());
@@ -1641,7 +1691,7 @@ public class SessionEngineTest
 		engine.update(equipped, Collections.emptySet(), 1000L);
 
 		SessionSnapshot result = engine.snapshot(equipped, 0L, Collections.emptyMap(), 0L, 1000L);
-		assertEquals("equipping ammo must not create phantom profit", 0L, result.getProfit());
+		assertEquals("equipping ammo must not create phantom profit", 0L, result.getLootValue());
 		assertEquals(0L, result.getUnrealizedPnl());
 		assertTrue(result.getLoot().isEmpty());
 		assertEquals("equipping ammo is not consumption", 0L, result.getSuppliesUsed());
@@ -1670,7 +1720,7 @@ public class SessionEngineTest
 		engine.update(equipped, Collections.emptySet(), 1050L);
 
 		SessionSnapshot result = engine.snapshot(equipped, 0L, Collections.emptyMap(), 0L, 1050L);
-		assertEquals("equip transient must not create phantom profit", 0L, result.getProfit());
+		assertEquals("equip transient must not create phantom profit", 0L, result.getLootValue());
 		assertEquals(0L, result.getUnrealizedPnl());
 		assertTrue("equip transient must not appear as loot", result.getLoot().isEmpty());
 		assertEquals("equip transient must not count as supplies used",
@@ -1701,7 +1751,7 @@ public class SessionEngineTest
 		engine.update(equipped, Collections.emptySet(), 1050L);
 
 		SessionSnapshot result = engine.snapshot(equipped, 0L, Collections.emptyMap(), 0L, 1050L);
-		assertEquals("equip transient must not create phantom profit", 0L, result.getProfit());
+		assertEquals("equip transient must not create phantom profit", 0L, result.getLootValue());
 		assertEquals(0L, result.getUnrealizedPnl());
 		assertTrue("equip transient must not leave a phantom loot row", result.getLoot().isEmpty());
 		assertEquals(0L, result.getSuppliesUsed());
@@ -1734,7 +1784,7 @@ public class SessionEngineTest
 		engine.update(equipped, Collections.emptySet(), 2000L);
 
 		SessionSnapshot result = engine.snapshot(equipped, 0L, Collections.emptyMap(), 0L, 2000L);
-		assertEquals("drift must not be realised by an equip", 0L, result.getProfit());
+		assertEquals("drift must not be realised by an equip", 0L, result.getLootValue());
 		assertEquals("paper gain must survive the equip", 3_000_000L, result.getUnrealizedPnl());
 		assertTrue(result.getLoot().isEmpty());
 	}
@@ -1765,7 +1815,7 @@ public class SessionEngineTest
 		engine.update(equipped, Collections.emptySet(), 2050L);
 
 		SessionSnapshot result = engine.snapshot(equipped, 0L, Collections.emptyMap(), 0L, 2050L);
-		assertEquals("flicker must not realise the drift", 0L, result.getProfit());
+		assertEquals("flicker must not realise the drift", 0L, result.getLootValue());
 		assertEquals("paper gain must survive the flicker", 2_750_000L, result.getUnrealizedPnl());
 		assertTrue(result.getLoot().isEmpty());
 		assertEquals(0L, result.getSuppliesUsed());
@@ -1793,7 +1843,7 @@ public class SessionEngineTest
 
 		SessionSnapshot result = engine.snapshot(afterThrowing, 0L, Collections.emptyMap(), 0L, 60_000L);
 		assertEquals(750L * 4_000L, result.getSuppliesUsed());
-		assertEquals("consumption folds into supplies, not profit", 0L, result.getProfit());
+		assertEquals("consumption folds into supplies, not profit", 0L, result.getLootValue());
 	}
 
 	// --------------------------------------------- parked-stack vanish/return
@@ -1832,9 +1882,9 @@ public class SessionEngineTest
 		assertTrue("returned cannonballs must not book as loot", result.getLoot().isEmpty());
 		assertEquals("only the fired balls remain booked as supplies",
 			500L * 264L, result.getSuppliesUsed());
-		assertEquals("a load/pick-up round trip must not move profit", 0L, result.getProfit());
+		assertEquals("a load/pick-up round trip must not move profit", 0L, result.getLootValue());
 		assertEquals("identity must hold across the round trip",
-			result.getProfit() - result.getSuppliesUsed() + result.getUnrealizedPnl(),
+			result.getLootValue() - result.getSuppliesUsed() + result.getUnrealizedPnl(),
 			result.getNetWorthDelta());
 	}
 
@@ -1861,7 +1911,7 @@ public class SessionEngineTest
 
 		SessionSnapshot result = engine.snapshot(back, 0L, Collections.emptyMap(), 0L, 645_000L);
 		assertTrue("cannon parts returning must not book as loot", result.getLoot().isEmpty());
-		assertEquals(0L, result.getProfit());
+		assertEquals(0L, result.getLootValue());
 		assertEquals(0L, result.getSuppliesUsed());
 	}
 
@@ -1888,7 +1938,7 @@ public class SessionEngineTest
 		assertEquals(1, result.getLoot().size());
 		assertEquals(4_000L, result.getLoot().get(0).getValue());
 		assertEquals("the eaten stack stays charged as supplies", 4_000L, result.getSuppliesUsed());
-		assertEquals("genuine loot beyond the window counts as profit", 4_000L, result.getProfit());
+		assertEquals("genuine loot beyond the window counts as profit", 4_000L, result.getLootValue());
 	}
 
 	@Test
@@ -1939,7 +1989,7 @@ public class SessionEngineTest
 		engine.update(current, Collections.emptySet(), 1000L);
 		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
 
-		assertEquals("drinking a dose must not register as profit", 0L, result.getProfit());
+		assertEquals("drinking a dose must not register as profit", 0L, result.getLootValue());
 		assertEquals("drinking a dose must not appear as loot", 0, result.getLoot().size());
 		assertEquals("only the consumed dose value counts as supplies used",
 			1_000L, result.getSuppliesUsed());
@@ -1968,7 +2018,7 @@ public class SessionEngineTest
 		assertEquals("drinking the last dose must still count as supplies used",
 			1_000L, result.getSuppliesUsed());
 		assertEquals("drinking the last dose must not register as a profit loss",
-			0L, result.getProfit());
+			0L, result.getLootValue());
 		assertTrue("drinking the last dose must not appear as loot", result.getLoot().isEmpty());
 	}
 
@@ -2088,7 +2138,7 @@ public class SessionEngineTest
 		SessionSnapshot result = engine.snapshot(collected, 0L, Collections.emptyMap(), 0L, 122_000L);
 		assertTrue("a collected GE buy must not appear as loot", result.getLoot().isEmpty());
 		assertEquals("a flat buy-and-collect round trip is profit-neutral",
-			0L, result.getProfit());
+			0L, result.getLootValue());
 		assertEquals(0L, result.getSuppliesUsed());
 	}
 
@@ -2124,7 +2174,7 @@ public class SessionEngineTest
 		assertEquals("placing a sell offer must not charge supplies",
 			0L, result.getSuppliesUsed());
 		assertEquals("only the GE tax moves profit on a flat sale",
-			-6_000L, result.getProfit());
+			-6_000L, result.getLootValue());
 	}
 
 	@Test

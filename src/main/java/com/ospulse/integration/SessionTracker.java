@@ -423,7 +423,7 @@ public class SessionTracker implements SessionService
 		return new SessionSnapshot(
 			base.getStartMs(),
 			elapsedMs,
-			base.getProfit(),
+			base.getLootValue(),
 			base.getProfitPerHour(),
 			base.getGeRealizedPnl(),
 			base.getNetWorthDelta(),

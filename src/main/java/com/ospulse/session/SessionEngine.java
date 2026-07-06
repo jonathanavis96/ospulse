@@ -1729,12 +1729,21 @@ public final class SessionEngine
 		}
 		long profit = markToMarket - unrealizedPnl;
 
+		// "Loot" = value of items actually picked up: realised wealth gains with
+		// GE flip winnings removed. A completed flip's proceeds land in tracked
+		// wealth and so are already inside `profit`; the flip is also surfaced on
+		// its own line (geRealizedPnl), so subtract it here to avoid double-
+		// counting. Selling looted items is NOT a flip in GeReconciler (no GE
+		// cost basis), so sold-loot correctly stays in loot. This preserves the
+		// identity netWorthDelta == (loot - suppliesUsed) + geRealizedPnl + unrealizedPnl.
+		long loot = profit - geRealizedPnl;
+
 		long elapsedMs = tsMs - startMs;
 		// Profit/hr extrapolates NET profit — realised gains minus the
 		// consumable spend burned to earn them — not gross profit. Supplies
 		// are a real cost of the session, so an hour that nets negative after
 		// supplies must read negative. (Matches SessionSnapshot#getNetProfit.)
-		long netProfit = profit - suppliesUsed;
+		long netProfit = loot - suppliesUsed;
 		long profitPerHour = elapsedMs > 0 ? netProfit * 3600000L / elapsedMs : 0L;
 		// In-flight deposits count as owned net worth too — the observed bank
 		// value simply hasn't caught up — keeping the accounting identity
@@ -1768,7 +1777,7 @@ public final class SessionEngine
 		return new SessionSnapshot(
 			startMs,
 			elapsedMs,
-			profit,
+			loot,
 			profitPerHour,
 			geRealizedPnl,
 			netWorthDelta,
