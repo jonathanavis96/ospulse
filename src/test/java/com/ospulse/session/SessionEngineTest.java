@@ -248,6 +248,48 @@ public class SessionEngineTest
 	}
 
 	@Test
+	public void withdrawalWhoseBankUpdateLagsTheCloseIsStillNeutralised()
+	{
+		// Regression (real session, 10:23:10): a 22.98M withdrawal landed in
+		// the inventory while the bank was still open, but the BANK container
+		// update arrived ~2s AFTER the widget-closed event. The close-time
+		// reanchor therefore measured a bank change of 0 and neutralised
+		// nothing, booking the whole withdrawal as +22.98M phantom profit —
+		// permanently, since the late bank update (while closed) only moved
+		// netWorthDelta. The late tail of the visit's transfer must be folded
+		// into the baseline exactly as the close reanchor would have.
+		WealthSnapshot initial = snap(100_000_000L, Collections.emptyMap(), 50_000_000L, true, 0L);
+		engine.startSession(initial, 0L);
+
+		engine.setBankOpen(true, snap(100_000_000L, Collections.emptyMap(), 50_000_000L, true, 100L), 100L);
+
+		// Withdrew 20M: the inventory reflects it while the bank is still
+		// open, but the bank value hasn't refreshed yet.
+		WealthSnapshot invUpdated = snap(120_000_000L, Collections.emptyMap(), 50_000_000L, true, 200L);
+		engine.update(invUpdated, Collections.emptySet(), 200L);
+
+		// Bank closes before the bank container catches up: the close-time
+		// shift sees a 0 bank change.
+		engine.setBankOpen(false, invUpdated, 300L);
+
+		// The bank container update lands ~2s after the close.
+		WealthSnapshot bankCaughtUp = snap(120_000_000L, Collections.emptyMap(), 30_000_000L, true, 2_300L);
+		engine.update(bankCaughtUp, Collections.emptySet(), 2_300L);
+
+		SessionSnapshot result = engine.snapshot(bankCaughtUp, 0L, Collections.emptyMap(), 0L, 2_300L);
+		assertEquals("a withdrawal whose bank update lags the close must not read as profit",
+			0L, result.getProfit());
+		assertEquals(0L, result.getNetWorthDelta());
+		assertTrue(result.getLoot().isEmpty());
+
+		// Still neutral on later quiet ticks (the reconciliation must not
+		// re-apply itself once the anchor has caught up).
+		WealthSnapshot later = snap(120_000_000L, Collections.emptyMap(), 30_000_000L, true, 10_000L);
+		engine.update(later, Collections.emptySet(), 10_000L);
+		assertEquals(0L, engine.snapshot(later, 0L, Collections.emptyMap(), 0L, 10_000L).getProfit());
+	}
+
+	@Test
 	public void restartWhileBankOpenKeepsPostResetTransfersZeroSum()
 	{
 		// Session running, bank open, mid-visit (mirrors the "reset while the
@@ -326,21 +368,33 @@ public class SessionEngineTest
 	}
 
 	@Test
-	public void netWorthDeltaIncludesBankWhenKnown()
+	public void bankRevaluationWhileClosedDoesNotMoveNetWorthDeltaOrProfit()
 	{
-		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 50_000_000L, true, 0L);
+		// The bank is valued at live prices, so a GE price reload can move a
+		// closed bank by millions with no transfer at all (observed in the
+		// wild: +4.09M on a ~1.1B bank in a single update, every wealth
+		// component repricing at once with zero quantity changes). That paper
+		// drift on cold storage is not session activity: it must not read as
+		// a net-worth gain, and the accounting identity
+		// netWorthDelta == profit - suppliesUsed + unrealizedPnl must survive
+		// the reload (profit and unrealized both exclude the bank by design,
+		// so counting the reload in netWorthDelta breaks the books by the
+		// full drift amount).
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 1_000_000_000L, true, 0L);
 		engine.startSession(initial, 0L);
 
-		WealthSnapshot current = snap(10_000_000L, Collections.emptyMap(), 60_000_000L, true, 1000L);
-		engine.update(current, Collections.emptySet(), 1000L);
+		// Ten minutes in — no bank visit anywhere near — prices reload and
+		// the bank revalues +4M. Tracked wealth unchanged.
+		WealthSnapshot repriced = snap(10_000_000L, Collections.emptyMap(), 1_004_000_000L, true, 600_000L);
+		engine.update(repriced, Collections.emptySet(), 600_000L);
 
-		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
-
-		// Tracked wealth unchanged (bank grew via some external means in
-		// this synthetic scenario), netWorthDelta must reflect the bank
-		// change since it's part of netWorth().
+		SessionSnapshot result = engine.snapshot(repriced, 0L, Collections.emptyMap(), 0L, 600_000L);
 		assertEquals(0L, result.getProfit());
-		assertEquals(10_000_000L, result.getNetWorthDelta());
+		assertEquals("closed-bank revaluation is not a session gain",
+			0L, result.getNetWorthDelta());
+		assertEquals("identity must hold across a bank repricing",
+			result.getProfit() - result.getSuppliesUsed() + result.getUnrealizedPnl(),
+			result.getNetWorthDelta());
 		assertTrue(result.isBankKnown());
 	}
 
@@ -1131,6 +1185,101 @@ public class SessionEngineTest
 		SessionSnapshot result = engine.snapshot(afterThrowing, 0L, Collections.emptyMap(), 0L, 60_000L);
 		assertEquals(750L * 4_000L, result.getSuppliesUsed());
 		assertEquals("consumption folds into supplies, not profit", 0L, result.getProfit());
+	}
+
+	// --------------------------------------------- parked-stack vanish/return
+
+	private static final int STEEL_CANNONBALL = 2;
+
+	@Test
+	public void cannonballStackReturnedMinutesLaterIsNotLootAndUnchargesSupplies()
+	{
+		// Regression (real session, 10:04:19 -> 10:04:22): loading a dwarf
+		// multicannon moves the whole cannonball stack out of the inventory
+		// and picking the cannon up returns the unfired remainder — seconds
+		// to many minutes later, far outside the one-tick transient window.
+		// Observed: a 34,805-ball (9.19M) load rebooked as 9.19M of fresh
+		// "loot" on return. Cannonballs classify as consumable supplies, so
+		// without netting the round trip books the full stack as supplies AND
+		// as loot, inflating profit by the whole stack value. The return must
+		// net against the recorded vanish: no loot row, supplies un-charged
+		// for the quantity that came back, profit flat.
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(STEEL_CANNONBALL, new ItemStack(STEEL_CANNONBALL, "Steel cannonball", 34_805L, 264L));
+		engine.startSession(snap(34_805L * 264L, held, 0L, false, 0L), 0L);
+
+		// Cannon loaded: the whole stack leaves tracked wealth.
+		engine.update(snap(0L, new LinkedHashMap<>(), 0L, false, 1_000L), Collections.emptySet(), 1_000L);
+		assertEquals(34_805L * 264L, engine.getSuppliesUsed());
+
+		// Cannon picked up 3 minutes later: 500 balls were fired in between,
+		// so 34,305 return to the inventory.
+		Map<Integer, ItemStack> returned = new LinkedHashMap<>();
+		returned.put(STEEL_CANNONBALL, new ItemStack(STEEL_CANNONBALL, "Steel cannonball", 34_305L, 264L));
+		WealthSnapshot afterPickup = snap(34_305L * 264L, returned, 0L, false, 181_000L);
+		engine.update(afterPickup, Collections.emptySet(), 181_000L);
+
+		SessionSnapshot result = engine.snapshot(afterPickup, 0L, Collections.emptyMap(), 0L, 181_000L);
+		assertTrue("returned cannonballs must not book as loot", result.getLoot().isEmpty());
+		assertEquals("only the fired balls remain booked as supplies",
+			500L * 264L, result.getSuppliesUsed());
+		assertEquals("a load/pick-up round trip must not move profit", 0L, result.getProfit());
+		assertEquals("identity must hold across the round trip",
+			result.getProfit() - result.getSuppliesUsed() + result.getUnrealizedPnl(),
+			result.getNetWorthDelta());
+	}
+
+	@Test
+	public void cannonPartsReturnedOutsideTransientWindowAreNotLoot()
+	{
+		// Same pattern for the non-consumable cannon parts (real session:
+		// assembled 10:09:02-07, picked up 10:19:49 — 10.7 minutes later):
+		// each ~190k part vanishes on assembly (an untracked vanish, so
+		// profit dips by its value while the cannon is out) and reappears on
+		// pickup. The reappearance must net against the recorded vanish, not
+		// book as fresh loot.
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(6, new ItemStack(6, "Cannon base", 1L, 196_376L));
+		held.put(8, new ItemStack(8, "Cannon stand", 1L, 180_764L));
+		engine.startSession(snap(377_140L, held, 0L, false, 0L), 0L);
+
+		// Cannon set up: the parts leave the inventory.
+		engine.update(snap(0L, new LinkedHashMap<>(), 0L, false, 1_000L), Collections.emptySet(), 1_000L);
+
+		// Picked back up ~10 minutes later.
+		WealthSnapshot back = snap(377_140L, new LinkedHashMap<>(held), 0L, false, 645_000L);
+		engine.update(back, Collections.emptySet(), 645_000L);
+
+		SessionSnapshot result = engine.snapshot(back, 0L, Collections.emptyMap(), 0L, 645_000L);
+		assertTrue("cannon parts returning must not book as loot", result.getLoot().isEmpty());
+		assertEquals(0L, result.getProfit());
+		assertEquals(0L, result.getSuppliesUsed());
+	}
+
+	@Test
+	public void equalStackLootedBeyondReturnWindowStillCountsAsLoot()
+	{
+		// Guard: the parked-stack netting is bounded. A whole stack genuinely
+		// consumed, followed by an identical stack genuinely looted far
+		// outside the vanish-return window, is new wealth and must book as
+		// loot (and the original consumption stays charged as supplies).
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(SHARK, new ItemStack(SHARK, "Shark", 5L, 800L));
+		engine.startSession(snap(4_000L, held, 0L, false, 0L), 0L);
+
+		// The whole stack is eaten...
+		engine.update(snap(0L, new LinkedHashMap<>(), 0L, false, 1_000L), Collections.emptySet(), 1_000L);
+		assertEquals(4_000L, engine.getSuppliesUsed());
+
+		// ...and an identical stack is looted 40 minutes later.
+		WealthSnapshot after = snap(4_000L, new LinkedHashMap<>(held), 0L, false, 2_401_000L);
+		engine.update(after, Collections.emptySet(), 2_401_000L);
+
+		SessionSnapshot result = engine.snapshot(after, 0L, Collections.emptyMap(), 0L, 2_401_000L);
+		assertEquals(1, result.getLoot().size());
+		assertEquals(4_000L, result.getLoot().get(0).getValue());
+		assertEquals("the eaten stack stays charged as supplies", 4_000L, result.getSuppliesUsed());
+		assertEquals("genuine loot beyond the window counts as profit", 4_000L, result.getProfit());
 	}
 
 	@Test

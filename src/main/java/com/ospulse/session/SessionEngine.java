@@ -63,6 +63,29 @@ public final class SessionEngine
 	private long bankValueAtOpen;
 	/** Whether {@link #bankValueAtOpen} has been captured for this visit. */
 	private boolean bankValueAtOpenKnown;
+	/**
+	 * Grace window (ms) after a bank close during which a movement of the
+	 * bank's value observed while the bank is CLOSED is still treated as part
+	 * of the visit's net transfer. RuneLite can deliver the bank-container
+	 * update AFTER the widget-closed event, so the close-time reanchor reads a
+	 * stale bank value and under-neutralises the visit (observed in the wild:
+	 * a 22.98M withdrawal whose bank update landed ~2s after the close booked
+	 * as +22.98M phantom profit, permanently). Movements seen inside this
+	 * window are folded into the baseline exactly as the close reanchor would
+	 * have; see {@link #reconcileClosedBankMovement}.
+	 */
+	private static final long BANK_CLOSE_TRANSFER_GRACE_MS = 5_000L;
+	/**
+	 * Last bank value seen while the bank was closed — the anchor
+	 * {@link #reconcileClosedBankMovement} measures closed-bank movements
+	 * from. Valid only while {@link #closedBankAnchorKnown}.
+	 */
+	private long closedBankAnchor;
+	private boolean closedBankAnchorKnown;
+	/** Timestamp of the last bank close; meaningful only while {@link #closeGraceArmed}. */
+	private long lastBankCloseTsMs;
+	/** True once a bank visit has closed with a known bank value, arming the grace window. */
+	private boolean closeGraceArmed;
 	private WealthSnapshot previous;
 	/**
 	 * Loot aggregated per item across the whole session (like the Loot Tracker
@@ -105,11 +128,33 @@ public final class SessionEngine
 	 */
 	private static final long TRANSFER_REVERSAL_WINDOW_MS = 600L;
 	/**
-	 * Vanishes classified by the PREVIOUS update (supplies charged / value
-	 * silently dropped) that the current update may reverse if the stack
-	 * reappears — see {@link #update}. Replaced wholesale every update, so an
-	 * entry is reversible for exactly one following interval (and only within
-	 * {@link #TRANSFER_REVERSAL_WINDOW_MS}).
+	 * Wall-clock window (ms) within which a WHOLE stack that vanished from
+	 * tracked wealth may reappear (same item id, whole-stack appearance of up
+	 * to the vanished quantity) and be netted against the recorded vanish
+	 * instead of booking as fresh loot. Covers real "wealth parked outside
+	 * tracked containers" round trips the one-tick transient window cannot:
+	 * loading a dwarf multicannon moves the whole cannonball stack out of the
+	 * inventory and picking the cannon up returns the unfired remainder
+	 * minutes later, and assembling the cannon does the same with its four
+	 * ~190k parts (observed in the wild: a 34,805-ball / 9.19M load rebooked
+	 * as 9.19M of fresh "loot" on return). Without netting, the return
+	 * inflates the loot feed — and since cannonballs classify as consumable
+	 * supplies, the round trip books the full stack value as supplies AND
+	 * again as loot, inflating profit by the whole stack. Bounded so a
+	 * genuinely consumed stack whose twin is genuinely looted much later
+	 * still counts as loot. Bank visits clear the pending records (see
+	 * {@link #setBankOpen}), so this never nets across a restock.
+	 */
+	private static final long VANISH_RETURN_WINDOW_MS = 30L * 60_000L;
+	/**
+	 * Vanishes classified by PREVIOUS updates (supplies charged / value
+	 * silently dropped) that a later update may reverse if the stack
+	 * reappears — see {@link #update}. Partial-stack entries are reversible
+	 * for exactly one following interval (and only within
+	 * {@link #TRANSFER_REVERSAL_WINDOW_MS}); whole-stack entries are retained
+	 * and stay reversible for {@link #VANISH_RETURN_WINDOW_MS} so a stack
+	 * parked outside tracked containers (cannon load, cannon parts) is netted
+	 * on return instead of booking as loot.
 	 */
 	private List<PendingSwing> pendingVanished = new ArrayList<>();
 	/** Loot recorded by the PREVIOUS update, reversible symmetrically. */
@@ -286,6 +331,10 @@ public final class SessionEngine
 		this.trackedAtBankOpen = 0L;
 		this.bankValueAtOpen = 0L;
 		this.bankValueAtOpenKnown = false;
+		this.closedBankAnchorKnown = initial.isBankKnown();
+		this.closedBankAnchor = initial.isBankKnown() ? initial.getBankValue() : 0L;
+		this.closeGraceArmed = false;
+		this.lastBankCloseTsMs = 0L;
 		this.lootTotals.clear();
 		this.suppliesUsed = 0L;
 		this.costBasis.clear();
@@ -310,6 +359,10 @@ public final class SessionEngine
 	public void setBankOpen(boolean open, WealthSnapshot current, long tsMs)
 	{
 		syncCostBasis(current);
+		// Catch any closed-bank movement (lagged transfer from the previous
+		// visit, or a revaluation) delivered in the same batch as this
+		// transition, BEFORE this visit anchors to the current bank value.
+		reconcileClosedBankMovement(current, tsMs);
 		if (!this.bankOpen && open)
 		{
 			// FALSE -> TRUE: bank just opened. Anchor the visit.
@@ -334,6 +387,15 @@ public final class SessionEngine
 				logDiag("[reanchor] bank CLOSE netTransferShift={} baseline {} -> {}",
 					shift, oldBaseline, this.baseline);
 			}
+			// The bank-container update for a transfer made at the very end of
+			// the visit can arrive AFTER this close event; anchor the close-time
+			// bank value and keep reconciling briefly (see
+			// reconcileClosedBankMovement) so the late tail of the transfer is
+			// still neutralised instead of booking as phantom profit.
+			this.closedBankAnchorKnown = current.isBankKnown();
+			this.closedBankAnchor = current.isBankKnown() ? current.getBankValue() : 0L;
+			this.closeGraceArmed = current.isBankKnown();
+			this.lastBankCloseTsMs = tsMs;
 		}
 
 		this.previous = current;
@@ -391,6 +453,75 @@ public final class SessionEngine
 			return 0L;
 		}
 		return current.getBankValue() - bankValueAtOpen;
+	}
+
+	/**
+	 * Books any movement of the bank's value observed while the bank is
+	 * CLOSED. Nothing this engine models can move a closed bank, so a change
+	 * is one of two things:
+	 * <ul>
+	 *   <li><b>A lagged transfer</b> — RuneLite can deliver the bank-container
+	 *       update after the widget-closed event, so the tail of the visit's
+	 *       net transfer lands moments after {@link #setBankOpen} already
+	 *       reconciled the visit. Within {@link #BANK_CLOSE_TRANSFER_GRACE_MS}
+	 *       of the last close the movement is folded into the baseline exactly
+	 *       as {@link #bankVisitBaselineShift} would have at close time.</li>
+	 *   <li><b>A passive revaluation</b> — the bank is valued at live prices,
+	 *       so a GE price reload can move a large bank by millions with no
+	 *       transfer at all (observed: +4.09M on a ~1.1B bank). That paper
+	 *       drift is folded into {@link #startNetWorth} (mirroring
+	 *       {@link #foldNewlyKnownBankIntoStart}), so the "Net worth Δ"
+	 *       reflects session activity rather than price drift on cold
+	 *       storage, and the accounting identity
+	 *       {@code netWorthDelta == profit - suppliesUsed + unrealizedPnl}
+	 *       survives the reload. An out-of-band deposit this engine doesn't
+	 *       model (e.g. GE collect-to-bank) is also folded here — the
+	 *       matching tracked-wealth movement books to profit/supplies, so the
+	 *       identity still holds; only the transfer's label is lost.</li>
+	 * </ul>
+	 * Anchor-based and idempotent: safe to call from {@link #update},
+	 * {@link #snapshot} and {@link #setBankOpen} in any order and repeatedly.
+	 * No-op while the bank is open (movements are live transfers handled by
+	 * {@link #liveBankTransferOffset}) or while the bank value is unknown.
+	 */
+	private void reconcileClosedBankMovement(WealthSnapshot current, long tsMs)
+	{
+		if (bankOpen || !current.isBankKnown())
+		{
+			return;
+		}
+		if (!closedBankAnchorKnown)
+		{
+			this.closedBankAnchor = current.getBankValue();
+			this.closedBankAnchorKnown = true;
+			return;
+		}
+		long delta = current.getBankValue() - closedBankAnchor;
+		if (delta == 0)
+		{
+			return;
+		}
+		this.closedBankAnchor = current.getBankValue();
+		if (closeGraceArmed && tsMs - lastBankCloseTsMs <= BANK_CLOSE_TRANSFER_GRACE_MS)
+		{
+			long oldBaseline = this.baseline;
+			this.baseline -= delta;
+			if (diagEnabled())
+			{
+				logDiag("[reanchor] late bank update {}ms after close: transferShift={} baseline {} -> {}",
+					tsMs - lastBankCloseTsMs, -delta, oldBaseline, this.baseline);
+			}
+		}
+		else
+		{
+			long oldStart = this.startNetWorth;
+			this.startNetWorth += delta;
+			if (diagEnabled())
+			{
+				logDiag("[reanchor] closed-bank revaluation {}: startNetWorth {} -> {}",
+					delta, oldStart, this.startNetWorth);
+			}
+		}
 	}
 
 	/** Enables/disables promoting the per-update wealth/attribution diagnostics to INFO — see {@link #verboseDiagnostics}. */
@@ -488,6 +619,8 @@ public final class SessionEngine
 			this.previous = current;
 			return;
 		}
+
+		reconcileClosedBankMovement(current, tsMs);
 
 		long trackedBefore = previous == null ? current.tracked() : previous.tracked();
 		long baselineBefore = baseline;
@@ -666,13 +799,26 @@ public final class SessionEngine
 			{
 				for (PendingSwing p : pendingVanished)
 				{
-					if (p.quantity == 0 || tsMs - p.tsMs > TRANSFER_REVERSAL_WINDOW_MS)
+					long ageMs = tsMs - p.tsMs;
+					if (p.quantity == 0 || ageMs > VANISH_RETURN_WINDOW_MS)
 					{
 						continue;
 					}
+					boolean withinTransientWindow = ageMs <= TRANSFER_REVERSAL_WINDOW_MS;
+					// Pass 0: same item id. Within the one-tick transient window
+					// any same-id reappearance nets (equip flicker); beyond it,
+					// only a whole-stack vanish answered by a whole-stack
+					// reappearance of up to the vanished quantity nets (a stack
+					// parked outside tracked containers coming back, e.g. a
+					// cannon load returned on pickup — see
+					// VANISH_RETURN_WINDOW_MS). Pass 1: id-swap split across two
+					// container events, transient window only.
 					boolean matched = pass == 0
 						? p.itemId == a.itemId
-						: (p.itemId != a.itemId && a.fullSwing && p.fullSwing
+							&& (withinTransientWindow
+								|| (p.fullSwing && a.fullSwing && a.quantity <= p.quantity))
+						: (withinTransientWindow
+							&& p.itemId != a.itemId && a.fullSwing && p.fullSwing
 							&& p.quantity == a.quantity && p.unitValue == a.unitValue);
 					if (!matched)
 					{
@@ -687,12 +833,12 @@ public final class SessionEngine
 						this.baseline += reversedValue;
 						suppliesReversed += reversedValue;
 						logAttribution(a.itemId, a.name, reversedQty, reversedValue,
-							"REVERSAL-NET(un-charge supply, equip transient)");
+							"REVERSAL-NET(un-charge supply, transient/returned stack)");
 					}
 					else
 					{
 						logAttribution(a.itemId, a.name, reversedQty, reversedQty * p.unitValue,
-							"REVERSAL-NET(equip transient, guarded from loot)");
+							"REVERSAL-NET(transient/returned stack, guarded from loot)");
 					}
 					a.quantity -= reversedQty;
 					p.quantity -= reversedQty;
@@ -801,8 +947,21 @@ public final class SessionEngine
 			}
 		}
 
-		// ---- 4. Commit: the reversal window rolls forward exactly one interval.
-		this.pendingVanished = newPendingVanished;
+		// ---- 4. Commit. Loot records and partial-stack vanishes roll forward
+		// exactly one interval (the equip-transient window); whole-stack
+		// vanishes from earlier intervals are retained while still reversible
+		// within VANISH_RETURN_WINDOW_MS so a parked stack's return can be
+		// netted (oldest first, ahead of this update's records).
+		List<PendingSwing> retainedVanished = new ArrayList<>();
+		for (PendingSwing p : pendingVanished)
+		{
+			if (p.quantity > 0 && p.fullSwing && tsMs - p.tsMs <= VANISH_RETURN_WINDOW_MS)
+			{
+				retainedVanished.add(p);
+			}
+		}
+		retainedVanished.addAll(newPendingVanished);
+		this.pendingVanished = retainedVanished;
 		this.pendingLooted = newPendingLooted;
 
 		syncCostBasis(current);
@@ -1033,6 +1192,7 @@ public final class SessionEngine
 	{
 		foldNewlyKnownBankIntoStart(current);
 		captureLateKnownBank(current);
+		reconcileClosedBankMovement(current, tsMs);
 		syncCostBasis(current);
 
 		// While the bank is open, add back the net amount deposited so far so
