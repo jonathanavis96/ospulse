@@ -30,10 +30,10 @@ public final class SupplyClassifier
 	private static final Pattern POTION_PATTERN = Pattern.compile(
 		"(?i).*\\b(potion|mix|flask|brew|barbarian mix)\\s*\\(?\\d?\\)?$");
 
-	/** Ammunition: arrows, bolts, darts, javelins, thrown knives/axes, and tips. */
+	/** Ammunition: arrows, bolts, darts, javelins, thrown knives/axes, cannonballs, and tips. */
 	private static final Pattern AMMO_PATTERN = Pattern.compile(
 		"(?i).*\\b(arrow|bolts?|dart|javelin|throwing knife|thrown knife|"
-			+ "chinchompa|bolt tips?|dragonfire|knife)s?$");
+			+ "chinchompa|bolt tips?|dragonfire|knife|cannonball)s?$");
 
 	/** Runes: elemental/catalytic/combination runes by their canonical names. */
 	private static final Pattern RUNE_PATTERN = Pattern.compile(

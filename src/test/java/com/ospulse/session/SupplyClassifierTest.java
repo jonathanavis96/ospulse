@@ -14,6 +14,15 @@ public class SupplyClassifierTest
 	}
 
 	@Test
+	public void cannonballsAreConsumableAmmo()
+	{
+		// Cannonballs are burned through like any other ammunition, so they
+		// belong in "supplies used", not folded into profit/loot.
+		assertTrue(SupplyClassifier.isConsumable("Cannonball"));
+		assertTrue(SupplyClassifier.isConsumable("Granite cannonball"));
+	}
+
+	@Test
 	public void chargedJewelleryWithHigherDoseSuffixIsNotConsumable()
 	{
 		// Charged jewellery uses (6)/(8) charge suffixes, which look
