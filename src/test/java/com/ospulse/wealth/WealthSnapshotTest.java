@@ -30,6 +30,27 @@ public class WealthSnapshotTest
 	}
 
 	@Test
+	public void trackedIncludesGeCollectableValue()
+	{
+		// Value awaiting collection in the GE box (sale proceeds / bought goods)
+		// counts as tracked wealth, so net worth stays continuous across a fill
+		// instead of dipping until the goods are collected.
+		WealthSnapshot snap = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.equipmentValue(2_000_000L)
+			.geInFlightValue(500_000L)
+			.geCollectableValue(750_000L)
+			.pouchValue(250_000L)
+			.bankValue(100_000_000L)
+			.bankKnown(true)
+			.build();
+
+		assertEquals(4_500_000L, snap.tracked());
+		assertEquals(750_000L, snap.getGeCollectableValue());
+		assertEquals(104_500_000L, snap.netWorth());
+	}
+
+	@Test
 	public void netWorthIncludesBankWhenKnown()
 	{
 		WealthSnapshot snap = WealthSnapshot.builder()

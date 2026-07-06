@@ -372,6 +372,49 @@ public final class GeReconciler implements GeAttributions
 	}
 
 	/**
+	 * Total value still awaiting collection in the Grand Exchange collection box:
+	 * the sum of every live expected arrival (bought items, sale-proceed coins,
+	 * under-price/cancellation refunds) whose offer slot is still occupied
+	 * ({@code deadlineMs == 0}), valued via {@code unitValue} (coins are valued at
+	 * 1 gp each regardless of what the lookup returns).
+	 *
+	 * <p>This is the wealth that has definitively left the inventory/bank into a
+	 * sell offer (or the escrow of a buy) and is now sitting as collectable goods
+	 * or proceeds — value the {@link com.ospulse.integration.GeValuation}
+	 * "still-locked" number deliberately omits, which is why net worth otherwise
+	 * dips the instant a sell fills and only recovers when the coins are collected.
+	 * Folding it back into tracked wealth closes that gap.
+	 *
+	 * <p>Counting only slot-occupied ({@code deadlineMs == 0}) arrivals is what
+	 * keeps this double-count-free: the moment a slot clears (the player
+	 * collected — see {@link #stampSlotCleared}) its arrivals are stamped with a
+	 * settle deadline and drop out of this total, handing the value straight back
+	 * to inventory/bank accounting. Because each arrival is also decremented by
+	 * the actual observed inventory arrival ({@link #attributeArrival}), a partial
+	 * collect is reflected the instant it lands. The only residual overlap is the
+	 * single tick on which a collected stack is already in the inventory container
+	 * but its arrival has not yet been consumed by the engine's per-tick diff — a
+	 * benign transient that self-corrects on the next tick (the engine re-anchors
+	 * its baseline every tick), never a persistent phantom gain.
+	 *
+	 * @param unitValue itemId -&gt; gp value per unit
+	 */
+	public long collectableValue(java.util.function.IntToLongFunction unitValue)
+	{
+		long total = 0L;
+		for (ExpectedArrival e : expectedArrivals)
+		{
+			if (e.deadlineMs != 0 || e.quantity <= 0)
+			{
+				continue;
+			}
+			long unit = e.itemId == COINS_ITEM_ID ? 1L : unitValue.applyAsLong(e.itemId);
+			total += e.quantity * unit;
+		}
+		return total;
+	}
+
+	/**
 	 * Clears all per-session state (open-slot tracking, cost-basis ledger,
 	 * expectation ledgers and realised P&amp;L) so a new tracking window
 	 * starts from zero. Must be called whenever the session is reset or

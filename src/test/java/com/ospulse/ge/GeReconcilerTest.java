@@ -310,6 +310,63 @@ public class GeReconcilerTest
 	}
 
 	@Test
+	public void collectableValueCountsSaleProceedsWhileSlotOccupied()
+	{
+		// Sell 10 whips (fully filled) at 1.2M: proceeds net of 2% tax
+		// (24,000/ea) = 11,760,000 coins sit in the collection box awaiting
+		// collection while the slot is still occupied. That value must show up
+		// in the collectable total so net worth doesn't dip after the fill.
+		reconciler.onOfferUpdate(0, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 1000L);
+
+		// Non-coin lookup never consulted for coins (valued at 1 internally).
+		assertEquals(11_760_000L, reconciler.collectableValue(id -> 0L));
+	}
+
+	@Test
+	public void collectableValueValuesBoughtItemsAtUnitValue()
+	{
+		// Bought 10 whips (fully filled at the offer price, no refund): the 10
+		// items are collectable, valued at their market unit value.
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+
+		assertEquals(10_000_000L, reconciler.collectableValue(id -> id == WHIP ? 1_000_000L : 0L));
+	}
+
+	@Test
+	public void collectableValueDropsToZeroOnceSlotClears()
+	{
+		reconciler.onOfferUpdate(0, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 1000L);
+		assertEquals(11_760_000L, reconciler.collectableValue(id -> 0L));
+
+		// Slot cleared (the player collected): the value hands back to
+		// inventory/bank accounting immediately, so it must leave the
+		// collectable total at once (not linger for the settle window) to avoid
+		// double-counting goods now in the inventory.
+		reconciler.onOfferUpdate(0, GeOfferState.EMPTY, 0, null,
+			0L, 0L, 0L, 0L, 2000L);
+		assertEquals(0L, reconciler.collectableValue(id -> 0L));
+	}
+
+	@Test
+	public void collectableValueShrinksAsGoodsAreCollectedIntoInventory()
+	{
+		// Bought 10 whips; collectable starts at 10 * 1M.
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+		assertEquals(10_000_000L, reconciler.collectableValue(id -> 1_000_000L));
+
+		// A partial collect of 4 whips lands in the inventory: attributeArrival
+		// consumes that portion of the expectation, so the collectable total
+		// shrinks by exactly the collected value — it can never persistently
+		// double-count goods already pulled into the inventory.
+		assertEquals(4L, reconciler.attributeArrival(WHIP, 4L));
+		assertEquals(6_000_000L, reconciler.collectableValue(id -> 1_000_000L));
+	}
+
+	@Test
 	public void geTaxIsCappedAtFiveMillionPerItem()
 	{
 		// Buy 1 @ 200M, sell 1 @ 300M. Uncapped 2% would be 6M; the tax is

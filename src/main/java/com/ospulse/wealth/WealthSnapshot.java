@@ -20,6 +20,15 @@ public final class WealthSnapshot
 	private final long inventoryValue;
 	private final long equipmentValue;
 	private final long geInFlightValue;
+	/**
+	 * Value awaiting collection in the GE collection box — sale proceeds and
+	 * bought/refunded goods that have left the inventory into an offer but not
+	 * yet been collected. See {@link com.ospulse.ge.GeReconciler#collectableValue}.
+	 * Kept separate from {@link #geInFlightValue} (the still-locked, not-yet-filled
+	 * side) so both together make tracked wealth continuous across a fill: the
+	 * value moves locked → collectable → inventory without a dip.
+	 */
+	private final long geCollectableValue;
 	private final long pouchValue;
 	private final long bankValue;
 	private final boolean bankKnown;
@@ -69,9 +78,27 @@ public final class WealthSnapshot
 		Map<Integer, ItemStack> trackedItems,
 		Map<Integer, ItemStack> allHoldings)
 	{
+		this(inventoryValue, equipmentValue, geInFlightValue, 0L, pouchValue, bankValue,
+			bankKnown, timestampMs, topHoldings, trackedItems, allHoldings);
+	}
+
+	private WealthSnapshot(
+		long inventoryValue,
+		long equipmentValue,
+		long geInFlightValue,
+		long geCollectableValue,
+		long pouchValue,
+		long bankValue,
+		boolean bankKnown,
+		long timestampMs,
+		List<ItemStack> topHoldings,
+		Map<Integer, ItemStack> trackedItems,
+		Map<Integer, ItemStack> allHoldings)
+	{
 		this.inventoryValue = inventoryValue;
 		this.equipmentValue = equipmentValue;
 		this.geInFlightValue = geInFlightValue;
+		this.geCollectableValue = geCollectableValue;
 		this.pouchValue = pouchValue;
 		this.bankValue = bankValue;
 		this.bankKnown = bankKnown;
@@ -105,6 +132,11 @@ public final class WealthSnapshot
 	public long getGeInFlightValue()
 	{
 		return geInFlightValue;
+	}
+
+	public long getGeCollectableValue()
+	{
+		return geCollectableValue;
 	}
 
 	public long getPouchValue()
@@ -150,11 +182,12 @@ public final class WealthSnapshot
 
 	/**
 	 * Wealth that can move without a bank visit: inventory + equipment +
-	 * GE-in-flight + pouches.
+	 * GE-in-flight (still locked) + GE-collectable (awaiting collection) +
+	 * pouches.
 	 */
 	public long tracked()
 	{
-		return inventoryValue + equipmentValue + geInFlightValue + pouchValue;
+		return inventoryValue + equipmentValue + geInFlightValue + geCollectableValue + pouchValue;
 	}
 
 	/**
@@ -172,6 +205,7 @@ public final class WealthSnapshot
 		private long inventoryValue;
 		private long equipmentValue;
 		private long geInFlightValue;
+		private long geCollectableValue;
 		private long pouchValue;
 		private long bankValue;
 		private boolean bankKnown;
@@ -195,6 +229,13 @@ public final class WealthSnapshot
 		public Builder geInFlightValue(long geInFlightValue)
 		{
 			this.geInFlightValue = geInFlightValue;
+			return this;
+		}
+
+		/** GE value awaiting collection — see {@link WealthSnapshot#getGeCollectableValue()}. */
+		public Builder geCollectableValue(long geCollectableValue)
+		{
+			this.geCollectableValue = geCollectableValue;
 			return this;
 		}
 
@@ -247,6 +288,7 @@ public final class WealthSnapshot
 				inventoryValue,
 				equipmentValue,
 				geInFlightValue,
+				geCollectableValue,
 				pouchValue,
 				bankValue,
 				bankKnown,

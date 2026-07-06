@@ -714,6 +714,12 @@ public class SessionTracker implements SessionService
 		}
 
 		long geValue = accumulateGrandExchange();
+		// Sale proceeds / bought goods sitting in the GE collection box, awaiting
+		// collection. Folded into tracked wealth so net worth doesn't dip the
+		// instant a sell fills and only recover when the coins are collected (the
+		// still-locked geValue drops to 0 on a full fill; this replaces it until
+		// the goods land in the inventory). See GeReconciler#collectableValue.
+		long geCollectableValue = geReconciler.collectableValue(valuation::unitValue);
 
 		long pouchValue = 0L;
 		if (config.includePouches())
@@ -734,6 +740,7 @@ public class SessionTracker implements SessionService
 			.inventoryValue(inventoryValue)
 			.equipmentValue(equipmentValue)
 			.geInFlightValue(geValue)
+			.geCollectableValue(geCollectableValue)
 			.pouchValue(pouchValue)
 			.bankValue(bankValue)
 			.bankKnown(bankEverSeen)
