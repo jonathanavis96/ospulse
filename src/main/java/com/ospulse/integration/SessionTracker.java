@@ -288,6 +288,16 @@ public class SessionTracker implements SessionService
 		pendingSignals.destroyed(itemId);
 	}
 
+	/**
+	 * Records the local player's death, accumulated into the current tick's
+	 * {@link MovementSignals} and drained on the next {@link #refresh}. See
+	 * {@code com.ospulse.OSPulsePlugin#onActorDeath}.
+	 */
+	public void recordDeath()
+	{
+		pendingSignals.died(true);
+	}
+
 	public void onStatChanged(Skill skill, int xp)
 	{
 		if (skill == null || skill == Skill.OVERALL)

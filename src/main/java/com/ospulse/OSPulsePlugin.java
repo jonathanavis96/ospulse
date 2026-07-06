@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Player;
+import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.GrandExchangeOfferChanged;
@@ -310,6 +311,29 @@ public class OSPulsePlugin extends Plugin
 		else if ("Destroy".equalsIgnoreCase(option))
 		{
 			tracker.recordDestroy(itemId);
+		}
+	}
+
+	/**
+	 * Forwards the local player's death to the tracker as a per-tick
+	 * {@link com.ospulse.session.MovementSignals#diedThisTick()} signal.
+	 *
+	 * <p><b>Timing caveat:</b> {@code ActorDeath} fires on the death animation,
+	 * but the {@code died} signal is only drained on the next {@link
+	 * SessionTracker#onTick} refresh (per-tick drain, same mechanism as
+	 * Drop/Destroy). For the engine's death-parking to gate correctly, this
+	 * event's tick must coincide with the tick the inventory actually clears.
+	 * If in practice the inventory clears a tick or more after {@code
+	 * ActorDeath}, the signal may miss its window — a known integration risk
+	 * to verify in-client, not a blocker for this wiring. The per-tick drain
+	 * design itself is unchanged to compensate for this.
+	 */
+	@Subscribe
+	public void onActorDeath(ActorDeath event)
+	{
+		if (event.getActor() == client.getLocalPlayer())
+		{
+			tracker.recordDeath();
 		}
 	}
 
