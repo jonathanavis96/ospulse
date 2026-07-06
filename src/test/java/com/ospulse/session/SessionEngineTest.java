@@ -557,6 +557,62 @@ public class SessionEngineTest
 		assertEquals(7_200_000L, result.getProfitPerHour());
 	}
 
+	/**
+	 * Net profit is the true bottom line: gross realised profit minus the
+	 * consumable spend burned to earn it. Looting 1,000,000 while eating an
+	 * 800gp shark nets 999,200 — the supply cost is subtracted.
+	 */
+	@Test
+	public void netProfitIsGrossProfitMinusSuppliesUsed()
+	{
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(SHARK, new ItemStack(SHARK, "Shark", 5L, 800L));
+		WealthSnapshot initial = snap(4_000L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Looted 100 dragon bones @10k (1,000,000 profit) and ate one shark
+		// (800gp supply) in the same interval, away from the bank.
+		Map<Integer, ItemStack> after = new LinkedHashMap<>();
+		after.put(SHARK, new ItemStack(SHARK, "Shark", 4L, 800L));
+		after.put(DRAGON_BONES, new ItemStack(DRAGON_BONES, "Dragon bones", 100L, 10_000L));
+		WealthSnapshot current = snap(1_003_200L, after, 0L, false, 1_800_000L);
+		engine.update(current, Collections.emptySet(), 1_800_000L);
+
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1_800_000L);
+
+		assertEquals("gross profit is loot only", 1_000_000L, result.getProfit());
+		assertEquals("shark eaten is supplies used", 800L, result.getSuppliesUsed());
+		assertEquals("net profit subtracts supplies from gross profit",
+			999_200L, result.getNetProfit());
+	}
+
+	/**
+	 * Profit/hr must extrapolate NET profit, not gross: supplies burned to
+	 * earn the gains are a real session cost. 999,200 net over half an hour
+	 * is 1,998,400/hr — not the 2,000,000/hr the gross figure would imply.
+	 */
+	@Test
+	public void profitPerHourIsNetOfSuppliesUsed()
+	{
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(SHARK, new ItemStack(SHARK, "Shark", 5L, 800L));
+		WealthSnapshot initial = snap(4_000L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		Map<Integer, ItemStack> after = new LinkedHashMap<>();
+		after.put(SHARK, new ItemStack(SHARK, "Shark", 4L, 800L));
+		after.put(DRAGON_BONES, new ItemStack(DRAGON_BONES, "Dragon bones", 100L, 10_000L));
+		WealthSnapshot current = snap(1_003_200L, after, 0L, false, 1_800_000L);
+		engine.update(current, Collections.emptySet(), 1_800_000L);
+
+		SessionSnapshot result = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1_800_000L);
+
+		assertEquals(1_000_000L, result.getProfit());
+		assertEquals(800L, result.getSuppliesUsed());
+		assertEquals("profit/hr extrapolates net profit (999,200) over 0.5h",
+			1_998_400L, result.getProfitPerHour());
+	}
+
 	@Test
 	public void bankRevaluationWhileClosedDoesNotMoveNetWorthDeltaOrProfit()
 	{

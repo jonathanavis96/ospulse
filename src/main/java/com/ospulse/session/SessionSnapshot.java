@@ -239,6 +239,19 @@ public final class SessionSnapshot
 		return profit;
 	}
 
+	/**
+	 * Session net profit: realised {@link #getProfit() profit} minus the
+	 * {@link #getSuppliesUsed() consumable spend} burned to earn it. This is
+	 * the true bottom line — what you actually walked away with — whereas
+	 * {@code getProfit()} is gross realised gains before supply cost.
+	 * {@link #getProfitPerHour()} is the hourly extrapolation of THIS figure,
+	 * so an hour that nets negative after supplies reads negative here too.
+	 */
+	public long getNetProfit()
+	{
+		return profit - suppliesUsed;
+	}
+
 	public long getProfitPerHour()
 	{
 		return profitPerHour;

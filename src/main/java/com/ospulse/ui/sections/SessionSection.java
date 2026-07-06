@@ -15,12 +15,13 @@ import javax.swing.JLabel;
 import java.util.List;
 
 /**
- * Session summary: elapsed, profit, supplies used, profit/hr, net-worth delta
- * and GE flip P&L. Profit is the headline figure and excludes consumption
- * spend entirely (see {@link com.ospulse.session.SessionEngine#update});
- * supplies used is shown alongside it as a separate spent/negative-styled
- * readout so consumables burned through this session are visible at a
- * glance. Collapsed summary shows elapsed + profit.
+ * Session summary: elapsed, profit, supplies used, net profit, profit/hr,
+ * net-worth delta and GE flip P&L. Profit is gross realised gains and excludes
+ * consumption spend entirely (see {@link com.ospulse.session.SessionEngine#update});
+ * supplies used is shown below it as a separate spent/negative-styled readout;
+ * net profit = profit − supplies used (the true bottom line), and profit/hr is
+ * the hourly extrapolation of that net figure. Collapsed summary shows
+ * elapsed + profit.
  *
  * <p>Each stat row carries an XP-Tracker-style right-click menu (see {@code
  * com.ospulse.ui.category.CategoryContextMenu}, ported from RuneLite's XP
@@ -38,6 +39,7 @@ public final class SessionSection extends CollapsibleSection
 	private static final String CAT_ELAPSED = "session:elapsed";
 	private static final String CAT_PROFIT = "session:profit";
 	private static final String CAT_SUPPLIES = "session:supplies";
+	private static final String CAT_NET_PROFIT = "session:netProfit";
 	private static final String CAT_PROFIT_PER_HOUR = "session:profitPerHour";
 	private static final String CAT_NET_WORTH_DELTA = "session:netWorthDelta";
 	private static final String CAT_GE_PNL = "session:gePnl";
@@ -45,6 +47,7 @@ public final class SessionSection extends CollapsibleSection
 	private final JLabel elapsedValue;
 	private final JLabel profitValue;
 	private final JLabel suppliesUsedValue;
+	private final JLabel netProfitValue;
 	private final JLabel profitPerHourValue;
 	private final JLabel netWorthDeltaValue;
 	private final JLabel geRealizedPnlValue;
@@ -55,6 +58,7 @@ public final class SessionSection extends CollapsibleSection
 	/** Baselines captured at "Reset" time (raw engine value when reset was clicked), keyed by category id. */
 	private long profitBaseline;
 	private long suppliesBaseline;
+	private long netProfitBaseline;
 	private long profitPerHourBaseline;
 	private long netWorthDeltaBaseline;
 	private long gePnlBaseline;
@@ -73,6 +77,10 @@ public final class SessionSection extends CollapsibleSection
 			categorySupport.buildMenu(CAT_PROFIT, null));
 		suppliesUsedValue = PanelWidgets.statRow(body(), "Supplies used",
 			categorySupport.buildMenu(CAT_SUPPLIES, null));
+		// Net profit = gross profit minus supplies used — the true bottom line,
+		// sitting directly above (and being the per-hour basis of) Profit/hr.
+		netProfitValue = PanelWidgets.statRow(body(), "Net profit",
+			categorySupport.buildMenu(CAT_NET_PROFIT, null));
 		profitPerHourValue = PanelWidgets.statRow(body(), "Profit/hr",
 			categorySupport.buildMenu(CAT_PROFIT_PER_HOUR, null));
 		netWorthDeltaValue = PanelWidgets.statRow(body(), "Net worth",
@@ -98,6 +106,7 @@ public final class SessionSection extends CollapsibleSection
 		elapsedMs = snapshot.getElapsedMs();
 		long rawProfit = snapshot.getProfit();
 		long rawSuppliesUsed = snapshot.getSuppliesUsed();
+		long rawNetProfit = snapshot.getNetProfit();
 		long rawProfitPerHour = snapshot.getProfitPerHour();
 		long rawNetWorthDelta = snapshot.getNetWorthDelta();
 		long rawGePnl = snapshot.getGeRealizedPnl();
@@ -119,6 +128,10 @@ public final class SessionSection extends CollapsibleSection
 			// reads consistently as "gp burned", not as profit/loss.
 			PanelWidgets.setSignedGpLabel(suppliesUsedValue, -(rawSuppliesUsed - suppliesBaseline));
 		}
+		if (!categorySupport.controller().isPaused(CAT_NET_PROFIT))
+		{
+			PanelWidgets.setSignedGpLabel(netProfitValue, rawNetProfit - netProfitBaseline);
+		}
 		if (!categorySupport.controller().isPaused(CAT_PROFIT_PER_HOUR))
 		{
 			PanelWidgets.setSignedGpLabel(profitPerHourValue, rawProfitPerHour - profitPerHourBaseline);
@@ -137,6 +150,7 @@ public final class SessionSection extends CollapsibleSection
 
 		rebaseIfJustReset(CAT_PROFIT, rawProfit, v -> profitBaseline = v);
 		rebaseIfJustReset(CAT_SUPPLIES, rawSuppliesUsed, v -> suppliesBaseline = v);
+		rebaseIfJustReset(CAT_NET_PROFIT, rawNetProfit, v -> netProfitBaseline = v);
 		rebaseIfJustReset(CAT_PROFIT_PER_HOUR, rawProfitPerHour, v -> profitPerHourBaseline = v);
 		rebaseIfJustReset(CAT_NET_WORTH_DELTA, rawNetWorthDelta, v -> netWorthDeltaBaseline = v);
 		rebaseIfJustReset(CAT_GE_PNL, rawGePnl, v -> gePnlBaseline = v);
@@ -188,6 +202,7 @@ public final class SessionSection extends CollapsibleSection
 	{
 		profitBaseline = 0;
 		suppliesBaseline = 0;
+		netProfitBaseline = 0;
 		profitPerHourBaseline = 0;
 		netWorthDeltaBaseline = 0;
 		gePnlBaseline = 0;

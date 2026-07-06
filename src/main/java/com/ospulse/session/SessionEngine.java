@@ -1392,7 +1392,12 @@ public final class SessionEngine
 		long profit = markToMarket - unrealizedPnl;
 
 		long elapsedMs = tsMs - startMs;
-		long profitPerHour = elapsedMs > 0 ? profit * 3600000L / elapsedMs : 0L;
+		// Profit/hr extrapolates NET profit — realised gains minus the
+		// consumable spend burned to earn them — not gross profit. Supplies
+		// are a real cost of the session, so an hour that nets negative after
+		// supplies must read negative. (Matches SessionSnapshot#getNetProfit.)
+		long netProfit = profit - suppliesUsed;
+		long profitPerHour = elapsedMs > 0 ? netProfit * 3600000L / elapsedMs : 0L;
 		// In-flight deposits count as owned net worth too — the observed bank
 		// value simply hasn't caught up — keeping the accounting identity
 		// (netWorthDelta == profit - suppliesUsed + unrealizedPnl) intact
