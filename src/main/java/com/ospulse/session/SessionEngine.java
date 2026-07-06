@@ -1,5 +1,6 @@
 package com.ospulse.session;
 
+import com.ospulse.ge.GeAttributions;
 import com.ospulse.ge.GeOfferView;
 import com.ospulse.model.ItemStack;
 import com.ospulse.wealth.WealthSnapshot;
@@ -779,14 +780,66 @@ public final class SessionEngine
 	 * nets to nothing — economically a wash, and vastly cheaper than the
 	 * phantom profit the netting prevents.
 	 *
-	 * @param geAttributedItemIds item ids whose quantity changed this
-	 *                            interval due to a GE buy/sell, supplied by
-	 *                            the integration layer (see
-	 *                            {@code GeReconciler#drainAttributedItemIds()});
-	 *                            these are excluded from both the loot feed
-	 *                            and supplies-used tracking.
+	 * @param geAttributedItemIds item ids attributed to GE activity; every
+	 *                            observed quantity swing of such an id is
+	 *                            excluded IN FULL from the loot feed and
+	 *                            supplies-used tracking. Convenience adapter
+	 *                            (tests, simple callers) over the
+	 *                            quantity-accurate
+	 *                            {@link #update(WealthSnapshot, GeAttributions, long)},
+	 *                            which live integration must use instead: an
+	 *                            id-only signal cannot distinguish a GE
+	 *                            collection from genuine loot of the same
+	 *                            item.
 	 */
 	public void update(WealthSnapshot current, Set<Integer> geAttributedItemIds, long tsMs)
+	{
+		update(current, asAttributions(geAttributedItemIds), tsMs);
+	}
+
+	/**
+	 * Adapts an id-only attribution set to the quantity-aware interface:
+	 * ids in the set attribute any requested quantity, other ids none —
+	 * exactly the historical all-or-nothing exclusion semantics.
+	 */
+	private static GeAttributions asAttributions(Set<Integer> ids)
+	{
+		if (ids == null || ids.isEmpty())
+		{
+			return null;
+		}
+		return new GeAttributions()
+		{
+			@Override
+			public long attributeArrival(int itemId, long quantity)
+			{
+				return ids.contains(itemId) ? quantity : 0L;
+			}
+
+			@Override
+			public long attributeRemoval(int itemId, long quantity)
+			{
+				return ids.contains(itemId) ? quantity : 0L;
+			}
+		};
+	}
+
+	/**
+	 * Advances the session with a new wealth snapshot, attributing per-item
+	 * quantity swings to Grand Exchange activity through {@code ge} (see
+	 * {@link GeAttributions}): the attributed portion of a swing is a GE
+	 * transfer — never loot, never supplies — and only the remainder is
+	 * classified. Attribution is quantity-capped by the reconciler's
+	 * expectation ledger, which persists across the offer-fill →
+	 * inventory-arrival gap (a completed offer can sit in the collection box
+	 * indefinitely before the player collects it), so a collection landing
+	 * many ticks after its fill is still neutralised while genuine loot of a
+	 * GE-traded item id beyond the outstanding expected quantity still
+	 * counts. See the class-level docs on {@link #update(WealthSnapshot, Set, long)}
+	 * for the full classification rules; {@code ge} may be null (no GE
+	 * attribution at all).
+	 */
+	public void update(WealthSnapshot current, GeAttributions ge, long tsMs)
 	{
 		if (bankOpen)
 		{
@@ -824,11 +877,23 @@ public final class SessionEngine
 			{
 				continue;
 			}
-			if (geAttributedItemIds != null && geAttributedItemIds.contains(itemId))
+			if (ge != null)
 			{
-				logAttribution(itemId, currentStack.getName(), delta, delta * currentStack.getUnitValue(),
-					"GE(reconciled, excluded from loot/supplies)");
-				continue;
+				long attributed = delta > 0
+					? ge.attributeArrival(itemId, delta)
+					: ge.attributeRemoval(itemId, -delta);
+				if (attributed > 0)
+				{
+					long signedAttributed = delta > 0 ? attributed : -attributed;
+					logAttribution(itemId, currentStack.getName(), signedAttributed,
+						signedAttributed * currentStack.getUnitValue(),
+						"GE(reconciled, excluded from loot/supplies)");
+					delta -= signedAttributed;
+					if (delta == 0)
+					{
+						continue;
+					}
+				}
 			}
 			if (currentStack.getUnitValue() <= 0)
 			{
@@ -865,20 +930,29 @@ public final class SessionEngine
 				continue;
 			}
 			ItemStack previousStack = entry.getValue();
-			if (geAttributedItemIds != null && geAttributedItemIds.contains(itemId))
+			long vanishedQty = previousStack.getQuantity();
+			if (ge != null)
 			{
-				logAttribution(itemId, previousStack.getName(), -previousStack.getQuantity(),
-					-previousStack.getQuantity() * previousStack.getUnitValue(),
-					"GE(reconciled, excluded from loot/supplies)");
-				continue;
+				long attributed = ge.attributeRemoval(itemId, vanishedQty);
+				if (attributed > 0)
+				{
+					logAttribution(itemId, previousStack.getName(), -attributed,
+						-attributed * previousStack.getUnitValue(),
+						"GE(reconciled, excluded from loot/supplies)");
+					vanishedQty -= attributed;
+					if (vanishedQty == 0)
+					{
+						continue;
+					}
+				}
 			}
 			if (previousStack.getUnitValue() <= 0)
 			{
-				logAttribution(itemId, previousStack.getName(), -previousStack.getQuantity(), 0L,
+				logAttribution(itemId, previousStack.getName(), -vanishedQty, 0L,
 					"SKIP(no unit value)");
 				continue;
 			}
-			vanished.add(new Swing(itemId, previousStack.getName(), previousStack.getQuantity(),
+			vanished.add(new Swing(itemId, previousStack.getName(), vanishedQty,
 				previousStack.getUnitValue(), true,
 				SupplyClassifier.isConsumable(previousStack.getName()), costBasis.get(itemId)));
 		}

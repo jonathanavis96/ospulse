@@ -1,5 +1,7 @@
 package com.ospulse.session;
 
+import com.ospulse.ge.GeOfferState;
+import com.ospulse.ge.GeReconciler;
 import com.ospulse.model.ItemStack;
 import com.ospulse.wealth.WealthSnapshot;
 import org.junit.Before;
@@ -1657,5 +1659,179 @@ public class SessionEngineTest
 		Map<Integer, ItemStack> tracked = new LinkedHashMap<>();
 		tracked.put(DRAGON_BONES, new ItemStack(DRAGON_BONES, "Dragon bones", 100L, 10_000L));
 		engine.update(snap(11_000_000L, tracked, 0L, false, 1000L), Collections.emptySet(), 1000L);
+	}
+
+	// ------------------------------------------------------- GE collection lag
+
+	private static final int COINS = GeReconciler.COINS_ITEM_ID;
+	private static final int DRAGON_JAVELIN = 19484;
+
+	/** Snapshot with an explicit GE-in-flight component (escrow/locked offers). */
+	private static WealthSnapshot snapGe(long inventoryValue, long geInFlightValue,
+		Map<Integer, ItemStack> trackedItems, long ts)
+	{
+		return WealthSnapshot.builder()
+			.inventoryValue(inventoryValue)
+			.equipmentValue(0L)
+			.geInFlightValue(geInFlightValue)
+			.pouchValue(0L)
+			.bankValue(0L)
+			.bankKnown(false)
+			.timestampMs(ts)
+			.trackedItems(trackedItems)
+			.build();
+	}
+
+	private static Map<Integer, ItemStack> items(ItemStack... stacks)
+	{
+		Map<Integer, ItemStack> map = new LinkedHashMap<>();
+		for (ItemStack stack : stacks)
+		{
+			map.put(stack.getId(), stack);
+		}
+		return map;
+	}
+
+	/** Expires + updates in the order the live integration layer does. */
+	private static void tick(SessionEngine engine, GeReconciler ge, WealthSnapshot current, long ts)
+	{
+		ge.expireAttributions(ts);
+		engine.update(current, ge, ts);
+	}
+
+	@Test
+	public void geBuyCollectedTicksAfterFillIsNotLoot()
+	{
+		// A completed buy sits in the collection box until the player clicks
+		// Collect, so the offer-fill event and the inventory arrival land in
+		// DIFFERENT updates (potentially minutes apart). The arrival must be
+		// attributed to the GE, not booked as phantom loot.
+		GeReconciler ge = new GeReconciler();
+		WealthSnapshot initial = snapGe(302_500L, 0L,
+			items(new ItemStack(COINS, "Coins", 302_500L, 1L)), 0L);
+		engine.startSession(initial, 0L);
+
+		// Buy offer placed: the coins move into GE escrow (tracked unchanged).
+		tick(engine, ge, snapGe(0L, 302_500L, Collections.emptyMap(), 1_000L), 1_000L);
+
+		// Offer fills: escrow released towards the collection box.
+		ge.onOfferUpdate(0, GeOfferState.BOUGHT, DRAGON_JAVELIN, "Dragon javelin",
+			500L, 500L, 302_500L, 605L, 2_000L);
+		tick(engine, ge, snapGe(0L, 0L, Collections.emptyMap(), 2_000L), 2_000L);
+
+		// Collected two minutes later: the javelins finally enter the inventory.
+		WealthSnapshot collected = snapGe(302_500L, 0L,
+			items(new ItemStack(DRAGON_JAVELIN, "Dragon javelin", 500L, 605L)), 122_000L);
+		tick(engine, ge, collected, 122_000L);
+
+		SessionSnapshot result = engine.snapshot(collected, 0L, Collections.emptyMap(), 0L, 122_000L);
+		assertTrue("a collected GE buy must not appear as loot", result.getLoot().isEmpty());
+		assertEquals("a flat buy-and-collect round trip is profit-neutral",
+			0L, result.getProfit());
+		assertEquals(0L, result.getSuppliesUsed());
+	}
+
+	@Test
+	public void geSaleProceedsCoinsAreNotLootAndPlacementIsNotSupplies()
+	{
+		// Selling consumable-classified items (javelins are ammunition): the
+		// placement-time inventory removal must not charge supplies, and the
+		// collected coin proceeds must not book as loot. Only the GE tax may
+		// move profit (a real cost of the sale).
+		GeReconciler ge = new GeReconciler();
+		WealthSnapshot initial = snapGe(302_500L, 0L,
+			items(new ItemStack(DRAGON_JAVELIN, "Dragon javelin", 500L, 605L)), 0L);
+		engine.startSession(initial, 0L);
+
+		// Sell offer placed: the javelins leave the inventory into the exchange.
+		ge.onOfferUpdate(0, GeOfferState.SELLING, DRAGON_JAVELIN, "Dragon javelin",
+			500L, 0L, 0L, 605L, 1_000L);
+		tick(engine, ge, snapGe(0L, 302_500L, Collections.emptyMap(), 1_000L), 1_000L);
+
+		// Offer fills: 302,500 gross, minus per-item tax (605/50 = 12) x 500.
+		ge.onOfferUpdate(0, GeOfferState.SOLD, DRAGON_JAVELIN, "Dragon javelin",
+			500L, 500L, 302_500L, 605L, 2_000L);
+		tick(engine, ge, snapGe(0L, 0L, Collections.emptyMap(), 2_000L), 2_000L);
+
+		// Proceeds collected several ticks later.
+		WealthSnapshot collected = snapGe(296_500L, 0L,
+			items(new ItemStack(COINS, "Coins", 296_500L, 1L)), 8_000L);
+		tick(engine, ge, collected, 8_000L);
+
+		SessionSnapshot result = engine.snapshot(collected, 0L, Collections.emptyMap(), 0L, 8_000L);
+		assertTrue("GE sale proceeds must not appear as loot", result.getLoot().isEmpty());
+		assertEquals("placing a sell offer must not charge supplies",
+			0L, result.getSuppliesUsed());
+		assertEquals("only the GE tax moves profit on a flat sale",
+			-6_000L, result.getProfit());
+	}
+
+	@Test
+	public void genuineLootBeyondGeExpectedQuantityStillCounts()
+	{
+		// Quantity-capped attribution: collecting 100 bought bones alongside a
+		// genuine 30-bone drop in the same interval attributes exactly the 100
+		// and keeps the 30 as loot; once the expectation is exhausted, later
+		// gains of the same item are all loot again.
+		GeReconciler ge = new GeReconciler();
+		WealthSnapshot initial = snapGe(100_000L, 0L,
+			items(new ItemStack(COINS, "Coins", 100_000L, 1L)), 0L);
+		engine.startSession(initial, 0L);
+
+		tick(engine, ge, snapGe(0L, 100_000L, Collections.emptyMap(), 1_000L), 1_000L);
+		ge.onOfferUpdate(0, GeOfferState.BOUGHT, DRAGON_BONES, "Dragon bones",
+			100L, 100L, 100_000L, 1_000L, 2_000L);
+		tick(engine, ge, snapGe(0L, 0L, Collections.emptyMap(), 2_000L), 2_000L);
+
+		// Collect the 100 bought bones + a genuine 30-bone drop, same interval.
+		WealthSnapshot collected = snapGe(130_000L, 0L,
+			items(new ItemStack(DRAGON_BONES, "Dragon bones", 130L, 1_000L)), 3_000L);
+		tick(engine, ge, collected, 3_000L);
+
+		SessionSnapshot afterCollect = engine.snapshot(collected, 0L, Collections.emptyMap(), 0L, 3_000L);
+		assertEquals(1, afterCollect.getLoot().size());
+		assertEquals("only the drop beyond the bought quantity is loot",
+			30L, afterCollect.getLoot().get(0).getQuantity());
+		assertEquals(30_000L, afterCollect.getLoot().get(0).getValue());
+
+		// The expectation is exhausted: 20 more bones are pure loot.
+		WealthSnapshot moreDrops = snapGe(150_000L, 0L,
+			items(new ItemStack(DRAGON_BONES, "Dragon bones", 150L, 1_000L)), 4_000L);
+		tick(engine, ge, moreDrops, 4_000L);
+
+		SessionSnapshot result = engine.snapshot(moreDrops, 0L, Collections.emptyMap(), 0L, 4_000L);
+		assertEquals(1, result.getLoot().size());
+		assertEquals(50L, result.getLoot().get(0).getQuantity());
+		assertEquals(50_000L, result.getLoot().get(0).getValue());
+	}
+
+	@Test
+	public void geExpectationCollectedToBankExpiresAndLaterDropsAreLoot()
+	{
+		// Collect-to-bank never produces a tracked-inventory arrival: once the
+		// slot clears and the settle window lapses, the stale expectation must
+		// be gone so a later genuine drop of the same item still counts.
+		GeReconciler ge = new GeReconciler();
+		WealthSnapshot initial = snapGe(100_000L, 0L,
+			items(new ItemStack(COINS, "Coins", 100_000L, 1L)), 0L);
+		engine.startSession(initial, 0L);
+
+		tick(engine, ge, snapGe(0L, 100_000L, Collections.emptyMap(), 1_000L), 1_000L);
+		ge.onOfferUpdate(0, GeOfferState.BOUGHT, DRAGON_BONES, "Dragon bones",
+			100L, 100L, 100_000L, 1_000L, 2_000L);
+		tick(engine, ge, snapGe(0L, 0L, Collections.emptyMap(), 2_000L), 2_000L);
+
+		// Collected straight to bank: the slot clears, nothing enters tracking.
+		ge.onOfferUpdate(0, GeOfferState.EMPTY, 0, null, 0L, 0L, 0L, 0L, 3_000L);
+		tick(engine, ge, snapGe(0L, 0L, Collections.emptyMap(), 20_000L), 20_000L);
+
+		// A genuine 100-bone drop long after must be loot, not swallowed.
+		WealthSnapshot drops = snapGe(100_000L, 0L,
+			items(new ItemStack(DRAGON_BONES, "Dragon bones", 100L, 1_000L)), 21_000L);
+		tick(engine, ge, drops, 21_000L);
+
+		SessionSnapshot result = engine.snapshot(drops, 0L, Collections.emptyMap(), 0L, 21_000L);
+		assertEquals(1, result.getLoot().size());
+		assertEquals(100L, result.getLoot().get(0).getQuantity());
 	}
 }

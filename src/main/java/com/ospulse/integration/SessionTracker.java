@@ -312,6 +312,7 @@ public class SessionTracker implements SessionService
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
 		geReconciler.reset();
+		primeGeOffers();
 		WealthSnapshot current = buildWealth(ts);
 		engine.startSession(current, ts);
 		if (lastBankOpenState)
@@ -353,6 +354,7 @@ public class SessionTracker implements SessionService
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
 		geReconciler.reset();
+		primeGeOffers();
 		WealthSnapshot initial = buildWealth(ts);
 		engine.startSession(initial, ts);
 		started = true;
@@ -362,12 +364,45 @@ public class SessionTracker implements SessionService
 	private void refresh(long ts)
 	{
 		WealthSnapshot current = buildWealth(ts);
-		Set<Integer> geAttributedItemIds = geReconciler.drainAttributedItemIds();
+		// Let overdue GE attribution expectations lapse before the engine
+		// consumes from the ledger; the ledger itself persists across ticks
+		// so a collection landing seconds (or minutes) after its offer
+		// filled is still attributed to the GE instead of booking as loot.
+		geReconciler.expireAttributions(ts);
 		// Keep the engine's verbose-diagnostics flag current so the config toggle
 		// takes effect live (no restart) for the per-update wealth/attribution log.
 		engine.setVerboseDiagnostics(config.verboseDiagnostics());
-		engine.update(current, geAttributedItemIds, ts);
+		engine.update(current, geReconciler, ts);
 		publish(buildSnapshot(current, ts));
+	}
+
+	/**
+	 * Seeds the GE reconciler's per-slot incremental tracking from the live
+	 * offers at session start (fresh login, world hop, manual reset), so the
+	 * already-transacted portion of a pre-session offer is never re-counted
+	 * as new session movement. Without this, the first offer event after a
+	 * reset reads the offer's whole cumulative fill as a fresh increment —
+	 * resurrecting pre-session flip P&amp;L and planting phantom collection
+	 * expectations that could swallow genuine loot. MUST be called on the
+	 * client thread, right after {@link GeReconciler#reset()}.
+	 */
+	private void primeGeOffers()
+	{
+		GrandExchangeOffer[] offers = client.getGrandExchangeOffers();
+		if (offers == null)
+		{
+			return;
+		}
+		for (int slot = 0; slot < offers.length; slot++)
+		{
+			GrandExchangeOffer offer = offers[slot];
+			if (offer == null)
+			{
+				continue;
+			}
+			geReconciler.primeSlot(slot, GeOfferStateMapper.map(offer.getState()),
+				offer.getItemId(), offer.getQuantitySold(), offer.getSpent());
+		}
 	}
 
 	/**
