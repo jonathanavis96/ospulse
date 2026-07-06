@@ -1520,6 +1520,22 @@ public final class SessionEngine
 
 			if (a.quantity > 0)
 			{
+				Parcel dp = atDeath.get(a.itemId);
+				if (dp != null && dp.qty > 0)
+				{
+					long ret = Math.min(a.quantity, dp.qty);
+					dp.qty -= ret;
+					if (dp.qty <= 0)
+					{
+						atDeath.remove(a.itemId);
+					}
+					a.quantity -= ret;
+					logAttribution(a.itemId, a.name, ret, ret * a.unitValue, "RECLAIM(from Death, owned holding restored)");
+				}
+			}
+
+			if (a.quantity > 0)
+			{
 				Parcel g = onGround.get(a.itemId);
 				if (g != null && g.qty > 0)
 				{
@@ -1626,6 +1642,10 @@ public final class SessionEngine
 				// set — the whole inventory vanishes into a gravestone/Death, still
 				// owned. Park it (never expires, unlike onGround) and fold its
 				// value back into net worth via atDeathValue(), never loot/supplies.
+				//
+				// LIMITATION: a retrieval fee paid from Death's Coffer is invisible to item/bank
+				// diffs and is therefore an untracked cost (documented; deferred until a readable
+				// coffer varbit/varp or reclaim-interface fee text is found).
 				Parcel dp = atDeath.get(v.itemId);
 				if (dp == null)
 				{

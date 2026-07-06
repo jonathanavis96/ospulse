@@ -1988,6 +1988,30 @@ public class SessionEngineTest
 	}
 
 	@Test
+	public void reclaimReturnsItemsNeutrallyAndOnlyFeeHitsNetWorth()
+	{
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		Map<Integer, ItemStack> held = items(new ItemStack(SHARK, "Shark", 100L, 800L));
+		engine.update(snap(10_080_000L, held, 0L, false, 1000L), Collections.emptySet(), 1000L);
+		SessionSnapshot beforeDeath = engine.snapshot(snap(10_080_000L, held, 0L, false, 1000L),
+			0L, Collections.emptyMap(), 0L, 1000L);
+
+		// Die.
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L),
+			(GeAttributions) null, MovementSignals.builder().died(true).build(), 2000L);
+
+		// Reclaim: sharks return; a 50k coin fee is paid from inventory (net worth -50k).
+		Map<Integer, ItemStack> reclaimed = items(new ItemStack(SHARK, "Shark", 100L, 800L));
+		engine.update(snap(10_030_000L, reclaimed, 0L, false, 3000L), Collections.emptySet(), 3000L);
+		SessionSnapshot afterReclaim = engine.snapshot(snap(10_030_000L, reclaimed, 0L, false, 3000L),
+			0L, Collections.emptyMap(), 0L, 3000L);
+
+		assertEquals("reclaim books no fresh loot", 80_000L, afterReclaim.getLootValue());
+		assertEquals("only the 50k fee moved net worth across death->reclaim",
+			beforeDeath.getNetWorthDelta() - 50_000L, afterReclaim.getNetWorthDelta());
+	}
+
+	@Test
 	public void equalStackLootedBeyondReturnWindowStillCountsAsLoot()
 	{
 		// Guard: the parked-stack netting is bounded. A whole stack genuinely
