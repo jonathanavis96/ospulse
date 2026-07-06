@@ -15,13 +15,14 @@ import javax.swing.JLabel;
 import java.util.List;
 
 /**
- * Session summary: elapsed, profit, supplies used, net profit, profit/hr,
- * net-worth delta and GE flip P&L. Profit is gross realised gains and excludes
+ * Session summary rows: elapsed, Loot, Supplies used, Profit, Profit/hr,
+ * Net worth and GE flip P&L. "Loot" is gross realised gains and excludes
  * consumption spend entirely (see {@link com.ospulse.session.SessionEngine#update});
- * supplies used is shown below it as a separate spent/negative-styled readout;
- * net profit = profit − supplies used (the true bottom line), and profit/hr is
- * the hourly extrapolation of that net figure. Collapsed summary shows
- * elapsed + profit.
+ * Supplies used is shown below it as a separate spent/negative-styled readout;
+ * "Profit" = Loot − Supplies used (the true bottom line), and Profit/hr is the
+ * hourly extrapolation of that net figure. Internal ids keep the older
+ * profit/net-profit naming so persisted reset/pause state survives. Collapsed
+ * summary shows elapsed + Loot.
  *
  * <p>Each stat row carries an XP-Tracker-style right-click menu (see {@code
  * com.ospulse.ui.category.CategoryContextMenu}, ported from RuneLite's XP
@@ -73,13 +74,17 @@ public final class SessionSection extends CollapsibleSection
 
 		elapsedValue = PanelWidgets.statRow(body(), "Elapsed",
 			categorySupport.buildMenu(CAT_ELAPSED, null));
-		profitValue = PanelWidgets.statRow(body(), "Profit",
+		// Gross realised gains (loot + trade P&L), before the cost of supplies
+		// burned to earn them — labelled "Loot" in the panel. (Internal ids stay
+		// CAT_PROFIT/profitValue so persisted reset/pause state survives.)
+		profitValue = PanelWidgets.statRow(body(), "Loot",
 			categorySupport.buildMenu(CAT_PROFIT, null));
 		suppliesUsedValue = PanelWidgets.statRow(body(), "Supplies used",
 			categorySupport.buildMenu(CAT_SUPPLIES, null));
-		// Net profit = gross profit minus supplies used — the true bottom line,
-		// sitting directly above (and being the per-hour basis of) Profit/hr.
-		netProfitValue = PanelWidgets.statRow(body(), "Net profit",
+		// The true bottom line = Loot minus Supplies used — labelled "Profit" in
+		// the panel — sitting directly above (and being the per-hour basis of)
+		// Profit/hr. (Internal id stays CAT_NET_PROFIT/netProfitValue.)
+		netProfitValue = PanelWidgets.statRow(body(), "Profit",
 			categorySupport.buildMenu(CAT_NET_PROFIT, null));
 		profitPerHourValue = PanelWidgets.statRow(body(), "Profit/hr",
 			categorySupport.buildMenu(CAT_PROFIT_PER_HOUR, null));
@@ -97,7 +102,7 @@ public final class SessionSection extends CollapsibleSection
 		unrealizedPnlValue = PanelWidgets.statRow(body(), "Unrealized P/L");
 
 		categorySupport.setLinesSupplier(CAT_PROFIT, () -> List.of(
-			new CategoryOverlay.Line("Profit", GpFormat.format(displayedProfit))));
+			new CategoryOverlay.Line("Loot", GpFormat.format(displayedProfit))));
 	}
 
 	@Override
