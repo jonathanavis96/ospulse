@@ -2628,4 +2628,34 @@ public class SessionEngineTest
 		assertEquals("post-expiry pickup is fresh loot at the current price, not a neutral "
 			+ "return at the abandoned parcel's frozen price", 60_000L, s2.getLootValue());
 	}
+
+	@Test
+	public void destroyedLootedItemReducesLootNeverSuppliesNeverReturns()
+	{
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		Map<Integer, ItemStack> looted = items(new ItemStack(BIRD_NEST, "Bird nest", 4L, 5_000L));
+		engine.update(snap(10_020_000L, looted, 0L, false, 1000L), Collections.emptySet(), 1000L);
+
+		MovementSignals destroyed = MovementSignals.builder().destroyed(BIRD_NEST).build();
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L),
+			(GeAttributions) null, destroyed, 2000L);
+
+		SessionSnapshot afterDestroy = engine.snapshot(snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L),
+			0L, Collections.emptyMap(), 0L, 2000L);
+		assertEquals("destroy removes looted value from Loot", 0L, afterDestroy.getLootValue());
+		assertEquals("destroy is never supplies", 0L, afterDestroy.getSuppliesUsed());
+
+		// A later same-id appearance at a DIFFERENT price (6k, up from the 5k
+		// original loot price) discriminates genuine fresh loot from a stale
+		// parcel-restore: destroy must NOT park a parcel, so this reappearance
+		// has nothing to restore and must price entirely at the CURRENT 6k
+		// rate. If destroy wrongly parked a parcel (like drop does), this
+		// would instead restore at the frozen 5k price.
+		Map<Integer, ItemStack> freshPickup = items(new ItemStack(BIRD_NEST, "Bird nest", 1L, 6_000L));
+		engine.update(snap(10_006_000L, freshPickup, 0L, false, 3000L), Collections.emptySet(), 3000L);
+		SessionSnapshot after = engine.snapshot(snap(10_006_000L, freshPickup, 0L, false, 3000L),
+			0L, Collections.emptyMap(), 0L, 3000L);
+		assertEquals("destroyed items never return; reappearance is fresh loot at the current price",
+			6_000L, after.getLootValue());
+	}
 }

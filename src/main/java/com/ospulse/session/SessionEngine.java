@@ -1521,6 +1521,21 @@ public final class SessionEngine
 				v.quantity = 0L;
 				continue;
 			}
+
+			if (signals.destroyedItemIds().contains(v.itemId) && v.quantity > 0)
+			{
+				// DESTROY: permanent loss. Reduce Loot only for the looted portion,
+				// never supplies, and never park — a destroyed item cannot come back.
+				long looted = lootLedger.reverseLoot(v.itemId, v.quantity);
+				if (looted > 0)
+				{
+					retractLoot(v.itemId, looted, looted * v.unitValue);
+				}
+				logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue,
+					"DESTROY(permanent; " + looted + " looted units removed from Loot)");
+				v.quantity = 0L; // no parcel — permanent
+				continue;
+			}
 			for (int pass = 0; pass < 2 && v.quantity > 0; pass++)
 			{
 				for (PendingSwing p : pendingLooted)
