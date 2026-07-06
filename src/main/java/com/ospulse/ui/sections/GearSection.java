@@ -1588,6 +1588,13 @@ public final class GearSection extends CollapsibleSection
 				// A new book is a new ranking — follow its best spell again.
 				userPickedSpell = false;
 				rankAndRender();
+				// If gear suggestions are already on screen, re-run so their DPS
+				// follows the newly-selected spellbook too — not just the spell
+				// readout that rankAndRender refreshes.
+				if (lastOptimizerResult != null)
+				{
+					runOptimizer();
+				}
 			}
 			else
 			{
@@ -3372,6 +3379,9 @@ public final class GearSection extends CollapsibleSection
 			// which itself defaults to the EQUIPPED weapon's current style —
 			// never an implicit best-of-any-style (i.e. usually melee) search.
 			.style(optimizerConstraint())
+			// Magic view only: pin the gear DPS to the selected spellbook tab so
+			// swapping Standard/Ancient swaps the optimiser's magic spell too.
+			.spellBook(magicView ? selectedBook.book() : null)
 			.build();
 	}
 

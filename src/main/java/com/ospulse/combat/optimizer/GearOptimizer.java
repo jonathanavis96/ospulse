@@ -154,6 +154,7 @@ public final class GearOptimizer {
         private final int expensiveItemCount;
         private final long expensiveItemThreshold;
         private final CombatStyle style;
+        private final Spell.SpellBook spellBook;
 
         private Request(Builder b) {
             this.liveItemIds = b.liveItemIds.clone();
@@ -168,6 +169,7 @@ public final class GearOptimizer {
             this.expensiveItemCount = b.expensiveItemCount;
             this.expensiveItemThreshold = b.expensiveItemThreshold;
             this.style = b.style;
+            this.spellBook = b.spellBook;
         }
 
         public static Builder builder(int[] liveItemIds, Monster target, PlayerCombat.Builder playerTemplate) {
@@ -187,6 +189,7 @@ public final class GearOptimizer {
             private int expensiveItemCount = 0;
             private long expensiveItemThreshold = 0L;
             private CombatStyle style;
+            private Spell.SpellBook spellBook;
 
             private Builder(int[] liveItemIds, Monster target, PlayerCombat.Builder playerTemplate) {
                 this.liveItemIds = liveItemIds;
@@ -254,6 +257,18 @@ public final class GearOptimizer {
              */
             public Builder expensiveItemThreshold(long threshold) {
                 this.expensiveItemThreshold = Math.max(0, threshold);
+                return this;
+            }
+
+            /**
+             * Constrains the magic DPS evaluation to a single spellbook — the
+             * Standard/Ancient tab the user picked in the magic view — so the
+             * gear search's magic DPS follows the chosen book instead of
+             * silently scoring whichever book's best spell is globally higher.
+             * {@code null} leaves it unconstrained (best of Standard/Ancient).
+             */
+            public Builder spellBook(Spell.SpellBook spellBook) {
+                this.spellBook = spellBook;
                 return this;
             }
 
@@ -735,6 +750,12 @@ public final class GearOptimizer {
                 } else {
                     for (Spell spell : Spell.values()) {
                         if (spell.book() != Spell.SpellBook.STANDARD && spell.book() != Spell.SpellBook.ANCIENT) {
+                            continue;
+                        }
+                        if (request.spellBook != null && spell.book() != request.spellBook) {
+                            // Constrained to the magic view's selected spellbook
+                            // tab: the gear DPS follows the book the user chose,
+                            // not whichever book's best spell is globally higher.
                             continue;
                         }
                         if (!spell.isCastableWith(weaponId)) {
