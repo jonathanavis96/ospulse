@@ -647,6 +647,67 @@ public class SessionEngineTest
 	}
 
 	@Test
+	public void staleBankRereadSnapForwardWhileBankClosedDoesNotBookPhantomProfit()
+	{
+		// The previously un-intercepted edge of the stale re-read fix: the
+		// inventory's forward snap-back arrives AFTER the bank has fully
+		// closed, so it flows through the closed-bank loot diff rather than
+		// trackOpenTrackedSwing (which carried the confirm logic). The confirm
+		// must fire on the closed path too — otherwise the withdrawal books as
+		// +w phantom profit that sticks until the next visit corrects the bank
+		// reading.
+		long inv = 22_475_227L;
+		long bank = 1_019_158_757L;
+		long w = 58_388_197L;
+		engine.startSession(snap(inv, Collections.emptyMap(), bank, true, 0L), 0L);
+
+		// Withdraw w, both halves observed while open — zero-sum.
+		engine.setBankOpen(true, snap(inv, Collections.emptyMap(), bank, true, 1_000L), 1_000L);
+		WealthSnapshot withdrawn = snap(inv + w, Collections.emptyMap(), bank - w, true, 2_000L);
+		engine.update(withdrawn, Collections.emptySet(), 2_000L);
+		assertEquals(0L, engine.snapshot(withdrawn, 0L, Collections.emptyMap(), 0L, 2_000L).getProfit());
+
+		// Rapid close -> reopen, then the stale re-read arms the suspicion.
+		engine.setBankOpen(false, withdrawn, 3_000L);
+		engine.setBankOpen(true, withdrawn, 4_000L);
+		WealthSnapshot stale = snap(inv, Collections.emptyMap(), bank, true, 4_600L);
+		engine.update(stale, Collections.emptySet(), 4_600L);
+		assertEquals(0L, engine.snapshot(stale, 0L, Collections.emptyMap(), 0L, 4_600L).getProfit());
+
+		// The bank CLOSES before the inventory snaps forward.
+		engine.setBankOpen(false, stale, 5_000L);
+
+		// The inventory snaps forward to the true withdrawn state while the
+		// bank reading stays stale-high — now with the bank CLOSED, so it runs
+		// the closed-path loot diff. This must NOT book +w as profit.
+		WealthSnapshot bounced = snap(inv + w, Collections.emptyMap(), bank, true, 5_600L);
+		engine.update(bounced, Collections.emptySet(), 5_600L);
+		SessionSnapshot spike = engine.snapshot(bounced, 0L, Collections.emptyMap(), 0L, 5_600L);
+		assertEquals("a stale snap-forward while the bank is closed must not book the withdrawal as profit",
+			0L, spike.getProfit());
+		assertEquals(0L, spike.getNetWorthDelta());
+		assertIdentity("closed-path stale snap-forward", spike);
+
+		// Held stable while the bank stays closed on the stale reading.
+		WealthSnapshot closedStale = snap(inv + w, Collections.emptyMap(), bank, true, 20_000L);
+		engine.update(closedStale, Collections.emptySet(), 20_000L);
+		SessionSnapshot held = engine.snapshot(closedStale, 0L, Collections.emptyMap(), 0L, 20_000L);
+		assertEquals("closing on the stale reading after a closed snap-forward must not lock in the phantom",
+			0L, held.getProfit());
+		assertEquals(0L, held.getNetWorthDelta());
+		assertIdentity("closed on the stale reading after a closed snap-forward", held);
+
+		// The next visit's first read serves the true bank value: the
+		// correction must be swallowed, not booked as a fresh withdrawal.
+		WealthSnapshot corrected = snap(inv + w, Collections.emptyMap(), bank - w, true, 60_000L);
+		engine.setBankOpen(true, corrected, 60_000L);
+		SessionSnapshot settled = engine.snapshot(corrected, 0L, Collections.emptyMap(), 0L, 60_000L);
+		assertEquals(0L, settled.getProfit());
+		assertEquals(0L, settled.getNetWorthDelta());
+		assertIdentity("after the true reading returns", settled);
+	}
+
+	@Test
 	public void unmatchedTrackedDropWhileBankOpenBooksAsLossAfterSettleWindow()
 	{
 		// Guard: the in-flight hold is bounded. A tracked-wealth drop while

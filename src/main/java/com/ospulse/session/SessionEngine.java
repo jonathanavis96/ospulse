@@ -746,6 +746,45 @@ public final class SessionEngine
 	}
 
 	/**
+	 * Holds an armed stale-re-read's predicted snap-forward out of profit: the
+	 * one continuation a genuine re-deposit can never produce — an unexplained
+	 * tracked rise of exactly the suspected amount that lands tracked wealth
+	 * back on its pre-revert value inside the settle window. Undoes the
+	 * mistaken deposit fold ({@code baseline += rise}) and records the drop the
+	 * still-overstated bank reading owes (see {@link #pendingStaleBankDrop}), so
+	 * a later bank drop settles it to nothing. Shared by the open-bank swing
+	 * ({@link #trackOpenTrackedSwing}) and the closed-bank diff ({@link
+	 * #update}), because the snap-forward can arrive after the bank has closed —
+	 * flowing through the closed-path loot diff, which would otherwise book it
+	 * as a fresh gain.
+	 *
+	 * @return the amount confirmed and held (0 if this is not the predicted
+	 *         snap-forward), so a caller can suppress booking it as loot.
+	 */
+	private long confirmStaleRereadSnapBack(WealthSnapshot current, long unexplainedRise, long tsMs)
+	{
+		if (unexplainedRise <= 0 || revertSuspectAmount == 0
+			|| unexplainedRise != revertSuspectAmount
+			|| current.tracked() != revertSuspectTracked
+			|| tsMs - revertSuspectTsMs > BANK_TRANSFER_SETTLE_WINDOW_MS)
+		{
+			return 0L;
+		}
+		// The suspected rise really was a stale reading, so this "gain" is just
+		// the already-booked withdrawal being re-served. Undo the mistaken
+		// deposit fold and note the drop the overstated bank reading owes.
+		this.baseline += unexplainedRise;
+		this.pendingStaleBankDrop += unexplainedRise;
+		this.revertSuspectAmount = 0L;
+		if (diagEnabled())
+		{
+			logDiag("[reanchor] tracked snap-back {} confirms stale bank re-read: baseline {} -> {}, bank drop owed {}",
+				unexplainedRise, this.baseline - unexplainedRise, this.baseline, pendingStaleBankDrop);
+		}
+		return unexplainedRise;
+	}
+
+	/**
 	 * Pairs one banking observation's tracked-wealth change against its
 	 * bank-side movement (both measured over the same {@link #previous} →
 	 * {@code current} interval — callers must advance {@code previous} right
@@ -794,26 +833,7 @@ public final class SessionEngine
 						cancelled, pendingSettleTotal());
 				}
 				long surviving = unexplained - cancelled;
-				if (surviving > 0 && revertSuspectAmount != 0
-					&& surviving == revertSuspectAmount
-					&& current.tracked() == revertSuspectTracked
-					&& tsMs - revertSuspectTsMs <= BANK_TRANSFER_SETTLE_WINDOW_MS)
-				{
-					// The exact snap-back a stale re-read predicts and a
-					// genuine re-deposit can never produce: the suspected
-					// rise really was a stale reading, so this "gain" is just
-					// the already-booked withdrawal being re-served. Undo the
-					// mistaken deposit fold and note the drop the overstated
-					// bank reading still owes.
-					this.baseline += surviving;
-					this.pendingStaleBankDrop += surviving;
-					this.revertSuspectAmount = 0L;
-					if (diagEnabled())
-					{
-						logDiag("[reanchor] tracked snap-back {} confirms stale bank re-read: baseline {} -> {}, bank drop owed {}",
-							surviving, this.baseline - surviving, this.baseline, pendingStaleBankDrop);
-					}
-				}
+				confirmStaleRereadSnapBack(current, surviving, tsMs);
 			}
 		}
 	}
@@ -1025,6 +1045,23 @@ public final class SessionEngine
 		}
 
 		reconcileBankMovement(current, tsMs);
+
+		// A confirmed stale re-read's inventory snap-forward can arrive after
+		// the bank has closed, flowing here instead of through
+		// trackOpenTrackedSwing. Intercept it before the loot diff so the
+		// re-served withdrawal is held out of profit rather than booked as a
+		// gain. Any real bank movement this observation would already have
+		// cleared the suspicion in reconcileBankMovement, so the whole tracked
+		// rise is unexplained and matched directly against the suspected shape.
+		if (revertSuspectAmount != 0 && previous != null && current.isBankKnown()
+			&& bankAnchorKnown
+			&& confirmStaleRereadSnapBack(current, current.tracked() - previous.tracked(), tsMs) > 0)
+		{
+			logUpdateBreakdown(current, 0L, 0L, 0L, 0L, 0L, 0L);
+			syncCostBasis(current);
+			this.previous = current;
+			return;
+		}
 
 		long trackedBefore = previous == null ? current.tracked() : previous.tracked();
 		long baselineBefore = baseline;
