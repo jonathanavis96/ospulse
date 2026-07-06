@@ -10,6 +10,7 @@ import com.ospulse.ge.GeReconciler;
 import com.ospulse.model.ItemStack;
 import com.ospulse.session.GearMapper;
 import com.ospulse.session.GearSnapshot;
+import com.ospulse.session.MovementSignals;
 import com.ospulse.session.SessionEngine;
 import com.ospulse.session.SessionListener;
 import com.ospulse.session.SessionService;
@@ -96,6 +97,15 @@ public class SessionTracker implements SessionService
 	}
 
 	private volatile SessionSnapshot latest;
+
+	/**
+	 * Deliberate item-movement signals (drop/destroy) accumulated from
+	 * {@code MenuOptionClicked} events since the last {@link #refresh}, drained
+	 * into the engine each tick. Not volatile: only ever touched on the client
+	 * thread (menu-click handling and {@code onTick}/{@code refresh} both run
+	 * there).
+	 */
+	private MovementSignals.Builder pendingSignals = MovementSignals.builder();
 
 	/** Last bank value observed (live or restored from the persisted cache). */
 	private volatile long lastKnownBankValue = 0L;
@@ -258,6 +268,26 @@ public class SessionTracker implements SessionService
 		refresh(System.currentTimeMillis());
 	}
 
+	/**
+	 * Records a "Drop" menu click on an inventory item, accumulated into the
+	 * current tick's {@link MovementSignals} and drained on the next
+	 * {@link #refresh}. See {@code com.ospulse.OSPulsePlugin#onMenuOptionClicked}.
+	 */
+	public void recordDrop(int itemId)
+	{
+		pendingSignals.dropped(itemId);
+	}
+
+	/**
+	 * Records a "Destroy" menu click on an inventory item. See
+	 * {@code com.ospulse.OSPulsePlugin#onMenuOptionClicked} for the
+	 * confirm-dialog timing caveat.
+	 */
+	public void recordDestroy(int itemId)
+	{
+		pendingSignals.destroyed(itemId);
+	}
+
 	public void onStatChanged(Skill skill, int xp)
 	{
 		if (skill == null || skill == Skill.OVERALL)
@@ -372,7 +402,12 @@ public class SessionTracker implements SessionService
 		// Keep the engine's verbose-diagnostics flag current so the config toggle
 		// takes effect live (no restart) for the per-update wealth/attribution log.
 		engine.setVerboseDiagnostics(config.verboseDiagnostics());
-		engine.update(current, geReconciler, ts);
+		// Drain this tick's accumulated Drop/Destroy signals (see #recordDrop /
+		// #recordDestroy) into the engine, then reset the builder so the next
+		// tick starts empty.
+		MovementSignals signals = pendingSignals.build();
+		pendingSignals = MovementSignals.builder();
+		engine.update(current, geReconciler, signals, ts);
 		publish(buildSnapshot(current, ts));
 	}
 

@@ -15,6 +15,7 @@ import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.GrandExchangeOfferChanged;
 import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetInfo;
@@ -275,6 +276,41 @@ public class OSPulsePlugin extends Plugin
 	public void onLootReceived(LootReceived event)
 	{
 		tracker.onLootReceived(event.getName(), event.getAmount(), event.getItems());
+	}
+
+	/**
+	 * Forwards deliberate "Drop"/"Destroy" inventory item ops to the tracker as
+	 * per-tick {@link com.ospulse.session.MovementSignals}. Shift-click drop
+	 * fires the same "Drop" option, so it's covered without extra handling.
+	 *
+	 * <p><b>Destroy timing caveat:</b> "Destroy" fires on the menu click itself,
+	 * BEFORE the confirmation dialog is shown — so a later-confirmed (or
+	 * cancelled) destroy may not align with the item's actual vanish tick, since
+	 * this is recorded as a per-tick signal at click time. Drop has no such
+	 * confirmation step and is unaffected. This is a known limitation to verify
+	 * in-client, not a blocker for this wiring.
+	 */
+	@Subscribe
+	public void onMenuOptionClicked(MenuOptionClicked event)
+	{
+		String option = event.getMenuOption();
+		if (option == null)
+		{
+			return;
+		}
+		int itemId = event.getItemId();
+		if (itemId <= 0)
+		{
+			return;
+		}
+		if ("Drop".equalsIgnoreCase(option))
+		{
+			tracker.recordDrop(itemId);
+		}
+		else if ("Destroy".equalsIgnoreCase(option))
+		{
+			tracker.recordDestroy(itemId);
+		}
 	}
 
 	@Subscribe
