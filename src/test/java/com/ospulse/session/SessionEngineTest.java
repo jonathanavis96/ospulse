@@ -24,6 +24,7 @@ public class SessionEngineTest
 	private static final int RUNE_ITEM = 561;
 	private static final int RUNE_SQ_SHIELD = 1201;
 	private static final int BIRD_NEST = 5075;
+	private static final int PRAYER_POT = 2434;
 
 	private SessionEngine engine;
 
@@ -2422,5 +2423,49 @@ public class SessionEngineTest
 
 		SessionSnapshot s = engine.snapshot(current, 0L, Collections.emptyMap(), 0L, 1000L);
 		assertEquals(1_000_000L, s.getLootValue());
+	}
+
+	@Test
+	public void droppedConsumableIsNotSuppliesUsed()
+	{
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Pre-owned prayer potions present, then dropped (NOT drunk).
+		Map<Integer, ItemStack> owned = items(new ItemStack(PRAYER_POT, "Prayer potion(4)", 3L, 9_000L));
+		engine.update(snap(10_000_000L, owned, 0L, false, 1000L), Collections.emptySet(), 1000L);
+
+		MovementSignals dropped = MovementSignals.builder().dropped(PRAYER_POT).build();
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L),
+			(GeAttributions) null, dropped, 2000L);
+
+		SessionSnapshot s = engine.snapshot(snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L),
+			0L, Collections.emptyMap(), 0L, 2000L);
+		assertEquals("dropping a supply is not consumption", 0L, s.getSuppliesUsed());
+		assertEquals("pre-owned drop touches no loot", 0L, s.getLootValue());
+	}
+
+	@Test
+	public void droppedLootedItemReducesLootByLootedPortion()
+	{
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Loot 10 bird nests @ 5k = 50k.
+		Map<Integer, ItemStack> looted = items(new ItemStack(BIRD_NEST, "Bird nest", 10L, 5_000L));
+		engine.update(snap(10_050_000L, looted, 0L, false, 1000L), Collections.emptySet(), 1000L);
+		SessionSnapshot afterLoot = engine.snapshot(snap(10_050_000L, looted, 0L, false, 1000L),
+			0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals(50_000L, afterLoot.getLootValue());
+
+		// Drop 4 of them (partial stack).
+		MovementSignals dropped = MovementSignals.builder().dropped(BIRD_NEST).build();
+		Map<Integer, ItemStack> after = items(new ItemStack(BIRD_NEST, "Bird nest", 6L, 5_000L));
+		engine.update(snap(10_030_000L, after, 0L, false, 2000L), (GeAttributions) null, dropped, 2000L);
+
+		SessionSnapshot s = engine.snapshot(snap(10_030_000L, after, 0L, false, 2000L),
+			0L, Collections.emptyMap(), 0L, 2000L);
+		assertEquals("loot drops by the 4 dropped nests", 30_000L, s.getLootValue());
+		assertEquals(0L, s.getSuppliesUsed());
 	}
 }

@@ -202,6 +202,20 @@ public final class SessionEngine
 	/** Bottom-up "Loot" figure — see {@link LootLedger}. */
 	private final LootLedger lootLedger = new LootLedger();
 	/**
+	 * Wall-clock window (ms) within which an abandoned on-ground parcel is
+	 * still considered recoverable. Unenforced expiry point for now (a future
+	 * task may sweep {@link #onGround} once it passes); ~3 minutes matches an
+	 * item's real despawn timer.
+	 */
+	private static final long GROUND_DESPAWN_MS = 180_000L;
+	/**
+	 * Quantities of tracked items parked outside tracked wealth by a
+	 * player-signalled drop — see {@link #update}. Deliberately not a
+	 * held-value component: a dropped item has genuinely left net worth until
+	 * re-picked, and only the looted portion's removal from Loot is booked.
+	 */
+	private final Map<Integer, Parcel> onGround = new LinkedHashMap<>();
+	/**
 	 * Figures from the previous {@link #snapshot} call, kept only so the
 	 * per-snapshot debug log can report a delta. {@code null} until the first
 	 * snapshot is produced. Never affects profit/unrealized computation.
@@ -342,6 +356,19 @@ public final class SessionEngine
 		}
 	}
 
+	/** A quantity of an id parked out of tracked wealth (on the ground or at Death). */
+	private static final class Parcel
+	{
+		long qty;
+		long lootedQty;      // portion whose Loot was reversed on the way out (ground only)
+		final long unitValue;
+		long tsMs;
+		Parcel(long qty, long lootedQty, long unitValue, long tsMs)
+		{
+			this.qty = qty; this.lootedQty = lootedQty; this.unitValue = unitValue; this.tsMs = tsMs;
+		}
+	}
+
 	/**
 	 * Deferred cost-basis correction applied after {@link #syncCostBasis} has
 	 * run for the update: carries a holding's session basis across an id swap
@@ -455,6 +482,7 @@ public final class SessionEngine
 		this.suppliesUsed = 0L;
 		this.costBasis.clear();
 		this.lootLedger.reset();
+		this.onGround.clear();
 		this.lastLoggedFigures = null;
 		this.pendingVanished = new ArrayList<>();
 		this.pendingLooted = new ArrayList<>();
@@ -1438,6 +1466,31 @@ public final class SessionEngine
 		List<PendingSwing> newPendingVanished = new ArrayList<>();
 		for (Swing v : vanished)
 		{
+			if (signals.droppedItemIds().contains(v.itemId) && v.quantity > 0)
+			{
+				// DROP: reduce Loot only for the looted portion, never supplies, and park
+				// on the ground for re-pickup. Bypasses transient/bank reconciliation.
+				long looted = lootLedger.reverseLoot(v.itemId, v.quantity);
+				if (looted > 0)
+				{
+					retractLoot(v.itemId, looted, looted * v.unitValue);
+				}
+				Parcel g = onGround.get(v.itemId);
+				if (g == null)
+				{
+					onGround.put(v.itemId, new Parcel(v.quantity, looted, v.unitValue, tsMs));
+				}
+				else
+				{
+					g.qty += v.quantity;
+					g.lootedQty += looted;
+					g.tsMs = tsMs;
+				}
+				logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue,
+					"DROP(parked on-ground; " + looted + " looted units removed from Loot)");
+				v.quantity = 0L;
+				continue;
+			}
 			for (int pass = 0; pass < 2 && v.quantity > 0; pass++)
 			{
 				for (PendingSwing p : pendingLooted)
