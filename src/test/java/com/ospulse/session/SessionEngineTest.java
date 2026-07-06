@@ -2830,4 +2830,28 @@ public class SessionEngineTest
 		assertEquals("emptying is not fresh loot", afterLoot.getLootValue(), afterEmpty.getLootValue());
 		assertEquals("emptying is net-worth-neutral", afterLoot.getNetWorthDelta(), afterEmpty.getNetWorthDelta());
 	}
+
+	@Test
+	public void emptyingStorageToBankTruesUpAgainstBankRise()
+	{
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		// 10 ranarr into the sack (held +80k).
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			(GeAttributions) null,
+			MovementSignals.builder().lootReceived(new LootReceipt(RANARR, 10L, 8_000L)).build(), 1000L);
+
+		// Open bank.
+		WealthSnapshot atOpen = snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 2000L);
+		engine.setBankOpen(true, atOpen, 2000L);
+		SessionSnapshot beforeDeposit = engine.snapshot(atOpen, 0L, Collections.emptyMap(), 0L, 2000L);
+
+		// Deposit the sack to the bank: bank value rises 80k, stored-loot cleared.
+		WealthSnapshot afterDeposit = snap(10_000_000L, Collections.emptyMap(), 20_080_000L, true, 3000L);
+		engine.update(afterDeposit, Collections.emptySet(), 3000L);
+		SessionSnapshot afterDepositSnap = engine.snapshot(afterDeposit, 0L, Collections.emptyMap(), 0L, 3000L);
+
+		assertEquals("bank true-up is net-worth-neutral",
+			beforeDeposit.getNetWorthDelta(), afterDepositSnap.getNetWorthDelta());
+		assertEquals("Loot unchanged by the bank deposit", 80_000L, afterDepositSnap.getLootValue());
+	}
 }

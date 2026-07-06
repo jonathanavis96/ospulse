@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -231,6 +232,39 @@ public final class SessionEngine
 			total += s.value;
 		}
 		return total;
+	}
+
+	/**
+	 * Reconciles a positive bank rise (a storage-item deposit trues up here) against
+	 * the stored-loot ledger: value that was held as "in a sack" has now materialised
+	 * as bank value, so remove it from the held component to avoid double-counting.
+	 * Proportional across ids; capped at the rise and at outstanding stored value.
+	 * <p>
+	 * <b>Limitation (value-only heuristic):</b> this cannot distinguish a genuine
+	 * sack-deposit from an unrelated bank rise (e.g. a GE sale settling, a trade,
+	 * or any other deposit) — it draws stored-loot down against ANY positive bank
+	 * rise while stored-loot is outstanding. An unrelated bank rise can therefore
+	 * wrongly draw the ledger down, understating net worth, until the stored-loot
+	 * balance is exhausted. This is the accepted "late reconciliation" trade-off:
+	 * the true-up eventually self-corrects once the ledger empties, and a
+	 * genuine sack-deposit is the far more common case for the described bank rise.
+	 */
+	private void drawDownStoredLoot(long bankRise)
+	{
+		long remaining = bankRise;
+		for (Iterator<Map.Entry<Integer, StoredLoot>> it = storedLoot.entrySet().iterator();
+			 it.hasNext() && remaining > 0; )
+		{
+			StoredLoot s = it.next().getValue();
+			long draw = Math.min(remaining, s.value);
+			s.value -= draw;
+			// qty is proportional; when value hits zero the entry is spent.
+			if (s.value <= 0)
+			{
+				it.remove();
+			}
+			remaining -= draw;
+		}
 	}
 	/**
 	 * Quantities of tracked items parked outside tracked wealth by a
@@ -1213,6 +1247,10 @@ public final class SessionEngine
 		{
 			syncCostBasis(current);
 			long bankDelta = reconcileBankMovement(current, tsMs);
+			if (bankDelta > 0)
+			{
+				drawDownStoredLoot(bankDelta);
+			}
 			trackOpenTrackedSwing(current, bankDelta, tsMs);
 			logUpdateBreakdown(current, 0L, 0L, 0L, 0L, 0L, 0L);
 			this.previous = current;
