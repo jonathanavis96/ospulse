@@ -231,6 +231,15 @@ public final class SessionEngine
 	 */
 	private final Map<Integer, Parcel> deployed = new LinkedHashMap<>();
 	/**
+	 * Items parked out of tracked wealth by death — still an owned holding
+	 * sitting at a gravestone/Death (unlike {@link #onGround}), so its value
+	 * is folded back into net worth via {@link #atDeathValue()} rather than
+	 * left as a loss. Unlike {@link #onGround}, never expires: Death holds
+	 * items far longer than the ground despawn timer, so this map is
+	 * deliberately untouched by the {@link #GROUND_DESPAWN_MS} prune.
+	 */
+	private final Map<Integer, Parcel> atDeath = new LinkedHashMap<>();
+	/**
 	 * Figures from the previous {@link #snapshot} call, kept only so the
 	 * per-snapshot debug log can report a delta. {@code null} until the first
 	 * snapshot is produced. Never affects profit/unrealized computation.
@@ -499,6 +508,7 @@ public final class SessionEngine
 		this.lootLedger.reset();
 		this.onGround.clear();
 		this.deployed.clear();
+		this.atDeath.clear();
 		this.lastLoggedFigures = null;
 		this.pendingVanished = new ArrayList<>();
 		this.pendingLooted = new ArrayList<>();
@@ -956,6 +966,16 @@ public final class SessionEngine
 	{
 		long total = 0L;
 		for (Parcel p : deployed.values())
+		{
+			total += p.qty * p.unitValue;
+		}
+		return total;
+	}
+
+	private long atDeathValue()
+	{
+		long total = 0L;
+		for (Parcel p : atDeath.values())
 		{
 			total += p.qty * p.unitValue;
 		}
@@ -1599,6 +1619,27 @@ public final class SessionEngine
 				v.quantity = 0L;
 				continue;
 			}
+
+			if (signals.diedThisTick() && v.quantity > 0)
+			{
+				// DEATH: a per-tick catch-all, gated on the flag rather than an id
+				// set — the whole inventory vanishes into a gravestone/Death, still
+				// owned. Park it (never expires, unlike onGround) and fold its
+				// value back into net worth via atDeathValue(), never loot/supplies.
+				Parcel dp = atDeath.get(v.itemId);
+				if (dp == null)
+				{
+					atDeath.put(v.itemId, new Parcel(v.quantity, 0L, v.unitValue, tsMs));
+				}
+				else
+				{
+					dp.qty += v.quantity;
+				}
+				logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue,
+					"DEATH(owned, in abeyance)");
+				v.quantity = 0L; // never supplies, never loot change
+				continue;
+			}
 			for (int pass = 0; pass < 2 && v.quantity > 0; pass++)
 			{
 				for (PendingSwing p : pendingLooted)
@@ -1941,7 +1982,8 @@ public final class SessionEngine
 		// reconcileBankMovement / trackOpenTrackedSwing.
 		long pendingSettle = pendingSettleTotal();
 		long deployedHeld = deployedValue();
-		long markToMarket = current.tracked() + pendingSettle + deployedHeld - baseline;
+		long deathHeld = atDeathValue();
+		long markToMarket = current.tracked() + pendingSettle + deployedHeld + deathHeld - baseline;
 
 		// Split the raw mark-to-market delta: paper gains on current holdings
 		// (live value vs cost basis) are unrealized; whatever remains is
@@ -1973,7 +2015,7 @@ public final class SessionEngine
 		// during the lag window. A confirmed stale re-read overstates the
 		// bank reading the opposite way, so the correction it still owes is
 		// subtracted for the same reason.
-		long netWorthDelta = current.netWorth() + pendingSettle + deployedHeld
+		long netWorthDelta = current.netWorth() + pendingSettle + deployedHeld + deathHeld
 			- pendingStaleBankDrop - startNetWorth;
 
 		if (diagEnabled())

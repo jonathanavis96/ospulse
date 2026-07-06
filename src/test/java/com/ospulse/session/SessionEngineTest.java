@@ -1946,6 +1946,48 @@ public class SessionEngineTest
 	}
 
 	@Test
+	public void deathParksInventoryNeutrallyNoSuppliesNoLootChange()
+	{
+		// Session starts already holding 500 pre-owned nature runes (100k).
+		Map<Integer, ItemStack> preOwned = new HashMap<>();
+		preOwned.put(RUNE_ITEM, new ItemStack(RUNE_ITEM, "Nature rune", 500L, 200L));
+		engine.startSession(snap(10_100_000L, preOwned, 0L, false, 0L), 0L);
+
+		// Loot 100 sharks (80k) then die holding them + the pre-owned runes.
+		Map<Integer, ItemStack> held = new HashMap<>();
+		held.put(SHARK, new ItemStack(SHARK, "Shark", 100L, 800L));            // looted this session
+		held.put(RUNE_ITEM, new ItemStack(RUNE_ITEM, "Nature rune", 500L, 200L)); // pre-owned
+		engine.update(snap(10_180_000L, held, 0L, false, 1000L), Collections.emptySet(), 1000L);
+		SessionSnapshot beforeDeath = engine.snapshot(snap(10_180_000L, held, 0L, false, 1000L),
+			0L, Collections.emptyMap(), 0L, 1000L);
+
+		// Die: inventory cleared this tick.
+		MovementSignals died = MovementSignals.builder().died(true).build();
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L),
+			(GeAttributions) null, died, 2000L);
+
+		SessionSnapshot afterDeath = engine.snapshot(snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L),
+			0L, Collections.emptyMap(), 0L, 2000L);
+		assertEquals("death is net-worth-neutral (items in abeyance)",
+			beforeDeath.getNetWorthDelta(), afterDeath.getNetWorthDelta());
+		assertEquals("death never charges supplies", 0L, afterDeath.getSuppliesUsed());
+		assertEquals("looted items stay counted through death", 80_000L, afterDeath.getLootValue());
+		// (100 sharks @ 800 = 80k booked as loot at pickup; unchanged by death.)
+
+		// Regression guard for the separate-map architecture constraint: at-death
+		// parcels must NOT be swept by the Task-4 onGround despawn prune (they sit
+		// in a separate `atDeath` map with no expiry). Run an empty-inventory update
+		// well past GROUND_DESPAWN_MS (180_000ms) and confirm net worth is unchanged.
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L + 180_001L),
+			Collections.emptySet(), 2000L + 180_001L);
+		SessionSnapshot longAfterDeath = engine.snapshot(
+			snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L + 180_001L),
+			0L, Collections.emptyMap(), 0L, 2000L + 180_001L);
+		assertEquals("at-death parcels do not despawn like ground drops",
+			beforeDeath.getNetWorthDelta(), longAfterDeath.getNetWorthDelta());
+	}
+
+	@Test
 	public void equalStackLootedBeyondReturnWindowStillCountsAsLoot()
 	{
 		// Guard: the parked-stack netting is bounded. A whole stack genuinely
