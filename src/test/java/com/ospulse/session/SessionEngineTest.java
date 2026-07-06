@@ -2592,4 +2592,40 @@ public class SessionEngineTest
 			68_000L, s.getLootValue());
 		assertEquals(0L, s.getSuppliesUsed());
 	}
+
+	@Test
+	public void abandonedDropStaysReducedAfterExpiry()
+	{
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		Map<Integer, ItemStack> looted = items(new ItemStack(BIRD_NEST, "Bird nest", 10L, 5_000L));
+		engine.update(snap(10_050_000L, looted, 0L, false, 1000L), Collections.emptySet(), 1000L);
+
+		MovementSignals dropped = MovementSignals.builder().dropped(BIRD_NEST).build();
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 2000L),
+			(GeAttributions) null, dropped, 2000L);
+
+		// A tick past the 3-min despawn with nothing on the ground: parcel expires.
+		long expired = 2000L + 180_001L;
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, expired),
+			Collections.emptySet(), expired);
+
+		SessionSnapshot s = engine.snapshot(snap(10_000_000L, Collections.emptyMap(), 0L, false, expired),
+			0L, Collections.emptyMap(), 0L, expired);
+		assertEquals("abandoned drop is gone from Loot for good", 0L, s.getLootValue());
+		assertEquals(0L, s.getSuppliesUsed());
+
+		// A fresh appearance of the FULL dropped quantity at a NEW price (6k,
+		// up from the 5k drop-time price) discriminates a pruned parcel from
+		// a surviving one: a surviving parcel would restore all 10 units at
+		// its frozen 5k price (50k) via the onGround-return path, whereas a
+		// pruned parcel forces the generic LOOT path to price all 10 at the
+		// current 6k rate (60k).
+		Map<Integer, ItemStack> freshPickup = items(new ItemStack(BIRD_NEST, "Bird nest", 10L, 6_000L));
+		engine.update(snap(10_060_000L, freshPickup, 0L, false, expired + 1000L),
+			Collections.emptySet(), expired + 1000L);
+		SessionSnapshot s2 = engine.snapshot(snap(10_060_000L, freshPickup, 0L, false, expired + 1000L),
+			0L, Collections.emptyMap(), 0L, expired + 1000L);
+		assertEquals("post-expiry pickup is fresh loot at the current price, not a neutral "
+			+ "return at the abandoned parcel's frozen price", 60_000L, s2.getLootValue());
+	}
 }

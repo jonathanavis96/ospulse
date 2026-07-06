@@ -203,9 +203,9 @@ public final class SessionEngine
 	private final LootLedger lootLedger = new LootLedger();
 	/**
 	 * Wall-clock window (ms) within which an abandoned on-ground parcel is
-	 * still considered recoverable. Unenforced expiry point for now (a future
-	 * task may sweep {@link #onGround} once it passes); ~3 minutes matches an
-	 * item's real despawn timer.
+	 * still considered recoverable. Enforced at the top of {@link #update}, which
+	 * sweeps {@link #onGround} entries older than this before the appeared/vanished
+	 * pass; ~3 minutes matches an item's real despawn timer.
 	 */
 	private static final long GROUND_DESPAWN_MS = 180_000L;
 	/**
@@ -1148,6 +1148,12 @@ public final class SessionEngine
 			this.previous = current;
 			return;
 		}
+
+		// Prune ground parcels older than the despawn window before the
+		// appeared/vanished collection below, so an expired parcel cannot
+		// answer a return this tick: the abandoned drop stays reduced and a
+		// later re-appearance of the same id books as fresh loot.
+		onGround.entrySet().removeIf(e -> tsMs - e.getValue().tsMs > GROUND_DESPAWN_MS);
 
 		// GE proceeds collected straight to the bank leave tracked wealth with
 		// no item swing while the bank is closed; hold the transfer so the
