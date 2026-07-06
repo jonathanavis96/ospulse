@@ -1,5 +1,8 @@
 package com.ospulse.ge;
 
+import java.util.Collections;
+import java.util.List;
+
 /**
  * Quantity-accurate attribution of tracked-item movements to Grand Exchange
  * activity, consumed by the session engine while classifying per-item
@@ -40,4 +43,15 @@ public interface GeAttributions
 	 *         only the remainder as supplies/vanish.
 	 */
 	long attributeRemoval(int itemId, long quantity);
+
+	/**
+	 * Drains Grand Exchange loot-sales observed since the last call — sells of
+	 * items with no matching GE buy basis (looted / previously owned), whose
+	 * after-tax proceeds the session engine realises into the Loot figure.
+	 * Default: none (non-reconciler attribution sources have no loot-sales).
+	 */
+	default List<LootSale> drainLootSales()
+	{
+		return Collections.emptyList();
+	}
 }

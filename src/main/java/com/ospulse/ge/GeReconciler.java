@@ -138,6 +138,8 @@ public final class GeReconciler implements GeAttributions
 	private final List<ExpectedArrival> expectedArrivals = new ArrayList<>();
 	private final List<ExpectedRemoval> expectedRemovals = new ArrayList<>();
 	private long realizedPnl;
+	/** Loot-sales (non-flip sells) observed since the last drain. */
+	private final List<LootSale> lootSales = new ArrayList<>();
 
 	/**
 	 * The per-item GE sales tax on a sale of {@code itemId} at
@@ -257,15 +259,23 @@ public final class GeReconciler implements GeAttributions
 					break;
 				case SELLING:
 				case SOLD:
-					applySell(itemId, incremental, pricePerItem);
-					// The collectable proceeds are the gp actually
-					// transacted (a sell can fill ABOVE the offer price)
-					// minus the per-item GE sales tax.
+					long matched = applySell(itemId, incremental, pricePerItem);
+					// The collectable proceeds are the gp actually transacted (a
+					// sell can fill ABOVE the offer price) minus the per-item
+					// tax.
 					long gross = incrementalGp > 0 ? incrementalGp : incremental * pricePerItem;
 					long netProceeds = gross - saleTaxPerItem(itemId, gross / incremental) * incremental;
 					if (netProceeds > 0)
 					{
 						addArrival(slot, COINS_ITEM_ID, netProceeds);
+					}
+					// Any quantity sold beyond the GE buy basis is a loot-sale:
+					// surface its proportional after-tax proceeds to realise into Loot.
+					long lootQty = incremental - matched;
+					if (lootQty > 0)
+					{
+						long lootProceeds = Math.round((double) netProceeds * lootQty / incremental);
+						lootSales.add(new LootSale(itemId, lootQty, lootProceeds));
 					}
 					break;
 				default:
@@ -334,25 +344,20 @@ public final class GeReconciler implements GeAttributions
 		basis.qty = newQty;
 	}
 
-	private void applySell(int itemId, long qty, long pricePerItem)
+	private long applySell(int itemId, long qty, long pricePerItem)
 	{
 		CostBasis basis = costBasis.get(itemId);
 		if (basis == null || basis.qty <= 0)
 		{
-			// Selling with no GE cost basis (e.g. dumping looted or previously
-			// owned items on the GE, not flipping) is not a flip and must not
-			// count towards flip P&L — that value is already captured in the
-			// wealth-delta profit number.
-			return;
+			// Selling with no GE cost basis (dumping looted or previously
+			// owned items, not flipping) is not a flip: nothing matched.
+			return 0L;
 		}
 
-		// Only the quantity that was actually bought via the GE counts as a
-		// flip; any excess sold beyond the tracked basis is not flip profit.
+		// Only the quantity actually bought via the GE counts as a flip.
 		long matched = Math.min(qty, basis.qty);
 
-		// The seller nets the sale price minus the GE's per-item sales tax, so
-		// realised flip profit is (net proceeds - avg cost). Without this the
-		// stat overstates profit by the tax the player actually paid.
+		// The seller nets the sale price minus the GE's per-item sales tax.
 		long netProceedsPerItem = pricePerItem - saleTaxPerItem(itemId, pricePerItem);
 		realizedPnl += (netProceedsPerItem - basis.avgUnitCost) * matched;
 
@@ -361,6 +366,7 @@ public final class GeReconciler implements GeAttributions
 		{
 			basis.avgUnitCost = 0;
 		}
+		return matched;
 	}
 
 	/**
@@ -369,6 +375,22 @@ public final class GeReconciler implements GeAttributions
 	public long realizedPnl()
 	{
 		return realizedPnl;
+	}
+
+	/**
+	 * Returns and clears the loot-sales observed since the last call — see
+	 * {@link LootSale}.
+	 */
+	@Override
+	public List<LootSale> drainLootSales()
+	{
+		if (lootSales.isEmpty())
+		{
+			return java.util.Collections.emptyList();
+		}
+		List<LootSale> out = new ArrayList<>(lootSales);
+		lootSales.clear();
+		return out;
 	}
 
 	/**
@@ -431,6 +453,7 @@ public final class GeReconciler implements GeAttributions
 		expectedArrivals.clear();
 		expectedRemovals.clear();
 		realizedPnl = 0L;
+		lootSales.clear();
 	}
 
 	/**
