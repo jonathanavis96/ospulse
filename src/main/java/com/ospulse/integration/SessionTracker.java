@@ -264,6 +264,7 @@ public class SessionTracker implements SessionService
 			long unit = valuation.unitValue(it.getId());
 			String name = valuation.name(it.getId());
 			mergeItem(agg.items, canonicalId, name, it.getQuantity(), unit);
+			pendingSignals.lootReceived(new com.ospulse.session.LootReceipt(canonicalId, it.getQuantity(), unit));
 		}
 
 		refresh(System.currentTimeMillis());
