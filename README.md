@@ -13,9 +13,9 @@ The gear calculator is auto‑filled from your worn gear, live boosted stats and
 
 - Live **max hit, accuracy, average hit, DPS and time‑to‑kill**, across the weapon's real in‑game attack styles, ranked by DPS with the best auto‑selected.
 - A searchable target monster (per‑style defence applied), plus on‑task, potion and prayer toggles.
-- Variant/effect handling: Salve (e)(i), Slayer helm/black mask (i), Void, demonbane and dragon hunter weapons, powered staves and standard/ancient spells.
+- Variant/effect handling: Salve (e)(i), Slayer helm/black mask (i), Void, demonbane and dragon hunter weapons, powered staves and standard/ancient spells, the elemental **tomes** (fire/water/earth) and the **blowpipe** (using the loaded dart).
 - **What‑if swaps:** click any slot, search an item, and see the DPS delta before committing.
-- **Gear optimiser:** "Find best setup" searches your owned and affordable items (with a GP budget) for the highest DPS, ranked by DPS‑per‑GP; include/exclude lists; apply the result to the readout.
+- **Gear optimiser:** "Find best setup" searches your owned and affordable items (with a GP budget) for the highest DPS, ranked by DPS‑per‑GP; include/exclude lists; apply the result to the readout. It also ranks the five damage‑type selectors (Stab/Slash/Crush/Ranged/Magic) by the best achievable DPS for each, so the strongest style is offered first.
 - **Monster‑mechanic overrides:** pins items required by mechanics rather than raw DPS (e.g. **Insulated boots vs Rune dragons**, which reduce the lightning special‑attack damage) and shows the reason.
 
 Damage is calculated player‑vs‑monster (PvM); PvP is not modelled.
@@ -29,7 +29,7 @@ The same side panel gathers, as collapsible and individually hideable sections:
 | Section | What it shows |
 | --- | --- |
 | **Session** | Live session **profit**, computed banking‑aware (see [How profit is calculated](#how-profit-is-calculated)), plus loot value earned vs supplies consumed and net‑of‑supplies profit. |
-| **Loot** | A per‑item **loot feed** built from wealth changes, so it catches *everything* you gain — not just NPC drops. Per‑item and per‑source right‑click "hide" menus. |
+| **Loot** | A per‑item **loot feed** built from wealth changes, so it catches *everything* you gain — not just NPC drops. Sorted by value, hover any row for name × quantity and per‑item GE / high‑alch value, collapsible, with per‑item and per‑source right‑click "hide" menus. |
 | **XP** | XP and levels gained this session, tracking virtual levels to 126. Right‑click reset/pause and an optional movable on‑canvas overlay per skill (a generic version of RuneLite's own XP Tracker overlay). |
 | **Grand Exchange** | Realised **flip P&L** (average‑cost), reconciled against the loot feed so flips are never double‑counted as loot. Progress bars for in‑flight offers. |
 | **Wealth** | **Net worth** = bank + inventory + equipment + Grand Exchange, with an "Unrealized P/L" line for mark‑to‑market price movement on items you're carrying. |
@@ -62,6 +62,7 @@ OSPulse is designed to make almost no network calls, and to be trivial for a rev
 **Session**
 - **Min loot value** — hide loot‑feed items below this GE value.
 - **Include rune pouch / looting bag** — count pouch/bag contents in tracked wealth.
+- **Blowpipe dart** — which dart the blowpipe is loaded with, so its max hit and DPS are computed correctly (default Dragon).
 
 **Price trends (optional)** — *the only section that can cause a network call.*
 - **Enable price trends** — off by default; turns on the OSRS Wiki timeseries fetch described above.
