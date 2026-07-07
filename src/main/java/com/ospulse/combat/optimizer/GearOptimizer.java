@@ -1,5 +1,6 @@
 package com.ospulse.combat.optimizer;
 
+import com.ospulse.combat.AmmoCompatibility;
 import com.ospulse.combat.CombatStyle;
 import com.ospulse.combat.DpsCalculator;
 import com.ospulse.combat.DpsResult;
@@ -11,8 +12,6 @@ import com.ospulse.combat.Spell;
 import com.ospulse.combat.WeaponCategoryRepository;
 import com.ospulse.combat.WeaponStyle;
 import com.ospulse.session.GearMapper;
-import com.ospulse.session.GearSnapshot;
-import com.ospulse.session.GearVariants;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -429,14 +428,24 @@ public final class GearOptimizer {
     public static Result optimize(Request request) {
         EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 
-        // Build each slot's pruned candidate list once.
+        // Build each slot's pruned candidate list once. The AMMO slot is
+        // built FIRST because the weapon slot's DPS-ranked pruning pairs each
+        // candidate weapon with its best affordable compatible ammo (a bow is
+        // meaningless without arrows — see buildWeaponCandidates).
+        List<Candidate> ammoCandidates = buildCandidatesForSlot(index, AMMO_SLOT, request, Collections.emptyList());
         List<List<Candidate>> candidatesBySlot = new ArrayList<>();
         int[] slotForIndex = new int[SEARCHABLE_SLOTS.length];
         int n = 0;
         for (int slot : SEARCHABLE_SLOTS) {
             slotForIndex[n++] = slot;
-            candidatesBySlot.add(buildCandidatesForSlot(index, slot, request));
+            candidatesBySlot.add(slot == AMMO_SLOT
+                    ? ammoCandidates
+                    : buildCandidatesForSlot(index, slot, request, ammoCandidates));
         }
+
+        // Greedy seeding below is restricted to OWNED candidates (spend 0),
+        // so the ammo paired into a weapon trial there must be owned too.
+        List<Candidate> ownedAmmoCandidates = ownedOnly(ammoCandidates);
 
         // Seed: the live/owned loadout as the starting point for local search
         // (guarantees the search never returns worse than the player's own gear
@@ -465,7 +474,7 @@ public final class GearOptimizer {
                 }
             }
             if (!ownedForSlot.isEmpty()) {
-                current = bestSingleSlotChoice(current, slot, ownedForSlot, request);
+                current = bestSingleSlotChoice(current, slot, ownedForSlot, request, ownedAmmoCandidates);
             }
         }
 
@@ -489,6 +498,14 @@ public final class GearOptimizer {
                         continue;
                     }
                     int[] trial = applySlotChoice(current, slot, c.itemId());
+                    if (slot == WhatIfLoadout.WEAPON_SLOT) {
+                        // A weapon swap carries its ammo requirement with it: a
+                        // bow tried while (say) a blessing or nothing is worn
+                        // would otherwise score without any arrow ranged
+                        // strength and lose to the incumbent — the classic
+                        // two-slot interaction single-slot local search misses.
+                        trial = withBestCompatibleAmmo(trial, ammoCandidates, request);
+                    }
                     if (!withinBudget(trial, request)) {
                         continue; // would push cumulative spend over budget — reject regardless of DPS
                     }
@@ -497,11 +514,15 @@ public final class GearOptimizer {
                         continue;
                     }
                     boolean better;
-                    if (ammoIgnoredByWeapon(slot, trial)) {
-                        // Ammo is DPS-invisible to a weapon that ignores it (see
-                        // bestSingleSlotChoice) — rank by prayer bonus instead so
-                        // local search can still improve the freed ammo slot.
-                        better = prayerBonusOf(c.itemId()) > prayerBonusOf(current[slot]);
+                    if (slot == AMMO_SLOT) {
+                        // Ammo compares (DPS, then prayer on a DPS tie): worn
+                        // ammo a weapon doesn't fire is DPS-invisible (see
+                        // AmmoCompatibility/GearMapper), so among DPS-tied
+                        // candidates the freed slot goes to the best blessing.
+                        double currentDps = currentEval == null ? Double.NEGATIVE_INFINITY : currentEval.dps.dps();
+                        double diff = trialEval.dps.dps() - currentDps;
+                        better = diff > 1e-9
+                                || (Math.abs(diff) <= 1e-9 && prayerBonusOf(c.itemId()) > prayerBonusOf(current[slot]));
                     } else {
                         better = currentEval == null || trialEval.dps.dps() > currentEval.dps.dps() + 1e-9;
                     }
@@ -601,40 +622,90 @@ public final class GearOptimizer {
         return next;
     }
 
-    private static int[] bestSingleSlotChoice(int[] itemIds, int slot, List<Candidate> candidates, Request request) {
+    /**
+     * The best single choice for one slot, holding every other slot fixed.
+     * Weapon-slot trials get their best compatible ammo from
+     * {@code ammoCandidates} paired in (see {@link #withBestCompatibleAmmo});
+     * ammo-slot candidates compare by (DPS, then prayer bonus on a DPS tie) —
+     * worn ammo a weapon doesn't fire is DPS-invisible (blowpipes ignore the
+     * slot entirely, incompatible consumables are skipped by
+     * {@code GearMapper}/{@link com.ospulse.combat.AmmoCompatibility}), so a
+     * pure-DPS ranking would keep whichever candidate happened to be worn
+     * instead of freeing the slot for the best blessing.
+     */
+    private static int[] bestSingleSlotChoice(int[] itemIds, int slot, List<Candidate> candidates, Request request,
+                                              List<Candidate> ammoCandidates) {
         int[] best = itemIds;
         Evaluation bestEval = evaluate(itemIds, request);
-        int bestPrayer = ammoIgnoredByWeapon(slot, itemIds) ? prayerBonusOf(slotItemId(itemIds, slot)) : 0;
+        int bestPrayer = slot == AMMO_SLOT ? prayerBonusOf(slotItemId(itemIds, slot)) : 0;
         for (Candidate c : candidates) {
             int[] trial = applySlotChoice(itemIds, slot, c.itemId());
+            if (slot == WhatIfLoadout.WEAPON_SLOT) {
+                trial = withBestCompatibleAmmo(trial, ammoCandidates, request);
+            }
             Evaluation trialEval = evaluate(trial, request);
             if (trialEval == null) {
                 continue;
             }
-            if (ammoIgnoredByWeapon(slot, trial)) {
-                // The weapon ignores worn ammo (e.g. a blowpipe loads its dart
-                // internally), so every ammo candidate evaluates to the exact
-                // same DPS — ranking by DPS here would always keep whichever
-                // candidate happened to be first (e.g. the live ranged-
-                // strength ammo). Rank by prayer bonus instead so the freed
-                // slot is put to use.
-                int trialPrayer = prayerBonusOf(c.itemId());
-                if (trialPrayer > bestPrayer) {
-                    best = trial;
-                    bestEval = trialEval;
-                    bestPrayer = trialPrayer;
-                }
-            } else if (bestEval == null || trialEval.dps.dps() > bestEval.dps.dps() + 1e-9) {
+            boolean better;
+            int trialPrayer = slot == AMMO_SLOT ? prayerBonusOf(c.itemId()) : 0;
+            if (bestEval == null) {
+                better = true;
+            } else if (slot == AMMO_SLOT) {
+                double diff = trialEval.dps.dps() - bestEval.dps.dps();
+                better = diff > 1e-9 || (Math.abs(diff) <= 1e-9 && trialPrayer > bestPrayer);
+            } else {
+                better = trialEval.dps.dps() > bestEval.dps.dps() + 1e-9;
+            }
+            if (better) {
                 best = trial;
                 bestEval = trialEval;
+                bestPrayer = trialPrayer;
             }
         }
         return best;
     }
 
-    /** True when {@code slot} is the ammo slot and the loadout's weapon ignores worn ammo (e.g. a blowpipe). */
-    private static boolean ammoIgnoredByWeapon(int slot, int[] itemIds) {
-        return slot == AMMO_SLOT && GearVariants.isBlowpipe(slotItemId(itemIds, WhatIfLoadout.WEAPON_SLOT));
+    /**
+     * Pairs a weapon trial with the best affordable ammo it can actually
+     * fire: when the trial's weapon consumes an ammo class the worn ammo
+     * doesn't match, the highest-ranked in-class candidate that keeps the
+     * loadout within budget is swapped into the ammo slot ({@code
+     * ammoCandidates} arrives per-class best-first from
+     * {@link #buildCandidatesForSlot}). Without this, a consuming weapon is
+     * systematically undervalued at every seeding/swap step — a Scorching
+     * bow tried over a blowpipe loadout would score without any arrow
+     * ranged strength and always lose. No-op for weapons that use no worn
+     * ammo, for already-compatible ammo, and when no in-class candidate fits
+     * the budget.
+     */
+    private static int[] withBestCompatibleAmmo(int[] itemIds, List<Candidate> ammoCandidates, Request request) {
+        AmmoCompatibility.AmmoClass needed =
+                AmmoCompatibility.consumedClass(slotItemId(itemIds, WhatIfLoadout.WEAPON_SLOT));
+        if (needed == null || AmmoCompatibility.classify(slotItemId(itemIds, AMMO_SLOT)) == needed) {
+            return itemIds;
+        }
+        for (Candidate c : ammoCandidates) {
+            if (AmmoCompatibility.classify(c.itemId()) != needed) {
+                continue;
+            }
+            int[] trial = applySlotChoice(itemIds, AMMO_SLOT, c.itemId());
+            if (withinBudget(trial, request)) {
+                return trial;
+            }
+        }
+        return itemIds;
+    }
+
+    /** The owned subset of {@code candidates}, order preserved (per-class best-first for ammo lists). */
+    private static List<Candidate> ownedOnly(List<Candidate> candidates) {
+        List<Candidate> owned = new ArrayList<>();
+        for (Candidate c : candidates) {
+            if (c.owned()) {
+                owned.add(c);
+            }
+        }
+        return owned;
     }
 
     private static int slotItemId(int[] itemIds, int slot) {
@@ -652,7 +723,8 @@ public final class GearOptimizer {
         }
     }
 
-    private static List<Candidate> buildCandidatesForSlot(EquipmentIndexRepository index, int slot, Request request) {
+    private static List<Candidate> buildCandidatesForSlot(EquipmentIndexRepository index, int slot, Request request,
+                                                          List<Candidate> ammoCandidates) {
         List<EquipmentIndexRepository.Entry> all = index.forSlot(slot);
         List<Candidate> affordable = new ArrayList<>();
         for (EquipmentIndexRepository.Entry e : all) {
@@ -674,31 +746,24 @@ public final class GearOptimizer {
             affordable.add(new Candidate(e.itemId(), price, owned));
         }
 
-        // Prune to top-N by a cheap proxy bonus (see proxyOffensiveScore): the
-        // requested style's relevant bonuses when the search is style-
-        // constrained, else the style-agnostic sum of every offensive bonus —
-        // a fast ranking good enough to keep the true top candidates without
-        // computing a full DPS for every one of ~1500 weapons per pass.
-        //
-        // Ammo slot exception: a blowpipe (or any weapon GearMapper knows
-        // ignores worn ammo — see GearVariants.isBlowpipe) loads its dart
-        // internally, so worn ammo contributes NOTHING to DPS and every ammo
-        // candidate is a full-DPS tie. Ranking by the raw-stats proxy (or
-        // leaving the tie to local search, which never swaps on a tie) would
-        // silently keep whatever the ammo slot happened to start on (e.g.
-        // Dragon javelins) instead of using the freed slot for a prayer
-        // bonus — so for that case the candidates are ranked by prayer
-        // bonus instead.
-        if (slot == AMMO_SLOT && GearVariants.isBlowpipe(weaponIdOf(request))) {
-            affordable.sort(Comparator.comparingInt((Candidate c) -> -prayerBonusOf(c.itemId())));
-        } else {
-            affordable.sort(Comparator.comparingInt((Candidate c) -> -proxyOffensiveScore(c.itemId(), request.style)));
+        if (slot == AMMO_SLOT) {
+            return pruneAmmoCandidates(affordable, request);
+        }
+        if (slot == WhatIfLoadout.WEAPON_SLOT && request.target != null) {
+            return pruneWeaponCandidatesByDps(affordable, request, ammoCandidates);
         }
 
+        // Non-weapon slots (and the degenerate no-target case): prune to
+        // top-N by a cheap proxy bonus (see proxyOffensiveScore) — the
+        // requested style's relevant bonuses when the search is style-
+        // constrained, else the style-agnostic sum of every offensive bonus.
+        // These slots contribute additively under a fixed style, so the
+        // proxy ranking is faithful enough; owned/included items are exempt
+        // from pruning as always.
+        affordable.sort(Comparator.comparingInt((Candidate c) -> -proxyOffensiveScore(c.itemId(), request.style)));
         List<Candidate> pruned = new ArrayList<>();
         for (Candidate c : affordable) {
-            boolean mandatory = c.owned() || request.include.contains(c.itemId())
-                    || (slot == WhatIfLoadout.WEAPON_SLOT && appliesBaneToTarget(c.itemId(), request.target));
+            boolean mandatory = c.owned() || request.include.contains(c.itemId());
             if (mandatory || pruned.size() < request.candidatesPerSlot) {
                 pruned.add(c);
             }
@@ -707,35 +772,108 @@ public final class GearOptimizer {
     }
 
     /**
-     * True when the weapon's demonbane/dragonbane passive actually applies to
-     * {@code target} (demonbane vs a demon, dragonbane vs a dragon) — used to
-     * exempt bane weapons from the proxy-score pruning above. The proxy
-     * ({@link #proxyOffensiveScore}) is target-blind and scores purely on raw
-     * bonuses, so a weapon like the Scorching bow (unremarkable raw ranged
-     * strength next to darts/other bows) would otherwise be pruned away
-     * before {@link #evaluate} ever applies its target-specific +30%
-     * accuracy/damage — silently hiding the actual best-in-slot weapon for
-     * that target. Bane weapons are cheap to identify (a plain id lookup, no
-     * DPS computation) so this check is safe to run for every affordable
-     * weapon candidate per slot-build.
+     * Weapon-slot pruning by REAL evaluated DPS: each affordable weapon is
+     * scored by {@link #evaluate} at its own best style/spell against the
+     * actual target, applied over the live loadout with its best affordable
+     * compatible ammo paired in ({@link #withBestCompatibleAmmo}) — then the
+     * top {@code candidatesPerSlot} survive (owned/included are exempt, as
+     * everywhere).
+     *
+     * <p>This replaces the old target-blind linear proxy ({@code arange +
+     * 2*rstr} for ranged), which systematically mis-ranked everything whose
+     * value isn't a raw bonus sum: attack SPEED (a 3-tick blowpipe's whole
+     * advantage — measured: it ranked ~50th of the ranged pool and was
+     * always pruned), target passives (demonbane/dragonbane/Twisted bow),
+     * ammo the weapon brings vs. ammo it wears, and powered-staff scaling.
+     * A per-candidate evaluation is a few microseconds of pure arithmetic;
+     * even the unconstrained ~1500-weapon pool costs low tens of
+     * milliseconds once per search, within the class javadoc's stated
+     * budget. Weapons that evaluate to {@code null} (cannot attack under the
+     * style/spellbook constraint) are dropped unless owned/included.
      */
-    private static boolean appliesBaneToTarget(int weaponItemId, Monster target) {
-        if (target == null) {
-            return false;
+    private static List<Candidate> pruneWeaponCandidatesByDps(List<Candidate> affordable, Request request,
+                                                              List<Candidate> ammoCandidates) {
+        final class Scored {
+            final Candidate candidate;
+            final double dps;
+
+            Scored(Candidate candidate, double dps) {
+                this.candidate = candidate;
+                this.dps = dps;
+            }
         }
-        if (target.isDemon() && GearVariants.demonbaneWeaponFor(weaponItemId) != com.ospulse.combat.DemonbaneWeapon.NONE) {
-            return true;
+        List<Scored> scored = new ArrayList<>(affordable.size());
+        for (Candidate c : affordable) {
+            int[] trial = applySlotChoice(request.liveItemIds, WhatIfLoadout.WEAPON_SLOT, c.itemId());
+            trial = withBestCompatibleAmmo(trial, ammoCandidates, request);
+            Evaluation eval = evaluate(trial, request);
+            scored.add(new Scored(c, eval == null ? Double.NEGATIVE_INFINITY : eval.dps.dps()));
         }
-        if (target.isDragon() && GearVariants.dragonHunterWeaponFor(weaponItemId) != com.ospulse.combat.DragonHunterWeapon.NONE) {
-            return true;
+        scored.sort((a, b) -> Double.compare(b.dps, a.dps));
+        List<Candidate> pruned = new ArrayList<>();
+        for (Scored s : scored) {
+            boolean mandatory = s.candidate.owned() || request.include.contains(s.candidate.itemId());
+            if (mandatory || (pruned.size() < request.candidatesPerSlot && s.dps != Double.NEGATIVE_INFINITY)) {
+                pruned.add(s.candidate);
+            }
         }
-        return false;
+        return pruned;
     }
 
-    /** The request's live weapon-slot item id, or {@code -1} if out of bounds/empty — used by the ammo-slot ranking exception. */
-    private static int weaponIdOf(Request request) {
-        int[] ids = request.liveItemIds;
-        return ids.length > WhatIfLoadout.WEAPON_SLOT ? ids[WhatIfLoadout.WEAPON_SLOT] : -1;
+    /**
+     * Ammo-slot pruning, per {@link com.ospulse.combat.AmmoCompatibility}
+     * class: the searched weapon changes during the search (bow vs crossbow
+     * vs blowpipe), so instead of one flat top-N (which the highest-rstr
+     * class — javelins — would monopolise), the list keeps the top
+     * {@code candidatesPerSlot} of EVERY consumable class ranked by the
+     * ranged proxy, plus the top blessings ranked by prayer bonus, so
+     * whatever weapon the search lands on finds its own class's best ammo
+     * (and non-consuming weapons find a blessing). Owned/included are exempt
+     * from pruning as always. Within each class the order is best-first,
+     * which {@link #withBestCompatibleAmmo} relies on.
+     */
+    private static List<Candidate> pruneAmmoCandidates(List<Candidate> affordable, Request request) {
+        java.util.Map<AmmoCompatibility.AmmoClass, List<Candidate>> byClass = new java.util.LinkedHashMap<>();
+        for (AmmoCompatibility.AmmoClass ammoClass : AmmoCompatibility.AmmoClass.values()) {
+            byClass.put(ammoClass, new ArrayList<>());
+        }
+        List<Candidate> unclassified = new ArrayList<>();
+        for (Candidate c : affordable) {
+            AmmoCompatibility.AmmoClass ammoClass = AmmoCompatibility.classify(c.itemId());
+            (ammoClass == null ? unclassified : byClass.get(ammoClass)).add(c);
+        }
+
+        List<Candidate> pruned = new ArrayList<>();
+        for (java.util.Map.Entry<AmmoCompatibility.AmmoClass, List<Candidate>> entry : byClass.entrySet()) {
+            List<Candidate> group = entry.getValue();
+            if (entry.getKey().isConsumable()) {
+                // Ranged strength drives consumable ammo's DPS contribution.
+                group.sort(Comparator.comparingInt((Candidate c) ->
+                        -proxyOffensiveScore(c.itemId(), CombatStyle.RANGED)));
+            } else {
+                // Blessings are DPS-invisible — prayer bonus is their value.
+                group.sort(Comparator.comparingInt((Candidate c) -> -prayerBonusOf(c.itemId())));
+            }
+            addPrunedGroup(pruned, group, request);
+        }
+        // Unknown/unclassifiable ammo (not expected with current data): keep
+        // the old proxy ranking so nothing silently disappears.
+        unclassified.sort(Comparator.comparingInt((Candidate c) ->
+                -proxyOffensiveScore(c.itemId(), CombatStyle.RANGED)));
+        addPrunedGroup(pruned, unclassified, request);
+        return pruned;
+    }
+
+    /** Appends {@code group}'s top {@code candidatesPerSlot} entries to {@code out} (owned/included always kept). */
+    private static void addPrunedGroup(List<Candidate> out, List<Candidate> group, Request request) {
+        int kept = 0;
+        for (Candidate c : group) {
+            boolean mandatory = c.owned() || request.include.contains(c.itemId());
+            if (mandatory || kept < request.candidatesPerSlot) {
+                out.add(c);
+                kept++;
+            }
+        }
     }
 
     /** The prayer bonus of one item (0 if unknown), for the ammo-slot-ignored-by-weapon ranking exception. */
@@ -880,6 +1018,17 @@ public final class GearOptimizer {
 
     private static double ownedOnlyBestDps(Request request, EquipmentIndexRepository index) {
         int[] current = request.liveItemIds.clone();
+        // Owned ammo, best-first by the ranged proxy, for weapon-trial ammo
+        // pairing (see withBestCompatibleAmmo) — an owned bow's baseline DPS
+        // must include the player's own best arrows.
+        List<Candidate> ownedAmmo = new ArrayList<>();
+        for (EquipmentIndexRepository.Entry e : index.forSlot(AMMO_SLOT)) {
+            if (request.owned.contains(e.itemId()) && !request.exclude.contains(e.itemId())) {
+                ownedAmmo.add(new Candidate(e.itemId(), 0L, true));
+            }
+        }
+        ownedAmmo.sort(Comparator.comparingInt((Candidate c) ->
+                -proxyOffensiveScore(c.itemId(), CombatStyle.RANGED)));
         for (int slot : SEARCHABLE_SLOTS) {
             List<Candidate> ownedCandidates = new ArrayList<>();
             for (EquipmentIndexRepository.Entry e : index.forSlot(slot)) {
@@ -887,7 +1036,7 @@ public final class GearOptimizer {
                     ownedCandidates.add(new Candidate(e.itemId(), 0L, true));
                 }
             }
-            current = bestSingleSlotChoice(current, slot, ownedCandidates, request);
+            current = bestSingleSlotChoice(current, slot, ownedCandidates, request, ownedAmmo);
         }
         // One local-search pass for interactions among owned items too (cheap — owned pools are small).
         for (int pass = 0; pass < MAX_LOCAL_SEARCH_PASSES; pass++) {
@@ -900,7 +1049,7 @@ public final class GearOptimizer {
                     }
                 }
                 Evaluation before = evaluate(current, request);
-                int[] afterArr = bestSingleSlotChoice(current, slot, ownedCandidates, request);
+                int[] afterArr = bestSingleSlotChoice(current, slot, ownedCandidates, request, ownedAmmo);
                 Evaluation after = evaluate(afterArr, request);
                 if (after != null && (before == null || after.dps.dps() > before.dps.dps() + 1e-9)) {
                     current = afterArr;

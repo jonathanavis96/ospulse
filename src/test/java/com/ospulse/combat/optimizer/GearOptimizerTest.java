@@ -453,6 +453,152 @@ public class GearOptimizerTest {
                 RADAS_BLESSING_4, itemIdInSlot(result, AMMO_SLOT));
     }
 
+    // -------------------------------------------------- weapon-ammo compatibility
+
+    private static final int DRAGON_ARROW = 11212;
+    private static final int CRYSTAL_BOW = 23983;
+
+    /**
+     * The reported Cerberus bug, end-to-end: the player owns a Scorching bow
+     * (ranged demonbane, +30% vs the demon Cerberus), a blowpipe, dragon
+     * arrows, dragon javelins and a blessing, and is sitting on the blowpipe
+     * with javelins worn. The RANGED search must recommend the Scorching bow
+     * WITH the dragon arrows it can actually fire — before the compatibility
+     * + ammo-pairing fixes it recommended javelins in the ammo slot of a bow
+     * (their +150 rstr was summed as if a bow could fire them) and the
+     * blowpipe incumbent could never lose to a bow tried without arrows.
+     */
+    @Test
+    public void cerberusRanged_ownedScorchingBow_recommendedWithArrowsNeverJavelins() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = TOXIC_BLOWPIPE;
+        live[AMMO_SLOT] = DRAGON_JAVELIN;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(
+                SCORCHING_BOW, TOXIC_BLOWPIPE, DRAGON_ARROW, DRAGON_JAVELIN, RADAS_BLESSING_4));
+        GearOptimizer.PriceSource prices = id -> owned.contains(id) ? 0L : 100_000_000L;
+
+        GearOptimizer.Result result = GearOptimizer.optimize(GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L).owned(owned).priceSource(prices)
+                .style(com.ospulse.combat.CombatStyle.RANGED)
+                .build());
+
+        assertEquals("the demonbane Scorching bow must beat the blowpipe on a demon target",
+                SCORCHING_BOW, weaponIdIn(result));
+        assertEquals("the bow must be paired with the arrows it fires, never ballista javelins",
+                DRAGON_ARROW, itemIdInSlot(result, AMMO_SLOT));
+    }
+
+    /**
+     * A consuming weapon with NO compatible ammo available: worn javelins are
+     * DPS-invisible behind a bow (GearMapper skips them), so the freed slot
+     * must go to the prayer-bonus blessing on the DPS tie — a bow must never
+     * be shown wearing ammo it cannot fire.
+     */
+    @Test
+    public void bowWithoutOwnedArrows_ammoSlotFallsBackToBlessingNeverKeepsJavelins() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = SCORCHING_BOW;
+        live[AMMO_SLOT] = DRAGON_JAVELIN;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(SCORCHING_BOW, DRAGON_JAVELIN, RADAS_BLESSING_4));
+        GearOptimizer.PriceSource prices = id -> owned.contains(id) ? 0L : 100_000_000L;
+
+        GearOptimizer.Result result = GearOptimizer.optimize(GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L).owned(owned).priceSource(prices)
+                .style(com.ospulse.combat.CombatStyle.RANGED)
+                .build());
+
+        assertEquals(SCORCHING_BOW, weaponIdIn(result));
+        assertEquals("with no arrows owned, the DPS-invisible slot must hold the blessing, not javelins",
+                RADAS_BLESSING_4, itemIdInSlot(result, AMMO_SLOT));
+    }
+
+    /**
+     * A self-supplying bow (crystal bow) uses no worn ammo at all: worn
+     * arrows contribute nothing, so — exactly like the blowpipe case above —
+     * the ammo slot must fall to the best prayer blessing.
+     */
+    @Test
+    public void crystalBow_ammoSlotPrefersBlessingOverArrowsItNeverFires() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = CRYSTAL_BOW;
+        live[AMMO_SLOT] = DRAGON_ARROW;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(CRYSTAL_BOW, DRAGON_ARROW, RADAS_BLESSING_4));
+        GearOptimizer.PriceSource prices = id -> owned.contains(id) ? 0L : 100_000_000L;
+
+        GearOptimizer.Result result = GearOptimizer.optimize(GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L).owned(owned).priceSource(prices)
+                .style(com.ospulse.combat.CombatStyle.RANGED)
+                .build());
+
+        assertEquals(CRYSTAL_BOW, weaponIdIn(result));
+        assertEquals(RADAS_BLESSING_4, itemIdInSlot(result, AMMO_SLOT));
+    }
+
+    // -------------------------------------------------- speed-blind pruning (blowpipe)
+
+    /**
+     * The blowpipe-pruning bug: the weapon slot used to be pruned to the top
+     * {@link GearOptimizer#DEFAULT_CANDIDATES_PER_SLOT} by the target-blind
+     * linear proxy {@code arange + 2*rstr}, which scores the 3-tick Toxic
+     * blowpipe (raw 30 + 2*20 = 70) below EVERY slow high-bonus bow/crossbow/
+     * ballista — its entire value is attack speed, invisible to the proxy —
+     * so it was discarded before its real DPS was ever computed. Here it
+     * competes against 13 affordable ranged weapons that ALL out-score it on
+     * the raw proxy; ranked by real evaluated DPS versus a low-defence target
+     * (where the fast blowpipe is genuinely best-in-slot, as in game) it must
+     * survive pruning and win.
+     */
+    @Test
+    public void blowpipeSurvivesWeaponPruning_andWinsOnALowDefenceTarget() {
+        int[] live = emptyLoadout(); // nothing owned — every pick is a purchase
+
+        final int HEAVY_BALLISTA = 19481;
+        final int LIGHT_BALLISTA = 19478;
+        final int ZARYTE_CROSSBOW = 26374;
+        final int ARMADYL_CROSSBOW = 11785;
+        final int RUNE_CROSSBOW = 9185;
+        final int DRAGON_CROSSBOW = 21902;
+        final int DRAGON_HUNTER_CROSSBOW = 21012;
+        final int KARILS_CROSSBOW = 4734;
+        final int HUNTERS_SUNLIGHT_CROSSBOW = 28869;
+        final int THIRD_AGE_BOW = 12424;
+        final int DARK_BOW = 11235;
+        final int TWISTED_BOW = 20997;
+        final int VENATOR_BOW = 27610;
+        // Ammo for the competitors, so none of them is handicapped:
+        final int RUNITE_BOLTS = 9144;
+
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        for (int weapon : new int[] { TOXIC_BLOWPIPE, HEAVY_BALLISTA, LIGHT_BALLISTA, ZARYTE_CROSSBOW,
+                ARMADYL_CROSSBOW, RUNE_CROSSBOW, DRAGON_CROSSBOW, DRAGON_HUNTER_CROSSBOW, KARILS_CROSSBOW,
+                HUNTERS_SUNLIGHT_CROSSBOW, THIRD_AGE_BOW, DARK_BOW, TWISTED_BOW, VENATOR_BOW }) {
+            fixed.put(weapon, 100_000L);
+        }
+        fixed.put(RUNITE_BOLTS, 10_000L);
+        fixed.put(DRAGON_ARROW, 10_000L);
+        fixed.put(DRAGON_JAVELIN, 10_000L);
+        GearOptimizer.PriceSource prices = everyWeaponExpensiveExcept(fixed);
+
+        Monster dustDevil = MonsterRepository.getInstance()
+                .byName("Dust devil (Catacombs of Kourend)").get();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(GearOptimizer.Request
+                .builder(live, dustDevil, maxedPlayerTemplate())
+                .budget(10_000_000L)
+                .priceSource(prices)
+                .style(com.ospulse.combat.CombatStyle.RANGED)
+                .build());
+
+        assertEquals("the fast blowpipe must survive pruning and beat every slow high-bonus alternative",
+                TOXIC_BLOWPIPE, weaponIdIn(result));
+    }
+
     // -------------------------------------------------- style constraint (item #6e)
 
     private static final int ABYSSAL_BLUDGEON = 13263; // crush weapon

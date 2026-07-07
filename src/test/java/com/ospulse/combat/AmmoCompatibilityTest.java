@@ -88,6 +88,33 @@ public class AmmoCompatibilityTest {
     }
 
     @Test
+    public void consumedClass_karilsAndHuntersCrossbowsGetTheirOwnAmmoClasses() {
+        final int KARILS_CROSSBOW = 4734;
+        final int HUNTERS_CROSSBOW = 10156;
+        final int HUNTERS_SUNLIGHT_CROSSBOW = 28869;
+        final int BOLT_RACK = 4740;
+        final int KEBBIT_BOLTS = 10158;
+        final int SUNLIGHT_ANTLER_BOLTS = 28872;
+
+        assertEquals(AmmoCompatibility.AmmoClass.RACK, AmmoCompatibility.consumedClass(KARILS_CROSSBOW));
+        assertEquals(AmmoCompatibility.AmmoClass.RACK, AmmoCompatibility.classify(BOLT_RACK));
+        assertEquals(AmmoCompatibility.AmmoClass.HUNTER_BOLT, AmmoCompatibility.consumedClass(HUNTERS_CROSSBOW));
+        assertEquals(AmmoCompatibility.AmmoClass.HUNTER_BOLT,
+                AmmoCompatibility.consumedClass(HUNTERS_SUNLIGHT_CROSSBOW));
+        assertEquals(AmmoCompatibility.AmmoClass.HUNTER_BOLT, AmmoCompatibility.classify(KEBBIT_BOLTS));
+        assertEquals(AmmoCompatibility.AmmoClass.HUNTER_BOLT, AmmoCompatibility.classify(SUNLIGHT_ANTLER_BOLTS));
+
+        assertFalse("Karil's crossbow must never credit regular bolts",
+                AmmoCompatibility.wornAmmoContributes(KARILS_CROSSBOW, RUNITE_BOLTS));
+        assertTrue(AmmoCompatibility.wornAmmoContributes(KARILS_CROSSBOW, BOLT_RACK));
+        assertFalse("a regular crossbow must never credit bolt racks",
+                AmmoCompatibility.wornAmmoContributes(RUNE_CROSSBOW, BOLT_RACK));
+        assertFalse("the Hunters' sunlight crossbow must never credit dragon-tier bolts",
+                AmmoCompatibility.wornAmmoContributes(HUNTERS_SUNLIGHT_CROSSBOW, RUNITE_BOLTS));
+        assertTrue(AmmoCompatibility.wornAmmoContributes(HUNTERS_SUNLIGHT_CROSSBOW, SUNLIGHT_ANTLER_BOLTS));
+    }
+
+    @Test
     public void consumedClass_atlatlFiresUnindexedDarts() {
         assertEquals(AmmoCompatibility.AmmoClass.DART, AmmoCompatibility.consumedClass(ECLIPSE_ATLATL));
     }

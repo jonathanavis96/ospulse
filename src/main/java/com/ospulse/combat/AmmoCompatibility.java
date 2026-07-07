@@ -29,10 +29,13 @@ import java.util.Locale;
  * <ul>
  *   <li><b>Class-level only, no tier rules.</b> A bow is matched to ARROW,
  *       not to the specific arrow tiers it can fire (e.g. a Magic shortbow
- *       cannot really fire Dragon arrows, and Karil's crossbow only fires
- *       bolt racks). Tier tables are a much bigger data set for marginal
- *       optimiser gain — the realistic best-in-class ammo is usually usable
- *       by the best-in-class weapon.</li>
+ *       cannot really fire Dragon arrows). Tier tables are a much bigger
+ *       data set for marginal optimiser gain — the realistic best-in-class
+ *       ammo is usually usable by the best-in-class weapon. The two tier
+ *       mismatches glaring enough to WIN searches wrongly get their own
+ *       classes instead: Karil's crossbow / Bolt racks
+ *       ({@link AmmoClass#RACK}) and the Hunters' crossbows / kebbit +
+ *       antler bolts ({@link AmmoClass#HUNTER_BOLT}).</li>
  *   <li><b>Eclipse atlatl</b> fires Atlatl darts, which have no row in the
  *       bundled index — its class resolves to {@link AmmoClass#DART} with no
  *       indexed members, so the optimiser leaves its ammo slot alone.</li>
@@ -43,14 +46,29 @@ import java.util.Locale;
 public final class AmmoCompatibility {
     /**
      * The bundled index's ammo-slot items partition cleanly by display name
-     * (verified against equipment_index.min.json 2026-07-07: 73 arrows + 86
-     * bolts + 32 javelins + 5 tars + 11 blessings, zero unmatched).
+     * (verified against equipment_index.min.json 2026-07-07: 73 arrows + 81
+     * bolts + 1 bolt rack + 4 hunter bolts + 32 javelins + 5 tars + 11
+     * blessings, zero unmatched).
      */
     public enum AmmoClass {
         /** Arrows, incl. the "brutal" comp-bow arrows. Consumable. */
         ARROW(true),
-        /** Bolts, bolt racks and kebbit bolts. Consumable. */
+        /** Regular crossbow bolts. Consumable. */
         BOLT(true),
+        /**
+         * Barrows Bolt racks — split from BOLT because Karil's crossbow fires
+         * ONLY racks and no other crossbow fires racks; class-level matching
+         * would otherwise recommend (and credit) Karil's + dragon-tier bolts,
+         * an impossible pairing strong enough to win real searches. Consumable.
+         */
+        RACK(true),
+        /**
+         * Hunter ammo ((long) kebbit bolts + sunlight/moonlight antler
+         * bolts) — split from BOLT for the same reason: the Hunters'/Hunters'
+         * sunlight crossbows fire only these, and no regular crossbow fires
+         * them. Consumable.
+         */
+        HUNTER_BOLT(true),
         /** Javelins (ballista ammo). Consumable. */
         JAVELIN(true),
         /** Atlatl darts — real class, but no indexed members (see class javadoc). Consumable. */
@@ -103,6 +121,12 @@ public final class AmmoCompatibility {
         }
         if (name.contains("javelin")) {
             return AmmoClass.JAVELIN;
+        }
+        if (name.contains("bolt rack")) {
+            return AmmoClass.RACK;
+        }
+        if (name.contains("kebbit") || name.contains("antler")) {
+            return AmmoClass.HUNTER_BOLT;
         }
         if (name.contains("bolt")) {
             return AmmoClass.BOLT;
@@ -158,6 +182,12 @@ public final class AmmoCompatibility {
             return AmmoClass.ARROW;
         }
         if (category == WeaponCategory.CROSSBOW) {
+            if (name.contains("karil")) {
+                return AmmoClass.RACK;
+            }
+            if (name.contains("hunters'")) {
+                return AmmoClass.HUNTER_BOLT;
+            }
             return AmmoClass.BOLT;
         }
         if (category == WeaponCategory.SALAMANDER) {
