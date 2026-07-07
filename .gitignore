@@ -15,3 +15,6 @@ docs/
 
 # SDD scratch
 .superpowers/
+
+# Claude Code repo-local memory/tooling — kept OUT of the public AI-free history
+.claude/
