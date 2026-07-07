@@ -176,6 +176,50 @@ public class GearMapperTest
 	}
 
 	@Test
+	public void buildEquipmentStats_incompatibleConsumableAmmoContributesNothing()
+	{
+		// A bow (Magic shortbow) with dragon javelins worn: the javelins are
+		// ballista ammo the bow never fires, so their huge ranged strength
+		// must NOT be summed (the pre-compatibility behaviour credited it,
+		// which made bow+javelin loadouts look better than they are).
+		int[] equippedItemIds = new int[14];
+		java.util.Arrays.fill(equippedItemIds, -1);
+		equippedItemIds[WEAPON_SLOT] = 861;   // Magic shortbow (BOW -> fires arrows)
+		equippedItemIds[13] = 19484;          // Dragon javelin (rstr 150 in the bundled data)
+
+		Map<Integer, GearMapper.SlotStats> table = Map.of(
+			861, new GearMapper.SlotStats(0, 0, 0, 0, 69, 0, 0, 0, 0, 0, 0, 0, 0.0, 0, 4, true),
+			19484, new GearMapper.SlotStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 150, 0.0, 0, 0, false));
+
+		EquipmentStats result = GearMapper.buildEquipmentStats(equippedItemIds, WEAPON_SLOT, table::get, 35);
+
+		assertEquals("javelins behind a bow must contribute no ranged strength", 0, result.rstr());
+		assertEquals("the bow's own bonuses still count", 69, result.arange());
+	}
+
+	@Test
+	public void buildEquipmentStats_matchingAmmoAndBlessingsStillContribute()
+	{
+		// Same bow with dragon arrows: the arrows' rstr must sum as before.
+		int[] withArrows = new int[14];
+		java.util.Arrays.fill(withArrows, -1);
+		withArrows[WEAPON_SLOT] = 861;  // Magic shortbow
+		withArrows[13] = 11212;         // Dragon arrow
+
+		Map<Integer, GearMapper.SlotStats> table = Map.of(
+			861, new GearMapper.SlotStats(0, 0, 0, 0, 69, 0, 0, 0, 0, 0, 0, 0, 0.0, 0, 4, true),
+			11212, new GearMapper.SlotStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60, 0.0, 0, 0, false),
+			22947, new GearMapper.SlotStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 2, 0, false));
+
+		assertEquals(60, GearMapper.buildEquipmentStats(withArrows, WEAPON_SLOT, table::get, 35).rstr());
+
+		// And a blessing (non-consumable) counts behind ANY weapon.
+		int[] withBlessing = withArrows.clone();
+		withBlessing[13] = 22947; // Rada's blessing 4
+		assertEquals(2, GearMapper.buildEquipmentStats(withBlessing, WEAPON_SLOT, table::get, 35).prayer());
+	}
+
+	@Test
 	public void buildEquipmentStats_threeArgOverloadDefaultsToDragonDartRstr()
 	{
 		int[] equippedItemIds = new int[14];

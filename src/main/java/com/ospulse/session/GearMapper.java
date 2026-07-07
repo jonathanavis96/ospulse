@@ -120,6 +120,15 @@ public final class GearMapper
 	 * nothing), and {@code blowpipeDartRangedStrength} is added on top instead
 	 * (the blowpipe's own bonuses, including its own rstr, still come from its
 	 * weapon-slot {@link SlotStats} as normal).
+	 *
+	 * <p>For every other weapon, worn CONSUMABLE ammo only counts when the
+	 * weapon actually fires that ammo class (see
+	 * {@link com.ospulse.combat.AmmoCompatibility#wornAmmoContributes}) — per
+	 * the wiki's DPS rules, dragon javelins worn behind a shortbow add no
+	 * ranged strength (they're ballista ammo the bow never fires), while a
+	 * passive blessing always counts. This keeps the live readout, the
+	 * what-if picker and the optimiser from crediting impossible
+	 * weapon/ammo pairings.
 	 */
 	public static EquipmentStats buildEquipmentStats(int[] equippedItemIds, int weaponSlotIndex, SlotStatsLookup lookup,
 									int blowpipeDartRangedStrength)
@@ -138,6 +147,11 @@ public final class GearMapper
 			int itemId = equippedItemIds[slot];
 			if (itemId <= 0)
 			{
+				continue;
+			}
+			if (slot == AMMO_SLOT && !com.ospulse.combat.AmmoCompatibility.wornAmmoContributes(weaponItemId, itemId))
+			{
+				// Consumable ammo the weapon can't fire (e.g. javelins on a bow) contributes nothing.
 				continue;
 			}
 			SlotStats s = lookup.statsFor(itemId);
