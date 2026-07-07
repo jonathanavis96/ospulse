@@ -15,6 +15,7 @@ import okhttp3.Response;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Objects;
 import java.util.OptionalDouble;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -55,16 +56,11 @@ public final class PriceTrendService
 	private volatile Runnable onUpdate = () -> {};
 	private volatile boolean stopped;
 
-	public PriceTrendService(OkHttpClient httpClient, OSPulseConfig config)
-	{
-		this(httpClient, config, new Gson());
-	}
-
 	public PriceTrendService(OkHttpClient httpClient, OSPulseConfig config, Gson gson)
 	{
 		this.httpClient = httpClient;
 		this.config = config;
-		this.gson = gson == null ? new Gson() : gson;
+		this.gson = Objects.requireNonNull(gson, "gson");
 	}
 
 	/**

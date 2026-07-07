@@ -16,6 +16,7 @@ import static org.junit.Assert.assertTrue;
  * against the bundled equipment_index.min.json.
  */
 public class AmmoCompatibilityTest {
+    static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
     // Ammo-slot fixtures
     private static final int DRAGON_ARROW = 11212;

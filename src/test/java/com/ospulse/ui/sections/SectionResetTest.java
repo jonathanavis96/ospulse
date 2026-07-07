@@ -26,6 +26,7 @@ import static org.junit.Assert.assertTrue;
  */
 public class SectionResetTest
 {
+	static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 	private static void onEdt(Runnable body)
 	{
 		try

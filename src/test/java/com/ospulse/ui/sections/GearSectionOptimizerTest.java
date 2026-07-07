@@ -33,6 +33,7 @@ import static org.junit.Assert.assertTrue;
  */
 public class GearSectionOptimizerTest
 {
+	static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 	private static void onEdt(Runnable body)
 	{
 		try

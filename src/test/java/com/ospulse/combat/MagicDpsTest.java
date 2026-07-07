@@ -17,6 +17,7 @@ import static org.junit.Assert.assertTrue;
  * formulas (DPS/Magic, Maximum magic hit) with a Python script.
  */
 public class MagicDpsTest {
+    static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
     private static final double DELTA = 1e-9;
 
     @Test

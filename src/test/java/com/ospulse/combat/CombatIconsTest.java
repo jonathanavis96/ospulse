@@ -11,6 +11,7 @@ import static org.junit.Assert.assertNull;
  * icon indicators.
  */
 public class CombatIconsTest {
+    static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
     // ---- Melee ladder: Piety(70) -> Chivalry(60) -> Ultimate Strength(31)
     // -> Superhuman Strength(20) -> Burst of Strength(4) ---------------------

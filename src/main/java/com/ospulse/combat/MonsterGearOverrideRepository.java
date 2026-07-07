@@ -62,7 +62,7 @@ public final class MonsterGearOverrideRepository {
 
     /** Loads a repository from an arbitrary classpath resource (mainly for tests). */
     static MonsterGearOverrideRepository loadFromResource(String resourcePath) {
-        Gson gson = new Gson();
+        Gson gson = BundledGson.get();
         try (Reader reader = new InputStreamReader(requireResource(resourcePath), StandardCharsets.UTF_8)) {
             RootDto root = gson.fromJson(reader, RootDto.class);
             Map<String, List<MonsterGearOverride>> byName = new HashMap<>();

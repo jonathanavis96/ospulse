@@ -16,6 +16,7 @@ import static org.junit.Assert.assertTrue;
  */
 public class WeaponStylesTest
 {
+	static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 	private static final WeaponCategoryRepository REPO = WeaponCategoryRepository.getInstance();
 
 	@Test

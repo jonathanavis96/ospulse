@@ -16,6 +16,7 @@ import static org.junit.Assert.assertTrue;
  * index the Phase 2/3 candidate picker relies on.
  */
 public class EquipmentIndexRepositoryTest {
+    static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
     @Test
     public void loadsBundledResourceWithManyEntries() {

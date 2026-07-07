@@ -13,6 +13,7 @@ import static org.junit.Assert.assertNull;
  * the file's tenths-of-a-percent into whole percent (Kodai wand: file 150 -> 15.0).
  */
 public class EquipmentStatsRepositoryTest {
+    static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
     private static final double DELTA = 1e-9;
 

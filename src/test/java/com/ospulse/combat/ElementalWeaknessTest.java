@@ -26,6 +26,7 @@ import static org.junit.Assert.assertTrue;
  * {@link #weaknessIsASeparateFlooredTermNotFoldedIntoTheDamagePercent()} pins.
  */
 public class ElementalWeaknessTest {
+    static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
     private static PlayerCombat mage99() {
         return PlayerCombat.builder()
                 .magic(99, 99)

@@ -20,6 +20,7 @@ import static org.junit.Assert.assertTrue;
 
 public class SessionEngineTest
 {
+	static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 	private static final int DRAGON_BONES = 536;
 	private static final int RUNE_ITEM = 561;
 	private static final int RUNE_SQ_SHIELD = 1201;

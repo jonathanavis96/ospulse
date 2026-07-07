@@ -53,7 +53,7 @@ public final class WeaponCategoryRepository {
 
     /** Loads a repository from an arbitrary classpath resource (mainly for tests). */
     static WeaponCategoryRepository loadFromResource(String resourcePath) {
-        Gson gson = new Gson();
+        Gson gson = BundledGson.get();
         try (Reader reader = new InputStreamReader(requireResource(resourcePath), StandardCharsets.UTF_8)) {
             Type mapType = new TypeToken<Map<String, String>>() {
             }.getType();

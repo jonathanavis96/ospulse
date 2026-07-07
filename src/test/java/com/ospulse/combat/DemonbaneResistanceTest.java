@@ -24,6 +24,7 @@ import static org.junit.Assert.assertTrue;
  * Duke Sucellus's bundled entries do carry resist=30.
  */
 public class DemonbaneResistanceTest {
+    static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
     private static EquipmentStats gear(DemonbaneWeapon demonbane) {
         return EquipmentStats.builder()

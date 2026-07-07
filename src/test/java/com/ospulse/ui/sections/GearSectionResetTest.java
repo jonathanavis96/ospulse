@@ -31,6 +31,7 @@ import static org.junit.Assert.assertTrue;
  */
 public class GearSectionResetTest
 {
+	static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 	private static final int ABYSSAL_WHIP = 4151;
 	private static final int DRAGON_SCIMITAR = 4587;
 	private static final int WEAPON_SLOT = 3;

@@ -2,6 +2,7 @@ package com.ospulse;
 
 import com.google.gson.Gson;
 import com.google.inject.Provides;
+import com.ospulse.combat.BundledGson;
 import com.ospulse.integration.PriceTrendService;
 import com.ospulse.integration.RuneLiteItemValuation;
 import com.ospulse.integration.SessionTracker;
@@ -18,8 +19,8 @@ import net.runelite.api.events.GrandExchangeOfferChanged;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.StatChanged;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
-import net.runelite.api.widgets.WidgetInfo;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.eventbus.Subscribe;
@@ -98,6 +99,12 @@ public class OSPulsePlugin extends Plugin
 	@Override
 	protected void startUp()
 	{
+		// Seed the shared Gson holder FIRST: the static combat repositories
+		// parse their bundled JSON through the client's injected Gson (the
+		// Plugin Hub forbids fresh instances), and anything below may trigger
+		// their lazy load.
+		BundledGson.set(gson);
+
 		tracker = new SessionTracker(client, itemManager, config, configManager, gson);
 
 		priceTrendService = new PriceTrendService(okHttpClient, config, gson);
@@ -244,7 +251,9 @@ public class OSPulsePlugin extends Plugin
 		// Detect bank open/close transitions before advancing the tracker so the
 		// engine treats inventory<->bank moves as transfers while the bank is
 		// open, and re-baselines on close.
-		final Widget bankWidget = client.getWidget(WidgetInfo.BANK_CONTAINER);
+		// Bankmain.UNIVERSE is the bank interface's root container (packed id
+		// 786433 = group 12 child 1, the classic "bank container" component).
+		final Widget bankWidget = client.getWidget(InterfaceID.Bankmain.UNIVERSE);
 		final boolean bankOpen = bankWidget != null && !bankWidget.isHidden();
 		if (bankOpen != lastBankOpen)
 		{

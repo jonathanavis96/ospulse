@@ -19,6 +19,7 @@ import static org.junit.Assert.assertTrue;
  * that {@link BundledSlotStatsLookup} + {@code GearMapper} agree.
  */
 public class WhatIfLoadoutTest {
+    static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
     private static final int ABYSSAL_WHIP = 4151;   // one-handed slash weapon, 82 str/aslash, speed 4
     private static final int TWISTED_BOW = 20997;    // two-handed ranged weapon

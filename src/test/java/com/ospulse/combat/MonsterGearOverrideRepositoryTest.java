@@ -14,6 +14,7 @@ import static org.junit.Assert.assertTrue;
  * correctly.
  */
 public class MonsterGearOverrideRepositoryTest {
+    static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
     @Test
     public void loadsBundledResource() {

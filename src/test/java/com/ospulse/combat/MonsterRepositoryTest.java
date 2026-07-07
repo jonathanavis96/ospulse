@@ -10,6 +10,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class MonsterRepositoryTest {
+    static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
     @Test
     public void loadsBundledResourceWithManyEntries() {
         MonsterRepository repo = MonsterRepository.getInstance();

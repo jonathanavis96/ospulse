@@ -32,6 +32,7 @@ import static org.junit.Assert.assertTrue;
  * be a good target for deeper verification.
  */
 public class GearOptimizerTest {
+    static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
     // Weapon slot (3) — strictly increasing str/aslash, useful as an upgrade ladder:
     private static final int BRONZE_SWORD = 1277;      // str 5, aslash 3 — weakest

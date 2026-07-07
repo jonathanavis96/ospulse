@@ -36,6 +36,7 @@ import static org.junit.Assert.assertTrue;
  */
 public class GearSectionTargetWiringTest
 {
+	static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 	/**
 	 * Runs the test body on the Swing EDT — the section is an EDT-only
 	 * component and RuneLite's {@code IconTextField} asserts the EDT in

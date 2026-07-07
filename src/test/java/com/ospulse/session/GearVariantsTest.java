@@ -15,6 +15,7 @@ import static org.junit.Assert.assertEquals;
  */
 public class GearVariantsTest
 {
+	static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 	// ==== Salve amulet ===================================================================
 
 	@Test

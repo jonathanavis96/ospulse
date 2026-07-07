@@ -25,6 +25,7 @@ import static org.junit.Assert.assertTrue;
  * +30% never applied).
  */
 public class ScorchingBowCerberusParityTest {
+    static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
     private static final int SCORCHING_BOW = 29591;
     private static final int DRAGON_ARROW = 11212;
