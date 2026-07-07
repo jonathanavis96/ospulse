@@ -394,6 +394,12 @@ public final class GearSection extends CollapsibleSection
 	};
 	private final JToggleButton[] optimizerStyleButtons = new JToggleButton[OPTIMIZER_STYLE_ORDER.length];
 	/**
+	 * The panel built by {@link #buildOptimizerStyleSelector()}, holding the
+	 * five style buttons — kept so {@link #reorderSelectorsByDps} can re-add
+	 * them in a new visual order after a "Find best setup" 5-style ranking.
+	 */
+	private JPanel optimizerStyleSelectorPanel;
+	/**
 	 * The damage type the optimiser searches for. Until the user clicks one of
 	 * the five buttons ({@link #optimizerStyleUserPicked}) this FOLLOWS the
 	 * equipped weapon's current combat style (item #6g: previewing with a
@@ -928,7 +934,7 @@ public final class GearSection extends CollapsibleSection
 		findBestSetupButton.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		findBestSetupButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		findBestSetupButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, findBestSetupButton.getPreferredSize().height));
-		findBestSetupButton.addActionListener(e -> runOptimizer());
+		findBestSetupButton.addActionListener(e -> runOptimizerAndRankStyles());
 		body().add(findBestSetupButton);
 		body().add(Box.createRigidArea(new Dimension(0, 2)));
 
@@ -3181,6 +3187,7 @@ public final class GearSection extends CollapsibleSection
 			panel.add(button);
 		}
 		panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
+		optimizerStyleSelectorPanel = panel;
 		return panel;
 	}
 
@@ -3235,8 +3242,23 @@ public final class GearSection extends CollapsibleSection
 		}
 	}
 
-	/** Runs {@link GearOptimizer} off the EDT and publishes the result back via {@link #onOptimizerResult}. */
-	private void runOptimizer()
+	/** Callback invoked once a budget/owned-prices/price-source triple is ready — see {@link #withResolvedPrices}. */
+	@FunctionalInterface
+	private interface PriceReady
+	{
+		void run(long budget, java.util.Map<Integer, Long> ownedPrices, GearOptimizer.PriceSource priceSource);
+	}
+
+	/**
+	 * Shared price-resolution scaffolding for both the single-style
+	 * ({@link #runOptimizer}) and all-styles ({@link #runOptimizerAndRankStyles})
+	 * search paths: guards on a selected target, flips the button/status UI
+	 * into "Searching...", persists prefs, resolves the budget/owned-prices,
+	 * and — once a {@link GearOptimizer.PriceSource} is available, either
+	 * immediately (no resolver wired) or asynchronously (client-thread GE
+	 * lookup) — hands them to {@code consumer}.
+	 */
+	private void withResolvedPrices(PriceReady consumer)
 	{
 		if (lastGear == null || selectedMonster == null)
 		{
@@ -3261,9 +3283,8 @@ public final class GearSection extends CollapsibleSection
 			// legitimate owned-only fallback: an unpriced non-owned item resolves to
 			// Long.MAX_VALUE (unaffordable at any budget); owned items are separately
 			// marked affordable via .owned(...) regardless of price.
-			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
+			consumer.run(budget, ownedPrices,
 				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()));
-			runOptimizerSearch(request);
 			return;
 		}
 
@@ -3277,10 +3298,115 @@ public final class GearSection extends CollapsibleSection
 			// special-case ownedPrices here. Anything the resolver didn't price
 			// (unknown) or flagged untradeable falls back to Long.MAX_VALUE =
 			// unaffordable — see resolveOptimizerPriceSource (bug D).
-			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
+			consumer.run(budget, ownedPrices,
 				resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()));
-			runOptimizerSearch(request);
 		});
+	}
+
+	/** Runs {@link GearOptimizer} off the EDT for the currently selected style and publishes the result back via {@link #onOptimizerResult}. */
+	private void runOptimizer()
+	{
+		withResolvedPrices((budget, ownedPrices, priceSource) ->
+			runOptimizerSearch(buildOptimizerRequest(budget, ownedPrices, priceSource, optimizerConstraint())));
+	}
+
+	/**
+	 * The "Find best setup" button's action (item #6e): runs the optimiser for
+	 * ALL FIVE damage types (not just the selected one), renders the selected
+	 * style's result exactly as {@link #runOptimizer} would, and then reorders
+	 * the style selector buttons left-to-right by best-achievable DPS. Unlike
+	 * {@link #runOptimizer}, this is deliberately NOT used by the toggle/
+	 * exclude-item/style-selector re-runs — those stay single-style so they
+	 * stay responsive.
+	 */
+	private void runOptimizerAndRankStyles()
+	{
+		withResolvedPrices((budget, ownedPrices, priceSource) ->
+		{
+			CombatStyle selected = optimizerConstraint();
+			java.util.Map<CombatStyle, GearOptimizer.Request> requests = new java.util.LinkedHashMap<>();
+			for (CombatStyle style : OPTIMIZER_STYLE_ORDER)
+			{
+				requests.put(style, buildOptimizerRequest(budget, ownedPrices, priceSource, style));
+			}
+
+			new javax.swing.SwingWorker<java.util.Map<CombatStyle, GearOptimizer.Result>, Void>()
+			{
+				@Override
+				protected java.util.Map<CombatStyle, GearOptimizer.Result> doInBackground()
+				{
+					java.util.Map<CombatStyle, GearOptimizer.Result> results = new java.util.LinkedHashMap<>();
+					for (java.util.Map.Entry<CombatStyle, GearOptimizer.Request> entry : requests.entrySet())
+					{
+						results.put(entry.getKey(), GearOptimizer.optimize(entry.getValue()));
+					}
+					return results;
+				}
+
+				@Override
+				protected void done()
+				{
+					try
+					{
+						java.util.Map<CombatStyle, GearOptimizer.Result> results = get();
+						onOptimizerResult(results.get(selected));
+						reorderSelectorsByDps(results);
+					}
+					catch (java.util.concurrent.ExecutionException | InterruptedException e)
+					{
+						optimizerStatusLabel.setText("Search failed");
+						findBestSetupButton.setEnabled(true);
+					}
+				}
+			}.execute();
+		});
+	}
+
+	/**
+	 * Reorders the visual layout of {@link #optimizerStyleSelectorPanel} so
+	 * the five style buttons read left-to-right by best-achievable DPS
+	 * (highest first), stable on ties (keeping {@link #OPTIMIZER_STYLE_ORDER}'s
+	 * order). A style with no usable weapon at all ({@code result.style() ==
+	 * null}, or a missing result) sorts last. Only the VISUAL order changes —
+	 * {@link #OPTIMIZER_STYLE_ORDER} and {@link #optimizerStyleButtons} stay
+	 * untouched so selection logic ({@link #syncOptimizerStyleSelector}) keeps
+	 * working unmodified.
+	 */
+	private void reorderSelectorsByDps(java.util.Map<CombatStyle, GearOptimizer.Result> results)
+	{
+		if (optimizerStyleSelectorPanel == null)
+		{
+			return;
+		}
+
+		Integer[] order = new Integer[OPTIMIZER_STYLE_ORDER.length];
+		for (int i = 0; i < order.length; i++)
+		{
+			order[i] = i;
+		}
+		java.util.Arrays.sort(order, (a, b) ->
+		{
+			double dpsA = bestDps(results.get(OPTIMIZER_STYLE_ORDER[a]));
+			double dpsB = bestDps(results.get(OPTIMIZER_STYLE_ORDER[b]));
+			// Arrays.sort on an Integer[] (object array) is a stable mergesort,
+			// so equal-dps styles keep their original OPTIMIZER_STYLE_ORDER
+			// position without an explicit tiebreak.
+			return Double.compare(dpsB, dpsA);
+		});
+
+		optimizerStyleSelectorPanel.removeAll();
+		for (int idx : order)
+		{
+			optimizerStyleSelectorPanel.add(optimizerStyleButtons[idx]);
+		}
+		optimizerStyleSelectorPanel.revalidate();
+		optimizerStyleSelectorPanel.repaint();
+	}
+
+	/** The DPS to rank a style by in {@link #reorderSelectorsByDps} — unusable styles sort last. */
+	private static double bestDps(GearOptimizer.Result result)
+	{
+		return (result == null || result.style() == null) ? Double.NEGATIVE_INFINITY : result.dps().dps();
 	}
 
 	/**
@@ -3417,9 +3543,16 @@ public final class GearSection extends CollapsibleSection
 		return ids;
 	}
 
-	/** Builds the {@link GearOptimizer.Request} shared by both the resolver and no-resolver {@link #runOptimizer} paths. */
+	/**
+	 * Builds the {@link GearOptimizer.Request} shared by both the resolver and
+	 * no-resolver price paths ({@link #withResolvedPrices}), for the given
+	 * {@code styleConstraint} — the single-style caller passes
+	 * {@link #optimizerConstraint()}; the all-styles ranker
+	 * ({@link #runOptimizerAndRankStyles}) passes each of
+	 * {@link #OPTIMIZER_STYLE_ORDER} in turn.
+	 */
 	private GearOptimizer.Request buildOptimizerRequest(long budget, java.util.Map<Integer, Long> ownedPrices,
-		GearOptimizer.PriceSource priceSource)
+		GearOptimizer.PriceSource priceSource, CombatStyle styleConstraint)
 	{
 		int[] liveIds = lastGear.equippedItemIds();
 		Monster target = selectedMonster;
@@ -3449,10 +3582,11 @@ public final class GearSection extends CollapsibleSection
 			.priceSource(priceSource)
 			.expensiveItemCount(resolvedExpensiveCount())
 			.expensiveItemThreshold(resolvedExpensiveThreshold())
-			// Items #6e/#6g: anchor the search to the selector's damage type,
-			// which itself defaults to the EQUIPPED weapon's current style —
-			// never an implicit best-of-any-style (i.e. usually melee) search.
-			.style(optimizerConstraint())
+			// Items #6e/#6g: anchor the search to the requested damage type,
+			// which (for the single-style caller) defaults to the EQUIPPED
+			// weapon's current style — never an implicit best-of-any-style
+			// (i.e. usually melee) search.
+			.style(styleConstraint)
 			// Magic view only: pin the gear DPS to the selected spellbook tab so
 			// swapping Standard/Ancient swaps the optimiser's magic spell too.
 			.spellBook(magicView ? selectedBook.book() : null)
@@ -4233,7 +4367,8 @@ public final class GearSection extends CollapsibleSection
 		if (priceResolver == null)
 		{
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
-				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()));
+				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()),
+				optimizerConstraint());
 			onOptimizerResult(GearOptimizer.optimize(request));
 			return;
 		}
@@ -4245,7 +4380,8 @@ public final class GearSection extends CollapsibleSection
 		priceResolver.resolve(candidateIds, lookup ->
 		{
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
-				resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()));
+				resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()),
+				optimizerConstraint());
 			onOptimizerResult(GearOptimizer.optimize(request));
 		});
 	}
