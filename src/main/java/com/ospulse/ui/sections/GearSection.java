@@ -2,6 +2,7 @@ package com.ospulse.ui.sections;
 
 import com.ospulse.OSPulseConfig;
 import com.ospulse.combat.AttackStyleIcons;
+import com.ospulse.combat.BlowpipeDart;
 import com.ospulse.combat.CombatIcons;
 import com.ospulse.combat.CombatStyle;
 import com.ospulse.combat.DpsCalculator;
@@ -26,6 +27,7 @@ import com.ospulse.combat.optimizer.WhatIfLoadout;
 import com.ospulse.model.ItemStack;
 import com.ospulse.session.GearMapper;
 import com.ospulse.session.GearSnapshot;
+import com.ospulse.session.GearVariants;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
@@ -2071,6 +2073,54 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
+	 * Reads the currently-selected blowpipe dart straight from config (mirrors
+	 * {@link #loadPotionVariantPrefs}'s load pattern), falling back to
+	 * {@link BlowpipeDart#DRAGON} — {@link OSPulseConfig#blowpipeDart}'s own
+	 * default — when unset/stale/no {@link ConfigManager} (headless tests).
+	 * Used only to mark the current pick in the right-click "Set darts"
+	 * submenu (see {@link #buildExcludeItemPopup}); the LIVE readout itself
+	 * reads the config value fresh via {@code SessionTracker}/{@code
+	 * GearMapper} on the next gear snapshot, same as any other live gear change.
+	 */
+	private BlowpipeDart currentBlowpipeDart()
+	{
+		if (configManager == null)
+		{
+			return BlowpipeDart.DRAGON;
+		}
+		String raw = configManager.getConfiguration(OSPulseConfig.GROUP, "blowpipeDart");
+		if (raw == null || raw.isEmpty())
+		{
+			return BlowpipeDart.DRAGON;
+		}
+		try
+		{
+			return BlowpipeDart.valueOf(raw);
+		}
+		catch (IllegalArgumentException e)
+		{
+			// Stale/unknown enum name (e.g. an older plugin version) — fall back to the default.
+			return BlowpipeDart.DRAGON;
+		}
+	}
+
+	/**
+	 * Persists the picked blowpipe dart to config so it survives a client
+	 * restart (mirrors {@link #savePotionVariantPref}), then re-ranks the
+	 * readout immediately (mirrors the potion-swap/exclude-item pattern —
+	 * see {@link #populatePotionVariantPopup}). No-ops without a {@link
+	 * ConfigManager} (headless tests / the no-config-manager constructor).
+	 */
+	private void pickBlowpipeDart(BlowpipeDart dart)
+	{
+		if (configManager != null)
+		{
+			configManager.setConfiguration(OSPulseConfig.GROUP, "blowpipeDart", dart.name());
+		}
+		rankAndRender();
+	}
+
+	/**
 	 * Refreshes the prayer/potion boost TOGGLE BUTTONS themselves so each one's
 	 * icon always shows the SAME prayer/potion {@link DpsCalculator} is actually
 	 * applying for {@code style}: the ladder-topped prayer for the player's real
@@ -3752,7 +3802,7 @@ public final class GearSection extends CollapsibleSection
 		arrow.setVerticalAlignment(SwingConstants.CENTER);
 		iconsPanel.add(arrow);
 		JLabel suggestedIcon = swapItemIcon(suggestedItemId, suggestedName + " (" + spend + ")");
-		suggestedIcon.setComponentPopupMenu(buildExcludeItemPopup(suggestedItemId, suggestedName));
+		suggestedIcon.setComponentPopupMenu(buildExcludeItemPopup(suggestedItemId, suggestedName, -1));
 		if (choice.owned())
 		{
 			iconsPanel.add(suggestedIcon);
@@ -3833,18 +3883,54 @@ public final class GearSection extends CollapsibleSection
 			return false;
 		}
 		String name = itemDisplayName(EquipmentIndexRepository.getInstance(), shownId);
-		buildExcludeItemPopup(shownId, name).show(e.getComponent(), e.getX(), e.getY());
+		buildExcludeItemPopup(shownId, name, slot).show(e.getComponent(), e.getX(), e.getY());
 		return true;
 	}
 
-	/** Right-click menu for a suggested-swap icon (item #6a): a single "Exclude from suggestions" action. */
-	private javax.swing.JPopupMenu buildExcludeItemPopup(int itemId, String itemName)
+	/**
+	 * Right-click menu for a suggested-swap icon (item #6a): an "Exclude from
+	 * suggestions" action, plus — for the WEAPON slot showing a blowpipe (see
+	 * {@link GearVariants#isBlowpipe}) — a nested "Set darts" submenu (see
+	 * {@link #populateBlowpipeDartSubmenu}) letting the loaded dart be picked
+	 * by right-click instead of the (now-hidden) settings-panel dropdown.
+	 */
+	private javax.swing.JPopupMenu buildExcludeItemPopup(int itemId, String itemName, int slot)
 	{
 		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
 		javax.swing.JMenuItem exclude = new javax.swing.JMenuItem("Exclude " + itemName + " from suggestions");
 		exclude.addActionListener(e -> excludeItemFromSuggestions(itemId));
 		menu.add(exclude);
+
+		if (slot == WhatIfLoadout.WEAPON_SLOT && GearVariants.isBlowpipe(itemId))
+		{
+			javax.swing.JMenu dartsMenu = new javax.swing.JMenu("Set darts");
+			populateBlowpipeDartSubmenu(dartsMenu);
+			menu.add(dartsMenu);
+		}
 		return menu;
+	}
+
+	/**
+	 * Fills {@code menu} with one item per {@link BlowpipeDart}, the currently
+	 * selected one shown checked (see {@link #currentBlowpipeDart}). Picking a
+	 * dart persists it and re-ranks (see {@link #pickBlowpipeDart}). Built as a
+	 * nested {@link javax.swing.JMenu} added straight to the popup — NOT a
+	 * second {@link javax.swing.JPopupMenu} shown manually via {@code
+	 * menu.show(...)}, since clicking the parent item hides its popup first and
+	 * {@code invoker.getLocationOnScreen()} then throws {@code
+	 * IllegalComponentStateException} (the exact bug a manual second popup hit
+	 * elsewhere in this project) — a nested JMenu cascades natively instead.
+	 */
+	private void populateBlowpipeDartSubmenu(javax.swing.JMenu menu)
+	{
+		BlowpipeDart current = currentBlowpipeDart();
+		for (BlowpipeDart dart : BlowpipeDart.values())
+		{
+			javax.swing.JCheckBoxMenuItem item = new javax.swing.JCheckBoxMenuItem(dart.toString());
+			item.setState(dart == current);
+			item.addActionListener(e -> pickBlowpipeDart(dart));
+			menu.add(item);
+		}
 	}
 
 	/** Display name for an item id via the bundled equipment index, or a placeholder for an empty/unindexed slot. */
@@ -4317,6 +4403,33 @@ public final class GearSection extends CollapsibleSection
 		{
 			excludeItemFromSuggestions(shownId);
 		}
+	}
+
+	/**
+	 * Test seam mirroring a real right-click on the WEAPON slot cell: builds
+	 * the exact popup {@link #maybeShowSlotExcludePopup} would show for
+	 * whatever item that cell is currently rendering (read from {@link
+	 * #renderedSlotIds}), so tests can assert the "Set darts" submenu is
+	 * present for a blowpipe and absent otherwise without driving real mouse
+	 * events.
+	 */
+	javax.swing.JPopupMenu weaponSlotPopupForTest()
+	{
+		int shownId = renderedSlotIds[WhatIfLoadout.WEAPON_SLOT];
+		String name = itemDisplayName(EquipmentIndexRepository.getInstance(), shownId);
+		return buildExcludeItemPopup(shownId, name, WhatIfLoadout.WEAPON_SLOT);
+	}
+
+	/** Test seam: the currently-selected blowpipe dart (see {@link #currentBlowpipeDart}). */
+	BlowpipeDart currentBlowpipeDartForTest()
+	{
+		return currentBlowpipeDart();
+	}
+
+	/** Test seam mirroring a real "Set darts" submenu pick (see {@link #pickBlowpipeDart}). */
+	void pickBlowpipeDartForTest(BlowpipeDart dart)
+	{
+		pickBlowpipeDart(dart);
 	}
 
 	// --------------------------------------- Phase 3 optimiser test seams

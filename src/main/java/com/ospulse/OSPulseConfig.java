@@ -221,7 +221,8 @@ public interface OSPulseConfig extends Config
 		description = "Which dart the calculator assumes is loaded in a blowpipe (its ranged "
 			+ "strength is added; a blowpipe ignores worn ammo).",
 		position = 0,
-		section = gearSection
+		section = gearSection,
+		hidden = true
 	)
 	default BlowpipeDart blowpipeDart()
 	{
