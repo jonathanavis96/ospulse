@@ -112,11 +112,15 @@ public final class DpsCalculator {
         int maxHit = CombatMath.meleeOrRangedMaxHit(effStr, gear.str(), targetGearBonus.damage);
         int attackRoll = CombatMath.meleeOrRangedAttackRoll(effAtt, gear.attackBonus(style), targetGearBonus.accuracy);
 
-        // Melee demonbane (Silverlight line): the weapon's own vs-demon passive —
-        // a SEPARATE multiplicative floor step AFTER the salve/slayer slot, so it
-        // STACKS with the on-task slayer helm (per the wiki DPS calc). Some
-        // demons (Duke Sucellus) partially resist the bonus — see
-        // resistedDemonbaneFraction.
+        // Melee demonbane (Emberlight/Arclight +70% acc+dmg; Silver/Darklight
+        // +60% dmg-only): the weapon's OWN vs-demon passive — a SEPARATE
+        // multiplicative floor step AFTER the salve/slayer slot, so it STACKS with
+        // the on-task slayer helm: floor(floor(base*7/6)*17/10).
+        // ⚠️ DO NOT change this to highest-wins. IN-GAME VERIFIED 2026-07-07:
+        // Emberlight + slayer helm + Piety + super combat on Cerberus = 62 max hit
+        // (matches weirdgloop, which stacks). GearScape shows 52 and is WRONG/
+        // unreliable for demon numbers — do not chase GearScape parity here. Some
+        // demons (Duke Sucellus) partially resist — see resistedDemonbaneFraction.
         DemonbaneWeapon demonbane = gear.demonbaneWeapon();
         if (target.isDemon() && demonbane.appliesTo(style)) {
             int resist = target.demonbaneResistPercent();

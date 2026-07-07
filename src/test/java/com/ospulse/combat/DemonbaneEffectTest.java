@@ -12,11 +12,13 @@ import static org.junit.Assert.assertTrue;
  * Emberlight's +70% vs-demon accuracy/damage bonus: it must (1) raise max hit
  * to exactly floor(base * 17/10) and raise DPS against a demon, (2) do nothing
  * against a non-demon, and (3) STACK with the on-task slayer helm bonus as a
- * separate sequential floor step (per the wiki DPS calc — unlike salve vs
- * slayer, which are one non-stacking slot).
+ * separate sequential floor step (unlike salve vs slayer, which are one
+ * non-stacking slot).
  *
- * <p>Regression for the GearScape mismatch on Cerberus: the engine previously
- * ignored demonbane entirely, so an Emberlight loadout underestimated DPS.
+ * <p>⚠️ IN-GAME VERIFIED 2026-07-07: Emberlight + slayer + Piety + super combat
+ * on Cerberus = 62 max hit (stacking). GearScape's 52 (highest-wins) is WRONG.
+ * Do NOT flip these back to no-stack — this mechanic flip-flopped repeatedly and
+ * the live-game reading is the tie-breaker.
  */
 public class DemonbaneEffectTest {
 
@@ -79,10 +81,11 @@ public class DemonbaneEffectTest {
     @Test
     public void emberlight_stacksWithSlayerHelm_sequentialFloorSteps() {
         Monster demon = monster(EnumSet.of(MonsterAttribute.DEMON));
-        // Per the wiki DPS calculator (weirdgloop PlayerVsNPCCalc.ts), melee
-        // demonbane is the weapon's OWN passive, applied as a separate floor
-        // step AFTER the salve/slayer target-bonus slot — it stacks with the
-        // on-task slayer helm: floor(floor(base * 7/6) * 17/10).
+        // Melee demonbane is the weapon's OWN passive, applied as a separate floor
+        // step AFTER the salve/slayer target-bonus slot — it STACKS with the
+        // on-task slayer helm: floor(floor(base * 7/6) * 17/10). IN-GAME VERIFIED
+        // (Cerberus, Emberlight + slayer + Piety + super combat = 62); GearScape's
+        // non-stacking 52 is wrong. DO NOT flip back to highest-wins.
         DpsResult noBonuses = compute(gear(DemonbaneWeapon.NONE, SlayerHeadgear.NONE), player(false), demon);
         DpsResult withSlayerToo = compute(gear(DemonbaneWeapon.EMBERLIGHT, SlayerHeadgear.STANDARD), player(true), demon);
 
@@ -136,6 +139,8 @@ public class DemonbaneEffectTest {
     @Test
     public void burningClaws_stacksWithSlayerHelm_sequentialFloorSteps() {
         Monster demon = monster(EnumSet.of(MonsterAttribute.DEMON));
+        // Burning claws (+5%, 21/20) stacks as its own floor step on top of the
+        // on-task slayer helm: floor(floor(base * 7/6) * 21/20).
         DpsResult noBonuses = compute(gear(DemonbaneWeapon.NONE, SlayerHeadgear.NONE), player(false), demon);
         DpsResult withSlayerToo = compute(gear(DemonbaneWeapon.BURNING_CLAWS, SlayerHeadgear.STANDARD), player(true), demon);
 
