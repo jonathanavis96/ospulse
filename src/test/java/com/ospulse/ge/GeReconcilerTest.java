@@ -404,4 +404,37 @@ public class GeReconcilerTest
 
 		assertEquals(90L, reconciler.realizedPnl());
 	}
+
+	@Test
+	public void preSessionSoldOfferProceedsAreCollectableAndNotLoot()
+	{
+		// A SELL that completed BEFORE the session started (its proceeds still sit
+		// uncollected in the GE box at login) must, when collected in-session, be
+		// attributed as a GE transfer — net worth, not loot — and count toward the
+		// collectable value meanwhile. No pre-session flip P&L is resurrected.
+		// Mirrors the live bug: 4.9m of pre-session sale proceeds booked as loot.
+		reconciler.primeCollectable(0, GeOfferState.SOLD, WHIP, 1_000L, 5_000_000L, 5_000L);
+
+		long netProceeds = 5_000_000L - 100L * 1_000L; // 2% tax (5000/50 = 100) per item
+		assertEquals(4_900_000L, netProceeds);
+		assertEquals("uncollected proceeds count toward net worth (collectable)",
+			netProceeds, reconciler.collectableValue(id -> 1L));
+		assertEquals("pre-session proceeds must not resurrect flip P&L",
+			0L, reconciler.realizedPnl());
+
+		// Player collects -> coins land in inventory -> fully attributed (not loot).
+		assertEquals("collected pre-session proceeds are a GE transfer, excluded from loot",
+			netProceeds, reconciler.attributeArrival(GeReconciler.COINS_ITEM_ID, netProceeds));
+	}
+
+	@Test
+	public void preSessionBoughtOfferItemsAreCollectableAndNotLoot()
+	{
+		// A BUY that completed pre-session: the bought items sit uncollected at login.
+		// Collecting them in-session is a GE transfer (already-owned goods), not loot.
+		reconciler.primeCollectable(0, GeOfferState.BOUGHT, WHIP, 5L, 500_000L, 100_000L);
+		assertEquals(0L, reconciler.realizedPnl());
+		assertEquals("collected pre-session bought items are excluded from loot",
+			5L, reconciler.attributeArrival(WHIP, 5L));
+	}
 }

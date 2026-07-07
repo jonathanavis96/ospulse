@@ -24,6 +24,7 @@ public class SessionEngineTest
 	private static final int RUNE_ITEM = 561;
 	private static final int RUNE_SQ_SHIELD = 1201;
 	private static final int BIRD_NEST = 5075;
+	private static final int BATTLESTAFF = 1391;
 	private static final int BARLEY_SEED = 5305;
 
 	private SessionEngine engine;
@@ -2165,6 +2166,124 @@ public class SessionEngineTest
 		// Restarting the session must clear the running total.
 		engine.startSession(current, 1000L);
 		assertEquals(0L, engine.getSuppliesUsed());
+	}
+
+	@Test
+	public void droppedPreOwnedSupplyThatDespawnsCountsAsSuppliesUsed()
+	{
+		// A pre-owned (never-looted) supply dropped and left to despawn is gone for
+		// good — the player consumed it just as surely as drinking it, so on despawn
+		// its value must surface as supplies used (not silently vanish).
+		Map<Integer, ItemStack> owned = new LinkedHashMap<>();
+		owned.put(PRAYER_POTION, new ItemStack(PRAYER_POTION, "Prayer potion(4)", 1L, 1_000L));
+		engine.startSession(snap(1_000L, owned, 0L, false, 0L), 0L);
+
+		// Dropped (signalled) — parks on the ground, not yet supplies (may be re-picked).
+		engine.update(snap(0L, Collections.emptyMap(), 0L, false, 1_000L),
+			(GeAttributions) null, MovementSignals.builder().dropped(PRAYER_POTION).build(), 1_000L);
+		assertEquals("a freshly dropped supply is not yet supplies (re-pickable)",
+			0L, engine.getSuppliesUsed());
+
+		// Advance past the 180s despawn window: the parcel expires unclaimed.
+		long later = 1_000L + 200_000L;
+		engine.update(snap(0L, Collections.emptyMap(), 0L, false, later),
+			Collections.emptySet(), later);
+		assertEquals("a dropped pre-owned supply that despawns counts as supplies used",
+			1_000L, engine.getSuppliesUsed());
+	}
+
+	@Test
+	public void droppedLootedSupplyThatDespawnsIsNotDoubleChargedAsSupplies()
+	{
+		// A supply LOOTED this session then dropped already had its value removed
+		// from Loot on the drop. Charging supplies on despawn too would double-count
+		// the same loss — the never-looted (owned) portion is zero, so nothing is
+		// charged and the whole round trip nets to zero (free loot thrown away).
+		engine.startSession(snap(0L, Collections.emptyMap(), 0L, false, 0L), 0L);
+
+		Map<Integer, ItemStack> looted = new LinkedHashMap<>();
+		looted.put(PRAYER_POTION, new ItemStack(PRAYER_POTION, "Prayer potion(4)", 1L, 1_000L));
+		engine.update(snap(1_000L, looted, 0L, false, 1_000L), Collections.emptySet(), 1_000L);
+
+		// Dropped, then left to despawn.
+		engine.update(snap(0L, Collections.emptyMap(), 0L, false, 2_000L),
+			(GeAttributions) null, MovementSignals.builder().dropped(PRAYER_POTION).build(), 2_000L);
+		long later = 2_000L + 200_000L;
+		engine.update(snap(0L, Collections.emptyMap(), 0L, false, later),
+			Collections.emptySet(), later);
+
+		SessionSnapshot result = engine.snapshot(snap(0L, Collections.emptyMap(), 0L, false, later),
+			0L, Collections.emptyMap(), 0L, later);
+		assertEquals("looted-then-dropped supply: Loot already reversed on drop",
+			0L, result.getLootValue());
+		assertEquals("looted-then-dropped supply: not re-charged as supplies (no double count)",
+			0L, engine.getSuppliesUsed());
+	}
+
+	@Test
+	public void droppedNonConsumableThatDespawnsIsNotSupplies()
+	{
+		// A dropped NON-consumable (e.g. a pre-owned shield) that despawns is a plain
+		// loss, never "supplies used" — supplies is for consumables only.
+		Map<Integer, ItemStack> owned = new LinkedHashMap<>();
+		owned.put(RUNE_SQ_SHIELD, new ItemStack(RUNE_SQ_SHIELD, "Rune sq shield", 1L, 27_000L));
+		engine.startSession(snap(27_000L, owned, 0L, false, 0L), 0L);
+
+		engine.update(snap(0L, Collections.emptyMap(), 0L, false, 1_000L),
+			(GeAttributions) null, MovementSignals.builder().dropped(RUNE_SQ_SHIELD).build(), 1_000L);
+		long later = 1_000L + 200_000L;
+		engine.update(snap(0L, Collections.emptyMap(), 0L, false, later),
+			Collections.emptySet(), later);
+
+		assertEquals("a dropped non-consumable that despawns is not supplies used",
+			0L, engine.getSuppliesUsed());
+	}
+
+	@Test
+	public void shopPurchaseCoinsForItemsIsNotLoot()
+	{
+		// Buying from a vendor (coins leave + items arrive in the same tick) is not
+		// loot — the items were bought, not looted. Mirrors buying daily battlestaves
+		// from Zaff (pay 840k, receive 120 staff worth 895,080 at GE). Loot must stay
+		// flat; the buy margin surfaces only in net worth. Previously the staff booked
+		// as +895k LOOT with the gold spent never subtracted (phantom profit).
+		Map<Integer, ItemStack> start = new LinkedHashMap<>();
+		start.put(COINS, new ItemStack(COINS, "Coins", 1_000_000L, 1L));
+		engine.startSession(snap(1_000_000L, start, 0L, false, 0L), 0L);
+
+		Map<Integer, ItemStack> after = new LinkedHashMap<>();
+		after.put(COINS, new ItemStack(COINS, "Coins", 160_000L, 1L));
+		after.put(BATTLESTAFF, new ItemStack(BATTLESTAFF, "Battlestaff", 120L, 7_459L));
+		long trackedAfter = 160_000L + 120L * 7_459L; // 1,055,080
+		WealthSnapshot bought = snap(trackedAfter, after, 0L, false, 1_000L);
+		engine.update(bought, Collections.emptySet(), 1_000L);
+
+		SessionSnapshot result = engine.snapshot(bought, 0L, Collections.emptyMap(), 0L, 1_000L);
+		assertEquals("shop-bought items are not loot (coins-out pairs with items-in)",
+			0L, result.getLootValue());
+	}
+
+	@Test
+	public void lootedItemInTheSameTickAsACoinDropStillCountsAsLoot()
+	{
+		// Guard against the purchase heuristic swallowing genuine loot: a big looted
+		// item that merely coincides with a tiny coin outflow (a dropped/spent coin
+		// far smaller than the loot) must still count — the coins spent are nowhere
+		// near half the looted value, so it is plainly not a purchase.
+		Map<Integer, ItemStack> start = new LinkedHashMap<>();
+		start.put(COINS, new ItemStack(COINS, "Coins", 1_000L, 1L));
+		engine.startSession(snap(1_000L, start, 0L, false, 0L), 0L);
+
+		Map<Integer, ItemStack> after = new LinkedHashMap<>();
+		after.put(COINS, new ItemStack(COINS, "Coins", 900L, 1L)); // 100 coins gone
+		after.put(RUNE_SQ_SHIELD, new ItemStack(RUNE_SQ_SHIELD, "Rune sq shield", 1L, 27_000L));
+		long trackedAfter = 900L + 27_000L;
+		WealthSnapshot after1 = snap(trackedAfter, after, 0L, false, 1_000L);
+		engine.update(after1, Collections.emptySet(), 1_000L);
+
+		SessionSnapshot result = engine.snapshot(after1, 0L, Collections.emptyMap(), 0L, 1_000L);
+		assertEquals("a genuine loot dwarfing a tiny coincidental coin spend is still loot",
+			27_000L, result.getLootValue());
 	}
 
 	private static final int SUPER_ANTIFIRE_4 = 21978;

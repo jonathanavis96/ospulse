@@ -330,6 +330,52 @@ public final class GeReconciler implements GeAttributions
 		slots.put(slot, tracker);
 	}
 
+	/**
+	 * Primes a pre-session offer AND records its outstanding collectable as an
+	 * expected arrival, so collecting pre-session proceeds/goods after the session
+	 * starts is attributed as a GE transfer (excluded from loot) and is counted in
+	 * {@link #collectableValue} in the meantime.
+	 *
+	 * <p>Restricted to COMPLETED offers ({@link GeOfferState#BOUGHT} /
+	 * {@link GeOfferState#SOLD}): a non-EMPTY completed slot means the goods are
+	 * definitively still in the collection box (collecting a completed offer takes
+	 * everything and empties the slot), so there is no risk of over-recording an
+	 * already-collected partial. In-progress offers (BUYING/SELLING) can be
+	 * partially collected pre-session and so are left as a bare {@link #primeSlot}.
+	 *
+	 * <p>Records NO flip P&amp;L — pre-session activity is not session activity —
+	 * exactly like {@link #primeSlot}, which it delegates the slot seeding to.
+	 */
+	public void primeCollectable(int slot, GeOfferState state, int itemId,
+		long quantityTransacted, long gpTransacted, long pricePerItem)
+	{
+		primeSlot(slot, state, itemId, quantityTransacted, gpTransacted);
+		if (quantityTransacted <= 0)
+		{
+			return;
+		}
+		if (state == GeOfferState.BOUGHT)
+		{
+			addArrival(slot, itemId, quantityTransacted);
+			// A buy that filled under the offer price left refund coins collectable
+			// alongside the items (only when real gp movement is known).
+			long refund = quantityTransacted * pricePerItem - gpTransacted;
+			if (gpTransacted > 0 && refund > 0)
+			{
+				addArrival(slot, COINS_ITEM_ID, refund);
+			}
+		}
+		else if (state == GeOfferState.SOLD)
+		{
+			long gross = gpTransacted > 0 ? gpTransacted : quantityTransacted * pricePerItem;
+			long netProceeds = gross - saleTaxPerItem(itemId, gross / quantityTransacted) * quantityTransacted;
+			if (netProceeds > 0)
+			{
+				addArrival(slot, COINS_ITEM_ID, netProceeds);
+			}
+		}
+	}
+
 	private void applyBuy(int itemId, long qty, long pricePerItem)
 	{
 		CostBasis basis = costBasis.computeIfAbsent(itemId, k -> new CostBasis());

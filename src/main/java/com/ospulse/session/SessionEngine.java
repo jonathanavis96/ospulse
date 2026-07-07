@@ -211,6 +211,8 @@ public final class SessionEngine
 	 * pass; ~3 minutes matches an item's real despawn timer.
 	 */
 	private static final long GROUND_DESPAWN_MS = 180_000L;
+	/** Canonical item id of coins — used to detect same-tick purchases (coins out + items in). */
+	private static final int COINS_ITEM_ID = com.ospulse.ge.GeReconciler.COINS_ITEM_ID;
 	/** Shared empty stack for id/quantity lookups with no prior/current entry. */
 	private static final ItemStack ZERO_STACK = new ItemStack(0, "", 0L, 0L);
 	/** A single item id's holdings in {@link #storedLoot}: quantity and value. */
@@ -453,9 +455,15 @@ public final class SessionEngine
 		long lootedQty;      // portion whose Loot was reversed on the way out (ground only)
 		final long unitValue;
 		long tsMs;
+		final boolean consumable; // ground only: a dropped supply, so its owned portion charges supplies on despawn
 		Parcel(long qty, long lootedQty, long unitValue, long tsMs)
 		{
-			this.qty = qty; this.lootedQty = lootedQty; this.unitValue = unitValue; this.tsMs = tsMs;
+			this(qty, lootedQty, unitValue, tsMs, false);
+		}
+		Parcel(long qty, long lootedQty, long unitValue, long tsMs, boolean consumable)
+		{
+			this.qty = qty; this.lootedQty = lootedQty; this.unitValue = unitValue;
+			this.tsMs = tsMs; this.consumable = consumable;
 		}
 	}
 
@@ -1305,8 +1313,29 @@ public final class SessionEngine
 		// Prune ground parcels older than the despawn window before the
 		// appeared/vanished collection below, so an expired parcel cannot
 		// answer a return this tick: the abandoned drop stays reduced and a
-		// later re-appearance of the same id books as fresh loot.
-		onGround.entrySet().removeIf(e -> tsMs - e.getValue().tsMs > GROUND_DESPAWN_MS);
+		// later re-appearance of the same id books as fresh loot. A dropped
+		// SUPPLY that despawns unclaimed is gone for good — the player consumed
+		// it as surely as drinking it — so charge its never-looted (owned)
+		// portion as supplies used. The looted portion had its value removed
+		// from Loot on the drop already, so charging it here too would
+		// double-count; only qty - lootedQty is owned and chargeable.
+		onGround.entrySet().removeIf(e ->
+		{
+			Parcel p = e.getValue();
+			if (tsMs - p.tsMs <= GROUND_DESPAWN_MS)
+			{
+				return false;
+			}
+			long owned = p.qty - p.lootedQty;
+			if (p.consumable && owned > 0)
+			{
+				long consumedValue = owned * p.unitValue;
+				recordSupplyConsumed(consumedValue);
+				logAttribution(e.getKey(), "id" + e.getKey(), -owned, -consumedValue,
+					"SUPPLY(dropped supply despawned; owned portion)");
+			}
+			return true;
+		});
 
 		// GE proceeds collected straight to the bank leave tracked wealth with
 		// no item swing while the bank is closed; hold the transfer so the
@@ -1526,6 +1555,34 @@ public final class SessionEngine
 		long suppliesReversed = 0L;
 		long lootRecorded = 0L;
 		List<PendingSwing> newPendingLooted = new ArrayList<>();
+
+		// ---- Purchase detection: coins leaving the inventory in the same tick as
+		// items arriving is a buy (a vendor/shop purchase, or a player trade), NOT
+		// loot — the items were bought, not picked up. The margin (items worth more
+		// than the coins paid) still surfaces in net worth; only Loot is spared.
+		// Gate on the coins spent being at least half the arriving item value so a
+		// genuine loot that merely coincides with a small coin spend is never
+		// swallowed (2*coinsOut >= itemsIn). Coin INFLOW (monster coin drops) is
+		// unaffected — this looks only at coins that vanished.
+		long coinsSpentThisTick = 0L;
+		for (Swing v : vanished)
+		{
+			if (v.itemId == COINS_ITEM_ID)
+			{
+				coinsSpentThisTick += v.quantity * v.unitValue;
+			}
+		}
+		long arrivingItemValue = 0L;
+		for (Swing a : appeared)
+		{
+			if (a.itemId != COINS_ITEM_ID)
+			{
+				arrivingItemValue += a.quantity * a.unitValue;
+			}
+		}
+		boolean purchaseTick = coinsSpentThisTick > 0 && arrivingItemValue > 0
+			&& 2 * coinsSpentThisTick >= arrivingItemValue;
+
 		for (Swing a : appeared)
 		{
 			for (int pass = 0; pass < 2 && a.quantity > 0; pass++)
@@ -1685,6 +1742,16 @@ public final class SessionEngine
 				}
 			}
 
+			if (a.quantity > 0 && purchaseTick && a.itemId != COINS_ITEM_ID)
+			{
+				// Bought this tick (coins left to pay for it) — a net-worth item, not
+				// loot. Skip the loot ledger entirely; the tracked rise already lifts
+				// net worth by its value.
+				logAttribution(a.itemId, a.name, a.quantity, a.quantity * a.unitValue,
+					"PURCHASE(bought with coins this tick; not loot)");
+				a.quantity = 0L;
+			}
+
 			if (a.quantity > 0)
 			{
 				long lootValue = a.quantity * a.unitValue;
@@ -1714,7 +1781,7 @@ public final class SessionEngine
 				Parcel g = onGround.get(v.itemId);
 				if (g == null)
 				{
-					onGround.put(v.itemId, new Parcel(v.quantity, looted, v.unitValue, tsMs));
+					onGround.put(v.itemId, new Parcel(v.quantity, looted, v.unitValue, tsMs, v.consumable));
 				}
 				else
 				{

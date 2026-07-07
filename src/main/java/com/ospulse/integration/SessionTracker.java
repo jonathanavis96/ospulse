@@ -94,8 +94,18 @@ public class SessionTracker implements SessionService
 	private static final class SourceAgg
 	{
 		long count;
+		/**
+		 * Monotonic recency stamp — the value of {@link #lootSeq} at this source's
+		 * most recent drop. The feed orders sources by this descending so the most
+		 * recently-updated source sits at the top (newest drops first), rather than
+		 * by total value (which buried a fresh small kill under an older big one).
+		 */
+		long lastSeq;
 		final Map<Integer, ItemStack> items = new LinkedHashMap<>();
 	}
+
+	/** Ever-increasing counter stamped onto a {@link SourceAgg} on each drop, for recency ordering. */
+	private long lootSeq;
 
 	private volatile SessionSnapshot latest;
 
@@ -253,6 +263,7 @@ public class SessionTracker implements SessionService
 		String key = (source == null || source.isEmpty()) ? "Unknown" : source;
 		SourceAgg agg = lootBySource.computeIfAbsent(key, k -> new SourceAgg());
 		agg.count += Math.max(1, amount);
+		agg.lastSeq = ++lootSeq;
 
 		for (net.runelite.client.game.ItemStack it : items)
 		{
@@ -452,8 +463,8 @@ public class SessionTracker implements SessionService
 			{
 				continue;
 			}
-			geReconciler.primeSlot(slot, GeOfferStateMapper.map(offer.getState()),
-				offer.getItemId(), offer.getQuantitySold(), offer.getSpent());
+			geReconciler.primeCollectable(slot, GeOfferStateMapper.map(offer.getState()),
+				offer.getItemId(), offer.getQuantitySold(), offer.getSpent(), offer.getPrice());
 		}
 	}
 
@@ -1098,12 +1109,19 @@ public class SessionTracker implements SessionService
 	/**
 	 * Snapshots the per-source loot aggregate into immutable {@link SourceLoot}
 	 * views: items within each source sorted by value descending, and sources
-	 * themselves sorted by total value descending.
+	 * themselves ordered most-recently-updated first (newest drops at the top of
+	 * the feed) via each source's {@link SourceAgg#lastSeq} recency stamp.
 	 */
 	private List<SourceLoot> buildLootSources()
 	{
+		// Order sources by recency (newest drop first) rather than by value, so a
+		// fresh kill always appears at the top instead of being buried under an
+		// older, higher-value source.
+		List<Map.Entry<String, SourceAgg>> entries = new ArrayList<>(lootBySource.entrySet());
+		entries.sort((a, b) -> Long.compare(b.getValue().lastSeq, a.getValue().lastSeq));
+
 		List<SourceLoot> out = new ArrayList<>();
-		for (Map.Entry<String, SourceAgg> e : lootBySource.entrySet())
+		for (Map.Entry<String, SourceAgg> e : entries)
 		{
 			List<ItemStack> items = new ArrayList<>(e.getValue().items.values());
 			items.sort((a, b) -> Long.compare(b.value(), a.value()));
@@ -1114,7 +1132,6 @@ public class SessionTracker implements SessionService
 			}
 			out.add(new SourceLoot(e.getKey(), total, e.getValue().count, items));
 		}
-		out.sort((a, b) -> Long.compare(b.getTotalValue(), a.getTotalValue()));
 		return out;
 	}
 
