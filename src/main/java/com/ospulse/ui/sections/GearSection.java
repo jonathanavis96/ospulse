@@ -2084,24 +2084,7 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private BlowpipeDart currentBlowpipeDart()
 	{
-		if (configManager == null)
-		{
-			return BlowpipeDart.DRAGON;
-		}
-		String raw = configManager.getConfiguration(OSPulseConfig.GROUP, "blowpipeDart");
-		if (raw == null || raw.isEmpty())
-		{
-			return BlowpipeDart.DRAGON;
-		}
-		try
-		{
-			return BlowpipeDart.valueOf(raw);
-		}
-		catch (IllegalArgumentException e)
-		{
-			// Stale/unknown enum name (e.g. an older plugin version) — fall back to the default.
-			return BlowpipeDart.DRAGON;
-		}
+		return BlowpipeDart.fromConfig(configManager);
 	}
 
 	/**
@@ -2115,7 +2098,7 @@ public final class GearSection extends CollapsibleSection
 	{
 		if (configManager != null)
 		{
-			configManager.setConfiguration(OSPulseConfig.GROUP, "blowpipeDart", dart.name());
+			configManager.setConfiguration(OSPulseConfig.GROUP, BlowpipeDart.CONFIG_KEY, dart.name());
 		}
 		rankAndRender();
 	}

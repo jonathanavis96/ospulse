@@ -1,6 +1,7 @@
 package com.ospulse.integration;
 
 import com.ospulse.OSPulseConfig;
+import com.ospulse.combat.BlowpipeDart;
 import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.EquipmentStatsRepository;
 import com.ospulse.combat.OffensivePrayer;
@@ -557,7 +558,8 @@ public class SessionTracker implements SessionService
 
 		GearMapper.SlotStatsLookup lookup = this::lookupSlotStats;
 		EquipmentStats equipmentStats = GearMapper.buildEquipmentStats(
-			equippedItemIds, EquipmentInventorySlot.WEAPON.ordinal(), lookup, config.blowpipeDart().rangedStrength());
+			equippedItemIds, EquipmentInventorySlot.WEAPON.ordinal(), lookup,
+			BlowpipeDart.fromConfig(configManager).rangedStrength());
 
 		// The player's set autocast spell, as the game's internal autocast id
 		// (VarbitID.AUTOCAST_SPELL, 276). We don't yet have the value->Spell
