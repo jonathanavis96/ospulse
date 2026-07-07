@@ -3443,6 +3443,22 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
+	 * Untradeable weapons that are nonetheless "buyable" because they are
+	 * crafted directly from ONE tradeable GE ingredient — priced at that
+	 * ingredient, overriding the blanket untradeable-=-unpurchasable rule
+	 * below. Currently just the Scorching bow (crafted from a Tormented
+	 * synapse, id 29580, + a ~1k Magic longbow (u) at 74 Fletching — the
+	 * synapse IS the price; both ids verified against the OSRS Wiki
+	 * 2026-07-07). The other two synapse weapons are deliberately NOT
+	 * mapped: Emberlight's base item (Arclight) is itself untradeable, and
+	 * the Purging staff is a magic weapon with no optimiser demand yet —
+	 * add entries here only when the full craft cost is genuinely ~one
+	 * tradeable ingredient.
+	 */
+	private static final java.util.Map<Integer, Integer> UNTRADEABLE_CRAFT_INGREDIENT =
+		java.util.Map.of(29591 /* Scorching bow */, 29580 /* Tormented synapse */);
+
+	/**
 	 * Wraps a raw (unowned-item) GE price lookup with two rules (bug D):
 	 * <ul>
 	 *   <li><b>untradeable = unpurchasable:</b> an UNOWNED item flagged
@@ -3460,7 +3476,15 @@ public final class GearSection extends CollapsibleSection
 	 *       {@code .owned()} directly;</li>
 	 *   <li>a resolved price &lt;= 0 means untradeable/unpriced, not free —
 	 *       an UNOWNED item you cannot buy is unaffordable
-	 *       ({@link Long#MAX_VALUE}), not a bargain.</li>
+	 *       ({@link Long#MAX_VALUE}), not a bargain;</li>
+	 *   <li><b>craftable-from-one-ingredient exception:</b> the few
+	 *       untradeables in {@link #UNTRADEABLE_CRAFT_INGREDIENT} price at
+	 *       their tradeable ingredient's GE cost INSTEAD of the two rules
+	 *       above (checked first) — e.g. the untradeable Scorching bow "costs"
+	 *       a Tormented synapse, so the optimiser can recommend it to a
+	 *       non-owner and the spend readout shows the real acquisition cost
+	 *       rather than the bogus ~1m ItemMapping value or a blanket
+	 *       "unbuyable".</li>
 	 * </ul>
 	 */
 	private static GearOptimizer.PriceSource resolveOptimizerPriceSource(GearOptimizer.PriceSource rawPriceSource,
@@ -3468,6 +3492,12 @@ public final class GearSection extends CollapsibleSection
 	{
 		return itemId ->
 		{
+			Integer ingredientId = UNTRADEABLE_CRAFT_INGREDIENT.get(itemId);
+			if (ingredientId != null)
+			{
+				long ingredientPrice = rawPriceSource.priceFor(ingredientId);
+				return ingredientPrice > 0 ? ingredientPrice : Long.MAX_VALUE;
+			}
 			if (untradeableIds.contains(itemId))
 			{
 				return Long.MAX_VALUE;
@@ -4472,6 +4502,8 @@ public final class GearSection extends CollapsibleSection
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Set<Integer> candidateIds = new java.util.HashSet<>(index.allItemIds());
 		candidateIds.removeAll(ownedPrices.keySet());
+		// Mirror withResolvedPrices: craft-ingredient ids must be priced too.
+		candidateIds.addAll(UNTRADEABLE_CRAFT_INGREDIENT.values());
 
 		priceResolver.resolve(candidateIds, lookup ->
 		{

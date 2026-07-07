@@ -418,6 +418,56 @@ public class GearSectionGearPoolTest
 		});
 	}
 
+	// ============================================ untradeable craft-ingredient pricing
+
+	private static final int SCORCHING_BOW = 29591;      // untradeable, crafted from a Tormented synapse
+	private static final int TORMENTED_SYNAPSE = 29580;  // the tradeable GE ingredient (not equipment)
+
+	/**
+	 * The Scorching bow is untradeable (a straight untradeable rule would
+	 * make it unbuyable at any budget) and RuneLite's ItemMapping path can
+	 * report a bogus proxy price for it — but it is crafted directly from a
+	 * tradeable Tormented synapse, so it must price at the SYNAPSE's GE cost:
+	 * recommendable to a non-owner, with the spend readout showing the real
+	 * acquisition cost.
+	 */
+	@Test
+	public void unownedScorchingBow_pricesAtTheTormentedSynapse_notUnbuyableOrProxyPriced()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+
+			java.util.Map<Integer, Long> rawPrices = new java.util.HashMap<>();
+			rawPrices.put(TORMENTED_SYNAPSE, 32_000_000L);
+			rawPrices.put(SCORCHING_BOW, 1_000_000L); // a bogus ItemMapping-style proxy price that must be ignored
+
+			GearOptimizer.PriceSource resolved = section.resolveOptimizerPriceSourceForTest(
+				id -> rawPrices.getOrDefault(id, 0L),
+				java.util.Set.of(SCORCHING_BOW)); // flagged untradeable, as the real client precompute would
+
+			assertEquals("the bow must cost exactly its craft ingredient's GE price",
+				32_000_000L, resolved.priceFor(SCORCHING_BOW));
+		});
+	}
+
+	/** With the ingredient itself unpriced (resolver returned nothing for it), the bow must fall back to unaffordable — never free. */
+	@Test
+	public void unownedScorchingBow_withUnpricedSynapse_staysUnaffordable()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+
+			GearOptimizer.PriceSource resolved = section.resolveOptimizerPriceSourceForTest(
+				id -> 0L, java.util.Set.of(SCORCHING_BOW));
+
+			assertEquals(Long.MAX_VALUE, resolved.priceFor(SCORCHING_BOW));
+		});
+	}
+
 	// ======================================================== Gauntlet-only tiers
 
 	@Test
