@@ -39,6 +39,7 @@ import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.components.IconTextField;
 import net.runelite.client.util.AsyncBufferedImage;
+import net.runelite.client.util.ImageUtil;
 
 import javax.swing.AbstractListModel;
 import javax.swing.Box;
@@ -700,9 +701,9 @@ public final class GearSection extends CollapsibleSection
 		// the programmatic slayer-helm auto-tick. An ItemListener fires on both; an
 		// ActionListener would silently miss setSelected(). Boosts shift every
 		// style's DPS, so the whole ranking is recomputed, not just the readout.
-		bestPotionToggle.addItemListener(e -> rankAndRender());
-		bestPrayerToggle.addItemListener(e -> rankAndRender());
-		onSlayerTaskToggle.addItemListener(e -> rankAndRender());
+		bestPotionToggle.addItemListener(e -> onBoostToggleChanged());
+		bestPrayerToggle.addItemListener(e -> onBoostToggleChanged());
+		onSlayerTaskToggle.addItemListener(e -> onBoostToggleChanged());
 		bestPotionToggle.setComponentPopupMenu(buildPotionVariantPopup());
 		boostRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, boostRow.getPreferredSize().height));
 		body().add(boostRow);
@@ -1202,6 +1203,58 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	// ------------------------------------------------- attack-style picker
+
+	/** Uniform height the bundled damage-type icons are scaled to for the selector row. */
+	private static final int STYLE_ICON_HEIGHT = 18;
+
+	/** Lazily-loaded, scaled damage-type icons for the optimiser style selector, keyed by style. */
+	private static final java.util.Map<CombatStyle, ImageIcon> STYLE_ICONS = new java.util.EnumMap<>(CombatStyle.class);
+
+	/**
+	 * The bundled damage-type icon (Stab/Slash/Crush/Magic/Ranged sprite) for the
+	 * optimiser style selector, scaled to a uniform {@link #STYLE_ICON_HEIGHT} so
+	 * the segmented buttons align. Cached per style; returns {@code null} if the
+	 * resource is missing so callers fall back to the text {@link #typeLabel}.
+	 */
+	private static ImageIcon styleIcon(CombatStyle type)
+	{
+		if (STYLE_ICONS.containsKey(type))
+		{
+			return STYLE_ICONS.get(type);
+		}
+		String file = styleIconFile(type);
+		ImageIcon icon = null;
+		if (file != null)
+		{
+			BufferedImage img = ImageUtil.loadImageResource(GearSection.class, "/com/ospulse/ui/style/" + file);
+			if (img != null)
+			{
+				int w = Math.max(1, img.getWidth() * STYLE_ICON_HEIGHT / img.getHeight());
+				icon = new ImageIcon(img.getScaledInstance(w, STYLE_ICON_HEIGHT, Image.SCALE_SMOOTH));
+			}
+		}
+		STYLE_ICONS.put(type, icon);
+		return icon;
+	}
+
+	private static String styleIconFile(CombatStyle type)
+	{
+		switch (type)
+		{
+			case STAB:
+				return "stab.png";
+			case SLASH:
+				return "slash.png";
+			case CRUSH:
+				return "crush.png";
+			case RANGED:
+				return "ranged.png";
+			case MAGIC:
+				return "magic.png";
+			default:
+				return null;
+		}
+	}
 
 	private static String typeLabel(CombatStyle type)
 	{
@@ -2827,6 +2880,24 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
+	 * A boost/task toggle (best potion, best prayer, on-task) changed: re-rank
+	 * the worn-gear list AND — if an optimiser search is already on screen —
+	 * re-run it, so the "Best setup for this target" numbers track the toggles
+	 * instead of showing stale figures until the next "Find best setup" click.
+	 * Mirrors the exclude-item / style-selector re-optimise pattern (see
+	 * {@link #excludeItemFromSuggestions} / {@link #runOptimizer}). Only re-runs
+	 * when a result exists, so idle toggling never kicks off a search.
+	 */
+	private void onBoostToggleChanged()
+	{
+		rankAndRender();
+		if (lastOptimizerResult != null)
+		{
+			runOptimizer();
+		}
+	}
+
+	/**
 	 * Adds {@code itemId} to {@link #excludedItemIds}, persists it, and — if a
 	 * search is already on screen — immediately re-runs the optimiser so the
 	 * excluded item drops out and the next-best suggestion takes its place
@@ -3069,7 +3140,10 @@ public final class GearSection extends CollapsibleSection
 		for (int i = 0; i < OPTIMIZER_STYLE_ORDER.length; i++)
 		{
 			CombatStyle style = OPTIMIZER_STYLE_ORDER[i];
-			JToggleButton button = new JToggleButton(typeLabel(style));
+			ImageIcon icon = styleIcon(style);
+			// Show the damage-type icon; fall back to the text label if the
+			// bundled sprite is missing so the control is never blank.
+			JToggleButton button = icon != null ? new JToggleButton(icon) : new JToggleButton(typeLabel(style));
 			button.setToolTipText("Find the best " + typeLabel(style)
 				+ " setup (owned gear + anything affordable within the budget)");
 			button.setFont(FontManager.getRunescapeSmallFont());

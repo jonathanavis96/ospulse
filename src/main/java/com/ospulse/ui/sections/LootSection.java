@@ -355,20 +355,24 @@ public final class LootSection extends CollapsibleSection
 			itemManager.getImage(item.getId(), quantity, quantity > 1).addTo(icon);
 		}
 
+		// Format: "[ITEM NAME] x [qty]" / "GE: total (each ea)" / "HA: total (each ea)".
+		long qty = item.getQuantity();
 		StringBuilder tooltip = new StringBuilder("<html><b>")
 			.append(item.getName())
-			.append("</b><br>Qty: ")
-			.append(String.format("%,d", item.getQuantity()))
+			.append("</b> x ")
+			.append(String.format("%,d", qty))
 			.append("<br>GE: ")
-			.append(GpFormat.format(item.value()));
+			.append(GpFormat.format(item.value()))
+			.append(" (").append(GpFormat.format(item.getUnitValue())).append(" ea)");
 
 		// HA price is precomputed on the client thread (see SessionTracker.mergeItem);
 		// -1 means it couldn't be resolved. Never call getItemComposition here — this
 		// runs on the EDT and that method asserts the client thread.
 		if (item.getHaPrice() >= 0)
 		{
-			long haValue = item.getHaPrice() * item.getQuantity();
-			tooltip.append("<br>HA: ").append(GpFormat.format(haValue));
+			long haEach = item.getHaPrice();
+			tooltip.append("<br>HA: ").append(GpFormat.format(haEach * qty))
+				.append(" (").append(GpFormat.format(haEach)).append(" ea)");
 		}
 		tooltip.append("</html>");
 		icon.setToolTipText(tooltip.toString());
@@ -434,7 +438,13 @@ public final class LootSection extends CollapsibleSection
 		leftLabel.setComponentPopupMenu(popupMenu);
 		rightLabel.setComponentPopupMenu(popupMenu);
 
-		row.addMouseListener(new MouseAdapter()
+		// Attach the collapse toggle to the labels as well as the row: the
+		// labels fill the whole header (BorderLayout CENTER/EAST) and, because
+		// they carry a component popup menu, Swing delivers their mouse events
+		// to them rather than bubbling to the parent row — so a listener only on
+		// `row` never fires on a click over the label text (that was the "can't
+		// minimize" regression). Mirror the popup-menu attachment: all three.
+		MouseAdapter collapseToggle = new MouseAdapter()
 		{
 			@Override
 			public void mousePressed(MouseEvent e)
@@ -453,7 +463,10 @@ public final class LootSection extends CollapsibleSection
 				}
 				applyResetsThenRebuild();
 			}
-		});
+		};
+		row.addMouseListener(collapseToggle);
+		leftLabel.addMouseListener(collapseToggle);
+		rightLabel.addMouseListener(collapseToggle);
 		return row;
 	}
 
