@@ -226,6 +226,25 @@ public final class SessionEngine
 	 */
 	private final Map<Integer, StoredLoot> storedLoot = new LinkedHashMap<>();
 	/**
+	 * Item ids that genuinely route to a non-readable storage sack when looted,
+	 * so a {@code LootReceived} for them can legitimately never touch the
+	 * inventory diff: grimy herbs (herb sack) and uncut gems (gem bag). ONLY
+	 * these are eligible for the {@link #storedLoot} ledger. Every other item —
+	 * bird nests, coins, seeds, food — appears directly in the inventory, so a
+	 * receipt quantity exceeding the same-tick inventory rise is timing lag or an
+	 * item consumed/searched the same tick, NOT a sack deposit; booking that
+	 * remainder to storedLoot double-counts it and leaves a phantom balance that
+	 * later drains genuine pickups net-neutral (undercounting the Loot feed).
+	 * Restricting the ledger to sack-routed ids is safe: an un-listed sack item
+	 * is simply attributed as Loot when it is later emptied to the inventory
+	 * (the diff books it then) instead of at receipt time.
+	 */
+	private static final Set<Integer> SACK_ROUTED_ITEM_IDS = Set.of(
+		// Grimy herbs (herb sack)
+		199, 201, 203, 205, 207, 3049, 209, 211, 213, 3051, 215, 2485, 217, 219, 30088,
+		// Uncut gems (gem bag)
+		1625, 1627, 1629, 1623, 1621, 1619, 1617, 1631);
+	/**
 	 * How much of the bank rise most recently classified by
 	 * {@link #reconcileBankMovement} was consumed settling in-flight deposit
 	 * expectations ({@link #pendingBankSettles}). Reset on every reconcile.
@@ -343,6 +362,20 @@ public final class SessionEngine
 	 * {@link #setBankOpen}), so this never nets across a restock.
 	 */
 	private static final long VANISH_RETURN_WINDOW_MS = 30L * 60_000L;
+
+	/**
+	 * Wall-clock window (ms) within which a consumable stack that vanished and
+	 * was charged as supplies-used (an unsignaled drop indistinguishable from a
+	 * drink) may reappear same-id and un-charge those supplies rather than
+	 * booking as fresh loot. Kept tight — a drop-then-pickup happens in seconds —
+	 * so it covers the live "drop a potion, pick it straight back up" wash
+	 * without nets against the genuinely rare case of drinking a supply to empty
+	 * and looting the identical dose id much later. Unlike a whole-stack loot
+	 * return (VANISH_RETURN_WINDOW_MS) this also nets PARTIAL swings, since a
+	 * consumable's supply charge is not self-cancelling the way a looted item's
+	 * drop-retract / pickup-reloot is.
+	 */
+	private static final long SUPPLY_RETURN_WINDOW_MS = 60_000L;
 	/**
 	 * Vanishes classified by PREVIOUS updates (supplies charged / value
 	 * silently dropped) that a later update may reverse if the stack
@@ -1606,7 +1639,13 @@ public final class SessionEngine
 					boolean matched = pass == 0
 						? p.itemId == a.itemId
 							&& (withinTransientWindow
-								|| (p.fullSwing && a.fullSwing && a.quantity <= p.quantity))
+								|| (p.fullSwing && a.fullSwing && a.quantity <= p.quantity)
+								// A supply charged on an unsignaled consumable drop
+								// is un-charged when the SAME id returns shortly after
+								// (drop-then-pickup wash). Partial swings included, up
+								// to the vanished quantity, within the tight window.
+								|| (p.suppliesCharged && a.quantity <= p.quantity
+									&& ageMs <= SUPPLY_RETURN_WINDOW_MS))
 						: (withinTransientWindow
 							&& p.itemId != a.itemId && a.fullSwing && p.fullSwing
 							&& p.quantity == a.quantity && p.unitValue == a.unitValue);
@@ -1947,11 +1986,17 @@ public final class SessionEngine
 		// exactly one interval (the equip-transient window); whole-stack
 		// vanishes from earlier intervals are retained while still reversible
 		// within VANISH_RETURN_WINDOW_MS so a parked stack's return can be
-		// netted (oldest first, ahead of this update's records).
+		// netted (oldest first, ahead of this update's records). Supply-charged
+		// vanishes are also retained (even partial ones) for the tight
+		// SUPPLY_RETURN_WINDOW_MS so an unsignaled-drop-then-pickup wash can
+		// un-charge the supply on return instead of booking the pickup as loot.
 		List<PendingSwing> retainedVanished = new ArrayList<>();
 		for (PendingSwing p : pendingVanished)
 		{
-			if (p.quantity > 0 && p.fullSwing && tsMs - p.tsMs <= VANISH_RETURN_WINDOW_MS)
+			long age = tsMs - p.tsMs;
+			boolean retainLootReturn = p.fullSwing && age <= VANISH_RETURN_WINDOW_MS;
+			boolean retainSupplyReturn = p.suppliesCharged && age <= SUPPLY_RETURN_WINDOW_MS;
+			if (p.quantity > 0 && (retainLootReturn || retainSupplyReturn))
 			{
 				retainedVanished.add(p);
 			}
@@ -1969,8 +2014,19 @@ public final class SessionEngine
 		// storedLoot so it still lifts net worth. Loot that did land in
 		// inventory is already booked by the diff loop above, so only the
 		// unlanded remainder is counted here — never double-counted.
+		//
+		// ONLY sack-routed ids are eligible (see SACK_ROUTED_ITEM_IDS): for any
+		// other item a receipt exceeding the same-tick inventory rise is timing
+		// lag or a same-tick search/consume (its contents/coins are already
+		// booked by the diff), so routing the remainder to storedLoot would
+		// double-count and seed a phantom balance that later drains genuine
+		// pickups net-neutral.
 		for (LootReceipt r : signals.lootReceipts())
 		{
+			if (!SACK_ROUTED_ITEM_IDS.contains(r.itemId))
+			{
+				continue;
+			}
 			long prevQty = previousItems.getOrDefault(r.itemId, ZERO_STACK).getQuantity();
 			long currQty = current.getTrackedItems().getOrDefault(r.itemId, ZERO_STACK).getQuantity();
 			long landedInInventory = Math.max(0L, currQty - prevQty);

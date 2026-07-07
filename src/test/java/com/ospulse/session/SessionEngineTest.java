@@ -2150,6 +2150,55 @@ public class SessionEngineTest
 	}
 
 	@Test
+	public void unsignaledSupplyFullStackDropThenPickupNetsToZero()
+	{
+		// Live regression: dropping a supply (no "Drop" menu signal captured that
+		// tick) then picking it back up must be a wash. Today the unsignaled drop
+		// of a consumable is charged as SUPPLY; the pickup must un-charge it, not
+		// book fresh LOOT. Full-stack case (held exactly one).
+		long unit = 8_654L;
+		Map<Integer, ItemStack> one = new LinkedHashMap<>();
+		one.put(PRAYER_POTION, new ItemStack(PRAYER_POTION, "Prayer potion(4)", 1L, unit));
+		engine.startSession(snap(10_000_000L + unit, one, 0L, false, 0L), 0L);
+
+		// Dropped (no signal) -> charged SUPPLY today.
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1_000L),
+			Collections.emptySet(), 1_000L);
+		// Picked back up ~1s later.
+		WealthSnapshot back = snap(10_000_000L + unit, one, 0L, false, 2_000L);
+		engine.update(back, Collections.emptySet(), 2_000L);
+
+		SessionSnapshot s = engine.snapshot(back, 0L, Collections.emptyMap(), 0L, 2_000L);
+		assertEquals("supply drop/pickup (full stack): no loot", 0L, s.getLootValue());
+		assertEquals("supply drop/pickup (full stack): no supplies charged", 0L, engine.getSuppliesUsed());
+	}
+
+	@Test
+	public void unsignaledSupplyPartialStackDropThenPickupNetsToZero()
+	{
+		// As above but held two and dropped one (2 -> 1): a PARTIAL swing, which
+		// is the shape seen in the live log (potions aggregate by id). This is the
+		// case that double-booked SUPPLY then LOOT.
+		long unit = 8_654L;
+		Map<Integer, ItemStack> two = new LinkedHashMap<>();
+		two.put(PRAYER_POTION, new ItemStack(PRAYER_POTION, "Prayer potion(4)", 2L, unit));
+		Map<Integer, ItemStack> one = new LinkedHashMap<>();
+		one.put(PRAYER_POTION, new ItemStack(PRAYER_POTION, "Prayer potion(4)", 1L, unit));
+		engine.startSession(snap(10_000_000L + 2L * unit, two, 0L, false, 0L), 0L);
+
+		// Drop one (no signal) -> charged SUPPLY today.
+		engine.update(snap(10_000_000L + unit, one, 0L, false, 1_000L),
+			Collections.emptySet(), 1_000L);
+		// Pick it back up ~1s later.
+		WealthSnapshot back = snap(10_000_000L + 2L * unit, two, 0L, false, 2_000L);
+		engine.update(back, Collections.emptySet(), 2_000L);
+
+		SessionSnapshot s = engine.snapshot(back, 0L, Collections.emptyMap(), 0L, 2_000L);
+		assertEquals("supply drop/pickup (partial stack): no loot", 0L, s.getLootValue());
+		assertEquals("supply drop/pickup (partial stack): no supplies charged", 0L, engine.getSuppliesUsed());
+	}
+
+	@Test
 	public void suppliesUsedResetsOnNewSession()
 	{
 		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
@@ -2925,6 +2974,28 @@ public class SessionEngineTest
 		SessionSnapshot s = engine.snapshot(snap(10_008_000L, inv, 0L, false, 1000L),
 			0L, Collections.emptyMap(), 0L, 1000L);
 		assertEquals("inventory-landed loot counts once", 8_000L, s.getLootValue());
+	}
+
+	@Test
+	public void nonSackLootReceiptDoesNotCreatePhantomStorage()
+	{
+		// A bird nest is NOT routed to any non-readable sack: it appears directly
+		// in the inventory. RuneLite can over-report a LootReceived relative to
+		// what lands in the same tick (e.g. nests received then auto-searched into
+		// seeds), so the receipt quantity (4) exceeds the inventory rise (2). The
+		// unlanded remainder must NOT be booked as storage loot — doing so both
+		// double-counts the landed nests and leaves a phantom stored-loot balance
+		// that later drains genuine nest pickups net-neutral, undercounting Loot.
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		Map<Integer, ItemStack> inv = items(new ItemStack(BIRD_NEST, "Bird nest", 2L, 4632L));
+		MovementSignals sig = MovementSignals.builder()
+			.lootReceived(new LootReceipt(BIRD_NEST, 4L, 4632L)).build();
+		engine.update(snap(10_009_264L, inv, 0L, false, 1000L), (GeAttributions) null, sig, 1000L);
+
+		SessionSnapshot s = engine.snapshot(snap(10_009_264L, inv, 0L, false, 1000L),
+			0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("only the nests that landed in inventory count as Loot (no phantom storage)",
+			2L * 4632L, s.getLootValue());
 	}
 
 	@Test
