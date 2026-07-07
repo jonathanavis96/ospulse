@@ -365,6 +365,94 @@ public class GearOptimizerTest {
         return -1;
     }
 
+    private static final int AMMO_SLOT = 13;
+
+    private static int itemIdInSlot(GearOptimizer.Result result, int slotOrdinal) {
+        for (GearOptimizer.SlotChoice choice : result.loadout()) {
+            if (choice.slotOrdinal() == slotOrdinal) {
+                return choice.itemId();
+            }
+        }
+        return -1;
+    }
+
+    // -------------------------------------------------- bug B: demonbane weapon pruning (Scorching bow)
+
+    private static final int SCORCHING_BOW = 29591; // ranged demonbane: +30% acc/dmg vs demons
+    private static final int DRAGON_DART = 11230;   // thrown weapon, no demonbane — plain ranged-strength option
+
+    /**
+     * Reproduces the Scorching bow bug: {@code buildCandidatesForSlot} used to
+     * prune weapon candidates purely by a target-blind proxy score
+     * ({@code arange + 2*rstr}), so the Scorching bow — unremarkable on raw
+     * stats next to darts/other bows — was discarded before its target-
+     * specific +30% demonbane accuracy/damage was ever computed by {@code
+     * DpsCalculator}. Against a demon (Cerberus) with a generous budget, the
+     * bow must survive pruning and out-rank a plain thrown dart.
+     */
+    @Test
+    public void demonTarget_rangedStyle_scorchingBowSurvivesPruningAndOutranksPlainDart() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = DRAGON_DART;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(SCORCHING_BOW, DRAGON_DART));
+        GearOptimizer.PriceSource prices = id -> owned.contains(id) ? 0L : 100_000_000L;
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(200_000_000L)
+                .owned(owned)
+                .priceSource(prices)
+                .style(com.ospulse.combat.CombatStyle.RANGED)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("the demonbane Scorching bow must out-rank a plain dart on a demon target",
+                SCORCHING_BOW, weaponIdIn(result));
+        assertEquals(com.ospulse.combat.CombatStyle.RANGED, result.style().type());
+        assertTrue("the bow's demon-boosted DPS must be computed (nonzero)", result.dps().dps() > 0);
+    }
+
+    // -------------------------------------------------- bug C: ammo slot ignored by blowpipe
+
+    private static final int TOXIC_BLOWPIPE = 12926;
+    private static final int DRAGON_JAVELIN = 19484;      // ammo slot, huge ranged strength (150) but ignored by a blowpipe
+    private static final int RADAS_BLESSING_4 = 22947;    // ammo slot, no ranged strength but +2 prayer
+
+    /**
+     * Reproduces the blowpipe-ammo bug: a blowpipe loads its dart internally
+     * and {@code GearMapper.buildEquipmentStats} already skips worn ammo for
+     * one, so every ammo candidate is a full-DPS tie — but the optimiser's
+     * ammo-slot ranking used to be DPS/proxy-driven (ranged strength), which
+     * either never swaps on a tie (leaving whatever ammo was already
+     * equipped) or prunes the zero-rstr prayer item away first. With a
+     * blowpipe equipped, the freed ammo slot must go to the prayer-bonus item
+     * instead of the higher-ranged-strength javelin.
+     */
+    @Test
+    public void blowpipeWeapon_ammoSlotPrefersPrayerBonusOverRangedStrengthJavelin() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = TOXIC_BLOWPIPE;
+        live[AMMO_SLOT] = DRAGON_JAVELIN; // starts on the highest-rstr ammo, as the bug describes
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(TOXIC_BLOWPIPE, DRAGON_JAVELIN, RADAS_BLESSING_4));
+        GearOptimizer.PriceSource prices = id -> owned.contains(id) ? 0L : 100_000_000L;
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .owned(owned)
+                .priceSource(prices)
+                .style(com.ospulse.combat.CombatStyle.RANGED)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("a blowpipe loadout must prefer the prayer-bonus ammo over the ranged-strength javelin",
+                RADAS_BLESSING_4, itemIdInSlot(result, AMMO_SLOT));
+    }
+
     // -------------------------------------------------- style constraint (item #6e)
 
     private static final int ABYSSAL_BLUDGEON = 13263; // crush weapon

@@ -12,6 +12,7 @@ import com.ospulse.combat.WeaponCategoryRepository;
 import com.ospulse.combat.WeaponStyle;
 import com.ospulse.session.GearMapper;
 import com.ospulse.session.GearSnapshot;
+import com.ospulse.session.GearVariants;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -72,6 +73,9 @@ public final class GearOptimizer {
 
     /** Default per-slot candidate width after pruning (owned/included items are exempt — see class javadoc). */
     public static final int DEFAULT_CANDIDATES_PER_SLOT = 12;
+
+    /** Ammo equipment slot ordinal — mirrors net.runelite.api.EquipmentInventorySlot.AMMO (see GearMapper). */
+    private static final int AMMO_SLOT = 13;
 
     private static final int MAX_LOCAL_SEARCH_PASSES = 6;
 
@@ -489,7 +493,19 @@ public final class GearOptimizer {
                         continue; // would push cumulative spend over budget — reject regardless of DPS
                     }
                     Evaluation trialEval = evaluate(trial, request);
-                    if (trialEval != null && (currentEval == null || trialEval.dps.dps() > currentEval.dps.dps() + 1e-9)) {
+                    if (trialEval == null) {
+                        continue;
+                    }
+                    boolean better;
+                    if (ammoIgnoredByWeapon(slot, trial)) {
+                        // Ammo is DPS-invisible to a weapon that ignores it (see
+                        // bestSingleSlotChoice) — rank by prayer bonus instead so
+                        // local search can still improve the freed ammo slot.
+                        better = prayerBonusOf(c.itemId()) > prayerBonusOf(current[slot]);
+                    } else {
+                        better = currentEval == null || trialEval.dps.dps() > currentEval.dps.dps() + 1e-9;
+                    }
+                    if (better) {
                         current = trial;
                         currentEval = trialEval;
                         improved = true;
@@ -588,15 +604,41 @@ public final class GearOptimizer {
     private static int[] bestSingleSlotChoice(int[] itemIds, int slot, List<Candidate> candidates, Request request) {
         int[] best = itemIds;
         Evaluation bestEval = evaluate(itemIds, request);
+        int bestPrayer = ammoIgnoredByWeapon(slot, itemIds) ? prayerBonusOf(slotItemId(itemIds, slot)) : 0;
         for (Candidate c : candidates) {
             int[] trial = applySlotChoice(itemIds, slot, c.itemId());
             Evaluation trialEval = evaluate(trial, request);
-            if (trialEval != null && (bestEval == null || trialEval.dps.dps() > bestEval.dps.dps() + 1e-9)) {
+            if (trialEval == null) {
+                continue;
+            }
+            if (ammoIgnoredByWeapon(slot, trial)) {
+                // The weapon ignores worn ammo (e.g. a blowpipe loads its dart
+                // internally), so every ammo candidate evaluates to the exact
+                // same DPS — ranking by DPS here would always keep whichever
+                // candidate happened to be first (e.g. the live ranged-
+                // strength ammo). Rank by prayer bonus instead so the freed
+                // slot is put to use.
+                int trialPrayer = prayerBonusOf(c.itemId());
+                if (trialPrayer > bestPrayer) {
+                    best = trial;
+                    bestEval = trialEval;
+                    bestPrayer = trialPrayer;
+                }
+            } else if (bestEval == null || trialEval.dps.dps() > bestEval.dps.dps() + 1e-9) {
                 best = trial;
                 bestEval = trialEval;
             }
         }
         return best;
+    }
+
+    /** True when {@code slot} is the ammo slot and the loadout's weapon ignores worn ammo (e.g. a blowpipe). */
+    private static boolean ammoIgnoredByWeapon(int slot, int[] itemIds) {
+        return slot == AMMO_SLOT && GearVariants.isBlowpipe(slotItemId(itemIds, WhatIfLoadout.WEAPON_SLOT));
+    }
+
+    private static int slotItemId(int[] itemIds, int slot) {
+        return slot >= 0 && slot < itemIds.length ? itemIds[slot] : -1;
     }
 
     private static void applyForcedIncludes(int[] itemIds, Request request, EquipmentIndexRepository index) {
@@ -637,16 +679,69 @@ public final class GearOptimizer {
         // constrained, else the style-agnostic sum of every offensive bonus —
         // a fast ranking good enough to keep the true top candidates without
         // computing a full DPS for every one of ~1500 weapons per pass.
-        affordable.sort(Comparator.comparingInt((Candidate c) -> -proxyOffensiveScore(c.itemId(), request.style)));
+        //
+        // Ammo slot exception: a blowpipe (or any weapon GearMapper knows
+        // ignores worn ammo — see GearVariants.isBlowpipe) loads its dart
+        // internally, so worn ammo contributes NOTHING to DPS and every ammo
+        // candidate is a full-DPS tie. Ranking by the raw-stats proxy (or
+        // leaving the tie to local search, which never swaps on a tie) would
+        // silently keep whatever the ammo slot happened to start on (e.g.
+        // Dragon javelins) instead of using the freed slot for a prayer
+        // bonus — so for that case the candidates are ranked by prayer
+        // bonus instead.
+        if (slot == AMMO_SLOT && GearVariants.isBlowpipe(weaponIdOf(request))) {
+            affordable.sort(Comparator.comparingInt((Candidate c) -> -prayerBonusOf(c.itemId())));
+        } else {
+            affordable.sort(Comparator.comparingInt((Candidate c) -> -proxyOffensiveScore(c.itemId(), request.style)));
+        }
 
         List<Candidate> pruned = new ArrayList<>();
         for (Candidate c : affordable) {
-            boolean mandatory = c.owned() || request.include.contains(c.itemId());
+            boolean mandatory = c.owned() || request.include.contains(c.itemId())
+                    || (slot == WhatIfLoadout.WEAPON_SLOT && appliesBaneToTarget(c.itemId(), request.target));
             if (mandatory || pruned.size() < request.candidatesPerSlot) {
                 pruned.add(c);
             }
         }
         return pruned;
+    }
+
+    /**
+     * True when the weapon's demonbane/dragonbane passive actually applies to
+     * {@code target} (demonbane vs a demon, dragonbane vs a dragon) — used to
+     * exempt bane weapons from the proxy-score pruning above. The proxy
+     * ({@link #proxyOffensiveScore}) is target-blind and scores purely on raw
+     * bonuses, so a weapon like the Scorching bow (unremarkable raw ranged
+     * strength next to darts/other bows) would otherwise be pruned away
+     * before {@link #evaluate} ever applies its target-specific +30%
+     * accuracy/damage — silently hiding the actual best-in-slot weapon for
+     * that target. Bane weapons are cheap to identify (a plain id lookup, no
+     * DPS computation) so this check is safe to run for every affordable
+     * weapon candidate per slot-build.
+     */
+    private static boolean appliesBaneToTarget(int weaponItemId, Monster target) {
+        if (target == null) {
+            return false;
+        }
+        if (target.isDemon() && GearVariants.demonbaneWeaponFor(weaponItemId) != com.ospulse.combat.DemonbaneWeapon.NONE) {
+            return true;
+        }
+        if (target.isDragon() && GearVariants.dragonHunterWeaponFor(weaponItemId) != com.ospulse.combat.DragonHunterWeapon.NONE) {
+            return true;
+        }
+        return false;
+    }
+
+    /** The request's live weapon-slot item id, or {@code -1} if out of bounds/empty — used by the ammo-slot ranking exception. */
+    private static int weaponIdOf(Request request) {
+        int[] ids = request.liveItemIds;
+        return ids.length > WhatIfLoadout.WEAPON_SLOT ? ids[WhatIfLoadout.WEAPON_SLOT] : -1;
+    }
+
+    /** The prayer bonus of one item (0 if unknown), for the ammo-slot-ignored-by-weapon ranking exception. */
+    private static int prayerBonusOf(int itemId) {
+        com.ospulse.combat.EquipmentStatsRepository.Stats s = com.ospulse.combat.EquipmentStatsRepository.getInstance().statsFor(itemId);
+        return s == null ? 0 : s.prayer();
     }
 
     /** True when the weapon id's real combat options include a style of {@code type} ({@code null} type = no constraint). */

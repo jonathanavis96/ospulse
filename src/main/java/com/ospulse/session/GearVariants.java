@@ -38,7 +38,7 @@ import java.util.Set;
  * case is called out in a comment below; the numeric id is what was
  * verified, not the constant name.
  */
-final class GearVariants
+public final class GearVariants
 {
 	private GearVariants()
 	{
@@ -274,7 +274,7 @@ final class GearVariants
 	private static final int SCORCHING_BOW = 29591;
 
 	/** Maps a worn WEAPON-slot item id to the {@link DemonbaneWeapon} it is ({@link DemonbaneWeapon#NONE} if not demonbane). */
-	static DemonbaneWeapon demonbaneWeaponFor(int weaponItemId)
+	public static DemonbaneWeapon demonbaneWeaponFor(int weaponItemId)
 	{
 		switch (weaponItemId)
 		{
@@ -328,7 +328,7 @@ final class GearVariants
 	private static final int TOME_OF_EARTH = 30064;
 
 	/** Maps a worn WEAPON-slot item id to its {@link DragonHunterWeapon} ({@link DragonHunterWeapon#NONE} if not dragonbane). */
-	static DragonHunterWeapon dragonHunterWeaponFor(int weaponItemId)
+	public static DragonHunterWeapon dragonHunterWeaponFor(int weaponItemId)
 	{
 		switch (weaponItemId)
 		{
@@ -412,7 +412,7 @@ final class GearVariants
 	 * bundled equipment_index.min.json 2026-07-04: Toxic/Blazing/Drygore/
 	 * Camphor/Ironwood/Rosewood blowpipe, each with 1-2 ids per variant).
 	 */
-	static boolean isBlowpipe(int weaponItemId)
+	public static boolean isBlowpipe(int weaponItemId)
 	{
 		EquipmentIndexRepository.Entry entry = EquipmentIndexRepository.getInstance().entryFor(weaponItemId);
 		return entry != null && entry.name().toLowerCase(Locale.ROOT).contains("blowpipe");
