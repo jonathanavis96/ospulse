@@ -13,9 +13,9 @@ The gear calculator is auto‑filled from your worn gear, live boosted stats and
 
 - Live **max hit, accuracy, average hit, DPS and time‑to‑kill**, across the weapon's real in‑game attack styles, ranked by DPS with the best auto‑selected.
 - A searchable target monster (per‑style defence applied), plus on‑task, potion and prayer toggles.
-- Variant/effect handling: Salve (e)(i), Slayer helm/black mask (i), Void, demonbane and dragon hunter weapons, powered staves and standard/ancient spells, the elemental **tomes** (fire/water/earth) and the **blowpipe** (using the loaded dart).
+- Variant/effect handling: Salve (e)(i), Slayer helm/black mask (i), Void, demonbane and dragon hunter weapons, powered staves and standard/ancient spells, the elemental **tomes** (fire/water/earth) and the **blowpipe** (using whichever dart you set by right‑clicking the weapon in the gear panel).
 - **What‑if swaps:** click any slot, search an item, and see the DPS delta before committing.
-- **Gear optimiser:** "Find best setup" searches your owned and affordable items (with a GP budget) for the highest DPS, ranked by DPS‑per‑GP; include/exclude lists; apply the result to the readout. It also ranks the five damage‑type selectors (Stab/Slash/Crush/Ranged/Magic) by the best achievable DPS for each, so the strongest style is offered first.
+- **Gear optimiser:** "Find best setup" searches your owned and affordable items (with a GP budget) for the highest DPS, ranked by DPS‑per‑GP; include/exclude lists; apply the result to the readout. It also ranks the five damage‑type selectors (Stab/Slash/Crush/Ranged/Magic) by the best achievable DPS for each, so the strongest style is offered first. Ammo is **weapon‑compatible**: it only pairs arrows with bows, bolts with crossbows and so on (never, say, javelins on a bow), and each candidate weapon is trialled with its own best compatible ammo.
 - **Monster‑mechanic overrides:** pins items required by mechanics rather than raw DPS (e.g. **Insulated boots vs Rune dragons**, which reduce the lightning special‑attack damage) and shows the reason.
 
 Damage is calculated player‑vs‑monster (PvM); PvP is not modelled.
@@ -62,7 +62,9 @@ OSPulse is designed to make almost no network calls, and to be trivial for a rev
 **Session**
 - **Min loot value** — hide loot‑feed items below this GE value.
 - **Include rune pouch / looting bag** — count pouch/bag contents in tracked wealth.
-- **Blowpipe dart** — which dart the blowpipe is loaded with, so its max hit and DPS are computed correctly (default Dragon).
+- **Verbose diagnostics (dev)** — off by default; logs per‑update wealth attribution to help debug profit figures.
+
+The blowpipe's loaded dart is no longer a setting — set it by **right‑clicking the blowpipe in the gear panel** ("Set darts ▸").
 
 **Price trends (optional)** — *the only section that can cause a network call.*
 - **Enable price trends** — off by default; turns on the OSRS Wiki timeseries fetch described above.
