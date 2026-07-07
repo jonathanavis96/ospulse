@@ -85,7 +85,8 @@ public interface OSPulseConfig extends Config
 		keyName = "priceTrendEnabled",
 		name = "Enable price trends",
 		description = "OFF by default. When enabled, OSPulse fetches item price history from "
-			+ "prices.runescape.wiki to show whether your holdings are trending up or down.",
+			+ "prices.runescape.wiki to show whether your holdings are trending up or down. "
+			+ "Only the item id is sent; no account name or player data.",
 		position = 0,
 		section = priceTrendSection
 	)
