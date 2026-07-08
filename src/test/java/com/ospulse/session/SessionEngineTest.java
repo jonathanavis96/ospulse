@@ -1380,6 +1380,7 @@ public class SessionEngineTest
 	private static final int ADAMANT_ARROW = 890;
 	private static final int SHARK = 385;
 	private static final int RANARR = 207;
+	private static final int LEAPING_TROUT = 11328;
 	private static final int COOKED_KARAMBWAN = 3144;
 	private static final int TELEPORT_TO_HOUSE = 8013;
 
@@ -3043,6 +3044,73 @@ public class SessionEngineTest
 		assertEquals("bank true-up is net-worth-neutral",
 			beforeDeposit.getNetWorthDelta(), afterDepositSnap.getNetWorthDelta());
 		assertEquals("Loot unchanged by the bank deposit", 80_000L, afterDepositSnap.getLootValue());
+	}
+
+	@Test
+	public void barrelFishCatchIsLootAndLiftsNetWorthViaStorageFlag()
+	{
+		// A leaping trout caught into an OPEN fish barrel auto-stores directly:
+		// the inventory does NOT change and LEAPING_TROUT is not a herb-sack/gem-bag
+		// id, so it is the storageRouted flag alone that makes the synthetic receipt
+		// eligible for the stored-loot ledger. It must book as Loot AND lift net
+		// worth by the same value (Loot and net worth move together, no separate
+		// net-worth row).
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		SessionSnapshot start = engine.snapshot(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L),
+			0L, Collections.emptyMap(), 0L, 0L);
+
+		MovementSignals sig = MovementSignals.builder()
+			.lootReceived(new LootReceipt(LEAPING_TROUT, 5L, 60L, true)).build();
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			(GeAttributions) null, sig, 1000L);
+
+		SessionSnapshot s = engine.snapshot(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("barrel fish are booked as Loot", 300L, s.getLootValue());
+		assertEquals("barrel fish lift net worth by the same amount (held in stored-loot)",
+			start.getNetWorthDelta() + 300L, s.getNetWorthDelta());
+	}
+
+	@Test
+	public void nonStorageRoutedNonSackReceiptIsNotBookedToLedger()
+	{
+		// The storageRouted flag is REQUIRED for a non-sack id: a plain receipt for
+		// the same fish id that does not land in the inventory must book nothing
+		// (no phantom stored-loot), so only barrel-confirmed catches ever count.
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		MovementSignals sig = MovementSignals.builder()
+			.lootReceived(new LootReceipt(LEAPING_TROUT, 5L, 60L)).build();
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			(GeAttributions) null, sig, 1000L);
+
+		SessionSnapshot s = engine.snapshot(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("only storageRouted receipts of a non-sack id enter the ledger",
+			0L, s.getLootValue());
+	}
+
+	@Test
+	public void barrelFishEmptiedToInventoryIsNeutral()
+	{
+		// Emptying the barrel to the inventory is a transfer of already-counted
+		// loot from the ledger into tracked wealth: Loot and net worth must both
+		// be unchanged (the appeared-loop stored-loot drawdown nets it out).
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			(GeAttributions) null,
+			MovementSignals.builder().lootReceived(new LootReceipt(LEAPING_TROUT, 5L, 60L, true)).build(), 1000L);
+		SessionSnapshot afterCatch = engine.snapshot(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			0L, Collections.emptyMap(), 0L, 1000L);
+
+		Map<Integer, ItemStack> inv = items(new ItemStack(LEAPING_TROUT, "Leaping trout", 5L, 60L));
+		engine.update(snap(10_000_300L, inv, 0L, false, 2000L), Collections.emptySet(), 2000L);
+		SessionSnapshot afterEmpty = engine.snapshot(snap(10_000_300L, inv, 0L, false, 2000L),
+			0L, Collections.emptyMap(), 0L, 2000L);
+
+		assertEquals("emptying to inventory is not fresh loot",
+			afterCatch.getLootValue(), afterEmpty.getLootValue());
+		assertEquals("emptying to inventory is net-worth-neutral",
+			afterCatch.getNetWorthDelta(), afterEmpty.getNetWorthDelta());
 	}
 
 	@Test

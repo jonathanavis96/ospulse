@@ -2023,7 +2023,11 @@ public final class SessionEngine
 		// pickups net-neutral.
 		for (LootReceipt r : signals.lootReceipts())
 		{
-			if (!SACK_ROUTED_ITEM_IDS.contains(r.itemId))
+			// Eligible if the caller pre-classified it as storage-routed (the fish
+			// barrel's inferred catches, which fire no real LootReceived) or it is a
+			// known herb-sack/gem-bag id. The same-tick inventory-landing check
+			// below still guards both against a receipt that actually landed.
+			if (!r.storageRouted && !SACK_ROUTED_ITEM_IDS.contains(r.itemId))
 			{
 				continue;
 			}

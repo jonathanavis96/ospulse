@@ -139,10 +139,11 @@ public class FishBarrelTracker
 	/**
 	 * True once tracking has lost confidence in {@link #holding} (e.g. the bank
 	 * couldn't take all the fish, or the barrel filled with fish whose exact
-	 * type split we can't attribute). While true, callers must NOT let the
-	 * barrel's wealth contribution move off its last-known value — see
-	 * {@link SessionTracker#accumulateFishBarrel} — until a Check-widget resync
-	 * (see {@link #onWidgetLoaded}) restores a known state.
+	 * type split we can't attribute). Kept accurate so the capacity/full
+	 * inference in {@link #addToBarrel} — which decides whether a catch is
+	 * barrel-routed (booked as loot) or overflows to the inventory — stays
+	 * correct; a Check-widget resync (see {@link #onWidgetLoaded}) restores a
+	 * known state.
 	 */
 	private boolean unknown = true;
 
@@ -153,6 +154,16 @@ public class FishBarrelTracker
 	private final List<Integer> fishCaughtThisTick = new ArrayList<>();
 	private int newFishInInventoryThisTick;
 	private int cookingXpDropsThisTick;
+
+	/**
+	 * Per-species count of fish actually stored INTO the barrel from catches since
+	 * the last {@link #drainCaughtToBarrel()} — cook-adjusted, capacity-capped, and
+	 * only ever populated by {@link #addToBarrel} (never a Fill of pre-owned
+	 * inventory fish, nor catches that overflowed to the inventory). The session
+	 * tracker drains this once per tick to book barrel catches as storage-routed
+	 * loot, so Loot and net worth rise together with no separate net-worth row.
+	 */
+	private final Map<Integer, Integer> caughtToBarrelThisTick = new LinkedHashMap<>();
 
 	private final Map<BarrelAction, Integer> lastActionTick = new HashMap<>();
 
@@ -170,6 +181,21 @@ public class FishBarrelTracker
 	public Map<Integer, Integer> holdingSnapshot()
 	{
 		return new LinkedHashMap<>(holding);
+	}
+
+	/**
+	 * Returns and clears the per-species fish stored into the barrel from catches
+	 * since the last call, so the caller can book them as storage-routed loot.
+	 * Call once per game tick, immediately after {@link #onTick()}. Excludes Fill
+	 * (pre-owned inventory fish moved in), infernal-harpoon-cooked fish, and any
+	 * catch that overflowed into the inventory — none of those reach
+	 * {@link #addToBarrel}, so they are booked by the normal inventory diff instead.
+	 */
+	public Map<Integer, Integer> drainCaughtToBarrel()
+	{
+		Map<Integer, Integer> out = new LinkedHashMap<>(caughtToBarrelThisTick);
+		caughtToBarrelThisTick.clear();
+		return out;
 	}
 
 	/**
@@ -193,6 +219,7 @@ public class FishBarrelTracker
 		fishCaughtThisTick.clear();
 		newFishInInventoryThisTick = 0;
 		cookingXpDropsThisTick = 0;
+		caughtToBarrelThisTick.clear();
 		lastActionTick.clear();
 	}
 
@@ -407,10 +434,8 @@ public class FishBarrelTracker
 				// tells us the DELTA is right, not that the running total is —
 				// #unknown is reserved for signals that positively confirm the
 				// whole barrel (Check resync, Empty, hitting Full), so a fresh
-				// login stays "unknown" (freezing the barrel's wealth
-				// contribution — see SessionTracker#accumulateFishBarrel) until
-				// one of those actually happens, however many clean catches occur
-				// in between.
+				// login stays "unknown" until one of those actually happens,
+				// however many clean catches occur in between.
 				int cookedAway = Math.min(cookingXpDropsThisTick, fishCaughtThisTick.size());
 				List<Integer> toCredit = cookedAway > 0
 					? fishCaughtThisTick.subList(0, fishCaughtThisTick.size() - cookedAway)
@@ -478,6 +503,10 @@ public class FishBarrelTracker
 		int add = Math.min(room, qty);
 		holding.merge(fishId, add, Integer::sum);
 		totalHolding += add;
+		if (add > 0)
+		{
+			caughtToBarrelThisTick.merge(fishId, add, Integer::sum);
+		}
 		if (add < qty)
 		{
 			// Ran out of room mid-credit: the barrel is now full but we can't be
@@ -489,11 +518,10 @@ public class FishBarrelTracker
 	/**
 	 * Records that the barrel is known to be at capacity, but not necessarily
 	 * with the exact species split we're currently holding — always marks
-	 * {@link #unknown} so {@link SessionTracker#accumulateFishBarrel} freezes
-	 * the wealth contribution rather than trusting a possibly-stale per-species
-	 * breakdown, until a Check resync (see {@link #onWidgetLoaded}) restores it.
-	 * Existing per-species entries are kept as-is (not wiped) so the resync has
-	 * a sane multiset to replace rather than an empty one.
+	 * {@link #unknown} until a Check resync (see {@link #onWidgetLoaded})
+	 * restores the exact per-species breakdown. Existing per-species entries are
+	 * kept as-is (not wiped) so the resync has a sane multiset to replace rather
+	 * than an empty one.
 	 */
 	private void capAtFull()
 	{

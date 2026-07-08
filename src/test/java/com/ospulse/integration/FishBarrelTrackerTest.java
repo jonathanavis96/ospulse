@@ -309,4 +309,52 @@ public class FishBarrelTrackerTest
 		assertTrue(tracker.holdingSnapshot().isEmpty());
 		assertTrue(tracker.isUnknown());
 	}
+
+	// ------------------------------------------------- caught-to-barrel feed
+
+	@Test
+	public void drainCaughtToBarrelReturnsThisTickCatchesThenClears()
+	{
+		openBarrelInInventory();
+		tracker.onChatMessage(ChatMessageType.SPAM, "You catch a shark.");
+		tracker.onTick();
+
+		// The session tracker drains this once per tick to synthesise the
+		// storage-routed loot receipts that lift Loot + net worth.
+		assertEquals(Map.of(ItemID.RAW_SHARK, 1), tracker.drainCaughtToBarrel());
+		// A second drain in the same tick yields nothing (already consumed).
+		assertTrue(tracker.drainCaughtToBarrel().isEmpty());
+	}
+
+	@Test
+	public void cookedCatchIsExcludedFromTheBarrelFeed()
+	{
+		openBarrelInInventory();
+		// Two catches, one auto-cooked by an infernal harpoon: only one raw fish
+		// actually reaches the barrel, so only one is booked as loot.
+		tracker.onChatMessage(ChatMessageType.SPAM, "You catch a shark.");
+		tracker.onChatMessage(ChatMessageType.SPAM, "You catch a shark.");
+		tracker.onCookingXpGained();
+		tracker.onTick();
+
+		assertEquals(Map.of(ItemID.RAW_SHARK, 1), tracker.drainCaughtToBarrel());
+	}
+
+	@Test
+	public void catchesOverflowingToInventoryAreNotInTheBarrelFeed()
+	{
+		// Barrel full: a catch lands in the inventory instead of the barrel, so
+		// it must NOT be fed as storage-routed loot — the engine's normal
+		// inventory diff books it, and double-booking here would over-count Loot.
+		openBarrelInInventory();
+		ItemContainer barrelPlusShark = containerWith(
+			new Item(ItemID.FISH_BARREL_OPEN, 1), new Item(ItemID.RAW_SHARK, 1));
+		when(client.getItemContainer(InventoryID.INVENTORY)).thenReturn(barrelPlusShark);
+		tracker.onItemContainerChanged(InventoryID.INVENTORY.getId(), barrelPlusShark);
+		tracker.onChatMessage(ChatMessageType.SPAM, "You catch a shark.");
+		tracker.onTick();
+
+		assertTrue("a catch that overflowed to the inventory is not barrel loot",
+			tracker.drainCaughtToBarrel().isEmpty());
+	}
 }

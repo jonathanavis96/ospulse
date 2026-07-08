@@ -30,14 +30,6 @@ public final class WealthSnapshot
 	 */
 	private final long geCollectableValue;
 	private final long pouchValue;
-	/**
-	 * Value of fish inferred to be stored in an open Fish barrel / Fish sack
-	 * barrel — see {@code com.ospulse.integration.FishBarrelTracker}. Barreled
-	 * fish never pass through the inventory and fire no loot event, so this is
-	 * folded into tracked wealth the same way pouch contents are, rather than
-	 * being invisible until the barrel is emptied to the bank.
-	 */
-	private final long barrelValue;
 	private final long bankValue;
 	private final boolean bankKnown;
 	private final long timestampMs;
@@ -86,7 +78,7 @@ public final class WealthSnapshot
 		Map<Integer, ItemStack> trackedItems,
 		Map<Integer, ItemStack> allHoldings)
 	{
-		this(inventoryValue, equipmentValue, geInFlightValue, 0L, pouchValue, 0L, bankValue,
+		this(inventoryValue, equipmentValue, geInFlightValue, 0L, pouchValue, bankValue,
 			bankKnown, timestampMs, topHoldings, trackedItems, allHoldings);
 	}
 
@@ -96,7 +88,6 @@ public final class WealthSnapshot
 		long geInFlightValue,
 		long geCollectableValue,
 		long pouchValue,
-		long barrelValue,
 		long bankValue,
 		boolean bankKnown,
 		long timestampMs,
@@ -109,7 +100,6 @@ public final class WealthSnapshot
 		this.geInFlightValue = geInFlightValue;
 		this.geCollectableValue = geCollectableValue;
 		this.pouchValue = pouchValue;
-		this.barrelValue = barrelValue;
 		this.bankValue = bankValue;
 		this.bankKnown = bankKnown;
 		this.timestampMs = timestampMs;
@@ -154,12 +144,6 @@ public final class WealthSnapshot
 		return pouchValue;
 	}
 
-	/** Value of fish inferred to be held in an open fish barrel. See {@link #barrelValue}. */
-	public long getBarrelValue()
-	{
-		return barrelValue;
-	}
-
 	public long getBankValue()
 	{
 		return bankValue;
@@ -199,11 +183,13 @@ public final class WealthSnapshot
 	/**
 	 * Wealth that can move without a bank visit: inventory + equipment +
 	 * GE-in-flight (still locked) + GE-collectable (awaiting collection) +
-	 * pouches + fish barrel.
+	 * pouches. Fish-barrel contents are NOT here: they are booked as loot and
+	 * held in the engine's stored-loot ledger (see {@code FishBarrelTracker} and
+	 * {@code SessionEngine}), which lifts net worth without a separate row.
 	 */
 	public long tracked()
 	{
-		return inventoryValue + equipmentValue + geInFlightValue + geCollectableValue + pouchValue + barrelValue;
+		return inventoryValue + equipmentValue + geInFlightValue + geCollectableValue + pouchValue;
 	}
 
 	/**
@@ -223,7 +209,6 @@ public final class WealthSnapshot
 		private long geInFlightValue;
 		private long geCollectableValue;
 		private long pouchValue;
-		private long barrelValue;
 		private long bankValue;
 		private boolean bankKnown;
 		private long timestampMs;
@@ -259,13 +244,6 @@ public final class WealthSnapshot
 		public Builder pouchValue(long pouchValue)
 		{
 			this.pouchValue = pouchValue;
-			return this;
-		}
-
-		/** Fish barrel contribution — see {@link WealthSnapshot#getBarrelValue()}. */
-		public Builder barrelValue(long barrelValue)
-		{
-			this.barrelValue = barrelValue;
 			return this;
 		}
 
@@ -314,7 +292,6 @@ public final class WealthSnapshot
 				geInFlightValue,
 				geCollectableValue,
 				pouchValue,
-				barrelValue,
 				bankValue,
 				bankKnown,
 				timestampMs,
