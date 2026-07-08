@@ -4,8 +4,9 @@ import java.util.regex.Pattern;
 
 /**
  * Classifies tracked items as "supplies" (consumables typically burned through
- * during a session: potions, food, ammunition, runes) using a small,
- * data-light set of name patterns rather than a large hardcoded item-id list.
+ * during a session: potions, food, ammunition, runes, fishing bait) using a
+ * small, data-light set of name patterns rather than a large hardcoded item-id
+ * list.
  *
  * <p>This is deliberately a heuristic, not an exhaustive taxonomy:
  * <ul>
@@ -66,6 +67,16 @@ public final class SupplyClassifier
 		"(?i)^(teleport to [\\w' ]+|[\\w' ]+ teleport)\\s*(tablet)?$");
 
 	/**
+	 * Fishing bait and other single-use fishing consumables burned per catch:
+	 * feathers (incl. coloured fletching feathers, all consumed the same way),
+	 * fishing bait, sandworms, fish offcuts and raw karambwanji. Anchored at the
+	 * word end so it catches "Stripy feather" but not fishing TOOLS ("Fishing
+	 * rod", "Small fishing net", "Dragon harpoon") which merely share a theme.
+	 */
+	private static final Pattern BAIT_PATTERN = Pattern.compile(
+		"(?i).*\\b(feathers?|fishing bait|sandworms?|fish offcuts|raw karambwanji)$");
+
+	/**
 	 * Generic fallback for any 1-4 dose consumable (potions, brews, restores,
 	 * etc.) whose base name isn't otherwise recognised by {@link
 	 * #POTION_PATTERN}. Bounded to doses 1-4 deliberately: charged jewellery
@@ -82,8 +93,8 @@ public final class SupplyClassifier
 
 	/**
 	 * @return true if {@code itemName} looks like a consumable supply item
-	 *         (potion, food, ammunition, rune or teleport tablet) worth
-	 *         tracking as "supplies used" when its quantity decreases.
+	 *         (potion, food, ammunition, rune, fishing bait or teleport tablet)
+	 *         worth tracking as "supplies used" when its quantity decreases.
 	 */
 	public static boolean isConsumable(String itemName)
 	{
@@ -96,6 +107,7 @@ public final class SupplyClassifier
 			|| AMMO_PATTERN.matcher(trimmed).matches()
 			|| RUNE_PATTERN.matcher(trimmed).matches()
 			|| FOOD_PATTERN.matcher(trimmed).matches()
+			|| BAIT_PATTERN.matcher(trimmed).matches()
 			|| TELEPORT_PATTERN.matcher(trimmed).matches()
 			|| DOSE_PATTERN.matcher(trimmed).matches();
 	}

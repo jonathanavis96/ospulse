@@ -3114,6 +3114,67 @@ public class SessionEngineTest
 	}
 
 	@Test
+	public void barrelFishEmptiedToBankWhileOpenIsNeutral()
+	{
+		// The barrel is just another stored-loot entry, so emptying it at an OPEN
+		// bank trues up against the bank rise exactly like a herb sack.
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			(GeAttributions) null,
+			MovementSignals.builder().lootReceived(new LootReceipt(LEAPING_TROUT, 100L, 60L, true)).build(), 1000L);
+
+		WealthSnapshot atOpen = snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 2000L);
+		engine.setBankOpen(true, atOpen, 2000L);
+		SessionSnapshot beforeDeposit = engine.snapshot(atOpen, 0L, Collections.emptyMap(), 0L, 2000L);
+
+		// Empty barrel to bank: bank rises by 6,000, stored-loot cleared.
+		WealthSnapshot afterDeposit = snap(10_000_000L, Collections.emptyMap(), 20_006_000L, true, 3000L);
+		engine.update(afterDeposit, Collections.emptySet(), 3000L);
+		SessionSnapshot s = engine.snapshot(afterDeposit, 0L, Collections.emptyMap(), 0L, 3000L);
+
+		assertEquals("bank true-up is net-worth-neutral",
+			beforeDeposit.getNetWorthDelta(), s.getNetWorthDelta());
+		assertEquals("Loot unchanged by the bank deposit", 6_000L, s.getLootValue());
+	}
+
+	@Test
+	public void barrelFishEmptiedToDepositBoxTruesUpAtNextBankOpen()
+	{
+		// Barrel loot deposited while the bank is CLOSED (a deposit box): the bank
+		// rise is only seen at the next open. The shared deposit-box path must true
+		// up the stored-loot ledger so later genuine loot of the same fish is not
+		// eaten by a stale ledger (I-1) — the barrel inherits this for free.
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+
+		WealthSnapshot atOpen = snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 100L);
+		engine.setBankOpen(true, atOpen, 100L);
+		engine.snapshot(atOpen, 0L, Collections.emptyMap(), 0L, 100L);
+		engine.setBankOpen(false, snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 200L), 200L);
+
+		// 100 leaping trout stored in the barrel (+6,000 Loot, held in the ledger).
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 1_000L),
+			(GeAttributions) null,
+			MovementSignals.builder().lootReceived(new LootReceipt(LEAPING_TROUT, 100L, 60L, true)).build(), 1_000L);
+
+		// Barrel emptied into a deposit box: +6,000 bank reading first arrives at
+		// the next open, beyond the post-close grace window.
+		WealthSnapshot nextOpen = snap(10_000_000L, Collections.emptyMap(), 20_006_000L, true, 60_000L);
+		engine.setBankOpen(true, nextOpen, 60_000L);
+		engine.setBankOpen(false, snap(10_000_000L, Collections.emptyMap(), 20_006_000L, true, 60_100L), 60_100L);
+
+		// Later, GENUINE leaping trout land in the inventory: fresh loot, not a
+		// storage-empty to net out against a stale ledger.
+		Map<Integer, ItemStack> inv = items(new ItemStack(LEAPING_TROUT, "Leaping trout", 100L, 60L));
+		WealthSnapshot afterLoot = snap(10_006_000L, inv, 20_006_000L, true, 70_000L);
+		engine.update(afterLoot, Collections.emptySet(), 70_000L);
+		SessionSnapshot s = engine.snapshot(afterLoot, 0L, Collections.emptyMap(), 0L, 70_000L);
+
+		assertEquals("genuine barrel loot after a deposit-box empty is not eaten by the stale ledger",
+			12_000L, s.getLootValue());
+		assertEquals("net worth rose by both loot events", 12_000L, s.getNetWorthDelta());
+	}
+
+	@Test
 	public void depositBoxSackEmptyTruesUpStoredLootAtNextBankOpen()
 	{
 		// I-1: emptying a storage sack into a DEPOSIT BOX happens with the bank
