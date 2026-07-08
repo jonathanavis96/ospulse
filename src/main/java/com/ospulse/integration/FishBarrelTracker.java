@@ -165,6 +165,15 @@ public class FishBarrelTracker
 	 */
 	private final Map<Integer, Integer> caughtToBarrelThisTick = new LinkedHashMap<>();
 
+	/**
+	 * Per-species fish emptied OUT of the barrel straight into the bank since the
+	 * last {@link #drainEmptied()} (a bank/deposit-box "Empty" — barrel fish never
+	 * pass through the inventory). Drained once per tick so the session tracker can
+	 * tell the engine exactly which stored-loot entries materialise in the bank,
+	 * instead of leaving it to attribute an id-blind bank-value rise.
+	 */
+	private final Map<Integer, Integer> emptiedThisTick = new LinkedHashMap<>();
+
 	private final Map<BarrelAction, Integer> lastActionTick = new HashMap<>();
 
 	private enum BarrelAction
@@ -199,6 +208,32 @@ public class FishBarrelTracker
 	}
 
 	/**
+	 * Returns and clears the per-species fish emptied from the barrel into the
+	 * bank since the last call. Call once per game tick, immediately after
+	 * {@link #onTick()} (alongside {@link #drainCaughtToBarrel()}).
+	 */
+	public Map<Integer, Integer> drainEmptied()
+	{
+		Map<Integer, Integer> out = new LinkedHashMap<>(emptiedThisTick);
+		emptiedThisTick.clear();
+		return out;
+	}
+
+	/**
+	 * Snapshots the current {@link #holding} into {@link #emptiedThisTick} before
+	 * an Empty clears it, so the exact materialised contents survive for the
+	 * session tracker to drain. Idempotent: once holding is cleared, a second
+	 * empty signal the same tick adds nothing.
+	 */
+	private void captureEmptied()
+	{
+		for (Map.Entry<Integer, Integer> e : holding.entrySet())
+		{
+			emptiedThisTick.merge(e.getKey(), e.getValue(), Integer::sum);
+		}
+	}
+
+	/**
 	 * True while tracking has lost confidence in the exact barrel contents.
 	 * Callers should freeze the barrel's wealth contribution at its last-known
 	 * value rather than let it jump, to avoid a phantom profit/loss spike.
@@ -220,6 +255,7 @@ public class FishBarrelTracker
 		newFishInInventoryThisTick = 0;
 		cookingXpDropsThisTick = 0;
 		caughtToBarrelThisTick.clear();
+		emptiedThisTick.clear();
 		lastActionTick.clear();
 	}
 
@@ -258,6 +294,7 @@ public class FishBarrelTracker
 			}
 			else if (BANK_EMPTY_MESSAGE.equals(message) || CONTAINERS_EMPTY_MESSAGE.equals(message))
 			{
+				captureEmptied();
 				holding.clear();
 				totalHolding = 0;
 				unknown = false;
@@ -454,6 +491,7 @@ public class FishBarrelTracker
 		}
 		else if (recentlyActioned(BarrelAction.EMPTY))
 		{
+			captureEmptied();
 			holding.clear();
 			totalHolding = 0;
 			unknown = false;

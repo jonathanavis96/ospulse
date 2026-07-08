@@ -6,6 +6,7 @@ import com.ospulse.ge.GeReconciler;
 import com.ospulse.model.ItemStack;
 import com.ospulse.wealth.WealthSnapshot;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.Collections;
@@ -27,6 +28,7 @@ public class SessionEngineTest
 	private static final int BIRD_NEST = 5075;
 	private static final int BATTLESTAFF = 1391;
 	private static final int BARLEY_SEED = 5305;
+	private static final int UNCUT_DIAMOND = 1617;
 
 	private SessionEngine engine;
 
@@ -3090,27 +3092,31 @@ public class SessionEngineTest
 	}
 
 	@Test
-	public void barrelFishEmptiedToInventoryIsNeutral()
+	public void barrelFishOverflowToInventoryIsFreshLoot()
 	{
-		// Emptying the barrel to the inventory is a transfer of already-counted
-		// loot from the ledger into tracked wealth: Loot and net worth must both
-		// be unchanged (the appeared-loop stored-loot drawdown nets it out).
+		// The barrel can ONLY be emptied at a bank/deposit box (fish go straight to
+		// the bank), so a barrel-fish id appearing in the INVENTORY is never a
+		// storage-empty — it is a fresh OVERFLOW catch once the barrel is full. It
+		// must book as fresh loot, NOT be netted out against the held ledger entry
+		// for the fish still in the barrel (that interception was a real regression:
+		// full-barrel overflow catches stopped counting).
 		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
 		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
 			(GeAttributions) null,
 			MovementSignals.builder().lootReceived(new LootReceipt(LEAPING_TROUT, 5L, 60L, true)).build(), 1000L);
 		SessionSnapshot afterCatch = engine.snapshot(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
 			0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("5 barrel fish booked as loot", 300L, afterCatch.getLootValue());
 
+		// Barrel full; the next 5 of the same species overflow into the inventory.
 		Map<Integer, ItemStack> inv = items(new ItemStack(LEAPING_TROUT, "Leaping trout", 5L, 60L));
 		engine.update(snap(10_000_300L, inv, 0L, false, 2000L), Collections.emptySet(), 2000L);
-		SessionSnapshot afterEmpty = engine.snapshot(snap(10_000_300L, inv, 0L, false, 2000L),
+		SessionSnapshot afterOverflow = engine.snapshot(snap(10_000_300L, inv, 0L, false, 2000L),
 			0L, Collections.emptyMap(), 0L, 2000L);
 
-		assertEquals("emptying to inventory is not fresh loot",
-			afterCatch.getLootValue(), afterEmpty.getLootValue());
-		assertEquals("emptying to inventory is net-worth-neutral",
-			afterCatch.getNetWorthDelta(), afterEmpty.getNetWorthDelta());
+		assertEquals("overflow catch books as fresh loot, not netted against the barrel ledger",
+			600L, afterOverflow.getLootValue());
+		assertIdentity("after barrel-fish overflow to inventory", afterOverflow);
 	}
 
 	@Test
@@ -3265,5 +3271,126 @@ public class SessionEngineTest
 			80_000L, s.getNetProfit());
 		assertEquals("net worth delta reflects only the 80k sack loot",
 			80_000L, s.getNetWorthDelta());
+	}
+
+	/**
+	 * The core accounting identity: net worth delta must equal realised loot
+	 * minus supplies used, plus GE flip P&L and unrealised paper gains. When it
+	 * drifts, value is leaking (undercount) or being booked twice (overcount).
+	 */
+	private static void assertIdentity(String msg, SessionSnapshot s)
+	{
+		assertEquals(msg + " [netWorthDelta == loot - supplies + geRealizedPnl + unrealizedPnl]",
+			s.getNetWorthDelta(),
+			s.getLootValue() - s.getSuppliesUsed() + s.getGeRealizedPnl() + s.getUnrealizedPnl());
+	}
+
+	@Test
+	@Ignore("I-3 (known follow-up): value-only bank-rise true-up cannot attribute a "
+		+ "deposit-box materialisation across multiple outstanding stored ids. A sound "
+		+ "fix needs id+qty-level storage-empty signals. See Technical note KNOWN FOLLOW-UPS.")
+	public void depositBoxCrossContainerEmptyKeepsIdentity()
+	{
+		// Two DIFFERENT storage containers outstanding at once (herb sack + gem
+		// bag). One is emptied into a DEPOSIT BOX (bank-closed, value-only bank
+		// true-up), the other into the INVENTORY (qty-exact per-id drawdown).
+		// The value-only bank true-up draws greedily across ids by insertion
+		// order, so it can debit the WRONG container — leaving the emptied one
+		// double-counted (in the bank AND still in the ledger) and breaking the
+		// accounting identity.
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+
+		// Anchor the bank at 20M, then close.
+		WealthSnapshot atOpen = snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 100L);
+		engine.setBankOpen(true, atOpen, 100L);
+		engine.snapshot(atOpen, 0L, Collections.emptyMap(), 0L, 100L);
+		engine.setBankOpen(false, snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 200L), 200L);
+
+		// Herb sack fills FIRST (10 ranarr @ 8k = 80k), so it is the first ledger
+		// entry the greedy bank drawdown will hit.
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 1_000L),
+			(GeAttributions) null,
+			MovementSignals.builder().lootReceived(new LootReceipt(RANARR, 10L, 8_000L)).build(), 1_000L);
+		// Gem bag fills second (5 uncut diamonds @ 2k = 10k).
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 1_500L),
+			(GeAttributions) null,
+			MovementSignals.builder().lootReceived(new LootReceipt(UNCUT_DIAMOND, 5L, 2_000L)).build(), 1_500L);
+
+		// Empty ONLY the gem bag into a deposit box: +10k bank reading first
+		// arrives at the next open, beyond the post-close grace window.
+		WealthSnapshot nextOpen = snap(10_000_000L, Collections.emptyMap(), 20_010_000L, true, 60_000L);
+		engine.setBankOpen(true, nextOpen, 60_000L);
+		engine.setBankOpen(false, snap(10_000_000L, Collections.emptyMap(), 20_010_000L, true, 60_100L), 60_100L);
+
+		// Now empty the HERB SACK into the inventory (bank closed): 10 ranarr
+		// land in tracked wealth, qty-matched against the ledger.
+		Map<Integer, ItemStack> inv = items(new ItemStack(RANARR, "Grimy ranarr", 10L, 8_000L));
+		WealthSnapshot afterEmpty = snap(10_080_000L, inv, 20_010_000L, true, 70_000L);
+		engine.update(afterEmpty, Collections.emptySet(), 70_000L);
+		SessionSnapshot s = engine.snapshot(afterEmpty, 0L, Collections.emptyMap(), 0L, 70_000L);
+
+		assertIdentity("cross-container deposit-box empty", s);
+		assertEquals("both containers' contents are booked as loot exactly once",
+			90_000L, s.getLootValue());
+		assertEquals("net worth rose by both loot events, no double count",
+			90_000L, s.getNetWorthDelta());
+	}
+
+	@Test
+	public void barrelDepositBoxEmptyWithSignalIsExactUnderPriceDriftAndOverflow()
+	{
+		// The fish barrel emits an EXACT storage-empty signal (id + qty) when
+		// emptied at a bank/deposit box. The engine parks those precise entries in
+		// the materialising buffer, so the bank rise draws them exactly — even when
+		// the deposited stack is valued differently from the catch price — and, being
+		// bank-bound, they are NOT netted against a later OVERFLOW catch that lands in
+		// the inventory (which must book as fresh loot). Without the signal a
+		// value-only bank true-up left a qty-desynced residue in storedLoot that
+		// swallowed the overflow catch (permanent undercount, I-3).
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+
+		// Anchor bank at 20M, then close (a deposit-box trip is a closed-bank empty).
+		WealthSnapshot atOpen = snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 100L);
+		engine.setBankOpen(true, atOpen, 100L);
+		engine.snapshot(atOpen, 0L, Collections.emptyMap(), 0L, 100L);
+		engine.setBankOpen(false, snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 200L), 200L);
+
+		// 100 trout stored in the barrel (+6,000 Loot, held in the ledger).
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 1_000L),
+			(GeAttributions) null,
+			MovementSignals.builder().lootReceived(new LootReceipt(LEAPING_TROUT, 100L, 60L, true)).build(), 1_000L);
+
+		// Emptied into a deposit box with the exact-contents signal: the 100 trout
+		// move to the materialising buffer, awaiting the bank rise. Bank still closed.
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 2_000L),
+			(GeAttributions) null,
+			MovementSignals.builder().storageEmptied(LEAPING_TROUT, 100L).build(), 2_000L);
+		assertIdentity("after barrel emptied to deposit box (materialising, bank not yet risen)",
+			engine.snapshot(snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 2_100L),
+				0L, Collections.emptyMap(), 0L, 2_100L));
+
+		// The bank reading arrives at the next open valuing the stack at only 5,000
+		// (a 1,000 reprice down between catch and deposit). The materialising buffer
+		// is drawn exactly; the price delta is a revaluation, not phantom loot.
+		WealthSnapshot nextOpen = snap(10_000_000L, Collections.emptyMap(), 20_005_000L, true, 60_000L);
+		engine.setBankOpen(true, nextOpen, 60_000L);
+		engine.setBankOpen(false, snap(10_000_000L, Collections.emptyMap(), 20_005_000L, true, 60_100L), 60_100L);
+		SessionSnapshot afterDeposit = engine.snapshot(
+			snap(10_000_000L, Collections.emptyMap(), 20_005_000L, true, 60_200L),
+			0L, Collections.emptyMap(), 0L, 60_200L);
+		assertIdentity("after deposit-box empty under price drift", afterDeposit);
+		assertEquals("Loot stays the booked catch value, not the repriced bank figure",
+			6_000L, afterDeposit.getLootValue());
+
+		// A later OVERFLOW catch lands in the inventory (barrel full): genuine fresh
+		// loot, NOT swallowed by the already-banked materialising entries.
+		Map<Integer, ItemStack> inv = items(new ItemStack(LEAPING_TROUT, "Leaping trout", 1L, 60L));
+		WealthSnapshot afterOverflow = snap(10_000_060L, inv, 20_005_000L, true, 70_000L);
+		engine.update(afterOverflow, Collections.emptySet(), 70_000L);
+		SessionSnapshot s = engine.snapshot(afterOverflow, 0L, Collections.emptyMap(), 0L, 70_000L);
+
+		assertIdentity("after overflow catch lands in inventory", s);
+		assertEquals("overflow catch books as fresh loot, not eaten by a stale ledger",
+			6_060L, s.getLootValue());
 	}
 }

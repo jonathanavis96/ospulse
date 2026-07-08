@@ -232,6 +232,14 @@ public class SessionTracker implements SessionService
 				pendingSignals.lootReceived(
 					new com.ospulse.session.LootReceipt(canonicalId, caught.getValue(), unit, true));
 			}
+			// Barrel emptied into the bank/deposit box this tick: tell the engine the
+			// exact stored-loot entries that materialise in the bank (keyed the same
+			// canonical way as the catches above), so the bank-value rise draws those
+			// precise entries instead of an id-blind, qty-desyncing value heuristic.
+			for (Map.Entry<Integer, Integer> emptied : fishBarrelTracker.drainEmptied().entrySet())
+			{
+				pendingSignals.storageEmptied(valuation.canonical(emptied.getKey()), emptied.getValue());
+			}
 		}
 		refresh(ts);
 	}

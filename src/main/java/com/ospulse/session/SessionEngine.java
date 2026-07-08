@@ -226,6 +226,21 @@ public final class SessionEngine
 	 */
 	private final Map<Integer, StoredLoot> storedLoot = new LinkedHashMap<>();
 	/**
+	 * Stored loot that has been emptied straight into the bank (a fish barrel
+	 * emptied at a bank/deposit box — signalled by {@link MovementSignals#storageEmptied})
+	 * and is awaiting the matching bank-value rise. Moved here out of
+	 * {@link #storedLoot} at the empty so net worth stays flat during the
+	 * closed-bank reading lag (both maps fold into {@link #heldStoredValue}), then
+	 * drawn EXACTLY (id + qty the tracker reported) by the bank rise via
+	 * {@link #drawStorageMaterialising} — no id-blind, qty-desyncing value guess.
+	 * <p>Kept separate from {@link #storedLoot} precisely because these entries are
+	 * bank-bound: the appeared-loop STORAGE-EMPTY drawdown only consults
+	 * {@link #storedLoot}, so a barrel's later overflow catch landing in the
+	 * inventory books as fresh loot instead of being netted against a materialising
+	 * (already-banked) entry.
+	 */
+	private final Map<Integer, StoredLoot> storageMaterialising = new LinkedHashMap<>();
+	/**
 	 * Item ids that genuinely route to a non-readable storage sack when looted,
 	 * so a {@code LootReceived} for them can legitimately never touch the
 	 * inventory diff: grimy herbs (herb sack) and uncut gems (gem bag). ONLY
@@ -264,6 +279,89 @@ public final class SessionEngine
 			total += s.value;
 		}
 		return total;
+	}
+
+	/**
+	 * Held value of stored loot still awaiting its bank rise after being emptied
+	 * to the bank (see {@link #storageMaterialising}).
+	 */
+	private long storageMaterialisingValue()
+	{
+		long total = 0L;
+		for (StoredLoot s : storageMaterialising.values())
+		{
+			total += s.value;
+		}
+		return total;
+	}
+
+	/**
+	 * Total stored-loot value folded into net worth / mark-to-market: loot still
+	 * in a container ({@link #storedLoot}) plus loot emptied to the bank but not
+	 * yet observed rising there ({@link #storageMaterialising}). Both are owned
+	 * wealth held outside tracked containers, so both lift net worth identically.
+	 */
+	private long heldStoredValue()
+	{
+		return storedLootValue() + storageMaterialisingValue();
+	}
+
+	/**
+	 * Moves {@code qty} of {@code itemId} from {@link #storedLoot} into
+	 * {@link #storageMaterialising} — a storage container was emptied straight
+	 * into the bank, so its exact contents now await the bank rise. Clamped to
+	 * what the ledger actually holds (a barrel can also carry Fill'd fish that
+	 * were never booked as stored loot). Held value is unchanged by the move, so
+	 * net worth does not dip during the closed-bank reading lag.
+	 */
+	private void moveToStorageMaterialising(int itemId, long qty)
+	{
+		StoredLoot s = storedLoot.get(itemId);
+		if (s == null || qty <= 0 || s.qty <= 0)
+		{
+			return;
+		}
+		long moveQty = Math.min(qty, s.qty);
+		long moveValue = Math.round((double) s.value * moveQty / s.qty);
+		s.qty -= moveQty;
+		s.value -= moveValue;
+		if (s.qty <= 0 || s.value <= 0)
+		{
+			storedLoot.remove(itemId);
+		}
+		StoredLoot dst = storageMaterialising.computeIfAbsent(itemId, k -> new StoredLoot());
+		dst.qty += moveQty;
+		dst.value += moveValue;
+	}
+
+	/**
+	 * Draws down {@link #storageMaterialising} against a positive bank rise, oldest
+	 * id first, returning the booked value drawn. Unlike {@link #drawDownStoredLoot}
+	 * this is exact: the tracker told us precisely which entries (id + qty) left the
+	 * container, so the draw is qty-proportional and leaves a consistent remainder if
+	 * only part of the rise has arrived. The caller folds the drawn value into the
+	 * baseline as a transfer and books any bank-vs-booked price delta as revaluation.
+	 */
+	private long drawStorageMaterialising(long bankRise)
+	{
+		long remaining = bankRise;
+		long drawn = 0L;
+		for (Iterator<Map.Entry<Integer, StoredLoot>> it = storageMaterialising.entrySet().iterator();
+			 it.hasNext() && remaining > 0; )
+		{
+			StoredLoot s = it.next().getValue();
+			long take = Math.min(remaining, s.value);
+			long qtyDraw = s.value > 0 ? (long) Math.floor((double) s.qty * take / s.value) : s.qty;
+			s.qty -= qtyDraw;
+			s.value -= take;
+			if (s.value <= 0 || s.qty <= 0)
+			{
+				it.remove();
+			}
+			drawn += take;
+			remaining -= take;
+		}
+		return drawn;
 	}
 
 	/**
@@ -617,6 +715,7 @@ public final class SessionEngine
 		this.deployed.clear();
 		this.atDeath.clear();
 		this.storedLoot.clear();
+		this.storageMaterialising.clear();
 		this.lastRiseSettled = 0L;
 		this.lastLoggedFigures = null;
 		this.pendingVanished = new ArrayList<>();
@@ -821,23 +920,29 @@ public final class SessionEngine
 			// fold the drawn portion into the baseline like a transfer: the
 			// fold (+) and the drawdown (−) cancel in both the mark-to-market
 			// and the net-worth delta, counting the value exactly once.
+			// Exact first: a signalled barrel empty parked its precise contents in
+			// the materialising buffer, so draw those (id + qty) before the id-blind
+			// ledger fallback. Any bank-vs-booked price delta on the drawn portion
+			// stays in `revaluation` below and folds into startNetWorth.
+			long materialisedDraw = revaluation > 0 ? drawStorageMaterialising(revaluation) : 0L;
+			revaluation -= materialisedDraw;
 			long storedDraw = revaluation > 0 ? Math.min(revaluation, storedLootValue()) : 0L;
 			if (storedDraw > 0)
 			{
 				drawDownStoredLoot(storedDraw);
 				revaluation -= storedDraw;
 			}
-			this.baseline -= transfer + storedDraw;
+			this.baseline -= transfer + materialisedDraw + storedDraw;
 			this.startNetWorth += revaluation;
 			if (transfer != 0)
 			{
 				suspectArmed = maybeSuspectStaleReread(current, delta, tsMs);
 				rememberTransferFold(anchorFrom, delta, tsMs);
 			}
-			if (diagEnabled() && (transfer != 0 || revaluation != 0 || storedDraw != 0))
+			if (diagEnabled() && (transfer != 0 || revaluation != 0 || storedDraw != 0 || materialisedDraw != 0))
 			{
-				logDiag("[reanchor] bank rise {} (open={} settled={} storedDraw={} reval={}): baseline {} -> {}",
-					delta, bankOpen, settled, storedDraw, revaluation, oldBaseline, this.baseline);
+				logDiag("[reanchor] bank rise {} (open={} settled={} materialisedDraw={} storedDraw={} reval={}): baseline {} -> {}",
+					delta, bankOpen, settled, materialisedDraw, storedDraw, revaluation, oldBaseline, this.baseline);
 			}
 		}
 		else
@@ -1315,6 +1420,16 @@ public final class SessionEngine
 				lootLedger.realiseSale(sale.itemId, sale.quantity, sale.netProceeds);
 			}
 		}
+		// A storage container emptied straight into the bank this tick (a fish
+		// barrel at a bank/deposit box): move its exact reported contents out of the
+		// in-container ledger into the materialising buffer BEFORE reconciling the
+		// bank, so the bank-value rise draws precisely these entries (id + qty)
+		// rather than an id-blind, qty-desyncing value guess. Held value is unchanged
+		// by the move, so net worth does not dip during the bank-reading lag.
+		for (Map.Entry<Integer, Long> emptied : signals.storageEmptied().entrySet())
+		{
+			moveToStorageMaterialising(emptied.getKey(), emptied.getValue());
+		}
 		if (bankOpen)
 		{
 			syncCostBasis(current);
@@ -1334,7 +1449,20 @@ public final class SessionEngine
 				long unexplainedRise = bankDelta - lastRiseSettled - trackedDrop;
 				if (unexplainedRise > 0)
 				{
-					drawDownStoredLoot(unexplainedRise);
+					// Draw the materialising buffer EXACTLY first (a signalled barrel
+					// empty: precise id + qty), then fall back to the id-blind ledger
+					// draw for unsignalled containers (herb sack / gem bag) and any
+					// other genuine unexplained rise. Left leftover in the baseline as
+					// reconcileBankMovement (open) folded it — an open-bank rise not
+					// backed by stored loot is a real gain (e.g. a GE fill), which a
+					// price appreciation on the tiny barrel stack is indistinguishable
+					// from here; the closed deposit-box path books that reprice cleanly.
+					long materialisedDraw = drawStorageMaterialising(unexplainedRise);
+					long rest = unexplainedRise - materialisedDraw;
+					if (rest > 0)
+					{
+						drawDownStoredLoot(rest);
+					}
 				}
 			}
 			trackOpenTrackedSwing(current, bankDelta, tsMs);
@@ -1736,7 +1864,14 @@ public final class SessionEngine
 				}
 			}
 
-			if (a.quantity > 0)
+			// Only a herb sack / gem bag (SACK_ROUTED ids) can be emptied into the
+			// INVENTORY, so only those net a same-id inventory appearance against the
+			// held ledger. A fish barrel empties ONLY to a bank/deposit box (fish go
+			// straight to the bank — drawn via storageMaterialising), so a barrel-fish
+			// id in the inventory is never a storage-empty: it is a fresh OVERFLOW
+			// catch once the barrel is full and MUST fall through to the loot path.
+			// Intercepting it here silently swallowed full-barrel overflow catches.
+			if (a.quantity > 0 && SACK_ROUTED_ITEM_IDS.contains(a.itemId))
 			{
 				StoredLoot s = storedLoot.get(a.itemId);
 				if (s != null && s.qty > 0)
@@ -2285,7 +2420,7 @@ public final class SessionEngine
 		long pendingSettle = pendingSettleTotal();
 		long deployedHeld = deployedValue();
 		long deathHeld = atDeathValue();
-		long storedHeld = storedLootValue();
+		long storedHeld = heldStoredValue();
 		long markToMarket = current.tracked() + pendingSettle + deployedHeld + deathHeld + storedHeld - baseline;
 
 		// Split the raw mark-to-market delta: paper gains on current holdings
