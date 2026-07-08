@@ -253,8 +253,16 @@ public class OSPulsePlugin extends Plugin
 		// open, and re-baselines on close.
 		// Bankmain.UNIVERSE is the bank interface's root container (packed id
 		// 786433 = group 12 child 1, the classic "bank container" component).
+		// A bank DEPOSIT BOX (BankDepositbox.UNIVERSE, group 192) is banking too:
+		// items go straight to the bank with no wealth loss, so it must count as
+		// "bank open" — otherwise a deposit there books the tracked drop as a loss
+		// while the offsetting bank rise is mis-classified. The server keeps the
+		// InventoryID.BANK container synced through a deposit box, so the rise is
+		// observed and settles the deposit exactly like an open-bank transfer.
 		final Widget bankWidget = client.getWidget(InterfaceID.Bankmain.UNIVERSE);
-		final boolean bankOpen = bankWidget != null && !bankWidget.isHidden();
+		final Widget depositBoxWidget = client.getWidget(InterfaceID.BankDepositbox.UNIVERSE);
+		final boolean bankOpen = (bankWidget != null && !bankWidget.isHidden())
+			|| (depositBoxWidget != null && !depositBoxWidget.isHidden());
 		if (bankOpen != lastBankOpen)
 		{
 			lastBankOpen = bankOpen;
