@@ -66,12 +66,26 @@ public interface OSPulseConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "includeFishBarrel",
+		name = "Include fish barrel",
+		description = "Count fish inferred to be stored in an open Fish barrel / Fish sack barrel "
+			+ "as part of your tracked session wealth. Barreled fish are auto-stored while fishing "
+			+ "and never enter your inventory, so without this OSPulse can't see them at all.",
+		position = 2,
+		section = sessionSection
+	)
+	default boolean includeFishBarrel()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "verboseDiagnostics",
 		name = "Verbose diagnostics (dev)",
 		description = "Log the per-update wealth breakdown and per-item profit attribution to the "
 			+ "RuneLite client log at INFO level (normally DEBUG, so hidden). Turn on only to "
 			+ "diagnose profit misattribution such as a phantom gain on a gear swap.",
-		position = 2,
+		position = 3,
 		section = sessionSection
 	)
 	default boolean verboseDiagnostics()

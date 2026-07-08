@@ -267,7 +267,30 @@ public class OSPulsePlugin extends Plugin
 	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
-		tracker.onItemContainerChanged(event.getContainerId());
+		tracker.onItemContainerChanged(event.getContainerId(), event.getItemContainer());
+	}
+
+	/**
+	 * Forwards chat messages so {@link SessionTracker}'s fish-barrel tracker can
+	 * infer barreled-fish contents from catch/full/empty messages — an open
+	 * fish barrel auto-stores caught fish without ever passing them through the
+	 * inventory, so this is the only signal available for those catches.
+	 */
+	@Subscribe
+	public void onChatMessage(net.runelite.api.events.ChatMessage event)
+	{
+		tracker.onChatMessage(event.getType(), event.getMessage());
+	}
+
+	/**
+	 * Forwards the fish barrel's "Check" interface load (group 193) so the
+	 * tracker can resynchronise its exact per-species contents from the
+	 * widget text. See {@code FishBarrelTracker#onWidgetLoaded}.
+	 */
+	@Subscribe
+	public void onWidgetLoaded(net.runelite.api.events.WidgetLoaded event)
+	{
+		tracker.onWidgetLoaded(event.getGroupId());
 	}
 
 	@Subscribe
@@ -321,6 +344,9 @@ public class OSPulsePlugin extends Plugin
 		{
 			tracker.recordDestroy(itemId);
 		}
+		// Fish barrel "Fill"/"Empty"/"Empty to bank"/"Check" ops — forwarded
+		// unconditionally; the tracker itself filters to barrel item ids.
+		tracker.onBarrelMenuAction(itemId, option);
 	}
 
 	/**

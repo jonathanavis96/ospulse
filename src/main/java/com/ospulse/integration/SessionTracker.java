@@ -83,6 +83,14 @@ public class SessionTracker implements SessionService
 	private final SessionEngine engine = new SessionEngine();
 	private final GeReconciler geReconciler = new GeReconciler();
 	private final XpTracker xpTracker = new XpTracker();
+	private final FishBarrelTracker fishBarrelTracker;
+	/**
+	 * Last KNOWN (non-unknown) fish-barrel holding snapshot, item id -&gt;
+	 * quantity — see {@link #accumulateFishBarrel} for why this is held
+	 * separately from {@link FishBarrelTracker#holdingSnapshot()} rather than
+	 * read fresh every time.
+	 */
+	private Map<Integer, Integer> lastKnownBarrelHolding = new LinkedHashMap<>();
 	private final CopyOnWriteArrayList<SessionListener> listeners = new CopyOnWriteArrayList<>();
 
 	/**
@@ -152,6 +160,7 @@ public class SessionTracker implements SessionService
 		this.valuation = new RuneLiteItemValuation(itemManager);
 		this.configManager = configManager;
 		this.gson = gson;
+		this.fishBarrelTracker = new FishBarrelTracker(client);
 		engine.setVerboseDiagnostics(config.verboseDiagnostics());
 	}
 
@@ -210,15 +219,21 @@ public class SessionTracker implements SessionService
 			return;
 		}
 
+		// Drain the barrel tracker's per-tick catch/inventory/action signals
+		// exactly once per real game tick — NOT from #refresh, which also runs
+		// eagerly (and potentially several times per tick) off container-change
+		// events; draining there would double-count a tick's catches.
+		fishBarrelTracker.onTick();
 		refresh(ts);
 	}
 
-	public void onItemContainerChanged(int containerId)
+	public void onItemContainerChanged(int containerId, ItemContainer container)
 	{
 		if (!loggedIn || !started)
 		{
 			return;
 		}
+		fishBarrelTracker.onItemContainerChanged(containerId, container);
 		// Refresh eagerly on container changes (inventory/equipment/bank) so
 		// the panel feels responsive rather than waiting up to a full game
 		// tick; onTick will simply refresh again (idempotent) on the next tick.
@@ -319,6 +334,43 @@ public class SessionTracker implements SessionService
 			return;
 		}
 		xpTracker.update(skill.name(), xp);
+		if (skill == Skill.COOKING && xp > 0)
+		{
+			// Each Cooking StatChanged fire (real xp gain) may correspond to an
+			// infernal harpoon auto-cooking a fish before it reaches the barrel —
+			// see FishBarrelTracker#onTick for how this offsets credited catches.
+			fishBarrelTracker.onCookingXpGained();
+		}
+	}
+
+	/**
+	 * Forwards a chat message to the fish-barrel tracker. See
+	 * {@code com.ospulse.OSPulsePlugin#onChatMessage}.
+	 */
+	public void onChatMessage(net.runelite.api.ChatMessageType type, String message)
+	{
+		fishBarrelTracker.onChatMessage(type, message);
+	}
+
+	/**
+	 * Forwards the fish barrel's "Check" interface load so the tracker can
+	 * resynchronise its exact contents. See
+	 * {@code com.ospulse.OSPulsePlugin#onWidgetLoaded}.
+	 */
+	public void onWidgetLoaded(int groupId)
+	{
+		fishBarrelTracker.onWidgetLoaded(groupId);
+	}
+
+	/**
+	 * Forwards a "Fill"/"Empty"/"Empty to bank"/"Check" menu click on the fish
+	 * barrel item, so the tracker can correlate the action with the
+	 * container/widget change that follows within a few ticks. See
+	 * {@code com.ospulse.OSPulsePlugin#onMenuOptionClicked}.
+	 */
+	public void onBarrelMenuAction(int itemId, String menuOption)
+	{
+		fishBarrelTracker.onBarrelMenuAction(itemId, menuOption);
 	}
 
 	public void onBankOpenChanged(boolean open)
@@ -411,6 +463,17 @@ public class SessionTracker implements SessionService
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
 		geReconciler.reset();
+		// A genuine login (not a mere zone hop, and not the panel's manual
+		// session-value reset — see resetSession()'s javadoc) is the only point
+		// the barrel's inferred contents should be wiped: unlike bank/pouches,
+		// there's no server-side state to re-derive them from afterwards, so
+		// starting "unknown" is safer than carrying over a stale guess from a
+		// different login. Prime its inventory/equipment shadow copies from the
+		// live containers immediately after, so the first onItemContainerChanged
+		// diff is against real contents rather than empty maps.
+		fishBarrelTracker.reset();
+		fishBarrelTracker.primeContainers();
+		lastKnownBarrelHolding = new LinkedHashMap<>();
 		// Start the fresh session with an empty signal builder (see #refresh).
 		pendingSignals = MovementSignals.builder();
 		primeGeOffers();
@@ -795,6 +858,12 @@ public class SessionTracker implements SessionService
 		// TODO pouch valuation: looting bag contents are not reliably
 		// readable client-side and are intentionally skipped.
 
+		long barrelValue = 0L;
+		if (config.includeFishBarrel())
+		{
+			barrelValue = accumulateFishBarrel(tracked, allHoldings);
+		}
+
 		List<ItemStack> topHoldings = new ArrayList<>(allHoldings.values());
 		topHoldings.sort((a, b) -> Long.compare(b.value(), a.value()));
 		if (topHoldings.size() > TOP_HOLDINGS_LIMIT)
@@ -808,6 +877,7 @@ public class SessionTracker implements SessionService
 			.geInFlightValue(geValue)
 			.geCollectableValue(geCollectableValue)
 			.pouchValue(pouchValue)
+			.barrelValue(barrelValue)
 			.bankValue(bankValue)
 			.bankKnown(bankEverSeen)
 			.timestampMs(tsMs)
@@ -1104,6 +1174,54 @@ public class SessionTracker implements SessionService
 			total += unit * amount;
 			mergeItem(tracked, canonicalId, name, amount, unit);
 			mergeItem(allHoldings, canonicalId, name, amount, unit);
+		}
+		return total;
+	}
+
+	/**
+	 * Fish inferred to be stored in an open fish barrel (see
+	 * {@link FishBarrelTracker}) are folded into tracked wealth/net worth the
+	 * same way pouch contents are — mirrors {@link #accumulateEssencePouches}
+	 * for every item id -&gt; quantity the tracker currently believes is held,
+	 * merging each into BOTH {@code tracked} (so the engine books the catch as
+	 * loot/profit) and {@code allHoldings} (so it counts toward net worth and
+	 * top holdings). Returns the total barrel value added.
+	 *
+	 * <p><b>Unknown-state freeze:</b> when {@link FishBarrelTracker#isUnknown()}
+	 * is true (tracking lost confidence — e.g. the bank couldn't take all the
+	 * fish, or a species couldn't be attributed), this does NOT fold the
+	 * tracker's current (possibly wrong) holding snapshot. Instead it re-merges
+	 * the last KNOWN holding snapshot unchanged, so the barrel's contribution to
+	 * wealth holds steady rather than jumping — a jump here would show up as a
+	 * phantom profit or loss spike, since the engine reads any tracked-wealth
+	 * delta as loot/expenditure. The frozen snapshot is replaced with a fresh
+	 * one as soon as the tracker's state becomes known again (either because
+	 * catches resumed resolving normally, or a Check-widget resync ran).
+	 */
+	private long accumulateFishBarrel(Map<Integer, ItemStack> tracked, Map<Integer, ItemStack> allHoldings)
+	{
+		if (!fishBarrelTracker.isUnknown())
+		{
+			lastKnownBarrelHolding = fishBarrelTracker.holdingSnapshot();
+		}
+
+		long total = 0L;
+		for (Map.Entry<Integer, Integer> entry : lastKnownBarrelHolding.entrySet())
+		{
+			int itemId = entry.getKey();
+			int qty = entry.getValue();
+			if (qty <= 0)
+			{
+				continue;
+			}
+
+			int canonicalId = valuation.canonical(itemId);
+			long unit = valuation.unitValue(itemId);
+			String name = valuation.name(itemId);
+
+			total += unit * qty;
+			mergeItem(tracked, canonicalId, name, qty, unit);
+			mergeItem(allHoldings, canonicalId, name, qty, unit);
 		}
 		return total;
 	}

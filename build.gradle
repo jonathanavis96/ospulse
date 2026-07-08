@@ -39,6 +39,11 @@ dependencies {
 
 	testImplementation 'junit:junit:4.12'
 	testImplementation group: 'net.runelite', name: 'client', version: runeLiteVersion
+	// Client-thread-facing integration classes (e.g. FishBarrelTracker) take a
+	// live net.runelite.api.Client, which is impractical to hand-stub (200+
+	// methods); Mockito lets tests supply just the handful of behaviours each
+	// scenario needs. Test-only: never touches the shipped plugin jar.
+	testImplementation 'org.mockito:mockito-core:4.11.0'
 }
 
 group = 'com.ospulse'

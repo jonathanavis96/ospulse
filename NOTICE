@@ -18,6 +18,16 @@ API — RuneLite is BSD-2-Clause, Copyright (c) RuneLite contributors
    category" so the same pattern backs session-stat rows, loot-source rows
    and XP-skill rows in this plugin.
 
+0a. src/main/java/com/ospulse/integration/{FishBarrelTracker,FishBarrelWidgetParser}.java
+   Fish barrel contents inference adapted from the community "Fish Barrel"
+   plugin by molo-pl (BSD-2-Clause, Copyright (c) 2025 molo-pl,
+   https://github.com/molo-pl/runelite-plugins, branch fish-barrel): the
+   catch-message regex and per-species FISH_TYPES_BY_NAME map, the
+   double-catch (Rada's blessing / spirit flakes / cormorant) and infernal-
+   harpoon cooking-XP handling, the bank-full/barrel-full/empty-to-bank chat
+   message detection, and the "Check" interface (193.2) widget-text parsing
+   used to resynchronise the barrel's exact contents.
+
 Bundled data:
 
 1. src/main/resources/com/ospulse/combat/monsters.min.json

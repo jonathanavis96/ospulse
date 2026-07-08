@@ -23,6 +23,7 @@ public final class WealthSection extends CollapsibleSection
 	private final JLabel equipmentValue;
 	private final JLabel geInFlightValue;
 	private final JLabel pouchValue;
+	private final JLabel barrelValue;
 	private final JLabel bankValue;
 
 	private String summary = "-";
@@ -36,6 +37,7 @@ public final class WealthSection extends CollapsibleSection
 		equipmentValue = PanelWidgets.statRow(body(), "Equipment");
 		geInFlightValue = PanelWidgets.statRow(body(), "GE in-flight");
 		pouchValue = PanelWidgets.statRow(body(), "Pouch");
+		barrelValue = PanelWidgets.statRow(body(), "Fish barrel");
 		bankValue = PanelWidgets.statRow(body(), "Bank");
 	}
 
@@ -51,6 +53,7 @@ public final class WealthSection extends CollapsibleSection
 			equipmentValue.setText("—");
 			geInFlightValue.setText("—");
 			pouchValue.setText("—");
+			barrelValue.setText("—");
 			bankValue.setText("—");
 			PanelWidgets.resetLabelColor(netWorthValue);
 			summary = "—";
@@ -64,6 +67,7 @@ public final class WealthSection extends CollapsibleSection
 		PanelWidgets.gpLabel(equipmentValue, wealth.getEquipmentValue());
 		PanelWidgets.gpLabel(geInFlightValue, wealth.getGeInFlightValue());
 		PanelWidgets.gpLabel(pouchValue, wealth.getPouchValue());
+		PanelWidgets.gpLabel(barrelValue, wealth.getBarrelValue());
 
 		if (wealth.isBankKnown())
 		{
