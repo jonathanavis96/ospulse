@@ -134,6 +134,20 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 
 ---
 
+## 📝 Changelog
+
+<details>
+<summary>Version history — newest first</summary>
+
+<br>
+
+- **0.1.1** — Fish barrel: caught fish count as loot the moment they're stored, and emptying at a bank or deposit box stays accurate (no double-count, no drop); full-barrel overflow catches now count as loot. Fishing bait and feathers count as supplies. Depositing any item at a bank deposit box is treated as banking, so it's never booked as a loss.
+- **0.1.0** — Initial release: gear DPS / max-hit calculator and optimiser, banking-aware session profit, loot feed, net worth, XP tracking and Grand Exchange flip P&L.
+
+</details>
+
+---
+
 ## Credits & license
 
 Built on the [RuneLite](https://github.com/runelite/runelite) client API, with a UI pattern adapted from its XP Tracker plugin. Combat/monster data lineage traces to [weirdgloop/osrs-dps-calc](https://github.com/weirdgloop/osrs-dps-calc) and the [OSRS Wiki](https://oldschool.runescape.wiki); equipment stats are derived clean‑room from the game cache. Full attribution in [`NOTICE`](NOTICE).
