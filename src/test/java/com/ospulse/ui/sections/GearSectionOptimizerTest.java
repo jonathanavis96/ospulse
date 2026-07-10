@@ -493,7 +493,7 @@ public class GearSectionOptimizerTest
 		{
 			GearSection section = new GearSection(NO_STORE, null, null);
 
-			assertEquals("blank/default count is 0", 0, section.resolvedExpensiveCountForTest());
+			assertEquals("default count is 11", 11, section.resolvedExpensiveCountForTest());
 			assertEquals("blank/default threshold is 0", 0L, section.resolvedExpensiveThresholdForTest());
 
 			section.setExpensiveCountTextForTest("3");
