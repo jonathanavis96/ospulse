@@ -664,6 +664,8 @@ public class SessionTracker implements SessionService
 			.magic(client.getRealSkillLevel(Skill.MAGIC), client.getBoostedSkillLevel(Skill.MAGIC))
 			.prayer(client.getRealSkillLevel(Skill.PRAYER), client.getBoostedSkillLevel(Skill.PRAYER))
 			.hitpoints(client.getRealSkillLevel(Skill.HITPOINTS), client.getBoostedSkillLevel(Skill.HITPOINTS))
+			.slayer(client.getRealSkillLevel(Skill.SLAYER), client.getBoostedSkillLevel(Skill.SLAYER))
+			.agility(client.getRealSkillLevel(Skill.AGILITY), client.getBoostedSkillLevel(Skill.AGILITY))
 			.activePrayers(activePrayers)
 			// TODO Phase 2+: on-task Slayer detection has no confirmed live read yet.
 			.onSlayerTask(false)

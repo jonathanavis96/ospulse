@@ -45,6 +45,10 @@ public final class GearSnapshot
 	private final int boostedPrayer;
 	private final int baseHitpoints;
 	private final int boostedHitpoints;
+	private final int baseSlayer;
+	private final int boostedSlayer;
+	private final int baseAgility;
+	private final int boostedAgility;
 	private final Set<OffensivePrayer> activePrayers;
 	/**
 	 * TODO Phase 2+: on-task Slayer detection is not wired to a live client
@@ -91,6 +95,10 @@ public final class GearSnapshot
 		this.boostedPrayer = b.boostedPrayer;
 		this.baseHitpoints = b.baseHitpoints;
 		this.boostedHitpoints = b.boostedHitpoints;
+		this.baseSlayer = b.baseSlayer;
+		this.boostedSlayer = b.boostedSlayer;
+		this.baseAgility = b.baseAgility;
+		this.boostedAgility = b.boostedAgility;
 		this.activePrayers = b.activePrayers.isEmpty()
 			? Collections.emptySet()
 			: Collections.unmodifiableSet(EnumSet.copyOf(b.activePrayers));
@@ -205,6 +213,26 @@ public final class GearSnapshot
 		return boostedHitpoints;
 	}
 
+	public int baseSlayer()
+	{
+		return baseSlayer;
+	}
+
+	public int boostedSlayer()
+	{
+		return boostedSlayer;
+	}
+
+	public int baseAgility()
+	{
+		return baseAgility;
+	}
+
+	public int boostedAgility()
+	{
+		return boostedAgility;
+	}
+
 	public Set<OffensivePrayer> activePrayers()
 	{
 		return activePrayers;
@@ -254,6 +282,10 @@ public final class GearSnapshot
 		private int boostedPrayer;
 		private int baseHitpoints;
 		private int boostedHitpoints;
+		private int baseSlayer;
+		private int boostedSlayer;
+		private int baseAgility;
+		private int boostedAgility;
 		private Set<OffensivePrayer> activePrayers = EnumSet.noneOf(OffensivePrayer.class);
 		private boolean onSlayerTask;
 		private EquipmentStats equipmentStats;
@@ -315,6 +347,20 @@ public final class GearSnapshot
 		{
 			this.baseHitpoints = base;
 			this.boostedHitpoints = boosted;
+			return this;
+		}
+
+		public Builder slayer(int base, int boosted)
+		{
+			this.baseSlayer = base;
+			this.boostedSlayer = boosted;
+			return this;
+		}
+
+		public Builder agility(int base, int boosted)
+		{
+			this.baseAgility = base;
+			this.boostedAgility = boosted;
 			return this;
 		}
 
