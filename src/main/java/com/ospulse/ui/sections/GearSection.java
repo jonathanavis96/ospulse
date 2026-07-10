@@ -3751,6 +3751,10 @@ public final class GearSection extends CollapsibleSection
 			// Magic view only: pin the gear DPS to the selected spellbook tab so
 			// swapping Standard/Ancient swaps the optimiser's magic spell too.
 			.spellBook(magicView ? selectedBook.book() : null)
+			// Monster combat gate (e.g. Kurask): restrict weapon/ammo candidates
+			// to what can actually damage the selected target.
+			.combatRequirement(target == null ? null
+				: MonsterCombatRequirementRepository.getInstance().forMonster(target.name()).orElse(null))
 			.build();
 	}
 

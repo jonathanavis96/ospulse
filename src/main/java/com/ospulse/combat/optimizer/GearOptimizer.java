@@ -7,6 +7,7 @@ import com.ospulse.combat.DpsResult;
 import com.ospulse.combat.EquipmentIndexRepository;
 import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.Monster;
+import com.ospulse.combat.MonsterCombatRequirement;
 import com.ospulse.combat.PlayerCombat;
 import com.ospulse.combat.Spell;
 import com.ospulse.combat.WeaponCategoryRepository;
@@ -158,6 +159,7 @@ public final class GearOptimizer {
         private final long expensiveItemThreshold;
         private final CombatStyle style;
         private final Spell.SpellBook spellBook;
+        private final MonsterCombatRequirement combatRequirement;
 
         private Request(Builder b) {
             this.liveItemIds = b.liveItemIds.clone();
@@ -173,6 +175,7 @@ public final class GearOptimizer {
             this.expensiveItemThreshold = b.expensiveItemThreshold;
             this.style = b.style;
             this.spellBook = b.spellBook;
+            this.combatRequirement = b.combatRequirement;
         }
 
         public static Builder builder(int[] liveItemIds, Monster target, PlayerCombat.Builder playerTemplate) {
@@ -193,6 +196,7 @@ public final class GearOptimizer {
             private long expensiveItemThreshold = 0L;
             private CombatStyle style;
             private Spell.SpellBook spellBook;
+            private MonsterCombatRequirement combatRequirement;
 
             private Builder(int[] liveItemIds, Monster target, PlayerCombat.Builder playerTemplate) {
                 this.liveItemIds = liveItemIds;
@@ -299,6 +303,17 @@ public final class GearOptimizer {
                 return this;
             }
 
+            /**
+             * Constrains the weapon/ammo slot candidates to those permitted by the
+             * given monster's combat gate (e.g. Kurask's leaf-bladed-weapon-or-magic
+             * restriction) at the requested {@link #style(CombatStyle)}. {@code null}
+             * (the default) leaves the search unconstrained by any monster gate.
+             */
+            public Builder combatRequirement(MonsterCombatRequirement combatRequirement) {
+                this.combatRequirement = combatRequirement;
+                return this;
+            }
+
             public Request build() {
                 return new Request(this);
             }
@@ -307,6 +322,11 @@ public final class GearOptimizer {
         /** The damage-type constraint for the search, or {@code null} for the unconstrained best-of-any-style search. */
         public CombatStyle style() {
             return style;
+        }
+
+        /** The monster combat gate constraining weapon/ammo candidates, or {@code null} if unconstrained. */
+        public MonsterCombatRequirement combatRequirement() {
+            return combatRequirement;
         }
 
         /**
@@ -736,6 +756,17 @@ public final class GearOptimizer {
                 // attack with the requested damage type is never a candidate —
                 // it would only ever evaluate to null under the constraint.
                 continue;
+            }
+            MonsterCombatRequirement combatReq = request.combatRequirement;
+            if (combatReq != null) {
+                if (slot == WhatIfLoadout.WEAPON_SLOT && !combatReq.permitsWeapon(e.itemId(), request.style)) {
+                    // Monster combat gate (e.g. Kurask): a weapon the monster
+                    // simply cannot be damaged by is never a candidate.
+                    continue;
+                }
+                if (slot == AMMO_SLOT && !combatReq.permitsAmmo(e.itemId(), request.style)) {
+                    continue;
+                }
             }
             boolean owned = request.owned.contains(e.itemId());
             boolean included = request.include.contains(e.itemId());
