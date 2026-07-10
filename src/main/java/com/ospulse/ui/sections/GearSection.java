@@ -33,6 +33,7 @@ import com.ospulse.session.GearVariants;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
+import com.ospulse.ui.sections.gear.CoinPileBadge;
 import com.ospulse.ui.sections.gear.GpFormat;
 import com.ospulse.ui.sections.gear.RoundedButton;
 import com.ospulse.wealth.WealthSnapshot;
@@ -373,8 +374,8 @@ public final class GearSection extends CollapsibleSection
 	private final javax.swing.JTextField budgetField;
 	private final JToggleButton budgetKToggle;
 	private final JToggleButton budgetMToggle;
-	/** Large, magnitude-coloured echo of the resolved budget (e.g. "10M") shown above the entry — see {@link #updateBudgetDisplay}. */
-	private JLabel budgetValueLabel;
+	/** Gold-pile badge showing the resolved budget (e.g. "50M") magnitude-coloured over its top-left — see {@link #updateBudgetDisplay}. */
+	private CoinPileBadge budgetBadge;
 	/** "Expensive items to allow" count (wilderness/PvP) — plumbed into {@link GearOptimizer.Request#expensiveItemCount()}, not yet enforced by the search. */
 	private final javax.swing.JTextField expensiveCountField;
 	/** GP value at/above which an item counts as "expensive" — see {@link #expensiveCountField}. */
@@ -935,69 +936,68 @@ public final class GearSection extends CollapsibleSection
 		body().add(whatIfRow);
 		body().add(Box.createRigidArea(new Dimension(0, 6)));
 
-		// Budget & risk (2x2 icon block, per the mockup). Left column = budget:
-		// its resolved value large + magnitude-coloured on top (GpFormat: <100K
-		// yellow, <10M white, >=10M green), then a coins icon + entry field + K/M
-		// toggle (type e.g. 1000 + M for a billion — no B unit). Right column =
-		// risk: expensive-item count (risk-face icon, default 11) on top, then the
-		// threshold (coins icon, K only, no colouring). Tooltips are per-field.
-		ImageIcon coinsIcon = loadPanelIcon("coins.png", 16);
-		ImageIcon riskIcon = loadPanelIcon("item-risk.png", 18);
+		// Budget & risk block, per Jonathan's detailed mockup. Left to right:
+		// (1) a decorative gold pile with the resolved budget value ("50M")
+		// painted magnitude-coloured over its top-left corner (GpFormat: <100K
+		// yellow, <10M white, >=10M green); (2) the budget entry — a 4-digit field
+		// with square K/M unit buttons below it (type e.g. 1000 + M for a billion,
+		// no B unit); (3) the risk-face icon + a 2-digit expensive-item count
+		// (default 11); (4) a coins icon + a 4-digit threshold field (K only).
+		// Tooltips are per-field (count vs threshold).
+		BufferedImage pileImg = ImageUtil.loadImageResource(GearSection.class, "/com/ospulse/ui/icon/coins.png");
+		ImageIcon coinsIcon = loadPanelIcon("coins.png", 20);
+		ImageIcon riskIcon = loadPanelIcon("item-risk.png", 22);
 
-		// ---- budget (left column) ----
-		budgetValueLabel = new JLabel("0");
-		budgetValueLabel.setFont(FontManager.getRunescapeBoldFont().deriveFont(15f));
-		budgetValueLabel.setToolTipText(BUDGET_TOOLTIP);
-		budgetValueLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-		budgetField = new javax.swing.JTextField("0");
+		// (1) budget value badge — pile + coloured value overlay
+		budgetBadge = new CoinPileBadge(pileImg, 48, 44);
+		budgetBadge.setToolTipText(BUDGET_TOOLTIP);
+
+		// (2) budget entry — 4-digit field with square K/M below
+		budgetField = new javax.swing.JTextField("0", 4);
 		budgetField.setToolTipText(BUDGET_TOOLTIP);
 		budgetField.setFont(FontManager.getRunescapeSmallFont());
 		budgetField.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		budgetField.setForeground(java.awt.Color.WHITE);
+		budgetField.setHorizontalAlignment(SwingConstants.CENTER);
+		fixSize(budgetField, 46, 22);
 		budgetKToggle = new JToggleButton("K");
 		budgetMToggle = new JToggleButton("M");
 		JPanel budgetUnitToggle = unitToggle(budgetKToggle, budgetMToggle, true);
-		JLabel budgetCoins = new JLabel(coinsIcon);
-		budgetCoins.setToolTipText(BUDGET_TOOLTIP);
-		JPanel budgetEntry = new JPanel(new BorderLayout(3, 0));
+		fixSize(budgetUnitToggle, 46, 20);
+		budgetField.setAlignmentX(Component.LEFT_ALIGNMENT);
+		budgetUnitToggle.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JPanel budgetEntry = new JPanel();
+		budgetEntry.setLayout(new BoxLayout(budgetEntry, BoxLayout.Y_AXIS));
 		budgetEntry.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		budgetEntry.add(budgetCoins, BorderLayout.WEST);
-		budgetEntry.add(budgetField, BorderLayout.CENTER);
-		budgetEntry.add(budgetUnitToggle, BorderLayout.EAST);
-		budgetEntry.setAlignmentX(Component.LEFT_ALIGNMENT);
-		budgetEntry.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
-		JPanel budgetColumn = new JPanel();
-		budgetColumn.setLayout(new BoxLayout(budgetColumn, BoxLayout.Y_AXIS));
-		budgetColumn.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		budgetColumn.add(budgetValueLabel);
-		budgetColumn.add(Box.createRigidArea(new Dimension(0, 2)));
-		budgetColumn.add(budgetEntry);
+		budgetEntry.add(budgetField);
+		budgetEntry.add(Box.createRigidArea(new Dimension(0, 2)));
+		budgetEntry.add(budgetUnitToggle);
 
-		// ---- risk (right column) ----
-		expensiveCountField = new javax.swing.JTextField("11");
+		// (3) expensive-item count — risk icon + 2-digit field
+		expensiveCountField = new javax.swing.JTextField("11", 2);
 		expensiveCountField.setToolTipText(EXPENSIVE_COUNT_TOOLTIP);
 		expensiveCountField.setFont(FontManager.getRunescapeSmallFont());
 		expensiveCountField.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		expensiveCountField.setForeground(java.awt.Color.WHITE);
+		expensiveCountField.setHorizontalAlignment(SwingConstants.CENTER);
+		fixSize(expensiveCountField, 30, 22);
 		JLabel riskLabel = new JLabel(riskIcon);
 		riskLabel.setToolTipText(EXPENSIVE_COUNT_TOOLTIP);
-		JPanel countRow = new JPanel(new BorderLayout(3, 0));
+		JPanel countRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
 		countRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		countRow.setToolTipText(EXPENSIVE_COUNT_TOOLTIP);
-		countRow.add(riskLabel, BorderLayout.WEST);
-		countRow.add(expensiveCountField, BorderLayout.CENTER);
+		countRow.add(riskLabel);
+		countRow.add(expensiveCountField);
 		countRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-		countRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
 
-		expensiveThresholdField = new javax.swing.JTextField("0");
+		// (4) threshold — coins icon + 4-digit field + "K" (K-only; M kept for tests)
+		expensiveThresholdField = new javax.swing.JTextField("0", 4);
 		expensiveThresholdField.setToolTipText(EXPENSIVE_THRESHOLD_TOOLTIP);
 		expensiveThresholdField.setFont(FontManager.getRunescapeSmallFont());
 		expensiveThresholdField.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		expensiveThresholdField.setForeground(java.awt.Color.WHITE);
-		// Threshold is K-only in the UI. The K/M toggle fields are still created
-		// (the test seams drive them for M/K parsing coverage), but only a static
-		// "K" is shown and K stays selected so resolvedExpensiveThreshold() reads
-		// thousands.
+		expensiveThresholdField.setHorizontalAlignment(SwingConstants.CENTER);
+		fixSize(expensiveThresholdField, 46, 22);
 		expensiveThresholdKToggle = new JToggleButton("K");
 		expensiveThresholdMToggle = new JToggleButton("M");
 		expensiveThresholdKToggle.setSelected(true);
@@ -1006,26 +1006,26 @@ public final class GearSection extends CollapsibleSection
 		JLabel thresholdUnit = new JLabel("K");
 		thresholdUnit.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		thresholdUnit.setFont(FontManager.getRunescapeSmallFont());
-		JPanel thresholdRow = new JPanel(new BorderLayout(3, 0));
+		JPanel thresholdRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
 		thresholdRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		thresholdRow.setToolTipText(EXPENSIVE_THRESHOLD_TOOLTIP);
-		thresholdRow.add(thresholdCoins, BorderLayout.WEST);
-		thresholdRow.add(expensiveThresholdField, BorderLayout.CENTER);
-		thresholdRow.add(thresholdUnit, BorderLayout.EAST);
+		thresholdRow.add(thresholdCoins);
+		thresholdRow.add(expensiveThresholdField);
+		thresholdRow.add(thresholdUnit);
 		thresholdRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-		thresholdRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+
 		JPanel riskColumn = new JPanel();
 		riskColumn.setLayout(new BoxLayout(riskColumn, BoxLayout.Y_AXIS));
 		riskColumn.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		riskColumn.add(countRow);
-		riskColumn.add(Box.createRigidArea(new Dimension(0, 2)));
 		riskColumn.add(thresholdRow);
 
-		// ---- 2-column container ----
-		JPanel budgetRiskRow = new JPanel(new GridLayout(1, 2, 8, 0));
+		// horizontal container: badge | budget entry | risk column
+		JPanel budgetRiskRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
 		budgetRiskRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		budgetRiskRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-		budgetRiskRow.add(budgetColumn);
+		budgetRiskRow.add(budgetBadge);
+		budgetRiskRow.add(budgetEntry);
 		budgetRiskRow.add(riskColumn);
 		budgetRiskRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, budgetRiskRow.getPreferredSize().height));
 		body().add(budgetRiskRow);
@@ -3288,12 +3288,20 @@ public final class GearSection extends CollapsibleSection
 		return new ImageIcon(img.getScaledInstance(size, size, Image.SCALE_SMOOTH));
 	}
 
-	/** Updates the large budget echo label's text + magnitude colour (see {@link GpFormat}). */
+	/** Updates the gold-pile badge's value text + magnitude colour (see {@link GpFormat}). */
 	private void updateBudgetDisplay()
 	{
 		long budget = resolvedBudget();
-		budgetValueLabel.setText(GpFormat.format(budget));
-		budgetValueLabel.setForeground(GpFormat.color(budget));
+		budgetBadge.setValue(GpFormat.format(budget), GpFormat.color(budget));
+	}
+
+	/** Pins a component to a fixed w x h (preferred = min = max) so BoxLayout/FlowLayout won't stretch it. */
+	private static void fixSize(java.awt.Component c, int w, int h)
+	{
+		Dimension d = new Dimension(w, h);
+		c.setPreferredSize(d);
+		c.setMinimumSize(d);
+		c.setMaximumSize(d);
 	}
 
 	/** The "expensive item" gp threshold from {@link #expensiveThresholdField} + its K/M toggle. */
