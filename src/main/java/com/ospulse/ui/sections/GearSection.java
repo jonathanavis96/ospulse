@@ -382,8 +382,6 @@ public final class GearSection extends CollapsibleSection
 	/** One row per proposed slot swap (icon current -&gt; icon suggested) — see {@link #renderOptimizerSwapList}. */
 	private final JPanel optimizerSwapList;
 	private final JButton applyOptimizerResultButton;
-	/** Filters the open bank to the result's item ids via {@link #bankHighlighter} — see {@link #setBankHighlighter}. */
-	private final JToggleButton showInBankButton;
 	private final JButton clearOptimizerPreviewButton;
 	/** The excluded-items viewer container (heading + search + scrollable icon grid); hidden when nothing is excluded — see {@link #renderExcludedItemsList}. */
 	private final JPanel excludedItemsPanel;
@@ -1041,35 +1039,11 @@ public final class GearSection extends CollapsibleSection
 		applyOptimizerResultButton.setVisible(false);
 		optimizerResultPanel.add(applyOptimizerResultButton);
 
-		// Filters the open bank down to this result's item ids (via bank tags),
-		// so the player can see what they're missing without leaving the bank
-		// interface — same reserved-tag mechanism the Inventory Setups plugin
-		// uses. Deselecting (or any of the reset/clear paths below) drops the
-		// filter back to normal.
-		showInBankButton = new JToggleButton("Show in bank");
-		showInBankButton.setFont(FontManager.getRunescapeSmallFont());
-		showInBankButton.setFocusPainted(false);
-		showInBankButton.setAlignmentX(Component.LEFT_ALIGNMENT);
-		showInBankButton.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		showInBankButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		showInBankButton.setToolTipText("Filters your open bank to this result's items using a reserved bank tag");
-		showInBankButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, showInBankButton.getPreferredSize().height));
-		showInBankButton.addActionListener(e ->
-		{
-			if (bankHighlighter == null)
-			{
-				return;
-			}
-			if (showInBankButton.isSelected() && lastOptimizerResult != null)
-			{
-				bankHighlighter.showInBank(optimizerLoadoutSlotMap(lastOptimizerResult));
-			}
-			else
-			{
-				bankHighlighter.clear();
-			}
-		});
-		optimizerResultPanel.add(showInBankButton);
+		// "Show in bank" is now automatic: clicking "Find best setup" (or a style
+		// icon) arms the reserved-tag bank filter (see onOptimizerResult), so the
+		// recommended equipment-grid layout appears the moment the bank is open —
+		// no manual toggle. The same reserved-tag mechanism the Inventory Setups
+		// plugin uses; reset/clear/target-change paths drop the filter.
 
 		optimizerResultPanel.setVisible(false);
 		body().add(optimizerResultPanel);
@@ -1180,10 +1154,6 @@ public final class GearSection extends CollapsibleSection
 
 	private void resetBankHighlightToggle()
 	{
-		if (showInBankButton != null)
-		{
-			showInBankButton.setSelected(false);
-		}
 		if (bankHighlighter != null)
 		{
 			bankHighlighter.clear();
@@ -4049,7 +4019,23 @@ public final class GearSection extends CollapsibleSection
 		// (applyOptimizerResultButton itself stays hidden — B8-4 auto-previews
 		// below instead of waiting for a manual click.)
 		clearOptimizerPreviewButton.setVisible(anyChange && !noUsableWeapon);
-		showInBankButton.setVisible(!noUsableWeapon);
+		// B9-4: auto-arm the bank filter the moment a usable result exists — no
+		// manual "Show in bank" toggle. This arms even when anyChange is false
+		// (worn == best) so the full recommended equipment grid still shows in the
+		// bank; switching styles re-runs the optimiser and lands back here, live-
+		// updating the grid. When the bank is closed nothing renders; it appears
+		// on the next bank open (BankRecommendationHighlighter.reapplyIfArmed).
+		if (bankHighlighter != null)
+		{
+			if (noUsableWeapon)
+			{
+				bankHighlighter.clear();
+			}
+			else
+			{
+				bankHighlighter.showInBank(optimizerLoadoutSlotMap(result));
+			}
+		}
 		optimizerResultPanel.setVisible(true);
 		optimizerResultPanel.revalidate();
 		body().revalidate();
@@ -4341,14 +4327,25 @@ public final class GearSection extends CollapsibleSection
 			}
 			next = next.withSlot(choice.slotOrdinal(), choice.itemId());
 		}
+		// B9-3: a two-handed weapon frees the shield slot. The optimiser empties
+		// the shield internally, but empty slots aren't listed in loadout(), so
+		// the loop above never overrides the shield — leaving the live shield
+		// (e.g. an Avernic defender) lingering in the preview beside a 2H weapon
+		// (e.g. a Scorching bow). Explicitly empty it when the recommended weapon
+		// is two-handed.
+		int previewWeaponId = optimizerLoadoutSlotMap(lastOptimizerResult)
+			.getOrDefault(WhatIfLoadout.WEAPON_SLOT, -1);
+		if (previewWeaponId > 0 && WhatIfLoadout.isTwoHanded(previewWeaponId))
+		{
+			next = next.withEmptiedSlot(WhatIfLoadout.SHIELD_SLOT);
+		}
 		override = next;
 		// B8-6: don't reset the bank filter on every preview — if it's already
 		// armed (Show in bank ticked), refresh it to this preview's items so
 		// switching styles (each re-runs the optimiser -> onOptimizerResult ->
 		// this method) live-updates the highlighted bank items instead of
 		// silently dropping the filter.
-		if (showInBankButton != null && showInBankButton.isSelected()
-			&& bankHighlighter != null && lastOptimizerResult != null)
+		if (bankHighlighter != null && bankHighlighter.isArmed() && lastOptimizerResult != null)
 		{
 			bankHighlighter.showInBank(optimizerLoadoutSlotMap(lastOptimizerResult));
 		}
