@@ -743,10 +743,23 @@ public final class GearOptimizer {
         }
     }
 
+    /** True if any force-included item occupies the shield slot (so a 2H weapon would evict it). */
+    private static boolean forcesShieldSlot(Request request, EquipmentIndexRepository index) {
+        for (int includedId : request.include) {
+            EquipmentIndexRepository.Entry entry = index.entryFor(includedId);
+            if (entry != null && entry.slotOrdinal() == WhatIfLoadout.SHIELD_SLOT) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static List<Candidate> buildCandidatesForSlot(EquipmentIndexRepository index, int slot, Request request,
                                                           List<Candidate> ammoCandidates) {
         List<EquipmentIndexRepository.Entry> all = index.forSlot(slot);
         List<Candidate> affordable = new ArrayList<>();
+        boolean weaponSlotWithForcedShield =
+                slot == WhatIfLoadout.WEAPON_SLOT && forcesShieldSlot(request, index);
         for (EquipmentIndexRepository.Entry e : all) {
             if (request.exclude.contains(e.itemId())) {
                 continue;
@@ -757,11 +770,21 @@ public final class GearOptimizer {
                 // it would only ever evaluate to null under the constraint.
                 continue;
             }
+            if (weaponSlotWithForcedShield && WhatIfLoadout.isTwoHanded(e.itemId())) {
+                // A force-required shield-slot item (e.g. mirror shield vs
+                // Basilisk) can't coexist with a two-handed / dual-wield weapon,
+                // which would silently evict the shield — so drop 2H candidates.
+                continue;
+            }
             MonsterCombatRequirement combatReq = request.combatRequirement;
             if (combatReq != null) {
-                if (slot == WhatIfLoadout.WEAPON_SLOT && !combatReq.permitsWeapon(e.itemId(), request.style)) {
+                if (slot == WhatIfLoadout.WEAPON_SLOT
+                        && !combatReq.permitsWeapon(e.itemId(), request.style,
+                                AmmoCompatibility.consumedClass(e.itemId()) != null)) {
                     // Monster combat gate (e.g. Kurask): a weapon the monster
-                    // simply cannot be damaged by is never a candidate.
+                    // cannot be damaged by is never a candidate. A self-supplying
+                    // ranged weapon (blowpipe) can't satisfy a broad-ammo gate via
+                    // the worn ammo slot, so it is gated out here too.
                     continue;
                 }
                 if (slot == AMMO_SLOT && !combatReq.permitsAmmo(e.itemId(), request.style)) {

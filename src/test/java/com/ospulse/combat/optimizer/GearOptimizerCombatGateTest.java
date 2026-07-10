@@ -62,13 +62,96 @@ public class GearOptimizerCombatGateTest {
         return id -> prices.containsKey(id) ? prices.get(id) : 100_000_000L;
     }
 
-    private static int weaponIdIn(GearOptimizer.Result result) {
+    private static final int TOXIC_BLOWPIPE = 12926;    // self-supplying ranged 2H (loads darts)
+    private static final int RUNE_CROSSBOW = 9185;       // worn-ammo ranged 1H
+    private static final int BROAD_BOLTS = 11875;        // Kurask-legal ranged ammo
+    private static final int MIRROR_SHIELD = 4156;       // shield-slot force-include (anti-Basilisk)
+    private static final int DRAGON_2H_SWORD = 7158;     // two-handed slash weapon
+    private static final int RUNE_SCIMITAR = 1333;       // one-handed slash weapon
+
+    private static int slotIdIn(GearOptimizer.Result result, int slotOrdinal) {
         for (GearOptimizer.SlotChoice choice : result.loadout()) {
-            if (choice.slotOrdinal() == WhatIfLoadout.WEAPON_SLOT) {
+            if (choice.slotOrdinal() == slotOrdinal) {
                 return choice.itemId();
             }
         }
         return -1;
+    }
+
+    private static int weaponIdIn(GearOptimizer.Result result) {
+        return slotIdIn(result, WhatIfLoadout.WEAPON_SLOT);
+    }
+
+    /**
+     * A3: with a shield-slot item force-included (e.g. mirror shield vs
+     * Basilisk), the optimiser must never recommend a two-handed / dual-wield
+     * weapon, which would silently evict the required shield.
+     */
+    @Test
+    public void forcedShield_neverRecommendsATwoHandedWeapon() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = RUNE_SCIMITAR;   // a one-handed weapon already equipped
+
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(RUNE_SCIMITAR, 0L);
+        fixed.put(DRAGON_2H_SWORD, 0L);   // cheap + stronger: without the fix it would be chosen, evicting the shield
+        fixed.put(MIRROR_SHIELD, 0L);
+        GearOptimizer.PriceSource prices = everyWeaponExpensiveExcept(fixed);
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(1_000_000L)
+                .priceSource(prices)
+                .style(CombatStyle.SLASH)
+                .include(new HashSet<>(Arrays.asList(MIRROR_SHIELD)))
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertFalse("a two-handed weapon must not be chosen when a shield is force-required",
+                weaponIdIn(result) == DRAGON_2H_SWORD);
+        assertEquals("the force-required shield must be retained",
+                MIRROR_SHIELD, slotIdIn(result, WhatIfLoadout.SHIELD_SLOT));
+    }
+
+    /**
+     * A4: a blowpipe fires its own darts (not the worn ammo slot), so it can
+     * never satisfy Kurask's broad-ammo gate — it must be gated out of the
+     * ranged weapon search even though the worn ammo slot holds broad bolts.
+     */
+    @Test
+    public void broadAmmoGate_neverRecommendsASelfSupplyingBlowpipe() {
+        int[] live = emptyLoadout();
+
+        // Kurask-style ranged gate: no allowed weapon ids, broad bolts are the only legal ammo.
+        MonsterCombatRequirement kurask = MonsterCombatRequirement.weaponGate(
+                Collections.emptySet(),
+                new HashSet<>(Arrays.asList(BROAD_BOLTS)),
+                EnumSet.noneOf(CombatStyle.class),
+                "note");
+
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(TOXIC_BLOWPIPE, 0L);   // cheap + high DPS: without the fix it would win the ranged search
+        fixed.put(RUNE_CROSSBOW, 0L);
+        fixed.put(BROAD_BOLTS, 0L);
+        GearOptimizer.PriceSource prices = everyWeaponExpensiveExcept(fixed);
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(1_000_000L)
+                .priceSource(prices)
+                .style(CombatStyle.RANGED)
+                .combatRequirement(kurask)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertFalse("a blowpipe (self-supplying ammo) must never be recommended against a broad-ammo gate",
+                weaponIdIn(result) == TOXIC_BLOWPIPE);
+
+        // Cross-check the pure predicate: blowpipe rejected, a worn-ammo crossbow deferred to the ammo gate.
+        assertFalse(kurask.permitsWeapon(TOXIC_BLOWPIPE, CombatStyle.RANGED, false));
+        assertTrue(kurask.permitsWeapon(RUNE_CROSSBOW, CombatStyle.RANGED, true));
     }
 
     @Test

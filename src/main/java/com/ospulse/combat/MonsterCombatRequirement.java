@@ -56,13 +56,29 @@ public final class MonsterCombatRequirement
         return false;
     }
 
-    /** Optimiser weapon-slot gate (chosen style fixed; ammo slot enforced separately). */
+    /**
+     * Optimiser weapon-slot gate (chosen style fixed; ammo slot enforced
+     * separately). Back-compat overload — assumes the weapon fires worn ammo.
+     */
     public boolean permitsWeapon(int weaponId, CombatStyle style)
+    {
+        return permitsWeapon(weaponId, style, true);
+    }
+
+    /**
+     * Optimiser weapon-slot gate. {@code weaponUsesWornAmmo} must be {@code false}
+     * for a self-supplying ranged weapon (blowpipe, chinchompa, crystal bow,
+     * atlatl): such a weapon fires its own ammunition, so it can never satisfy a
+     * broad-ammo gate via the worn ammo slot and is only permitted when listed
+     * explicitly in {@code allowedItemIds}. Without this a blowpipe slipped
+     * through Kurask's gate paired with (unfired) broad bolts.
+     */
+    public boolean permitsWeapon(int weaponId, CombatStyle style, boolean weaponUsesWornAmmo)
     {
         if (type != Type.WEAPON_GATE) { return true; }
         if (allowedStyles.contains(style)) { return true; }
         if (allowedItemIds.contains(weaponId)) { return true; }
-        return style == CombatStyle.RANGED && !allowedAmmoIds.isEmpty();
+        return style == CombatStyle.RANGED && !allowedAmmoIds.isEmpty() && weaponUsesWornAmmo;
     }
 
     /** Optimiser ammo-slot gate (only restricts ranged). */
