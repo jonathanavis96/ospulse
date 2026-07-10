@@ -15,6 +15,7 @@ import org.junit.Test;
 
 import javax.swing.ListModel;
 import javax.swing.SwingUtilities;
+import javax.swing.border.Border;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -330,6 +331,98 @@ public class GearSectionOptimizerStyleTest
 			// Clearing the preview restores the live wording.
 			section.clickResetAllForTest();
 			assertTrue(section.slotTooltipForTest(WhatIfLoadout.WEAPON_SLOT).contains("Weapon slot (live)"));
+		});
+	}
+
+	// ------------------------------------------------ #1: Find Best auto-picks the GLOBAL-best style
+
+	/**
+	 * Item #1: "Find best" selects whichever damage type is actually the global
+	 * best for the target, not merely the equipped weapon's detected style. A
+	 * bow is equipped (detects Ranged) but a stronger melee whip sits owned in
+	 * the bank; on Cerberus the whip out-DPSes the weak bow, so Find Best must
+	 * land on Slash. That auto-pick is NOT a manual lock ({@code
+	 * optimizerStyleUserPicked} stays false), so the next target re-evaluates.
+	 */
+	@Test
+	public void findBest_autoPicksTheGlobalBestStyle_notJustTheEquippedWeaponsStyle()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(MAGIC_SHORTBOW)), wealthWith(ABYSSAL_WHIP)));
+			pickCerberus(section);
+			section.setBudgetTextForTest("0");
+
+			section.runOptimizerAndRankStylesSyncForTest();
+
+			assertEquals("Find Best must pick the global-best style (owned whip Slash), not the detected Ranged",
+				CombatStyle.SLASH, section.optimizerStyleForTest());
+			assertEquals("the shown result must be the Slash whip setup",
+				ABYSSAL_WHIP, weaponIdInResult(section.lastOptimizerResultForTest()));
+			assertFalse("an auto-picked best is not a manual lock — it re-evaluates on the next target",
+				section.optimizerStyleUserPickedForTest());
+		});
+	}
+
+	/**
+	 * Item #1 companion: a deliberate MANUAL style pick must SURVIVE a target
+	 * change (only the auto-pick is re-evaluated). Guards that the two-flag
+	 * model didn't collapse manual picks into the auto-pick reset.
+	 */
+	@Test
+	public void manualStylePick_survivesATargetChange()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(ABYSSAL_WHIP)), null));
+			section.clickOptimizerStyleForTest(CombatStyle.CRUSH);
+			assertTrue(section.optimizerStyleUserPickedForTest());
+
+			pickCerberus(section);
+
+			assertTrue("a manual style pick must survive picking a target",
+				section.optimizerStyleUserPickedForTest());
+			assertEquals(CombatStyle.CRUSH, section.optimizerStyleForTest());
+		});
+	}
+
+	// ------------------------------------------------ #3: owned vs must-buy preview border
+
+	/**
+	 * Item #3: an optimiser recommendation the player already OWNS (sitting in
+	 * the bank) previews with the duller {@link GearSection#OWNED_OVERRIDE_BORDER},
+	 * while a genuinely must-buy one keeps the bright {@link GearSection#OVERRIDE_BORDER}.
+	 */
+	@Test
+	public void ownedRecommendation_previewsWithDullerBorderThanAMustBuyOne()
+	{
+		onEdt(() ->
+		{
+			// Owned: bronze sword worn, dragon scimitar already sitting in the bank.
+			GearSection owned = new GearSection(NO_STORE, null, null);
+			owned.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealthWith(DRAGON_SCIMITAR)));
+			pickCerberus(owned);
+			owned.setBudgetTextForTest("0");
+			owned.runOptimizerSyncForTest();
+			owned.clickApplyOptimizerResultForTest();
+			assertEquals(DRAGON_SCIMITAR, owned.overrideForTest().itemIdFor(WhatIfLoadout.WEAPON_SLOT));
+			assertEquals("an owned recommendation must use the duller grey border",
+				GearSection.OWNED_OVERRIDE_BORDER, owned.slotBorderForTest(WhatIfLoadout.WEAPON_SLOT));
+
+			// Must-buy: the same upgrade is only affordable via the resolver, not owned.
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(DRAGON_SCIMITAR, 50_000L);
+			GearSection buy = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
+			buy.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(buy);
+			buy.setBudgetTextForTest("100k");
+			buy.runOptimizerSyncForTest();
+			buy.clickApplyOptimizerResultForTest();
+			assertEquals(DRAGON_SCIMITAR, buy.overrideForTest().itemIdFor(WhatIfLoadout.WEAPON_SLOT));
+			assertEquals("a must-buy recommendation must keep the bright orange border",
+				GearSection.OVERRIDE_BORDER, buy.slotBorderForTest(WhatIfLoadout.WEAPON_SLOT));
 		});
 	}
 }

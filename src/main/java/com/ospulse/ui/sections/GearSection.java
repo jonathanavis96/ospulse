@@ -465,8 +465,17 @@ public final class GearSection extends CollapsibleSection
 	 * re-detected in {@link #syncOptimizerStyleSelector} on every re-rank.
 	 */
 	private CombatStyle optimizerStyle;
-	/** True once the user clicked a selector button; cleared when the (effective) weapon changes, like the style lock. */
+	/** True once the user clicked a selector button; cleared when the (effective) weapon changes, like the style lock. Survives a target change (a manual pick is deliberate). */
 	private boolean optimizerStyleUserPicked;
+	/**
+	 * True once a "Find best" run auto-selected the global-best damage type for
+	 * the player (item #1) — distinct from {@link #optimizerStyleUserPicked} so
+	 * it can stick against {@link #syncOptimizerStyleSelector}'s weapon
+	 * re-detection, yet be dropped on a TARGET change (unlike a manual pick) so
+	 * the next target re-evaluates the best style from scratch. Cleared on a
+	 * weapon change too.
+	 */
+	private boolean optimizerStyleAutoPicked;
 
 	/** Gold marker for a suggested item the player does NOT own (border + price label) — RuneLite's GE-gold tone. */
 	private static final java.awt.Color NOT_OWNED_GOLD = new java.awt.Color(240, 207, 123);
@@ -711,7 +720,17 @@ public final class GearSection extends CollapsibleSection
 				selectedMonster = filteredMonsters.get(index);
 				resetBankHighlightToggle();
 				updateTargetLabel();
+				// A newly picked target drops the previous target's AUTO-picked
+				// best style so the Find Best run below re-derives the global
+				// best for THIS monster from scratch (item #1: switching Cerberus
+				// -> Frost Dragon must move off the bow to magic). A deliberate
+				// MANUAL style pick is left intact — it survives a target change.
+				optimizerStyleAutoPicked = false;
 				rankAndRender();
+				// Picking a target now runs the optimiser immediately, exactly as
+				// if "Find Best" had been clicked, and auto-selects whichever
+				// damage type comes out best — no separate click needed.
+				runOptimizerAndRankStyles();
 				// The picked target's canonical name is written back into the
 				// search field itself (replacing what the user typed) — there is
 				// no separate "Target:" line any more. Guard the write so it
@@ -1477,22 +1496,33 @@ public final class GearSection extends CollapsibleSection
 		}
 	}
 
-	/** Thin orange border marking a slot that currently shows a Phase 2 what-if override, not real worn gear. */
-	private static final Border OVERRIDE_BORDER = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE, 2);
+	/** Thin bright-orange border marking a Phase 2 what-if override the player must BUY (not owned) — the "you still need this" colour (item #3). */
+	static final Border OVERRIDE_BORDER = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE, 2);
+
+	/**
+	 * Thin dull-grey border marking a Phase 2 what-if override the player
+	 * already OWNS (worn elsewhere, or sitting in the bank/inventory) —
+	 * deliberately muted next to {@link #OVERRIDE_BORDER} so "you already have
+	 * this" reads as distinct from "you need to buy this" at a glance (item #3).
+	 */
+	static final Border OWNED_OVERRIDE_BORDER = BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR, 2);
 
 	/**
 	 * Thin red border marking the WEAPON or SHIELD slot's currently SHOWN item
 	 * (override id if overridden, else the live worn id) as invalid for the
-	 * selected target — see {@link #isSlotInvalidForTarget} (A6). Combined
-	 * with {@link #OVERRIDE_BORDER} via {@link BorderFactory#createCompoundBorder}
-	 * when the slot is ALSO overridden, so both signals show at once.
+	 * selected target — see {@link #isSlotInvalidForTarget} (A6). Combined with
+	 * {@link #OVERRIDE_BORDER}/{@link #OWNED_OVERRIDE_BORDER} via
+	 * {@link BorderFactory#createCompoundBorder} when the slot is ALSO
+	 * overridden, so both signals show at once.
 	 */
 	private static final Border INVALID_BORDER = BorderFactory.createLineBorder(ColorScheme.PROGRESS_ERROR_COLOR, 2);
 
 	/**
 	 * Diff-updates the worn-gear icon grid; only touched slots reload their
-	 * sprite. Shows the what-if override's item (with an orange border) in any
-	 * overridden slot instead of the real worn item — see {@link #override}.
+	 * sprite. Shows the what-if override's item in any overridden slot instead
+	 * of the real worn item, bordered so an owned recommendation
+	 * ({@link #OWNED_OVERRIDE_BORDER}, dull grey) is told apart from a must-buy
+	 * one ({@link #OVERRIDE_BORDER}, bright orange) — see {@link #override}.
 	 */
 	private void updateGearGrid(GearSnapshot gear)
 	{
@@ -1515,10 +1545,16 @@ public final class GearSection extends CollapsibleSection
 			boolean overridden = override.hasOverride(slot);
 			int liveId = ids == null || slot >= ids.length ? -1 : ids[slot];
 			int id = overridden ? override.itemIdFor(slot) : liveId;
+			// Item #3: an owned-but-not-worn recommendation gets the duller grey
+			// border, a must-buy one keeps the bright orange — same ownership
+			// check the preview tooltip below already relies on (an emptied slot,
+			// id <= 0, counts as owned = grey).
+			boolean ownedItem = id <= 0 || (ownedIds != null && ownedIds.containsKey(id));
+			Border recommendedBorder = ownedItem ? OWNED_OVERRIDE_BORDER : OVERRIDE_BORDER;
 			boolean invalid = noSetupForDisplayedStyle || isSlotInvalidForTarget(slot, id);
 			cell.setBorder(invalid
-				? (overridden ? BorderFactory.createCompoundBorder(INVALID_BORDER, OVERRIDE_BORDER) : INVALID_BORDER)
-				: (overridden ? OVERRIDE_BORDER : null));
+				? (overridden ? BorderFactory.createCompoundBorder(INVALID_BORDER, recommendedBorder) : INVALID_BORDER)
+				: (overridden ? recommendedBorder : null));
 			if (cell instanceof CrossableSlotLabel)
 			{
 				((CrossableSlotLabel) cell).setCrossedOut(noSetupForDisplayedStyle);
@@ -1531,7 +1567,6 @@ public final class GearSection extends CollapsibleSection
 			// override/owned state can change without the item id changing.
 			if (overridden)
 			{
-				boolean ownedItem = id <= 0 || (ownedIds != null && ownedIds.containsKey(id));
 				cell.setToolTipText(itemDisplayName(index, id) + " — " + SLOT_NAMES[slot] + " slot (preview"
 					+ (ownedItem ? "" : ", not owned") + ") — click to try a different item");
 			}
@@ -1728,9 +1763,11 @@ public final class GearSection extends CollapsibleSection
 			userPickedStyle = false;
 			userPickedSpell = false;
 			// The optimiser's 5-way selector follows the same rule (item #6e/#6g):
-			// a manual damage-type pick is dropped on a weapon change so the
-			// selector re-detects from whatever is now actually wielded.
+			// a manual damage-type pick — and any auto-picked best (item #1) —
+			// is dropped on a weapon change so the selector re-detects from
+			// whatever is now actually wielded.
 			optimizerStyleUserPicked = false;
+			optimizerStyleAutoPicked = false;
 		}
 		if (selectedMonster != lastRankedTarget)
 		{
@@ -3120,6 +3157,7 @@ public final class GearSection extends CollapsibleSection
 		lastWealth = null;
 		optimizerStyle = null;
 		optimizerStyleUserPicked = false;
+		optimizerStyleAutoPicked = false;
 		updateTargetLabel();
 		// Reuse the shared what-if/optimiser teardown: it also clears
 		// userPickedStyle/userPickedSpell, hides the optimiser panel, closes the
@@ -3891,7 +3929,7 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private void syncOptimizerStyleSelector()
 	{
-		if (!optimizerStyleUserPicked)
+		if (!optimizerStyleUserPicked && !optimizerStyleAutoPicked)
 		{
 			CombatStyle detected = detectedCombatStyle();
 			if (detected != null)
@@ -3985,10 +4023,12 @@ public final class GearSection extends CollapsibleSection
 
 	/**
 	 * The "Find best setup" button's action (item #6e): runs the optimiser for
-	 * ALL FIVE damage types (not just the selected one), renders the selected
-	 * style's result exactly as {@link #runOptimizer} would, and then reorders
-	 * the style selector buttons left-to-right by best-achievable DPS. Unlike
-	 * {@link #runOptimizer}, this is deliberately NOT used by the toggle/
+	 * ALL FIVE damage types (not just the selected one), then displays either
+	 * the style the user has explicitly locked in or — if nothing is locked (a
+	 * fresh target, or the weapon-detected default) — whichever damage type
+	 * actually comes out on top by DPS, and reorders the style selector buttons
+	 * left-to-right by best-achievable DPS (see {@link #applyRankedStyleResults}).
+	 * Unlike {@link #runOptimizer}, this is deliberately NOT used by the toggle/
 	 * exclude-item/style-selector re-runs — those stay single-style so they
 	 * stay responsive.
 	 */
@@ -4021,17 +4061,7 @@ public final class GearSection extends CollapsibleSection
 				{
 					try
 					{
-						java.util.Map<CombatStyle, GearOptimizer.Result> results = get();
-						stylesWithNoSetup.clear();
-						for (java.util.Map.Entry<CombatStyle, GearOptimizer.Result> entry : results.entrySet())
-						{
-							if (entry.getValue() == null || entry.getValue().style() == null)
-							{
-								stylesWithNoSetup.add(entry.getKey());
-							}
-						}
-						onOptimizerResult(results.get(selected));
-						reorderSelectorsByDps(results);
+						applyRankedStyleResults(get(), selected);
 					}
 					catch (java.util.concurrent.ExecutionException | InterruptedException e)
 					{
@@ -4042,6 +4072,68 @@ public final class GearSection extends CollapsibleSection
 				}
 			}.execute();
 		});
+	}
+
+	/**
+	 * Shared by the real ({@code SwingWorker}) and sync-test paths of
+	 * {@link #runOptimizerAndRankStyles}: records which styles found no usable
+	 * setup ({@link #stylesWithNoSetup}), resolves which style to actually
+	 * display, renders it, and reorders the 5-way selector by DPS.
+	 *
+	 * <p>If the user has a style explicitly locked in ({@code selected}, from
+	 * {@link #optimizerConstraint()}), that pick is honoured. If nothing is
+	 * locked — a freshly picked target, or a weapon-detected default the user
+	 * never confirmed — the actual global-best damage type (by DPS across
+	 * {@code results}) is selected instead and locked in exactly as a manual
+	 * click on that style's button would, so a later re-render (e.g.
+	 * {@link #syncOptimizerStyleSelector}) can't silently re-detect it away
+	 * from the equipped weapon's own style.
+	 */
+	private void applyRankedStyleResults(java.util.Map<CombatStyle, GearOptimizer.Result> results, CombatStyle selected)
+	{
+		stylesWithNoSetup.clear();
+		for (java.util.Map.Entry<CombatStyle, GearOptimizer.Result> entry : results.entrySet())
+		{
+			if (entry.getValue() == null || entry.getValue().style() == null)
+			{
+				stylesWithNoSetup.add(entry.getKey());
+			}
+		}
+
+		CombatStyle display = selected;
+		if (!optimizerStyleUserPicked)
+		{
+			CombatStyle best = null;
+			double bestScore = Double.NEGATIVE_INFINITY;
+			for (CombatStyle style : OPTIMIZER_STYLE_ORDER)
+			{
+				double score = bestDps(results.get(style));
+				if (score > bestScore)
+				{
+					bestScore = score;
+					best = style;
+				}
+			}
+			if (best != null)
+			{
+				display = best;
+				optimizerStyle = best;
+				// Auto-lock (not a manual pick): sticks against a weapon
+				// re-detect, but is dropped on a target change so the next
+				// monster re-evaluates its own best style (item #1).
+				optimizerStyleAutoPicked = true;
+				// Programmatic setSelected fires only the ItemListener restyle,
+				// never the ActionListener search (see buildOptimizerStyleSelector),
+				// so locking the auto-picked best in cannot recurse.
+				for (int i = 0; i < OPTIMIZER_STYLE_ORDER.length; i++)
+				{
+					optimizerStyleButtons[i].setSelected(OPTIMIZER_STYLE_ORDER[i] == best);
+				}
+			}
+		}
+
+		onOptimizerResult(results.get(display));
+		reorderSelectorsByDps(results);
 	}
 
 	/**
@@ -5200,6 +5292,12 @@ public final class GearSection extends CollapsibleSection
 		return renderedSlotIds[slotOrdinal];
 	}
 
+	/** Test seam: the {@link Border} currently painted on a slot cell — see item #3's owned-vs-buy preview border colouring. */
+	Border slotBorderForTest(int slotOrdinal)
+	{
+		return slotLabels[slotOrdinal].getBorder();
+	}
+
 	/**
 	 * Test hook mirroring the right-click "Exclude from suggestions" on a slot
 	 * cell: excludes whatever item that cell is currently SHOWING (read from
@@ -5309,6 +5407,52 @@ public final class GearSection extends CollapsibleSection
 				optimizerConstraint());
 			onOptimizerResult(GearOptimizer.optimize(request));
 		});
+	}
+
+	/**
+	 * Mirrors {@link #runOptimizerAndRankStyles} synchronously for tests
+	 * (bypassing the real {@code SwingWorker}, which isn't awaitable headless —
+	 * same reason {@link #runOptimizerSyncForTest} exists): optimises all five
+	 * styles on the calling thread and hands them to the same
+	 * {@link #applyRankedStyleResults} the async path uses.
+	 */
+	void runOptimizerAndRankStylesSyncForTest()
+	{
+		long budget = resolvedBudget();
+		java.util.Map<Integer, Long> ownedPrices = ownedPriceMap();
+		CombatStyle selected = optimizerConstraint();
+
+		if (priceResolver == null)
+		{
+			GearOptimizer.PriceSource priceSource = resolveOptimizerPriceSource(
+				id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet());
+			applyRankedStyleResults(optimizeAllStyles(budget, ownedPrices, priceSource), selected);
+			return;
+		}
+
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		java.util.Set<Integer> candidateIds = new java.util.HashSet<>(index.allItemIds());
+		candidateIds.removeAll(ownedPrices.keySet());
+		candidateIds.addAll(UNTRADEABLE_CRAFT_INGREDIENT.values());
+
+		priceResolver.resolve(candidateIds, lookup ->
+		{
+			GearOptimizer.PriceSource priceSource = resolveOptimizerPriceSource(
+				id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds());
+			applyRankedStyleResults(optimizeAllStyles(budget, ownedPrices, priceSource), selected);
+		});
+	}
+
+	/** Optimises every {@link #OPTIMIZER_STYLE_ORDER} style with one resolved price triple (test seam helper). */
+	private java.util.Map<CombatStyle, GearOptimizer.Result> optimizeAllStyles(
+		long budget, java.util.Map<Integer, Long> ownedPrices, GearOptimizer.PriceSource priceSource)
+	{
+		java.util.Map<CombatStyle, GearOptimizer.Result> results = new java.util.LinkedHashMap<>();
+		for (CombatStyle style : OPTIMIZER_STYLE_ORDER)
+		{
+			results.put(style, GearOptimizer.optimize(buildOptimizerRequest(budget, ownedPrices, priceSource, style)));
+		}
+		return results;
 	}
 
 	GearOptimizer.Result lastOptimizerResultForTest()
