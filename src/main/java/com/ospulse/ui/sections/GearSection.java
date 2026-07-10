@@ -969,6 +969,24 @@ public final class GearSection extends CollapsibleSection
 		body().add(findBestSetupButton);
 		body().add(Box.createRigidArea(new Dimension(0, 2)));
 
+		// B8-3: lives directly below "Find best setup" now (not at the bottom of
+		// optimizerResultPanel) so cancelling a preview/result doesn't require
+		// scrolling past the whole result panel. Starts hidden — only shown
+		// while a preview/result is actually active (see onOptimizerResult /
+		// resetAllOverrides / withResolvedPrices).
+		clearOptimizerPreviewButton = new JButton("Clear preview / revert to worn gear");
+		clearOptimizerPreviewButton.setFont(FontManager.getRunescapeSmallFont());
+		clearOptimizerPreviewButton.setFocusPainted(false);
+		clearOptimizerPreviewButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+		clearOptimizerPreviewButton.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		clearOptimizerPreviewButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		clearOptimizerPreviewButton.setToolTipText("Cancels the preview above and any what-if swaps, going back to your real worn gear");
+		clearOptimizerPreviewButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, clearOptimizerPreviewButton.getPreferredSize().height));
+		clearOptimizerPreviewButton.addActionListener(e -> resetAllOverrides());
+		clearOptimizerPreviewButton.setVisible(false);
+		body().add(clearOptimizerPreviewButton);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
+
 		optimizerStatusLabel = PanelWidgets.emptyRowLabel("");
 		optimizerStatusLabel.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
 		optimizerStatusLabel.setVisible(false);
@@ -999,14 +1017,17 @@ public final class GearSection extends CollapsibleSection
 		optimizerResultPanel.add(optimizerSwapList);
 		optimizerResultPanel.add(Box.createRigidArea(new Dimension(0, 4)));
 
-		// "Preview these swaps" (was the unclear "Apply to readout (what-if)")
-		// plus a one-line explanation of exactly what it does — it only loads
-		// the suggestion into the what-if readout below as a preview; it never
-		// touches the player's real worn gear.
+		// B8-4: preview is now applied automatically whenever a usable result
+		// with changes is shown (end of onOptimizerResult), so the manual
+		// "Preview these swaps" button and its explanation are no longer needed
+		// in the UI — kept as hidden/dead-visible widgets because the button's
+		// field + applyOptimizerResultToOverride() are still used by the
+		// auto-preview call and by clickApplyOptimizerResultForTest.
 		JLabel previewExplanation = PanelWidgets.emptyRowLabel(
 			"Loads these swaps into the readout above as a preview — your real gear is not changed.");
 		previewExplanation.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
 		previewExplanation.setFont(FontManager.getRunescapeSmallFont().deriveFont(Font.ITALIC));
+		previewExplanation.setVisible(false);
 		optimizerResultPanel.add(previewExplanation);
 		applyOptimizerResultButton = new JButton("Preview these swaps");
 		applyOptimizerResultButton.setFont(FontManager.getRunescapeSmallFont());
@@ -1017,6 +1038,7 @@ public final class GearSection extends CollapsibleSection
 		applyOptimizerResultButton.setToolTipText("Loads this result into the what-if slots above as a preview — your real gear is unaffected");
 		applyOptimizerResultButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, applyOptimizerResultButton.getPreferredSize().height));
 		applyOptimizerResultButton.addActionListener(e -> applyOptimizerResultToOverride());
+		applyOptimizerResultButton.setVisible(false);
 		optimizerResultPanel.add(applyOptimizerResultButton);
 
 		// Filters the open bank down to this result's item ids (via bank tags),
@@ -1048,21 +1070,6 @@ public final class GearSection extends CollapsibleSection
 			}
 		});
 		optimizerResultPanel.add(showInBankButton);
-
-		// The preview is otherwise sticky with no way to cancel it — this
-		// reuses the same resetAllOverrides() the "Reset all to worn gear"
-		// button uses, so it clears the overrides AND hides this whole panel.
-		clearOptimizerPreviewButton = new JButton("Clear preview / revert to worn gear");
-		clearOptimizerPreviewButton.setFont(FontManager.getRunescapeSmallFont());
-		clearOptimizerPreviewButton.setFocusPainted(false);
-		clearOptimizerPreviewButton.setAlignmentX(Component.LEFT_ALIGNMENT);
-		clearOptimizerPreviewButton.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		clearOptimizerPreviewButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		clearOptimizerPreviewButton.setToolTipText("Cancels the preview above and any what-if swaps, going back to your real worn gear");
-		clearOptimizerPreviewButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, clearOptimizerPreviewButton.getPreferredSize().height));
-		clearOptimizerPreviewButton.addActionListener(e -> resetAllOverrides());
-		optimizerResultPanel.add(Box.createRigidArea(new Dimension(0, 2)));
-		optimizerResultPanel.add(clearOptimizerPreviewButton);
 
 		optimizerResultPanel.setVisible(false);
 		body().add(optimizerResultPanel);
@@ -2764,6 +2771,7 @@ public final class GearSection extends CollapsibleSection
 		override = LoadoutOverride.empty();
 		lastOptimizerResult = null;
 		optimizerResultPanel.setVisible(false);
+		clearOptimizerPreviewButton.setVisible(false);
 		optimizerStatusLabel.setVisible(false);
 		resetBankHighlightToggle();
 		userPickedStyle = false;
@@ -3582,6 +3590,7 @@ public final class GearSection extends CollapsibleSection
 			optimizerStatusLabel.setText("Pick a target above first");
 			optimizerStatusLabel.setVisible(true);
 			optimizerResultPanel.setVisible(false);
+			clearOptimizerPreviewButton.setVisible(false);
 			resetBankHighlightToggle();
 			return;
 		}
@@ -3590,6 +3599,7 @@ public final class GearSection extends CollapsibleSection
 		optimizerStatusLabel.setText("Searching...");
 		optimizerStatusLabel.setVisible(true);
 		optimizerResultPanel.setVisible(false);
+		clearOptimizerPreviewButton.setVisible(false);
 		resetBankHighlightToggle();
 		saveOptimizerPrefs();
 
@@ -4036,13 +4046,24 @@ public final class GearSection extends CollapsibleSection
 		}
 		// Nothing to preview/clear/show-in-bank when the suggestion equals what's
 		// already worn, or when there's no usable weapon to recommend at all.
-		applyOptimizerResultButton.setVisible(anyChange && !noUsableWeapon);
+		// (applyOptimizerResultButton itself stays hidden — B8-4 auto-previews
+		// below instead of waiting for a manual click.)
 		clearOptimizerPreviewButton.setVisible(anyChange && !noUsableWeapon);
 		showInBankButton.setVisible(!noUsableWeapon);
 		optimizerResultPanel.setVisible(true);
 		optimizerResultPanel.revalidate();
 		body().revalidate();
 		body().repaint();
+
+		// B8-4: auto-preview — apply the swaps immediately instead of requiring
+		// a manual "Preview these swaps" click, so both "Find best setup" and
+		// clicking a style icon (which re-runs the optimiser for that single
+		// style and lands back here) instantly show the what-if readout for
+		// the currently-displayed result.
+		if (result != null && result.style() != null && anyChange)
+		{
+			applyOptimizerResultToOverride();
+		}
 	}
 
 	/** True if the optimiser's proposed loadout differs from the currently worn gear in at least one slot. */
@@ -4321,7 +4342,16 @@ public final class GearSection extends CollapsibleSection
 			next = next.withSlot(choice.slotOrdinal(), choice.itemId());
 		}
 		override = next;
-		resetBankHighlightToggle();
+		// B8-6: don't reset the bank filter on every preview — if it's already
+		// armed (Show in bank ticked), refresh it to this preview's items so
+		// switching styles (each re-runs the optimiser -> onOptimizerResult ->
+		// this method) live-updates the highlighted bank items instead of
+		// silently dropping the filter.
+		if (showInBankButton != null && showInBankButton.isSelected()
+			&& bankHighlighter != null && lastOptimizerResult != null)
+		{
+			bankHighlighter.showInBank(optimizerLoadoutSlotMap(lastOptimizerResult));
+		}
 
 		// Item #6g: the preview must show the DPS the optimiser actually
 		// computed — i.e. lock the readout to the RESULT's style/spell instead
