@@ -10,6 +10,8 @@ import com.ospulse.combat.DpsResult;
 import com.ospulse.combat.EquipmentIndexRepository;
 import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.Monster;
+import com.ospulse.combat.MonsterCombatRequirement;
+import com.ospulse.combat.MonsterCombatRequirementRepository;
 import com.ospulse.combat.MonsterGearOverride;
 import com.ospulse.combat.MonsterGearOverrideRepository;
 import com.ospulse.combat.MonsterRepository;
@@ -273,6 +275,15 @@ public final class GearSection extends CollapsibleSection
 	 * target changes. Hidden entirely (zero height) when the target has none.
 	 */
 	private final JPanel gearOverrideNotePanel;
+	/**
+	 * Container for the curated combat-requirement advisory (e.g. "Kurask can
+	 * only be damaged by leaf-bladed weapons, broad ammunition, or magic") —
+	 * one label for the selected target's {@link MonsterCombatRequirement}
+	 * note, rebuilt in {@link #updateCombatRequirementNote()} whenever the
+	 * target changes. Hidden entirely (zero height) when the target has none
+	 * or its note is empty.
+	 */
+	private final JPanel combatReqNotePanel;
 
 	private List<Monster> filteredMonsters = Collections.emptyList();
 	private Monster selectedMonster;
@@ -803,6 +814,17 @@ public final class GearSection extends CollapsibleSection
 		gearOverrideNotePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		gearOverrideNotePanel.setVisible(false);
 		body().add(gearOverrideNotePanel);
+
+		// Curated combat-requirement advisory (e.g. "Kurask: leaf-bladed
+		// weapons, broad ammunition, or magic only") — a damage-gate the
+		// optimiser cannot infer on its own. Empty/invisible until
+		// updateCombatRequirementNote() finds one for the selected target.
+		combatReqNotePanel = new JPanel();
+		combatReqNotePanel.setLayout(new BoxLayout(combatReqNotePanel, BoxLayout.Y_AXIS));
+		combatReqNotePanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		combatReqNotePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		combatReqNotePanel.setVisible(false);
+		body().add(combatReqNotePanel);
 		body().add(Box.createRigidArea(new Dimension(0, 6)));
 
 		// ------------------------------------------------------- outputs
@@ -2295,6 +2317,7 @@ public final class GearSection extends CollapsibleSection
 			? ColorScheme.LIGHT_GRAY_COLOR
 			: java.awt.Color.WHITE);
 		updateGearOverrideNote();
+		updateCombatRequirementNote();
 	}
 
 	/**
@@ -2326,6 +2349,37 @@ public final class GearSection extends CollapsibleSection
 		gearOverrideNotePanel.setVisible(!overrides.isEmpty());
 		gearOverrideNotePanel.revalidate();
 		gearOverrideNotePanel.repaint();
+	}
+
+	/**
+	 * Rebuilds {@link #combatReqNotePanel} from {@link MonsterCombatRequirementRepository}
+	 * for the currently selected target — a single orange advisory line
+	 * showing the curated combat-requirement note (e.g. "Kurask can only be
+	 * damaged by leaf-bladed weapons, broad ammunition, or magic"), hidden
+	 * entirely when the target has no requirement or its note is empty.
+	 * Called whenever {@link #selectedMonster} changes (every
+	 * {@link #updateTargetLabel} call site).
+	 */
+	private void updateCombatRequirementNote()
+	{
+		combatReqNotePanel.removeAll();
+		boolean show = false;
+		if (selectedMonster != null)
+		{
+			java.util.Optional<MonsterCombatRequirement> req =
+				MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.name());
+			if (req.isPresent() && !req.get().note().isEmpty())
+			{
+				JLabel label = PanelWidgets.emptyRowLabel(
+					"<html><div style='width:200px'>⚠ " + escapeHtml(req.get().note()) + "</div></html>");
+				label.setForeground(ColorScheme.BRAND_ORANGE);
+				combatReqNotePanel.add(label);
+				show = true;
+			}
+		}
+		combatReqNotePanel.setVisible(show);
+		combatReqNotePanel.revalidate();
+		combatReqNotePanel.repaint();
 	}
 
 	/** Human-readable slot name for the advisory note, e.g. {@code BOOTS} -&gt; {@code "Boots"}. */
