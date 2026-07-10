@@ -1,0 +1,18 @@
+{
+  "requirements": [
+    {
+      "monsters": ["Kurask"],
+      "type": "WEAPON_GATE",
+      "allowedItemIds": [20368],
+      "allowedAmmoIds": [11875],
+      "allowedStyles": ["MAGIC"],
+      "note": "Kurask can only be harmed by leaf-bladed weapons, broad ammunition, or magic."
+    },
+    {
+      "monsters": ["Gargoyle"],
+      "type": "FINISHER",
+      "finisherItemIds": [4162],
+      "note": "Gargoyles must be finished with a rock or granite hammer at low HP."
+    }
+  ]
+}
