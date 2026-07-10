@@ -770,12 +770,6 @@ public final class GearOptimizer {
                 // it would only ever evaluate to null under the constraint.
                 continue;
             }
-            if (weaponSlotWithForcedShield && WhatIfLoadout.isTwoHanded(e.itemId())) {
-                // A force-required shield-slot item (e.g. mirror shield vs
-                // Basilisk) can't coexist with a two-handed / dual-wield weapon,
-                // which would silently evict the shield — so drop 2H candidates.
-                continue;
-            }
             MonsterCombatRequirement combatReq = request.combatRequirement;
             if (combatReq != null) {
                 if (slot == WhatIfLoadout.WEAPON_SLOT
@@ -798,6 +792,27 @@ public final class GearOptimizer {
                 continue;
             }
             affordable.add(new Candidate(e.itemId(), price, owned));
+        }
+
+        if (weaponSlotWithForcedShield) {
+            // A forced shield-slot item (mirror shield vs Basilisk) can't coexist
+            // with a two-handed weapon. Prefer a one-handed weapon + the shield by
+            // dropping 2H candidates — but ONLY when a usable one-handed weapon of
+            // this style actually exists. Otherwise keep the 2H options so the
+            // search doesn't collapse to zero swaps when the player only owns 2H
+            // weapons of that style (Tumeken's shadow, bow of faerdhinen, ...);
+            // the advisory shield then yields (equipWeapon empties the shield
+            // slot for a 2H weapon). See B8-5.
+            boolean hasOneHanded = false;
+            for (Candidate c : affordable) {
+                if (!WhatIfLoadout.isTwoHanded(c.itemId())) {
+                    hasOneHanded = true;
+                    break;
+                }
+            }
+            if (hasOneHanded) {
+                affordable.removeIf(c -> WhatIfLoadout.isTwoHanded(c.itemId()));
+            }
         }
 
         if (slot == AMMO_SLOT) {

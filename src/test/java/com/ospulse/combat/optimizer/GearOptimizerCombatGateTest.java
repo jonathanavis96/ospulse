@@ -68,6 +68,7 @@ public class GearOptimizerCombatGateTest {
     private static final int MIRROR_SHIELD = 4156;       // shield-slot force-include (anti-Basilisk)
     private static final int DRAGON_2H_SWORD = 7158;     // two-handed slash weapon
     private static final int RUNE_SCIMITAR = 1333;       // one-handed slash weapon
+    private static final int TWISTED_BOW = 20997;        // two-handed ranged weapon
 
     private static int slotIdIn(GearOptimizer.Result result, int slotOrdinal) {
         for (GearOptimizer.SlotChoice choice : result.loadout()) {
@@ -112,6 +113,37 @@ public class GearOptimizerCombatGateTest {
                 weaponIdIn(result) == DRAGON_2H_SWORD);
         assertEquals("the force-required shield must be retained",
                 MIRROR_SHIELD, slotIdIn(result, WhatIfLoadout.SHIELD_SLOT));
+    }
+
+    /**
+     * B8-5: when a shield is force-included but the player has NO usable
+     * one-handed weapon of the chosen style (only 2H weapons — the norm for
+     * maxed magic/ranged: shadow, bowfa, tbow), the optimiser must still
+     * recommend the 2H weapon instead of collapsing to zero swaps. The forced
+     * 2H-exclusion (A3) only applies when a one-handed option actually exists.
+     */
+    @Test
+    public void forcedShield_keepsTwoHandedWeaponWhenNoOneHandedOptionExists() {
+        int[] live = emptyLoadout();
+
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(TWISTED_BOW, 0L);     // the only usable weapon for this style — and it's 2H
+        fixed.put(MIRROR_SHIELD, 0L);
+        GearOptimizer.PriceSource prices = everyWeaponExpensiveExcept(fixed);
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(1_000_000L)
+                .priceSource(prices)
+                .style(CombatStyle.RANGED)
+                .include(new HashSet<>(Arrays.asList(MIRROR_SHIELD)))
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("with no one-handed option, the 2H weapon must still be recommended (no zero-swap collapse)",
+                TWISTED_BOW, weaponIdIn(result));
+        assertTrue("the search must produce a usable style, not collapse to null", result.style() != null);
     }
 
     /**
