@@ -81,6 +81,9 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	/** Retained (not just in {@link #sectionList}) so {@link #setBankHighlighter} has a typed target to forward to. */
 	private final GearSection gearSection;
 
+	/** Retained so the panel-showing hook can suspend/restore the bank filter (B8-8). */
+	private com.ospulse.integration.BankRecommendationHighlighter bankHighlighter;
+
 	private Runnable resetCallback = () -> {};
 
 	public OSPulsePanel(OSPulseConfig config, ItemManager itemManager, ConfigManager configManager,
@@ -156,7 +159,29 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	/** Pass-through to {@link GearSection#setBankHighlighter} — the panel doesn't otherwise know about bank tags. */
 	public void setBankHighlighter(com.ospulse.integration.BankRecommendationHighlighter bankHighlighter)
 	{
+		this.bankHighlighter = bankHighlighter;
 		gearSection.setBankHighlighter(bankHighlighter);
+
+		// B8-8: when the user switches away from the OSPulse side panel to another
+		// plugin (e.g. Inventory Setups), hide the bank filter without disarming,
+		// and restore it when they switch back. PluginPanel exposes no activate
+		// hook in this client, so drive it off Swing's on-screen showing state.
+		addHierarchyListener(e ->
+		{
+			if ((e.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) == 0
+				|| this.bankHighlighter == null)
+			{
+				return;
+			}
+			if (isShowing())
+			{
+				this.bankHighlighter.reapplyIfArmed();
+			}
+			else
+			{
+				this.bankHighlighter.suspend();
+			}
+		});
 	}
 
 	/**

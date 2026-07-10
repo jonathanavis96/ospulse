@@ -124,7 +124,7 @@ public class OSPulsePlugin extends Plugin
 		priceTrendService = new PriceTrendService(okHttpClient, config, gson);
 
 		bankHighlighter = new com.ospulse.integration.BankRecommendationHighlighter(
-			bankTagsService, tagManager, clientThread);
+			bankTagsService, tagManager, configManager, clientThread);
 		if (bankTagsService == null || tagManager == null)
 		{
 			// With @PluginDependency(BankTagsPlugin) these should always resolve;

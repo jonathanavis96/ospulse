@@ -1040,15 +1040,7 @@ public final class GearSection extends CollapsibleSection
 			}
 			if (showInBankButton.isSelected() && lastOptimizerResult != null)
 			{
-				java.util.Set<Integer> ids = new java.util.LinkedHashSet<>();
-				for (GearOptimizer.SlotChoice choice : lastOptimizerResult.loadout())
-				{
-					if (choice.itemId() > 0)
-					{
-						ids.add(choice.itemId());
-					}
-				}
-				bankHighlighter.showInBank(ids);
+				bankHighlighter.showInBank(optimizerLoadoutSlotMap(lastOptimizerResult));
 			}
 			else
 			{
@@ -1165,6 +1157,20 @@ public final class GearSection extends CollapsibleSection
 	 * what-if readout, target change) so the highlight never outlives the
 	 * result it was generated from.
 	 */
+	/** The optimiser result's loadout as an equipment-slot-ordinal -> item-id map (for the bank layout). */
+	private static java.util.Map<Integer, Integer> optimizerLoadoutSlotMap(GearOptimizer.Result result)
+	{
+		java.util.Map<Integer, Integer> map = new java.util.LinkedHashMap<>();
+		for (GearOptimizer.SlotChoice choice : result.loadout())
+		{
+			if (choice.itemId() > 0)
+			{
+				map.put(choice.slotOrdinal(), choice.itemId());
+			}
+		}
+		return map;
+	}
+
 	private void resetBankHighlightToggle()
 	{
 		if (showInBankButton != null)
