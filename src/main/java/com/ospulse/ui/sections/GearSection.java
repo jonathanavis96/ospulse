@@ -33,6 +33,7 @@ import com.ospulse.session.GearVariants;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
+import com.ospulse.ui.sections.gear.RoundedButton;
 import com.ospulse.wealth.WealthSnapshot;
 
 import net.runelite.client.config.ConfigManager;
@@ -66,12 +67,15 @@ import javax.swing.border.Border;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.Insets;
@@ -150,6 +154,10 @@ public final class GearSection extends CollapsibleSection
 	/** Native RuneLite item sprite size is 36x32; cells pad that slightly. */
 	private static final int SLOT_W = 38;
 	private static final int SLOT_H = 36;
+
+	// The two action buttons flanking the helmet in the gear grid (item #7b redesign).
+	private static final Color FIND_BEST_GREEN = new Color(56, 142, 60);
+	private static final Color REVERT_RED = new Color(176, 58, 46);
 
 	/**
 	 * The classic OSRS equipment-tab layout as {@code EquipmentInventorySlot}
@@ -991,6 +999,11 @@ public final class GearSection extends CollapsibleSection
 		findBestSetupButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, findBestSetupButtonHeight));
 		findBestSetupButton.setPreferredSize(new Dimension(0, findBestSetupButtonHeight));
 		findBestSetupButton.addActionListener(e -> runOptimizerAndRankStyles());
+		// The prominent green "Find Best" button now lives in the gear grid (top
+		// row, flanking the helmet — see buildGearGrid), so this full-width
+		// duplicate is hidden. Kept in the tree for the setEnabled() calls and
+		// the test getter that reference it.
+		findBestSetupButton.setVisible(false);
 		body().add(findBestSetupButton);
 		body().add(Box.createRigidArea(new Dimension(0, 2)));
 
@@ -1207,106 +1220,122 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private JPanel buildGearGrid()
 	{
-		JPanel grid = new JPanel(new GridLayout(5, 3, 2, 2));
+		// Row 0 is built separately from the rest of the silhouette: a green
+		// "Find Best" and red "Revert" button flank the helmet (item #7b
+		// redesign). The side columns carry equal weight so the helmet stays
+		// centred — and, because the whole top row and the grid below are both
+		// centre-aligned in the stack, the helmet lines up exactly over the
+		// body column. The buttons live outside the equipment GridLayout, so
+		// they can be wider than a slot without stretching the silhouette.
+		JPanel topRow = new JPanel(new GridBagLayout());
+		topRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		topRow.setAlignmentX(Component.CENTER_ALIGNMENT);
+		GridBagConstraints gbc = new GridBagConstraints();
+		gbc.gridy = 0;
+
+		findBestSetupGridButton = RoundedButton.action("Find Best", FIND_BEST_GREEN, Color.WHITE,
+			"Find best setup", e -> runOptimizerAndRankStyles());
+		findBestSetupGridButton.setPreferredSize(new Dimension(74, 24));
+		gbc.gridx = 0;
+		gbc.weightx = 1;
+		gbc.anchor = GridBagConstraints.WEST;
+		topRow.add(findBestSetupGridButton, gbc);
+
+		gbc.gridx = 1;
+		gbc.weightx = 0;
+		gbc.anchor = GridBagConstraints.CENTER;
+		gbc.insets = new Insets(0, 6, 0, 6);
+		topRow.add(buildSlotCell(0), gbc);
+		gbc.insets = new Insets(0, 0, 0, 0);
+
+		revertGridButton = RoundedButton.action("Revert", REVERT_RED, Color.WHITE,
+			"Revert to current gear", e -> resetAllOverrides());
+		revertGridButton.setPreferredSize(new Dimension(74, 24));
+		gbc.gridx = 2;
+		gbc.weightx = 1;
+		gbc.anchor = GridBagConstraints.EAST;
+		topRow.add(revertGridButton, gbc);
+
+		// Rows 1-4 of the equipment silhouette (SLOT_GRID index 3 onward — the
+		// helmet at index 1 is already placed in the top row above).
+		JPanel grid = new JPanel(new GridLayout(4, 3, 2, 2));
 		grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		for (int i = 0; i < SLOT_GRID.length; i++)
+		grid.setAlignmentX(Component.CENTER_ALIGNMENT);
+		for (int i = 3; i < SLOT_GRID.length; i++)
 		{
 			int slotOrdinal = SLOT_GRID[i];
 			if (slotOrdinal < 0)
 			{
-				// Row 0's two filler cells flank the helmet slot (i==0 is left,
-				// i==2 is right) — item #7b repurposes exactly those two as small
-				// "Find best" / "Revert" shortcut buttons, styled like the small
-				// panel buttons. Every other filler (rows 3/4) stays a plain
-				// empty label.
-				if (i == 0)
-				{
-					findBestSetupGridButton = smallGridSlotButton("Best", "Find best setup");
-					findBestSetupGridButton.addActionListener(e -> runOptimizerAndRankStyles());
-					grid.add(findBestSetupGridButton);
-					continue;
-				}
-				if (i == 2)
-				{
-					revertGridButton = smallGridSlotButton("Revert", "Revert to current gear");
-					revertGridButton.addActionListener(e -> resetAllOverrides());
-					grid.add(revertGridButton);
-					continue;
-				}
 				JLabel filler = new JLabel();
 				filler.setOpaque(false);
 				grid.add(filler);
 				continue;
 			}
-			CrossableSlotLabel cell = new CrossableSlotLabel();
-			cell.setOpaque(true);
-			cell.setBackground(ColorScheme.DARK_GRAY_COLOR);
-			cell.setHorizontalAlignment(SwingConstants.CENTER);
-			cell.setVerticalAlignment(SwingConstants.CENTER);
-			cell.setPreferredSize(new Dimension(SLOT_W, SLOT_H));
-			cell.setToolTipText(SLOT_NAMES[slotOrdinal] + " slot (live) — click to try a different item");
-			cell.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-			slotLabels[slotOrdinal] = cell;
-			renderedSlotIds[slotOrdinal] = Integer.MIN_VALUE;
-			int clickedSlot = slotOrdinal;
-			cell.addMouseListener(new MouseAdapter()
-			{
-				@Override
-				public void mousePressed(MouseEvent e)
-				{
-					// Right-click (popup trigger) on a cell showing a real item
-					// offers "Exclude from suggestions" — Jonathan wanted this while
-					// previewing an optimiser setup. Left-click still opens the
-					// item-swap search. (Popup trigger fires on press on Linux and
-					// release on Windows, so it is checked in both handlers.)
-					if (maybeShowSlotExcludePopup(e, clickedSlot))
-					{
-						return;
-					}
-					if (SwingUtilities.isLeftMouseButton(e))
-					{
-						toggleItemSearch(clickedSlot);
-					}
-				}
-
-				@Override
-				public void mouseReleased(MouseEvent e)
-				{
-					maybeShowSlotExcludePopup(e, clickedSlot);
-				}
-			});
-			grid.add(cell);
+			grid.add(buildSlotCell(slotOrdinal));
 		}
 
-		// Center the grid within the (BoxLayout, left-aligned) section body.
+		JPanel stack = new JPanel();
+		stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
+		stack.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		stack.add(topRow);
+		stack.add(Box.createRigidArea(new Dimension(0, 2)));
+		stack.add(grid);
+
+		// Center the stack within the (BoxLayout, left-aligned) section body.
 		JPanel wrapper = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
 		wrapper.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		wrapper.setAlignmentX(Component.LEFT_ALIGNMENT);
-		wrapper.add(grid);
+		wrapper.add(stack);
 		wrapper.setMaximumSize(new Dimension(Integer.MAX_VALUE, wrapper.getPreferredSize().height));
 		return wrapper;
 	}
 
 	/**
-	 * A compact button sized to fit a {@link #SLOT_W}x{@link #SLOT_H} grid
-	 * cell, styled like the panel's other small buttons — used for the
-	 * "Find best" / "Revert" shortcut buttons flanking the helmet slot (item
-	 * #7b). {@code label} is kept short (e.g. "Best"/"Revert") since the cell
-	 * is only ~38x36.
+	 * Builds one live equipment-slot cell for {@link #buildGearGrid}. Registers
+	 * the cell in {@link #slotLabels} and wires the left-click item-swap search
+	 * plus the right-click "Exclude from suggestions" popup. Shared by the
+	 * helmet (top row) and every other worn slot.
 	 */
-	private JButton smallGridSlotButton(String label, String tooltip)
+	private CrossableSlotLabel buildSlotCell(int slotOrdinal)
 	{
-		JButton button = new JButton(label);
-		button.setFont(FontManager.getRunescapeSmallFont());
-		button.setFocusPainted(false);
-		button.setOpaque(true);
-		button.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		button.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		button.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
-		button.setMargin(new Insets(0, 0, 0, 0));
-		button.setToolTipText(tooltip);
-		button.setPreferredSize(new Dimension(SLOT_W, SLOT_H));
-		return button;
+		CrossableSlotLabel cell = new CrossableSlotLabel();
+		cell.setOpaque(true);
+		cell.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		cell.setHorizontalAlignment(SwingConstants.CENTER);
+		cell.setVerticalAlignment(SwingConstants.CENTER);
+		cell.setPreferredSize(new Dimension(SLOT_W, SLOT_H));
+		cell.setToolTipText(SLOT_NAMES[slotOrdinal] + " slot (live) — click to try a different item");
+		cell.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		slotLabels[slotOrdinal] = cell;
+		renderedSlotIds[slotOrdinal] = Integer.MIN_VALUE;
+		int clickedSlot = slotOrdinal;
+		cell.addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mousePressed(MouseEvent e)
+			{
+				// Right-click (popup trigger) on a cell showing a real item
+				// offers "Exclude from suggestions" — Jonathan wanted this while
+				// previewing an optimiser setup. Left-click still opens the
+				// item-swap search. (Popup trigger fires on press on Linux and
+				// release on Windows, so it is checked in both handlers.)
+				if (maybeShowSlotExcludePopup(e, clickedSlot))
+				{
+					return;
+				}
+				if (SwingUtilities.isLeftMouseButton(e))
+				{
+					toggleItemSearch(clickedSlot);
+				}
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent e)
+			{
+				maybeShowSlotExcludePopup(e, clickedSlot);
+			}
+		});
+		return cell;
 	}
 
 	/**
