@@ -80,7 +80,7 @@ public class SessionTracker implements SessionService
 	private final ConfigManager configManager;
 	private final Gson gson;
 
-	private final SessionEngine engine = new SessionEngine();
+	private final SessionEngine engine;
 	private final GeReconciler geReconciler = new GeReconciler();
 	private final XpTracker xpTracker = new XpTracker();
 	private final FishBarrelTracker fishBarrelTracker;
@@ -147,12 +147,20 @@ public class SessionTracker implements SessionService
 	public SessionTracker(Client client, ItemManager itemManager, OSPulseConfig config,
 		ConfigManager configManager, Gson gson)
 	{
+		this(client, itemManager, config, configManager, gson, new SessionEngine());
+	}
+
+	/** Test seam: inject the engine so its update/snapshot scheduling can be verified. */
+	SessionTracker(Client client, ItemManager itemManager, OSPulseConfig config,
+		ConfigManager configManager, Gson gson, SessionEngine engine)
+	{
 		this.client = client;
 		this.itemManager = itemManager;
 		this.config = config;
 		this.valuation = new RuneLiteItemValuation(itemManager);
 		this.configManager = configManager;
 		this.gson = gson;
+		this.engine = engine;
 		this.fishBarrelTracker = new FishBarrelTracker(client);
 		engine.setVerboseDiagnostics(config.verboseDiagnostics());
 	}
@@ -241,7 +249,9 @@ public class SessionTracker implements SessionService
 				pendingSignals.storageEmptied(valuation.canonical(emptied.getKey()), emptied.getValue());
 			}
 		}
-		refresh(ts);
+		// Authoritative once-per-tick commit: drains this tick's signals + advances
+		// the baseline exactly once, however many eager events fired in between.
+		refresh(ts, true);
 	}
 
 	public void onItemContainerChanged(int containerId, ItemContainer container)
@@ -251,10 +261,13 @@ public class SessionTracker implements SessionService
 			return;
 		}
 		fishBarrelTracker.onItemContainerChanged(containerId, container);
-		// Refresh eagerly on container changes (inventory/equipment/bank) so
-		// the panel feels responsive rather than waiting up to a full game
-		// tick; onTick will simply refresh again (idempotent) on the next tick.
-		refresh(System.currentTimeMillis());
+		// Preview eagerly on container changes (inventory/equipment/bank) so the
+		// panel feels responsive rather than waiting up to a full game tick — but
+		// do NOT commit: onTick books the tick's single economic transaction with
+		// all its signals intact (see #refresh). Committing here fragmented a
+		// multi-event tick (die+reclaim, search-all nests) into mis-attributed
+		// transactions.
+		previewRefresh(System.currentTimeMillis());
 	}
 
 	public void onGrandExchangeOfferChanged(int slot, GrandExchangeOffer offer)
@@ -311,7 +324,12 @@ public class SessionTracker implements SessionService
 			pendingSignals.lootReceived(new com.ospulse.session.LootReceipt(canonicalId, it.getQuantity(), unit));
 		}
 
-		refresh(System.currentTimeMillis());
+		// Accumulate the receipt now, preview immediately, but let onTick commit it
+		// with the tick's full net inventory delta (see #refresh). Draining it on
+		// this eager event snapped the baseline forward and could swallow a
+		// same-tick follow-up (e.g. a second bird-nest search) that had not yet
+		// materialised in the inventory diff.
+		previewRefresh(System.currentTimeMillis());
 	}
 
 	/**
@@ -499,23 +517,52 @@ public class SessionTracker implements SessionService
 		publish(buildSnapshot(initial, ts));
 	}
 
-	private void refresh(long ts)
+	/**
+	 * Recompute + publish the panel snapshot for responsiveness WITHOUT advancing
+	 * the engine baseline or draining movement signals — used on eager
+	 * container-change / loot events that can fire several times within one game
+	 * tick.
+	 */
+	private void previewRefresh(long ts)
+	{
+		refresh(ts, false);
+	}
+
+	/**
+	 * Drive the engine forward.
+	 *
+	 * <p>Only the authoritative per-tick call ({@code commit == true}, from
+	 * {@link #onTick()}) drains the tick's accumulated {@link MovementSignals} and
+	 * advances the engine baseline — i.e. books exactly ONE economic transaction
+	 * per game tick. Eager container/loot events ({@code commit == false}) only
+	 * recompute a read-only preview snapshot; they must not commit, because a
+	 * single tick's inventory effects can span several {@code ItemContainerChanged}
+	 * events (die-then-reclaim, search-all bird nests, drop/destroy across ticks).
+	 * Committing per-event fragmented one transaction into several, draining the
+	 * {@code died}/drop signals on the first event and snapping the baseline
+	 * forward so later events (e.g. reclaimed gear) mis-booked as fresh loot. This
+	 * mirrors the barrel-signal discipline already documented in {@link #onTick()}.
+	 */
+	private void refresh(long ts, boolean commit)
 	{
 		WealthSnapshot current = buildWealth(ts);
-		// Let overdue GE attribution expectations lapse before the engine
-		// consumes from the ledger; the ledger itself persists across ticks
-		// so a collection landing seconds (or minutes) after its offer
-		// filled is still attributed to the GE instead of booking as loot.
-		geReconciler.expireAttributions(ts);
-		// Keep the engine's verbose-diagnostics flag current so the config toggle
-		// takes effect live (no restart) for the per-update wealth/attribution log.
-		engine.setVerboseDiagnostics(config.verboseDiagnostics());
-		// Drain this tick's accumulated Drop/Destroy signals (see #recordDrop /
-		// #recordDestroy) into the engine, then reset the builder so the next
-		// tick starts empty.
-		MovementSignals signals = pendingSignals.build();
-		pendingSignals = MovementSignals.builder();
-		engine.update(current, geReconciler, signals, ts);
+		if (commit)
+		{
+			// Let overdue GE attribution expectations lapse before the engine
+			// consumes from the ledger; the ledger itself persists across ticks
+			// so a collection landing seconds (or minutes) after its offer
+			// filled is still attributed to the GE instead of booking as loot.
+			geReconciler.expireAttributions(ts);
+			// Keep the engine's verbose-diagnostics flag current so the config
+			// toggle takes effect live (no restart) for the per-update log.
+			engine.setVerboseDiagnostics(config.verboseDiagnostics());
+			// Drain this tick's accumulated Drop/Destroy/Death signals (see
+			// #recordDrop / #recordDestroy / #recordDeath) into the engine, then
+			// reset the builder so the next tick starts empty.
+			MovementSignals signals = pendingSignals.build();
+			pendingSignals = MovementSignals.builder();
+			engine.update(current, geReconciler, signals, ts);
+		}
 		publish(buildSnapshot(current, ts));
 	}
 
