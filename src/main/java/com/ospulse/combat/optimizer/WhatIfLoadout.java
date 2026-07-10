@@ -17,6 +17,8 @@ public final class WhatIfLoadout {
     public static final int WEAPON_SLOT = 3;
     /** {@code EquipmentInventorySlot.SHIELD} ordinal. */
     public static final int SHIELD_SLOT = 5;
+    /** {@code EquipmentInventorySlot.AMMO} ordinal. */
+    public static final int AMMO_SLOT = 13;
 
     private WhatIfLoadout() {
     }

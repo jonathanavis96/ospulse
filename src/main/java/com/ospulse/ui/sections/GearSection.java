@@ -1554,10 +1554,25 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private List<Ranked> renderRankedStyleRows(List<WeaponStyle> styles, boolean canRank)
 	{
+		// Styles the selected target's combat requirement forbids are excluded
+		// from ranking/DPS entirely (never ranked, never auto-selected) and
+		// instead rendered as greyed, non-interactive rows below the ranked
+		// ones. Ordinary monsters (no requirement) are unaffected.
+		MonsterCombatRequirement combatReq = selectedMonster == null ? null
+			: MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.name()).orElse(null);
+		int gateWeaponId = effectiveWeaponId();
+		int gateAmmoId = effectiveAmmoId();
+
 		// Compute each style's DPS (null when we cannot yet), then rank desc.
 		List<Ranked> ranked = new ArrayList<>(styles.size());
+		List<WeaponStyle> gated = new ArrayList<>();
 		for (WeaponStyle style : styles)
 		{
+			if (combatReq != null && !combatReq.permits(gateWeaponId, style.type(), gateAmmoId))
+			{
+				gated.add(style);
+				continue;
+			}
 			DpsResult result = canRank ? computeFor(style) : null;
 			ranked.add(new Ranked(style, result));
 		}
@@ -1591,6 +1606,22 @@ public final class GearSection extends CollapsibleSection
 			stylesPanel.add(row);
 			stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
 		}
+
+		for (WeaponStyle style : gated)
+		{
+			JLabel gatedLabel = PanelWidgets.emptyRowLabel(style.name() + " — can't damage " + selectedMonster.name());
+			gatedLabel.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+			stylesPanel.add(gatedLabel);
+			stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+		}
+		if (ranked.isEmpty() && !gated.isEmpty())
+		{
+			JLabel warningLabel = PanelWidgets.emptyRowLabel("No usable style — see the requirement note above.");
+			warningLabel.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+			stylesPanel.add(warningLabel);
+			stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+		}
+
 		highlightSelectedRow();
 		return ranked;
 	}
@@ -2626,6 +2657,19 @@ public final class GearSection extends CollapsibleSection
 			return override.itemIdFor(WhatIfLoadout.WEAPON_SLOT);
 		}
 		return lastGear == null ? -1 : lastGear.itemIdAt(WEAPON_SLOT);
+	}
+
+	/**
+	 * The ammo item id the readout should actually use: the override's ammo
+	 * if set, else the live worn ammo. Mirrors {@link #effectiveWeaponId()}.
+	 */
+	private int effectiveAmmoId()
+	{
+		if (override.hasOverride(WhatIfLoadout.AMMO_SLOT))
+		{
+			return override.itemIdFor(WhatIfLoadout.AMMO_SLOT);
+		}
+		return lastGear == null ? -1 : lastGear.itemIdAt(WhatIfLoadout.AMMO_SLOT);
 	}
 
 	/**
