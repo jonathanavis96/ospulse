@@ -33,10 +33,19 @@ public final class GpFormat
 		return YELLOW;
 	}
 
-	/** Short stacked amount: {@code 10M}, {@code 1.5M}, {@code 350K}, {@code 999}. */
+	/**
+	 * Short stacked amount capped at four visible digits: {@code 10B},
+	 * {@code 9999M}, {@code 10M}, {@code 1.5M}, {@code 350K}, {@code 999}. Values
+	 * that would need a fifth digit as millions (>= 10B) roll over to billions,
+	 * so the widest string is "9999M".
+	 */
 	public static String format(long gp)
 	{
 		long a = Math.abs(gp);
+		if (a >= 10_000_000_000L)
+		{
+			return (gp / 1_000_000_000L) + "B";
+		}
 		if (a >= 10_000_000)
 		{
 			return (gp / 1_000_000) + "M";

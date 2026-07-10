@@ -75,8 +75,19 @@ public final class CoinPileBadge extends JComponent
 		}
 		int x = 1;
 		int y = fm.getAscent();
+		// Full black outline (8 offsets) so the value stays legible over the
+		// gold pile, then the coloured value on top.
 		g2.setColor(Color.BLACK);
-		g2.drawString(value, x + 1, y + 1);
+		for (int dx = -1; dx <= 1; dx++)
+		{
+			for (int dy = -1; dy <= 1; dy++)
+			{
+				if (dx != 0 || dy != 0)
+				{
+					g2.drawString(value, x + dx, y + dy);
+				}
+			}
+		}
 		g2.setColor(valueColor);
 		g2.drawString(value, x, y);
 		g2.dispose();
