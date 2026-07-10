@@ -88,10 +88,17 @@ public class OSPulsePlugin extends Plugin
 	@Inject
 	private net.runelite.client.callback.ClientThread clientThread;
 
+	@com.google.inject.Inject(optional = true)
+	private net.runelite.client.plugins.banktags.BankTagsService bankTagsService;
+
+	@com.google.inject.Inject(optional = true)
+	private net.runelite.client.plugins.banktags.TagManager tagManager;
+
 	private SessionTracker tracker;
 	private OSPulsePanel panel;
 	private PriceTrendService priceTrendService;
 	private NavigationButton navButton;
+	private com.ospulse.integration.BankRecommendationHighlighter bankHighlighter;
 
 	/** Last observed bank-interface-open state, to fire transitions once. */
 	private boolean lastBankOpen;
@@ -108,6 +115,9 @@ public class OSPulsePlugin extends Plugin
 		tracker = new SessionTracker(client, itemManager, config, configManager, gson);
 
 		priceTrendService = new PriceTrendService(okHttpClient, config, gson);
+
+		bankHighlighter = new com.ospulse.integration.BankRecommendationHighlighter(
+			bankTagsService, tagManager, clientThread);
 
 		RuneLiteItemValuation valuation = new RuneLiteItemValuation(itemManager);
 		// Precomputes BOTH prices and tradeability on the client thread
@@ -216,6 +226,11 @@ public class OSPulsePlugin extends Plugin
 			priceTrendService.shutdown();
 		}
 		priceTrendService = null;
+		if (bankHighlighter != null)
+		{
+			bankHighlighter.clear();
+		}
+		bankHighlighter = null;
 		lastBankOpen = false;
 
 		log.debug("OSPulse plugin stopped");
@@ -267,6 +282,10 @@ public class OSPulsePlugin extends Plugin
 		{
 			lastBankOpen = bankOpen;
 			tracker.onBankOpenChanged(bankOpen);
+			if (bankOpen)
+			{
+				bankHighlighter.reapplyIfArmed();
+			}
 		}
 
 		tracker.onTick();
