@@ -322,6 +322,8 @@ public final class GearSection extends CollapsibleSection
 	private GearSnapshot lastGear;
 	private double lastDps;
 	private boolean suppressListEvents;
+	/** Guards the search field's document listener while we write the picked target's name back into it. */
+	private boolean suppressSearchEvents;
 	/** Last observed "slayer helm / black mask worn" state — drives edge-triggered auto-tick. */
 	private boolean lastSlayerHeadgearWorn;
 	/**
@@ -819,9 +821,15 @@ public final class GearSection extends CollapsibleSection
 				resetBankHighlightToggle();
 				updateTargetLabel();
 				rankAndRender();
-				// Collapse the result list once a target is picked — the choice
-				// shows in the Target line below; typing in the search box again
-				// re-opens it (see onSearchChanged).
+				// The picked target's canonical name is written back into the
+				// search field itself (replacing what the user typed) — there is
+				// no separate "Target:" line any more. Guard the write so it
+				// doesn't re-open the just-collapsed result list.
+				suppressSearchEvents = true;
+				monsterSearchField.setText(selectedMonster.name());
+				suppressSearchEvents = false;
+				// Collapse the result list once a target is picked; editing the
+				// search text again re-opens it (see onSearchChanged).
 				setListOpen(false);
 			}
 		});
@@ -834,10 +842,13 @@ public final class GearSection extends CollapsibleSection
 		body().add(listScroll);
 		body().add(Box.createRigidArea(new Dimension(0, 2)));
 
+		// The picked target now shows in the search field itself, so the old
+		// "Target: <name>" line is not added to the panel. The label object is
+		// kept and still updated (updateTargetLabel) for its note side-effects
+		// and the test getter that reads its text.
 		targetLabel = PanelWidgets.emptyRowLabel("Target: -");
 		targetLabel.setForeground(java.awt.Color.WHITE);
 		targetLabel.setToolTipText("The monster the DPS numbers below are computed against");
-		body().add(targetLabel);
 		body().add(Box.createRigidArea(new Dimension(0, 6)));
 
 		// Monster-mechanic gear override advisory (e.g. Insulated boots vs Rune
@@ -2684,6 +2695,12 @@ public final class GearSection extends CollapsibleSection
 
 	private void onSearchChanged()
 	{
+		// Ignore the programmatic setText that writes a picked target's name back
+		// into the field (that must not re-open the just-collapsed result list).
+		if (suppressSearchEvents)
+		{
+			return;
+		}
 		// Typing re-opens the (collapsed-after-pick) result list.
 		setListOpen(true);
 		populateMonsterList(monsterSearchField.getText());
