@@ -26,6 +26,26 @@ public class BankRecommendationHighlighter
     // NO_LAYOUT is deliberately absent so openBankTag renders our equipment grid.
     private static final int OPEN_OPTIONS = BankTagsService.OPTION_HIDE_TAG_NAME;
 
+    // ---- Bank Tag Layouts (hub plugin) interop --------------------------------
+    // If the popular "Bank Tag Layouts" hub plugin is installed, it re-lays-out
+    // any open bank tag it considers "layout-enabled" AFTER the core Bank Tags
+    // LayoutManager has drawn ours (it subscribes to ScriptPostFired
+    // BANKMAIN_BUILD at priority -1, while core layouts render in ScriptPreFired
+    // BANKMAIN_FINISHBUILDING, which is nested inside bankmain_build) — so it
+    // always wins, repacking the items densely from slot 0 and persisting that
+    // dense order to its own banktaglayouts.layout_<tag> config. It only backs
+    // off a core layout when the tag has a real TagTab (tabManager.find(tag) !=
+    // null in its isVanillaLayoutEnabled) — our reserved tag is hidden and
+    // never in banktags.tagtabs, so it fails that check and hijacks the grid.
+    // Its documented escape hatch is writing the literal marker "DISABLED" into
+    // its layout_<tag> key (BankTagLayoutsPlugin.LAYOUT_EXPLICITLY_DISABLED):
+    // hasLayoutEnabled()/getBankOrder() then return null and it leaves the tag
+    // entirely to core Bank Tags. Writing the marker is inert when the plugin
+    // isn't installed, and also overwrites any dense layout it already saved.
+    private static final String BTL_GROUP = "banktaglayouts";
+    private static final String BTL_LAYOUT_KEY = "layout_" + Text.standardize(RESERVED_TAG);
+    private static final String BTL_LAYOUT_DISABLED = "DISABLED";
+
     /** Bank grid width (items per row) that the Bank Tags layout array is indexed against. */
     private static final int BANK_COLS = 8;
     /** Flat layout array length — index 34 (ring) is the last equipment cell. */
@@ -162,6 +182,7 @@ public class BankRecommendationHighlighter
             current = new LinkedHashMap<>();
             tagManager.removeTag(RESERVED_TAG);
             configManager.unsetConfiguration(BANKTAGS_GROUP, LAYOUT_KEY);
+            configManager.unsetConfiguration(BTL_GROUP, BTL_LAYOUT_KEY);
             bankTags.closeBankTag();
         });
     }
@@ -175,6 +196,10 @@ public class BankRecommendationHighlighter
             tagManager.addTag(id, RESERVED_TAG, false);
         }
         writeLayout();
+        // Keep Bank Tag Layouts (if installed) off our reserved tag — see the
+        // BTL_* constants. Must precede openBankTag so the first rebuild after
+        // opening already sees the marker.
+        configManager.setConfiguration(BTL_GROUP, BTL_LAYOUT_KEY, BTL_LAYOUT_DISABLED);
         bankTags.openBankTag(RESERVED_TAG, OPEN_OPTIONS);
     }
 

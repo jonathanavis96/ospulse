@@ -97,6 +97,45 @@ public class BankRecommendationHighlighterTest
         assertFalse(highlighter.isArmed());
     }
 
+    /**
+     * The Bank Tag Layouts hub plugin re-lays-out any open non-tab bank tag it
+     * considers layout-enabled AFTER core Bank Tags renders our equipment grid
+     * (ScriptPostFired BANKMAIN_BUILD @priority -1 vs core's ScriptPreFired
+     * BANKMAIN_FINISHBUILDING), repacking the items densely from slot 0 — the
+     * exact "layout ignored" bug. Its interop escape hatch is the literal
+     * marker "DISABLED" in banktaglayouts.layout_&lt;tag&gt;
+     * (BankTagLayoutsPlugin.LAYOUT_EXPLICITLY_DISABLED), which makes its
+     * getBankOrder() return null so core Bank Tags keeps the grid.
+     */
+    @Test
+    public void disablesBankTagLayoutsHijackOfReservedTag()
+    {
+        highlighter.showInBank(slot(3, 4151));
+        verify(configManager).setConfiguration(
+            eq("banktaglayouts"), eq("layout_ospulse-recommended"), eq("DISABLED"));
+    }
+
+    @Test
+    public void reapplyRewritesBankTagLayoutsDisabledMarker()
+    {
+        // The marker must be re-asserted on every re-apply (bank re-open /
+        // panel resume) so a mid-session BTL "enable layout" click can't stick.
+        highlighter.showInBank(slot(3, 4151));
+        reset(tagManager, tags, configManager);
+        highlighter.reapplyIfArmed();
+        verify(configManager).setConfiguration(
+            eq("banktaglayouts"), eq("layout_ospulse-recommended"), eq("DISABLED"));
+    }
+
+    @Test
+    public void clearRemovesBankTagLayoutsMarker()
+    {
+        highlighter.showInBank(slot(3, 4151));
+        reset(tagManager, tags, configManager);
+        highlighter.clear();
+        verify(configManager).unsetConfiguration(eq("banktaglayouts"), eq("layout_ospulse-recommended"));
+    }
+
     @Test
     public void suspendClosesButStaysArmed()
     {
