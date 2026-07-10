@@ -68,6 +68,10 @@ import javax.swing.SwingUtilities;
 import javax.swing.border.Border;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DocumentFilter;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -960,6 +964,7 @@ public final class GearSection extends CollapsibleSection
 		budgetField.setForeground(java.awt.Color.WHITE);
 		budgetField.setHorizontalAlignment(SwingConstants.CENTER);
 		fixSize(budgetField, 46, 22);
+		limitDigits(budgetField, 4);
 		budgetKToggle = new JToggleButton("K");
 		budgetMToggle = new JToggleButton("M");
 		JPanel budgetUnitToggle = unitToggle(budgetKToggle, budgetMToggle, true);
@@ -981,6 +986,7 @@ public final class GearSection extends CollapsibleSection
 		expensiveCountField.setForeground(java.awt.Color.WHITE);
 		expensiveCountField.setHorizontalAlignment(SwingConstants.CENTER);
 		fixSize(expensiveCountField, 30, 22);
+		limitDigits(expensiveCountField, 2);
 		JLabel riskLabel = new JLabel(riskIcon);
 		riskLabel.setToolTipText(EXPENSIVE_COUNT_TOOLTIP);
 		JPanel countRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
@@ -998,6 +1004,7 @@ public final class GearSection extends CollapsibleSection
 		expensiveThresholdField.setForeground(java.awt.Color.WHITE);
 		expensiveThresholdField.setHorizontalAlignment(SwingConstants.CENTER);
 		fixSize(expensiveThresholdField, 46, 22);
+		limitDigits(expensiveThresholdField, 4);
 		expensiveThresholdKToggle = new JToggleButton("K");
 		expensiveThresholdMToggle = new JToggleButton("M");
 		expensiveThresholdKToggle.setSelected(true);
@@ -3302,6 +3309,30 @@ public final class GearSection extends CollapsibleSection
 		c.setPreferredSize(d);
 		c.setMinimumSize(d);
 		c.setMaximumSize(d);
+	}
+
+	/** Restricts a field to digits only, at most {@code maxDigits} (e.g. budget/threshold 4, count 2). */
+	private static void limitDigits(javax.swing.JTextField field, int maxDigits)
+	{
+		((AbstractDocument) field.getDocument()).setDocumentFilter(new DocumentFilter()
+		{
+			@Override
+			public void insertString(FilterBypass fb, int offset, String text, AttributeSet attr) throws BadLocationException
+			{
+				replace(fb, offset, 0, text, attr);
+			}
+
+			@Override
+			public void replace(FilterBypass fb, int offset, int length, String text, AttributeSet attr) throws BadLocationException
+			{
+				String digits = text == null ? "" : text.replaceAll("\\D", "");
+				int resultLength = fb.getDocument().getLength() - length + digits.length();
+				if (resultLength <= maxDigits)
+				{
+					super.replace(fb, offset, length, digits, attr);
+				}
+			}
+		});
 	}
 
 	/** The "expensive item" gp threshold from {@link #expensiveThresholdField} + its K/M toggle. */
