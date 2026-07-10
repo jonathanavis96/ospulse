@@ -1729,7 +1729,26 @@ public final class GearSection extends CollapsibleSection
 		}
 		spellPicker.setVisible(hasMagicStyle && !poweredStaff.applies());
 
+		// Attack styles render as a 2-column grid (e.g. Lunge | Stab / Block |
+		// Slash) instead of a tall single-column list. stylesPanel was cleared by
+		// rankAndRender, so switching the layout here is safe.
+		stylesPanel.setLayout(new GridLayout(0, 2, 4, 2));
 		renderRankedStyleRows(styles, canRank);
+		int gridRows = (int) Math.ceil(stylesPanel.getComponentCount() / 2.0);
+		setStylesViewportRows(Math.min(Math.max(gridRows, 1), STYLES_VISIBLE_ROWS));
+	}
+
+	/**
+	 * Sizes the attack-styles viewport to {@code rows} grid rows so the
+	 * 2-column melee/ranged view is a compact block rather than a tall, mostly
+	 * empty scroll box (the fixed 5-row height is only needed for the magic
+	 * spell list).
+	 */
+	private void setStylesViewportRows(int rows)
+	{
+		int h = rows * (STYLE_ROW_HEIGHT + 2) + 4;
+		stylesScroll.setPreferredSize(new Dimension(0, h));
+		stylesScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));
 	}
 
 	/**
@@ -1740,6 +1759,15 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private void renderMagicView(int weaponId, List<WeaponStyle> styles, PoweredStaff poweredStaff, boolean canRank)
 	{
+		// The magic view keeps the vertical spell/option list (Standard book
+		// alone is ~25 rows) at the fixed 5-row viewport height — undo any
+		// 2-column grid the melee/ranged view may have left behind.
+		if (!(stylesPanel.getLayout() instanceof BoxLayout))
+		{
+			stylesPanel.setLayout(new BoxLayout(stylesPanel, BoxLayout.Y_AXIS));
+		}
+		setStylesViewportRows(STYLES_VISIBLE_ROWS);
+
 		// The stance carrier for spell computes: the weapon's own magic combat
 		// option ("Spell"/STANDARD on a staff, "Accurate" on a powered staff).
 		magicCastStyle = null;
@@ -1863,6 +1891,11 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private List<Ranked> renderRankedStyleRows(List<WeaponStyle> styles, boolean canRank)
 	{
+		// In the melee/ranged view stylesPanel is a 2-column grid; its vgap
+		// handles spacing, so the inter-row rigid-area spacers (needed only for
+		// the magic BoxLayout list) must be skipped or they'd eat grid cells.
+		boolean gridMode = stylesPanel.getLayout() instanceof GridLayout;
+
 		// Styles the selected target's combat requirement forbids are excluded
 		// from ranking/DPS entirely (never ranked, never auto-selected) and
 		// instead rendered as greyed, non-interactive rows below the ranked
@@ -1913,7 +1946,10 @@ public final class GearSection extends CollapsibleSection
 			StyleRow row = new StyleRow(r.style, r.result, best);
 			styleRows.add(row);
 			stylesPanel.add(row);
-			stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+			if (!gridMode)
+			{
+				stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+			}
 		}
 
 		for (WeaponStyle style : gated)
@@ -1923,14 +1959,20 @@ public final class GearSection extends CollapsibleSection
 			// out with a "0" DPS and not selectable — see the StyleRow(style,
 			// gated) constructor below.
 			stylesPanel.add(new StyleRow(style, true));
-			stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+			if (!gridMode)
+			{
+				stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+			}
 		}
 		if (ranked.isEmpty() && !gated.isEmpty())
 		{
 			JLabel warningLabel = PanelWidgets.emptyRowLabel("No usable style — see the requirement note above.");
 			warningLabel.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
 			stylesPanel.add(warningLabel);
-			stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+			if (!gridMode)
+			{
+				stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+			}
 		}
 
 		highlightSelectedRow();
