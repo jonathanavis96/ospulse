@@ -135,7 +135,12 @@ public final class MonsterCombatRequirementRepository {
         if (monsterName == null) {
             return Optional.empty();
         }
-        return Optional.ofNullable(byLowercaseMonsterName.get(monsterName.toLowerCase(Locale.ROOT)));
+        MonsterCombatRequirement exact = byLowercaseMonsterName.get(monsterName.toLowerCase(Locale.ROOT));
+        if (exact != null) {
+            return Optional.of(exact);
+        }
+        // The picker hands us dataset names like "Kurask (Normal)" — fall back to the base name.
+        return Optional.ofNullable(byLowercaseMonsterName.get(MonsterNameKey.baseName(monsterName)));
     }
 
     /** Internal Gson deserialisation shape mirroring {@code monster_combat_requirements.json}'s top-level object. */

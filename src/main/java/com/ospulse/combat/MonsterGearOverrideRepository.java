@@ -124,6 +124,10 @@ public final class MonsterGearOverrideRepository {
             return Collections.emptyList();
         }
         List<MonsterGearOverride> found = byLowercaseMonsterName.get(monsterName.toLowerCase(Locale.ROOT));
+        if (found == null) {
+            // The picker hands us dataset names like "Rune dragon (Elvarg)" — fall back to the base name.
+            found = byLowercaseMonsterName.get(MonsterNameKey.baseName(monsterName));
+        }
         return found == null ? Collections.emptyList() : found;
     }
 
