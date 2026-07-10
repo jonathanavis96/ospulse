@@ -78,6 +78,9 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	/** Most recent snapshot, retained so a section turned on live can be fed at once. */
 	private SessionSnapshot lastSnapshot;
 
+	/** Retained (not just in {@link #sectionList}) so {@link #setBankHighlighter} has a typed target to forward to. */
+	private final GearSection gearSection;
+
 	private Runnable resetCallback = () -> {};
 
 	public OSPulsePanel(OSPulseConfig config, ItemManager itemManager, ConfigManager configManager,
@@ -110,8 +113,9 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		sectionList.add(new SessionSection(store, plugin, client, overlayManager));
 		sectionList.add(new LootSection(store, config, itemManager, plugin, client, overlayManager));
 		sectionList.add(new XpSection(store, skillIconManager, plugin, client, overlayManager));
-		sectionList.add(new GearSection(store, itemManager, skillIconManager, spriteManager, configManager,
-			optimizerPriceResolver));
+		gearSection = new GearSection(store, itemManager, skillIconManager, spriteManager, configManager,
+			optimizerPriceResolver);
+		sectionList.add(gearSection);
 		sectionList.add(new GeSection(store, itemManager));
 		sectionList.add(new WealthSection(store));
 		sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService, configManager));
@@ -147,6 +151,12 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	public void setResetCallback(Runnable resetCallback)
 	{
 		this.resetCallback = resetCallback == null ? () -> {} : resetCallback;
+	}
+
+	/** Pass-through to {@link GearSection#setBankHighlighter} — the panel doesn't otherwise know about bank tags. */
+	public void setBankHighlighter(com.ospulse.integration.BankRecommendationHighlighter bankHighlighter)
+	{
+		gearSection.setBankHighlighter(bankHighlighter);
 	}
 
 	/**

@@ -27,7 +27,9 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.plugins.Plugin;
+import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.plugins.banktags.BankTagsPlugin;
 import net.runelite.client.plugins.loottracker.LootReceived;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
@@ -53,6 +55,11 @@ import java.awt.image.BufferedImage;
 		+ "flip P&L, valued with RuneLite's GE prices.",
 	tags = {"profit", "loot", "wealth", "gp", "session", "tracker", "ge", "flipping", "xp"}
 )
+// The "Show in bank" feature drives RuneLite's Bank Tags to filter the open
+// bank to the optimiser's recommended items. BankTagsService/TagManager are
+// bound inside the banktags plugin's own injector, so without declaring the
+// dependency they inject as null and the feature silently no-ops.
+@PluginDependency(BankTagsPlugin.class)
 public class OSPulsePlugin extends Plugin
 {
 	@Inject
@@ -88,10 +95,17 @@ public class OSPulsePlugin extends Plugin
 	@Inject
 	private net.runelite.client.callback.ClientThread clientThread;
 
+	@com.google.inject.Inject(optional = true)
+	private net.runelite.client.plugins.banktags.BankTagsService bankTagsService;
+
+	@com.google.inject.Inject(optional = true)
+	private net.runelite.client.plugins.banktags.TagManager tagManager;
+
 	private SessionTracker tracker;
 	private OSPulsePanel panel;
 	private PriceTrendService priceTrendService;
 	private NavigationButton navButton;
+	private com.ospulse.integration.BankRecommendationHighlighter bankHighlighter;
 
 	/** Last observed bank-interface-open state, to fire transitions once. */
 	private boolean lastBankOpen;
@@ -108,6 +122,16 @@ public class OSPulsePlugin extends Plugin
 		tracker = new SessionTracker(client, itemManager, config, configManager, gson);
 
 		priceTrendService = new PriceTrendService(okHttpClient, config, gson);
+
+		bankHighlighter = new com.ospulse.integration.BankRecommendationHighlighter(
+			bankTagsService, tagManager, clientThread);
+		if (bankTagsService == null || tagManager == null)
+		{
+			// With @PluginDependency(BankTagsPlugin) these should always resolve;
+			// log loudly if not so the inert "Show in bank" is diagnosable.
+			log.warn("OSPulse: Bank Tags unavailable (bankTagsService={}, tagManager={}) — 'Show in bank' will be inert",
+				bankTagsService != null, tagManager != null);
+		}
 
 		RuneLiteItemValuation valuation = new RuneLiteItemValuation(itemManager);
 		// Precomputes BOTH prices and tradeability on the client thread
@@ -163,6 +187,7 @@ public class OSPulsePlugin extends Plugin
 		// on the EDT (clearing UI baselines before the re-anchored snapshot is
 		// published back), preserving the phantom-profit-on-reset ordering.
 		panel.setResetCallback(() -> clientThread.invoke(tracker::resetSession));
+		panel.setBankHighlighter(bankHighlighter);
 		tracker.addListener(panel);
 
 		final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "/icon.png");
@@ -216,6 +241,11 @@ public class OSPulsePlugin extends Plugin
 			priceTrendService.shutdown();
 		}
 		priceTrendService = null;
+		if (bankHighlighter != null)
+		{
+			bankHighlighter.clear();
+		}
+		bankHighlighter = null;
 		lastBankOpen = false;
 
 		log.debug("OSPulse plugin stopped");
@@ -267,6 +297,10 @@ public class OSPulsePlugin extends Plugin
 		{
 			lastBankOpen = bankOpen;
 			tracker.onBankOpenChanged(bankOpen);
+			if (bankOpen)
+			{
+				bankHighlighter.reapplyIfArmed();
+			}
 		}
 
 		tracker.onTick();

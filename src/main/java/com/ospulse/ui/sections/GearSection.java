@@ -224,6 +224,8 @@ public final class GearSection extends CollapsibleSection
 	private final SpriteManager spriteManager;
 	/** {@code null} in tests that don't exercise persistence (see the no-config-manager constructors) — every read/write of it is guarded. */
 	private final ConfigManager configManager;
+	/** Nullable collaborator wired post-construction by {@link com.ospulse.ui.OSPulsePanel#setBankHighlighter} — see {@link #setBankHighlighter}. */
+	private com.ospulse.integration.BankRecommendationHighlighter bankHighlighter;
 	private final WeaponCategoryRepository weaponRepo = WeaponCategoryRepository.getInstance();
 
 	private final JLabel[] slotLabels = new JLabel[GearSnapshot.EQUIPMENT_SLOT_COUNT];
@@ -380,6 +382,8 @@ public final class GearSection extends CollapsibleSection
 	/** One row per proposed slot swap (icon current -&gt; icon suggested) — see {@link #renderOptimizerSwapList}. */
 	private final JPanel optimizerSwapList;
 	private final JButton applyOptimizerResultButton;
+	/** Filters the open bank to the result's item ids via {@link #bankHighlighter} — see {@link #setBankHighlighter}. */
+	private final JToggleButton showInBankButton;
 	private final JButton clearOptimizerPreviewButton;
 	/** The excluded-items viewer container (heading + search + scrollable icon grid); hidden when nothing is excluded — see {@link #renderExcludedItemsList}. */
 	private final JPanel excludedItemsPanel;
@@ -783,6 +787,7 @@ public final class GearSection extends CollapsibleSection
 			if (index >= 0 && index < filteredMonsters.size())
 			{
 				selectedMonster = filteredMonsters.get(index);
+				resetBankHighlightToggle();
 				updateTargetLabel();
 				rankAndRender();
 				// Collapse the result list once a target is picked — the choice
@@ -1014,6 +1019,44 @@ public final class GearSection extends CollapsibleSection
 		applyOptimizerResultButton.addActionListener(e -> applyOptimizerResultToOverride());
 		optimizerResultPanel.add(applyOptimizerResultButton);
 
+		// Filters the open bank down to this result's item ids (via bank tags),
+		// so the player can see what they're missing without leaving the bank
+		// interface — same reserved-tag mechanism the Inventory Setups plugin
+		// uses. Deselecting (or any of the reset/clear paths below) drops the
+		// filter back to normal.
+		showInBankButton = new JToggleButton("Show in bank");
+		showInBankButton.setFont(FontManager.getRunescapeSmallFont());
+		showInBankButton.setFocusPainted(false);
+		showInBankButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+		showInBankButton.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		showInBankButton.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		showInBankButton.setToolTipText("Filters your open bank to this result's items using a reserved bank tag");
+		showInBankButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, showInBankButton.getPreferredSize().height));
+		showInBankButton.addActionListener(e ->
+		{
+			if (bankHighlighter == null)
+			{
+				return;
+			}
+			if (showInBankButton.isSelected() && lastOptimizerResult != null)
+			{
+				java.util.Set<Integer> ids = new java.util.LinkedHashSet<>();
+				for (GearOptimizer.SlotChoice choice : lastOptimizerResult.loadout())
+				{
+					if (choice.itemId() > 0)
+					{
+						ids.add(choice.itemId());
+					}
+				}
+				bankHighlighter.showInBank(ids);
+			}
+			else
+			{
+				bankHighlighter.clear();
+			}
+		});
+		optimizerResultPanel.add(showInBankButton);
+
 		// The preview is otherwise sticky with no way to cancel it — this
 		// reuses the same resetAllOverrides() the "Reset all to worn gear"
 		// button uses, so it clears the overrides AND hides this whole panel.
@@ -1103,6 +1146,35 @@ public final class GearSection extends CollapsibleSection
 		// populateMonsterList). Auto-detect-opponent and favourites are
 		// deferred to a later phase.
 		populateMonsterList("");
+	}
+
+	/**
+	 * Wires the bank-tags collaborator the "Show in bank" toggle drives.
+	 * Defaults to {@code null} (toggle is a no-op) until the plugin assembles
+	 * this — mirrors {@link com.ospulse.ui.OSPulsePanel#setResetCallback}.
+	 */
+	public void setBankHighlighter(com.ospulse.integration.BankRecommendationHighlighter bankHighlighter)
+	{
+		this.bankHighlighter = bankHighlighter;
+	}
+
+	/**
+	 * Un-toggles "Show in bank" and drops any active bank-tag filter. Called
+	 * from every place the optimiser result is invalidated or superseded
+	 * (reset/clear, a new search starting, the result being applied to the
+	 * what-if readout, target change) so the highlight never outlives the
+	 * result it was generated from.
+	 */
+	private void resetBankHighlightToggle()
+	{
+		if (showInBankButton != null)
+		{
+			showInBankButton.setSelected(false);
+		}
+		if (bankHighlighter != null)
+		{
+			bankHighlighter.clear();
+		}
 	}
 
 	// ----------------------------------------------------------- gear grid
@@ -2684,6 +2756,7 @@ public final class GearSection extends CollapsibleSection
 		lastOptimizerResult = null;
 		optimizerResultPanel.setVisible(false);
 		optimizerStatusLabel.setVisible(false);
+		resetBankHighlightToggle();
 		userPickedStyle = false;
 		userPickedSpell = false;
 		closeItemSearch();
@@ -3500,6 +3573,7 @@ public final class GearSection extends CollapsibleSection
 			optimizerStatusLabel.setText("Pick a target above first");
 			optimizerStatusLabel.setVisible(true);
 			optimizerResultPanel.setVisible(false);
+			resetBankHighlightToggle();
 			return;
 		}
 
@@ -3507,6 +3581,7 @@ public final class GearSection extends CollapsibleSection
 		optimizerStatusLabel.setText("Searching...");
 		optimizerStatusLabel.setVisible(true);
 		optimizerResultPanel.setVisible(false);
+		resetBankHighlightToggle();
 		saveOptimizerPrefs();
 
 		long budget = resolvedBudget();
@@ -3950,10 +4025,11 @@ public final class GearSection extends CollapsibleSection
 		{
 			renderOptimizerSwapList(result);
 		}
-		// Nothing to preview/clear when the suggestion equals what's already
-		// worn, or when there's no usable weapon to preview at all.
+		// Nothing to preview/clear/show-in-bank when the suggestion equals what's
+		// already worn, or when there's no usable weapon to recommend at all.
 		applyOptimizerResultButton.setVisible(anyChange && !noUsableWeapon);
 		clearOptimizerPreviewButton.setVisible(anyChange && !noUsableWeapon);
+		showInBankButton.setVisible(!noUsableWeapon);
 		optimizerResultPanel.setVisible(true);
 		optimizerResultPanel.revalidate();
 		body().revalidate();
@@ -4236,6 +4312,7 @@ public final class GearSection extends CollapsibleSection
 			next = next.withSlot(choice.slotOrdinal(), choice.itemId());
 		}
 		override = next;
+		resetBankHighlightToggle();
 
 		// Item #6g: the preview must show the DPS the optimiser actually
 		// computed — i.e. lock the readout to the RESULT's style/spell instead
