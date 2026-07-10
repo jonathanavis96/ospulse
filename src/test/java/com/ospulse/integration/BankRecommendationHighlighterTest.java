@@ -183,7 +183,7 @@ public class BankRecommendationHighlighterTest
     }
 
     @Test
-    public void reapplyIfArmedNoOpWhenSuspended()
+    public void reapplyIfArmedDefensivelyClosesWhenSuspended()
     {
         highlighter.showInBank(slot(3, 4151));
         highlighter.suspend();
@@ -191,7 +191,32 @@ public class BankRecommendationHighlighterTest
 
         highlighter.reapplyIfArmed();
 
-        verifyNoInteractions(tagManager, tags);
+        // Must not resurrect the recommendation, but must not silently trust
+        // stale core Bank Tags search state left over from suspend()'s
+        // closeBankTag() either — it re-closes defensively (item #5).
+        verify(tags).closeBankTag();
+        verifyNoInteractions(tagManager);
+        assertTrue("suspend must not disarm", highlighter.isArmed());
+    }
+
+    /**
+     * Regression for item #5: switching the OSPulse panel off while the bank is
+     * open correctly hides the recommendation (suspend()), but the FIRST bank
+     * close+reopen afterwards used to flicker it back into view once before
+     * self-correcting on a second reopen. The first suspended bank-open must
+     * not re-open the tag.
+     */
+    @Test
+    public void firstBankOpenAfterSuspendDoesNotResurrectRecommendation()
+    {
+        highlighter.showInBank(slot(3, 4151));
+        highlighter.suspend();
+        reset(tagManager, tags, configManager);
+
+        highlighter.reapplyIfArmed();
+
+        verify(tagManager, never()).addTag(anyInt(), eq(BankRecommendationHighlighter.RESERVED_TAG), anyBoolean());
+        verify(tags, never()).openBankTag(eq(BankRecommendationHighlighter.RESERVED_TAG), anyInt());
         assertTrue("suspend must not disarm", highlighter.isArmed());
     }
 

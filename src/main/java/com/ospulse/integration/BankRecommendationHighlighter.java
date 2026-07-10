@@ -130,16 +130,29 @@ public class BankRecommendationHighlighter
 
     /**
      * Re-open the filtered grid if armed (bank re-open, or OSPulse panel
-     * re-activated). Refuses while {@link #suspended} — i.e. while the OSPulse
-     * panel isn't the active side panel — so a bank open/close in the meantime
-     * doesn't resurrect the filtered view.
+     * re-activated). Refuses to re-open while {@link #suspended} — i.e. while
+     * the OSPulse panel isn't the active side panel. While suspended it
+     * defensively re-closes the tag on every bank-open instead of doing
+     * nothing: {@link #suspend()}'s {@code closeBankTag()} only clears core
+     * Bank Tags' own active-tag bookkeeping ({@code TabInterface.closeTag}
+     * hard-codes {@code relayout=false}, skipping the bank-search relayout),
+     * so the next full bank rebuild can re-surface the stale filtered view for
+     * one frame, entirely outside this {@code suspended} check. Re-closing on
+     * every suspended bank-open stomps that out immediately instead of letting
+     * it flicker back once (item #5).
      */
     public void reapplyIfArmed()
     {
-        if (armed && !suspended && bankTags != null && tagManager != null && configManager != null && clientThread != null)
+        if (!armed || bankTags == null || tagManager == null || configManager == null || clientThread == null)
         {
-            clientThread.invoke(this::applyReserved);
+            return;
         }
+        if (suspended)
+        {
+            clientThread.invoke(bankTags::closeBankTag);
+            return;
+        }
+        clientThread.invoke(this::applyReserved);
     }
 
     /**
