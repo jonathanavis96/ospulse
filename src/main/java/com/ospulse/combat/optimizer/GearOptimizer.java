@@ -5,6 +5,7 @@ import com.ospulse.combat.CombatStyle;
 import com.ospulse.combat.DpsCalculator;
 import com.ospulse.combat.DpsResult;
 import com.ospulse.combat.EquipmentIndexRepository;
+import com.ospulse.combat.EquipmentRequirementsRepository;
 import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.Monster;
 import com.ospulse.combat.MonsterCombatRequirement;
@@ -160,6 +161,7 @@ public final class GearOptimizer {
         private final CombatStyle style;
         private final Spell.SpellBook spellBook;
         private final MonsterCombatRequirement combatRequirement;
+        private final java.util.Map<String, Integer> playerBaseLevels;
 
         private Request(Builder b) {
             this.liveItemIds = b.liveItemIds.clone();
@@ -176,6 +178,7 @@ public final class GearOptimizer {
             this.style = b.style;
             this.spellBook = b.spellBook;
             this.combatRequirement = b.combatRequirement;
+            this.playerBaseLevels = java.util.Collections.unmodifiableMap(new java.util.HashMap<>(b.playerBaseLevels));
         }
 
         public static Builder builder(int[] liveItemIds, Monster target, PlayerCombat.Builder playerTemplate) {
@@ -197,6 +200,7 @@ public final class GearOptimizer {
             private CombatStyle style;
             private Spell.SpellBook spellBook;
             private MonsterCombatRequirement combatRequirement;
+            private java.util.Map<String, Integer> playerBaseLevels = java.util.Collections.emptyMap();
 
             private Builder(int[] liveItemIds, Monster target, PlayerCombat.Builder playerTemplate) {
                 this.liveItemIds = liveItemIds;
@@ -314,6 +318,19 @@ public final class GearOptimizer {
                 return this;
             }
 
+            /**
+             * The player's BASE (real, un-boosted) skill levels as lowercase
+             * {@code skill name → level} (e.g. {@code {"attack": 70, ...}}), used
+             * to drop candidate items the player cannot equip at their current
+             * levels (see {@link EquipmentRequirementsRepository}). {@code null}
+             * or empty (the default) disables the level gate entirely — every
+             * item is assumed wearable, preserving the historical behaviour.
+             */
+            public Builder playerBaseLevels(java.util.Map<String, Integer> playerBaseLevels) {
+                this.playerBaseLevels = playerBaseLevels != null ? playerBaseLevels : java.util.Collections.emptyMap();
+                return this;
+            }
+
             public Request build() {
                 return new Request(this);
             }
@@ -327,6 +344,11 @@ public final class GearOptimizer {
         /** The monster combat gate constraining weapon/ammo candidates, or {@code null} if unconstrained. */
         public MonsterCombatRequirement combatRequirement() {
             return combatRequirement;
+        }
+
+        /** The player's base skill levels for the equip-requirement gate (empty = gate disabled). */
+        public java.util.Map<String, Integer> playerBaseLevels() {
+            return playerBaseLevels;
         }
 
         /**
@@ -801,6 +823,15 @@ public final class GearOptimizer {
                 if (slot == AMMO_SLOT && !combatReq.permitsAmmo(e.itemId(), request.style)) {
                     continue;
                 }
+            }
+            if (!request.playerBaseLevels.isEmpty()
+                    && !EquipmentRequirementsRepository.getInstance().canEquip(e.itemId(), request.playerBaseLevels)) {
+                // B9-5: never recommend gear the player can't equip at their
+                // current (base) levels — a level-40-Attack player must not be
+                // told to wear a Dragon scimitar (60 Attack). Applied to every
+                // candidate (owned or not) since ownership doesn't grant the
+                // level to wield it. Disabled when no levels are supplied.
+                continue;
             }
             boolean owned = request.owned.contains(e.itemId());
             boolean included = request.include.contains(e.itemId());

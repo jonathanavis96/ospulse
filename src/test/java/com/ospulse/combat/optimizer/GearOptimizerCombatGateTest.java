@@ -282,6 +282,80 @@ public class GearOptimizerCombatGateTest {
                 RUNE_PLATELEGS, slotIdIn(result, 7)); // slot 7 = legs
     }
 
+    private static java.util.Map<String, Integer> baseLevels(int attack) {
+        java.util.Map<String, Integer> m = new java.util.HashMap<>();
+        m.put("attack", attack);
+        m.put("strength", 99);
+        m.put("defence", 99);
+        m.put("ranged", 99);
+        m.put("magic", 99);
+        m.put("prayer", 99);
+        m.put("hitpoints", 99);
+        return m;
+    }
+
+    /**
+     * B9-5: the optimiser must never recommend gear the player cannot equip at
+     * their current BASE levels. A 40-Attack player owning both a Rune scimitar
+     * (40 Att) and a higher-DPS Dragon scimitar (60 Att) must be given the Rune
+     * scimitar — the Dragon scimitar is unwieldable and must be filtered out
+     * even though it is owned, free, and higher DPS.
+     */
+    @Test
+    public void levelGate_neverRecommendsGearAbovePlayersBaseLevel() {
+        int[] live = emptyLoadout();
+
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(RUNE_SCIMITAR, 0L);
+        fixed.put(DRAGON_SCIMITAR, 0L);
+        GearOptimizer.PriceSource prices = everyWeaponExpensiveExcept(fixed);
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .priceSource(prices)
+                .owned(new HashSet<>(Arrays.asList(RUNE_SCIMITAR, DRAGON_SCIMITAR)))
+                .style(CombatStyle.SLASH)
+                .playerBaseLevels(baseLevels(40))
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertFalse("a 40-Attack player must never be told to wield a Dragon scimitar (60 Attack)",
+                weaponIdIn(result) == DRAGON_SCIMITAR);
+        assertEquals("the wieldable Rune scimitar (40 Attack) must be chosen instead",
+                RUNE_SCIMITAR, weaponIdIn(result));
+    }
+
+    /**
+     * B9-5 companion: once the player meets the requirement (60 Attack), the
+     * higher-DPS Dragon scimitar IS recommended — the gate only blocks gear
+     * above the player's level, it never hides gear they can wield.
+     */
+    @Test
+    public void levelGate_recommendsHigherTierWhenRequirementIsMet() {
+        int[] live = emptyLoadout();
+
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(RUNE_SCIMITAR, 0L);
+        fixed.put(DRAGON_SCIMITAR, 0L);
+        GearOptimizer.PriceSource prices = everyWeaponExpensiveExcept(fixed);
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .priceSource(prices)
+                .owned(new HashSet<>(Arrays.asList(RUNE_SCIMITAR, DRAGON_SCIMITAR)))
+                .style(CombatStyle.SLASH)
+                .playerBaseLevels(baseLevels(60))
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("a 60-Attack player must get the higher-DPS Dragon scimitar",
+                DRAGON_SCIMITAR, weaponIdIn(result));
+    }
+
     @Test
     public void combatGate_neverRecommendsAGatedOutWeapon_evenWhenCheaperAndHigherDps() {
         int[] live = emptyLoadout();

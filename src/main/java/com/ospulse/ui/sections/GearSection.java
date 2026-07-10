@@ -3902,6 +3902,20 @@ public final class GearSection extends CollapsibleSection
 		java.util.Set<Integer> exclusions = new java.util.LinkedHashSet<>(excludedItemIds);
 		exclusions.addAll(restrictedItemIds());
 
+		// B9-5: the player's BASE levels drive the equip-requirement gate so the
+		// optimiser never recommends gear they can't wield at their current
+		// levels. Combat skills come straight from the live snapshot; Agility /
+		// Slayer requirements (crystal gear, slayer helm) are absent here and
+		// fail-open for now (documented follow-up).
+		java.util.Map<String, Integer> baseLevels = new java.util.HashMap<>();
+		baseLevels.put("attack", lastGear.baseAttack());
+		baseLevels.put("strength", lastGear.baseStrength());
+		baseLevels.put("defence", lastGear.baseDefence());
+		baseLevels.put("ranged", lastGear.baseRanged());
+		baseLevels.put("magic", lastGear.baseMagic());
+		baseLevels.put("prayer", lastGear.basePrayer());
+		baseLevels.put("hitpoints", lastGear.baseHitpoints());
+
 		return GearOptimizer.Request
 			.builder(liveIds, target, template)
 			.budget(budget)
@@ -3923,6 +3937,7 @@ public final class GearSection extends CollapsibleSection
 			// to what can actually damage the selected target.
 			.combatRequirement(target == null ? null
 				: MonsterCombatRequirementRepository.getInstance().forMonster(target.name()).orElse(null))
+			.playerBaseLevels(baseLevels)
 			.build();
 	}
 
