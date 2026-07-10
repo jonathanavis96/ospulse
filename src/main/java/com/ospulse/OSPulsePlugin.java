@@ -173,6 +173,7 @@ public class OSPulsePlugin extends Plugin
 		// on the EDT (clearing UI baselines before the re-anchored snapshot is
 		// published back), preserving the phantom-profit-on-reset ordering.
 		panel.setResetCallback(() -> clientThread.invoke(tracker::resetSession));
+		panel.setBankHighlighter(bankHighlighter);
 		tracker.addListener(panel);
 
 		final BufferedImage icon = ImageUtil.loadImageResource(getClass(), "/icon.png");
