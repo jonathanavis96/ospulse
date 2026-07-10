@@ -638,8 +638,9 @@ public final class GearSection extends CollapsibleSection
 		resetAllButton.setVisible(false);
 		resetAllButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, resetAllButton.getPreferredSize().height));
 		resetAllButton.addActionListener(e -> resetAllOverrides());
-		body().add(resetAllButton);
-		body().add(Box.createRigidArea(new Dimension(0, 4)));
+		// Not added to the panel: the red "Reset" button flanking the helmet now
+		// covers this. The object is kept so the existing setVisible(...) calls
+		// remain harmless no-ops on a detached component.
 
 		// --------------------------------------- ranked attack-style picker
 		stylesHeading = PanelWidgets.emptyRowLabel("Attack styles (best DPS first)");
@@ -1022,8 +1023,9 @@ public final class GearSection extends CollapsibleSection
 		clearOptimizerPreviewButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, clearOptimizerPreviewButton.getPreferredSize().height));
 		clearOptimizerPreviewButton.addActionListener(e -> resetAllOverrides());
 		clearOptimizerPreviewButton.setVisible(false);
-		body().add(clearOptimizerPreviewButton);
-		body().add(Box.createRigidArea(new Dimension(0, 2)));
+		// Not added to the panel: superseded by the red "Reset" button in the
+		// gear grid. Object kept so the existing setVisible(...) calls stay
+		// harmless no-ops on a detached component.
 
 		optimizerStatusLabel = PanelWidgets.emptyRowLabel("");
 		optimizerStatusLabel.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
@@ -1248,8 +1250,8 @@ public final class GearSection extends CollapsibleSection
 		topRow.add(buildSlotCell(0), gbc);
 		gbc.insets = new Insets(0, 0, 0, 0);
 
-		revertGridButton = RoundedButton.action("Revert", REVERT_RED, Color.WHITE,
-			"Revert to current gear", e -> resetAllOverrides());
+		revertGridButton = RoundedButton.action("Reset", REVERT_RED, Color.WHITE,
+			"Reset to your current worn gear", e -> resetAllOverrides());
 		revertGridButton.setPreferredSize(new Dimension(74, 24));
 		gbc.gridx = 2;
 		gbc.weightx = 1;
@@ -1277,6 +1279,11 @@ public final class GearSection extends CollapsibleSection
 		JPanel stack = new JPanel();
 		stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
 		stack.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		// Pin both rows to their natural size so the vertical BoxLayout does not
+		// stretch the equipment grid out to the (wider) button row's width — that
+		// stretch is what squished/spread the slot icons across the panel.
+		topRow.setMaximumSize(topRow.getPreferredSize());
+		grid.setMaximumSize(grid.getPreferredSize());
 		stack.add(topRow);
 		stack.add(Box.createRigidArea(new Dimension(0, 2)));
 		stack.add(grid);
