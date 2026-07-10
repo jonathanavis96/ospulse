@@ -228,8 +228,13 @@ public class GearSectionOptimizerStyleTest
 				section.optimizerResultStyleTextForTest());
 
 			section.clickApplyOptimizerResultForTest();
-			assertEquals("preview must not swap the bow for the owned melee whip",
-				MAGIC_SHORTBOW, section.overrideForTest().itemIdFor(WhatIfLoadout.WEAPON_SLOT));
+			// The optimiser kept the bow (asserted above), so the corrected
+			// preview (only genuinely-changed slots are overridden) must NOT
+			// override the weapon slot at all — it stays the live bow, never the
+			// owned melee whip. A regression that swapped in the whip would
+			// create a weapon-slot override and fail this.
+			assertFalse("preview must not swap the bow for the owned melee whip",
+				section.overrideForTest().hasOverride(WhatIfLoadout.WEAPON_SLOT));
 			assertEquals("preview must lock the readout to the optimised (Ranged) style",
 				CombatStyle.RANGED, section.selectedStyleForTest().type());
 		});

@@ -5,7 +5,7 @@
       "type": "WEAPON_GATE",
       "allowedItemIds": [4158, 20727, 11902],
       "allowedAmmoIds": [4160, 11875, 21316],
-      "note": "Only leaf-bladed weapons, broad ammunition, or the Magic Dart Slayer spell can harm this monster. This tool cannot detect Magic Dart, so magic styles are shown greyed even though the spell itself works."
+      "note": "Only leaf-bladed weapons, broad ammo, or Magic Dart can harm it. Magic is greyed because Magic Dart can't be detected, but the spell still works."
     },
     {
       "monsters": ["Aviansie", "Kree'arra", "Flight Kilisa", "Wingman Skree", "Flockleader Geerin", "Armadylean guard"],

@@ -56,6 +56,7 @@ import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
 import javax.swing.JToggleButton;
 import javax.swing.ListSelectionModel;
 import javax.swing.OverlayLayout;
@@ -66,6 +67,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -1176,6 +1178,15 @@ public final class GearSection extends CollapsibleSection
 	private static final Border OVERRIDE_BORDER = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE, 2);
 
 	/**
+	 * Thin red border marking the WEAPON or SHIELD slot's currently SHOWN item
+	 * (override id if overridden, else the live worn id) as invalid for the
+	 * selected target — see {@link #isSlotInvalidForTarget} (A6). Combined
+	 * with {@link #OVERRIDE_BORDER} via {@link BorderFactory#createCompoundBorder}
+	 * when the slot is ALSO overridden, so both signals show at once.
+	 */
+	private static final Border INVALID_BORDER = BorderFactory.createLineBorder(ColorScheme.PROGRESS_ERROR_COLOR, 2);
+
+	/**
 	 * Diff-updates the worn-gear icon grid; only touched slots reload their
 	 * sprite. Shows the what-if override's item (with an orange border) in any
 	 * overridden slot instead of the real worn item — see {@link #override}.
@@ -1197,7 +1208,10 @@ public final class GearSection extends CollapsibleSection
 			boolean overridden = override.hasOverride(slot);
 			int liveId = ids == null || slot >= ids.length ? -1 : ids[slot];
 			int id = overridden ? override.itemIdFor(slot) : liveId;
-			cell.setBorder(overridden ? OVERRIDE_BORDER : null);
+			boolean invalid = isSlotInvalidForTarget(slot, id);
+			cell.setBorder(invalid
+				? (overridden ? BorderFactory.createCompoundBorder(INVALID_BORDER, OVERRIDE_BORDER) : INVALID_BORDER)
+				: (overridden ? OVERRIDE_BORDER : null));
 			// Item #6f (second site): the cell tooltip must describe what the
 			// cell is actually SHOWING. While previewing it names the previewed
 			// item + the real slot + whether the item is even owned, instead of
@@ -1230,6 +1244,52 @@ public final class GearSection extends CollapsibleSection
 				cell.setIcon(null);
 			}
 		}
+	}
+
+	/**
+	 * A6: true when the item currently shown in {@code slot} ({@code
+	 * shownId} — the override id if the slot is overridden, else the live
+	 * worn id) is invalid for {@link #selectedMonster}. Only WEAPON and
+	 * SHIELD are ever flagged; every other slot always returns {@code false}
+	 * (unchanged border logic), and there's no selected monster there's
+	 * nothing to be invalid against.
+	 * <ul>
+	 * <li>WEAPON: there is a combat requirement for the target and the shown
+	 * weapon/ammo/selected-style combo can't damage it — the same gate A5
+	 * uses to grey out unusable attack styles.</li>
+	 * <li>SHIELD: the target has a REQUIRED_GEAR override targeting the
+	 * shield slot and the shown shield isn't the required item (e.g.
+	 * Basilisk with an Avernic defender instead of the mirror shield).</li>
+	 * </ul>
+	 */
+	private boolean isSlotInvalidForTarget(int slot, int shownId)
+	{
+		if (selectedMonster == null)
+		{
+			return false;
+		}
+		if (slot == WEAPON_SLOT)
+		{
+			if (selectedStyle == null)
+			{
+				return false;
+			}
+			MonsterCombatRequirement combatReq =
+				MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.name()).orElse(null);
+			return combatReq != null && !combatReq.permits(shownId, selectedStyle.type(), effectiveAmmoId());
+		}
+		if (slot == WhatIfLoadout.SHIELD_SLOT)
+		{
+			for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(selectedMonster.name()))
+			{
+				if (override.slot().slotOrdinal() == WhatIfLoadout.SHIELD_SLOT && override.itemId() != shownId)
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+		return false;
 	}
 
 	// ------------------------------------------------- attack-style picker
@@ -1609,9 +1669,11 @@ public final class GearSection extends CollapsibleSection
 
 		for (WeaponStyle style : gated)
 		{
-			JLabel gatedLabel = PanelWidgets.emptyRowLabel(style.name() + " — can't damage " + selectedMonster.name());
-			gatedLabel.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
-			stylesPanel.add(gatedLabel);
+			// A5: keep the same icon + name look as a ranked row (a plain grey
+			// JLabel lost the per-style icon and didn't match), just greyed
+			// out with a "0" DPS and not selectable — see the StyleRow(style,
+			// gated) constructor below.
+			stylesPanel.add(new StyleRow(style, true));
 			stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
 		}
 		if (ranked.isEmpty() && !gated.isEmpty())
@@ -2369,13 +2431,11 @@ public final class GearSection extends CollapsibleSection
 		{
 			String raw = "⚠ vs " + selectedMonster.name() + ": equip "
 				+ override.itemName() + " (" + slotDisplayName(override.slot()) + ") — " + override.reason();
-			// A plain JLabel does not wrap, so the long advisory line was clipped
-			// in the narrow side panel (Jonathan saw "...equip in selected boot..."
-			// cut off). Render as width-constrained HTML so the FULL reason wraps
-			// onto multiple lines. Escape the data-driven text first.
-			JLabel line = PanelWidgets.emptyRowLabel("<html><div style='width:200px'>" + escapeHtml(raw) + "</div></html>");
-			line.setForeground(ColorScheme.BRAND_ORANGE);
-			gearOverrideNotePanel.add(line);
+			// A plain JLabel does not wrap, and a hard-coded HTML div width
+			// clips as soon as the side panel is narrower than that pixel
+			// value (Jonathan saw "...equip in selected boot..." cut off).
+			// wrappingNote() wraps to whatever width the panel actually has.
+			gearOverrideNotePanel.add(wrappingNote(raw, ColorScheme.BRAND_ORANGE));
 		}
 		gearOverrideNotePanel.setVisible(!overrides.isEmpty());
 		gearOverrideNotePanel.revalidate();
@@ -2401,16 +2461,60 @@ public final class GearSection extends CollapsibleSection
 				MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.name());
 			if (req.isPresent() && !req.get().note().isEmpty())
 			{
-				JLabel label = PanelWidgets.emptyRowLabel(
-					"<html><div style='width:200px'>⚠ " + escapeHtml(req.get().note()) + "</div></html>");
-				label.setForeground(ColorScheme.BRAND_ORANGE);
-				combatReqNotePanel.add(label);
+				combatReqNotePanel.add(wrappingNote("⚠ " + req.get().note(), ColorScheme.BRAND_ORANGE));
 				show = true;
 			}
 		}
 		combatReqNotePanel.setVisible(show);
 		combatReqNotePanel.revalidate();
 		combatReqNotePanel.repaint();
+	}
+
+	/**
+	 * A read-only, non-opaque, word-wrapping "label" that — unlike a plain
+	 * {@link JLabel} (no wrap) or the previous HTML-{@code JLabel} approach
+	 * (hard-coded {@code width:200px}, clipped in a narrower panel) — wraps to
+	 * whatever width the enclosing {@link BoxLayout} panel actually gives it.
+	 * Standard Swing trick: {@link JTextArea#getPreferredSize()} normally
+	 * measures the UNWRAPPED width, so it is overridden here to re-measure
+	 * against the parent's current width once one is known, and
+	 * {@code getMaximumSize()} caps height at that (dynamic) preferred height
+	 * while leaving width free to stretch to the container — matching the
+	 * {@code Integer.MAX_VALUE}-width pattern {@link PanelWidgets#iconRow}
+	 * already uses for full-width rows.
+	 */
+	private static JTextArea wrappingNote(String text, java.awt.Color foreground)
+	{
+		JTextArea area = new JTextArea(text)
+		{
+			@Override
+			public Dimension getPreferredSize()
+			{
+				Container parent = getParent();
+				int width = parent != null ? parent.getWidth() : 0;
+				if (width > 0)
+				{
+					setSize(width, Short.MAX_VALUE);
+				}
+				return super.getPreferredSize();
+			}
+
+			@Override
+			public Dimension getMaximumSize()
+			{
+				return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+			}
+		};
+		area.setEditable(false);
+		area.setFocusable(false);
+		area.setOpaque(false);
+		area.setLineWrap(true);
+		area.setWrapStyleWord(true);
+		area.setFont(FontManager.getRunescapeSmallFont());
+		area.setForeground(foreground);
+		area.setBorder(null);
+		area.setAlignmentX(Component.LEFT_ALIGNMENT);
+		return area;
 	}
 
 	/** Human-readable slot name for the advisory note, e.g. {@code BOOTS} -&gt; {@code "Boots"}. */
@@ -3797,7 +3901,8 @@ public final class GearSection extends CollapsibleSection
 			: (constraint != null ? typeLabel(constraint) : "-"));
 
 		boolean anyChange = hasAnySlotChange(result);
-		if (result.style() == null)
+		boolean noUsableWeapon = result.style() == null;
+		if (noUsableWeapon)
 		{
 			// Style-constrained search found NO loadout that can attack with the
 			// requested type at all (e.g. Magic selected but no magic weapon is
@@ -3833,10 +3938,22 @@ public final class GearSection extends CollapsibleSection
 		optimizerResultDpsPerGp.setText(result.totalSpend() > 0
 			? String.format(Locale.ROOT, "%.6f", result.dpsPerGp())
 			: "-");
-		renderOptimizerSwapList(result);
-		// Nothing to preview/clear when the suggestion equals what's already worn.
-		applyOptimizerResultButton.setVisible(anyChange);
-		clearOptimizerPreviewButton.setVisible(anyChange);
+		if (noUsableWeapon)
+		{
+			// A8: a style with no usable weapon at all must never fall through
+			// to the "already best" placeholder below (that phrasing implies
+			// "you're optimal", not "this style can't damage the target") —
+			// show a clear 0-DPS/can't-damage line instead.
+			renderNoUsableWeaponSwapMessage(constraint);
+		}
+		else
+		{
+			renderOptimizerSwapList(result);
+		}
+		// Nothing to preview/clear when the suggestion equals what's already
+		// worn, or when there's no usable weapon to preview at all.
+		applyOptimizerResultButton.setVisible(anyChange && !noUsableWeapon);
+		clearOptimizerPreviewButton.setVisible(anyChange && !noUsableWeapon);
 		optimizerResultPanel.setVisible(true);
 		optimizerResultPanel.revalidate();
 		body().revalidate();
@@ -3892,6 +4009,23 @@ public final class GearSection extends CollapsibleSection
 			none.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
 			optimizerSwapList.add(none);
 		}
+	}
+
+	/**
+	 * A8: renders a single clear greyed line in {@link #optimizerSwapList} for
+	 * a style the optimiser found NO usable weapon for at all (owned or
+	 * affordable), e.g. Magic selected against a monster with no owned/
+	 * affordable magic weapon. Used in place of {@link #renderOptimizerSwapList}
+	 * so this case never reads as "your current loadout is already best".
+	 */
+	private void renderNoUsableWeaponSwapMessage(CombatStyle constraint)
+	{
+		optimizerSwapList.removeAll();
+		String styleLabel = constraint != null ? typeLabel(constraint) : "this style";
+		String monsterName = selectedMonster != null ? selectedMonster.name() : "this target";
+		JLabel none = PanelWidgets.emptyRowLabel("0 DPS — can't damage " + monsterName + " with " + styleLabel);
+		none.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+		optimizerSwapList.add(none);
 	}
 
 	/** One "current icon -&gt; suggested icon (spend)" swap row — see {@link #renderOptimizerSwapList}. */
@@ -4086,9 +4220,19 @@ public final class GearSection extends CollapsibleSection
 		{
 			return;
 		}
+		// Only override slots that actually differ from the currently worn gear
+		// — the optimiser's loadout() lists every equipped slot, but "Preview
+		// these swaps" must only highlight genuinely-changed slots (mirrors the
+		// guard in renderOptimizerSwapList / hasAnySlotChange).
+		int[] liveIds = lastGear == null ? new int[GearSnapshot.EQUIPMENT_SLOT_COUNT] : lastGear.equippedItemIds();
 		LoadoutOverride next = LoadoutOverride.empty();
 		for (GearOptimizer.SlotChoice choice : lastOptimizerResult.loadout())
 		{
+			int liveId = choice.slotOrdinal() < liveIds.length ? liveIds[choice.slotOrdinal()] : -1;
+			if (liveId == choice.itemId())
+			{
+				continue; // unchanged — nothing to preview for this slot
+			}
 			next = next.withSlot(choice.slotOrdinal(), choice.itemId());
 		}
 		override = next;
@@ -5174,6 +5318,47 @@ public final class GearSection extends CollapsibleSection
 			// pixels around the text. That is exactly the "sometimes takes
 			// several clicks" symptom: clicks on the text did nothing.
 			installRowPressListener(this, () -> selectStyle(StyleRow.this.style), name, dps);
+		}
+
+		/**
+		 * Greyed, non-selectable variant for a style the selected target's
+		 * combat requirement forbids (A5) — same icon + name layout as the
+		 * normal ranked row so it visually matches, but shows a flat "0.00"
+		 * DPS instead of a real number and installs no click/selection
+		 * handling (no hand cursor, not added to {@link #styleRows}).
+		 */
+		private StyleRow(WeaponStyle style, boolean gated)
+		{
+			super(new BorderLayout(4, 0));
+			this.style = style;
+			setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			setAlignmentX(Component.LEFT_ALIGNMENT);
+			setBorder(BorderFactory.createCompoundBorder(unselectedBorder,
+				BorderFactory.createEmptyBorder(2, 3, 2, 4)));
+
+			JLabel name = new JLabel(style.name());
+			name.setFont(FontManager.getRunescapeSmallFont());
+			name.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+			ImageIcon icon = attackStyleIcon(currentWeaponCategory, style);
+			if (icon != null)
+			{
+				name.setIcon(icon);
+				name.setIconTextGap(4);
+			}
+			String targetName = selectedMonster != null ? selectedMonster.name() : "this target";
+			name.setToolTipText(style.name() + " (" + typeLabel(style.type()) + ") — can't damage " + targetName);
+
+			JLabel dps = new JLabel(String.format(Locale.ROOT, "%.2f", 0.0));
+			dps.setFont(FontManager.getRunescapeSmallFont());
+			dps.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
+			dps.setToolTipText("Can't damage " + targetName + " with this attack style");
+
+			add(name, BorderLayout.CENTER);
+			add(dps, BorderLayout.EAST);
+
+			setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
+			// Intentionally no cursor change / installRowPressListener — this
+			// row is a read-only indicator, not a clickable selection.
 		}
 
 		private void setSelected(boolean selected)
