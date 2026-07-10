@@ -543,8 +543,16 @@ public final class GearOptimizer {
                         double diff = trialEval.dps.dps() - currentDps;
                         better = diff > 1e-9
                                 || (Math.abs(diff) <= 1e-9 && prayerBonusOf(c.itemId()) > prayerBonusOf(current[slot]));
+                    } else if (currentEval == null) {
+                        better = true;
                     } else {
-                        better = currentEval == null || trialEval.dps.dps() > currentEval.dps.dps() + 1e-9;
+                        // Same DPS tie-break as the greedy seed (B9-2): fill a
+                        // DPS-neutral slot with the best-stat wearable item rather
+                        // than leaving whatever the seed held (possibly empty).
+                        double diff = trialEval.dps.dps() - currentEval.dps.dps();
+                        better = diff > 1e-9
+                                || (Math.abs(diff) <= 1e-9
+                                    && tieBreakScore(c.itemId()) > tieBreakScore(current[slot]));
                     }
                     if (better) {
                         current = trial;
@@ -675,7 +683,16 @@ public final class GearOptimizer {
                 double diff = trialEval.dps.dps() - bestEval.dps.dps();
                 better = diff > 1e-9 || (Math.abs(diff) <= 1e-9 && trialPrayer > bestPrayer);
             } else {
-                better = trialEval.dps.dps() > bestEval.dps.dps() + 1e-9;
+                // DPS tie-break (B9-2): a DPS-neutral slot (legs, ring, most
+                // armour under a fixed style) never RAISES DPS, so a pure ">"
+                // test would leave it at its seed value — empty when starting
+                // from naked gear ("recommend no legs"). On a DPS tie prefer the
+                // higher-stat wearable item so the slot gets filled with the best
+                // owned piece instead of being left empty.
+                double diff = trialEval.dps.dps() - bestEval.dps.dps();
+                better = diff > 1e-9
+                        || (Math.abs(diff) <= 1e-9
+                            && tieBreakScore(c.itemId()) > tieBreakScore(slotItemId(best, slot)));
             }
             if (better) {
                 best = trial;
@@ -945,6 +962,26 @@ public final class GearOptimizer {
         }
     }
 
+    /**
+     * A DPS-tie tie-break score: the sum of an item's every offensive, defensive
+     * and prayer bonus. Used to fill DPS-neutral slots (B9-2) with the best
+     * wearable owned piece on a DPS tie; an empty/unknown slot scores lowest so
+     * any real item beats "wear nothing".
+     */
+    private static int tieBreakScore(int itemId) {
+        if (itemId <= 0) {
+            return Integer.MIN_VALUE;
+        }
+        com.ospulse.combat.EquipmentStatsRepository.Stats s =
+                com.ospulse.combat.EquipmentStatsRepository.getInstance().statsFor(itemId);
+        if (s == null) {
+            return Integer.MIN_VALUE + 1;
+        }
+        return s.astab() + s.aslash() + s.acrush() + s.amagic() + s.arange()
+                + s.dstab() + s.dslash() + s.dcrush() + s.dmagic() + s.drange()
+                + s.str() + s.rstr() + (int) s.mdmg() + s.prayer();
+    }
+
     /** The prayer bonus of one item (0 if unknown), for the ammo-slot-ignored-by-weapon ranking exception. */
     private static int prayerBonusOf(int itemId) {
         com.ospulse.combat.EquipmentStatsRepository.Stats s = com.ospulse.combat.EquipmentStatsRepository.getInstance().statsFor(itemId);
@@ -1032,12 +1069,26 @@ public final class GearOptimizer {
         Spell bestSpell = null;
 
         boolean poweredStaff = stats.poweredStaff().applies();
+        int ammoId = itemIds.length > AMMO_SLOT ? itemIds[AMMO_SLOT] : -1;
+        boolean weaponUsesWornAmmo = AmmoCompatibility.consumedClass(weaponId) != null;
         for (WeaponStyle style : styles) {
             if (request.style != null && style.type() != request.style) {
                 // Style-constrained search (item #6e): only styles of the
                 // requested damage type may drive the DPS. A weapon with no
                 // such style yields best == null -> this loadout is unusable
                 // under the constraint (never silently scored at another type).
+                continue;
+            }
+            if (request.combatRequirement != null
+                    && (!request.combatRequirement.permitsWeapon(weaponId, style.type(), weaponUsesWornAmmo)
+                        || !request.combatRequirement.permitsAmmo(ammoId, style.type()))) {
+                // Monster combat gate (B9-1): a (weapon, style, worn-ammo) combo
+                // the monster cannot be damaged by scores no DPS. The candidate
+                // pruning already drops gated weapons/ammo, but the SEED loadout
+                // carries the player's live worn ammo, which pruning never sees —
+                // so without this check a bow + non-broad worn arrows would score
+                // a bogus positive ranged DPS vs Kurask and wrongly offer Ranged.
+                // Mirrors GearSection's readout gate (permits()) so the two agree.
                 continue;
             }
             PlayerCombat player = request.playerTemplate.stance(style.stance()).build();

@@ -69,6 +69,7 @@ public class GearOptimizerCombatGateTest {
     private static final int DRAGON_2H_SWORD = 7158;     // two-handed slash weapon
     private static final int RUNE_SCIMITAR = 1333;       // one-handed slash weapon
     private static final int TWISTED_BOW = 20997;        // two-handed ranged weapon
+    private static final int RUNE_PLATELEGS = 1079;      // DPS-neutral legs (no offensive bonus)
 
     private static int slotIdIn(GearOptimizer.Result result, int slotOrdinal) {
         for (GearOptimizer.SlotChoice choice : result.loadout()) {
@@ -184,6 +185,101 @@ public class GearOptimizerCombatGateTest {
         // Cross-check the pure predicate: blowpipe rejected, a worn-ammo crossbow deferred to the ammo gate.
         assertFalse(kurask.permitsWeapon(TOXIC_BLOWPIPE, CombatStyle.RANGED, false));
         assertTrue(kurask.permitsWeapon(RUNE_CROSSBOW, CombatStyle.RANGED, true));
+    }
+
+    /**
+     * B9-1: a worn-ammo ranged weapon whose worn/ownable ammo cannot satisfy a
+     * broad-ammo gate (Kurask) must NOT yield a usable ranged result — even
+     * though the weapon itself passes the weapon-slot gate. The seed loadout's
+     * ammo is only DPS-invisible to the OLD evaluate(), which ignored the gate;
+     * evaluate() must now reject a (weapon, style, ammo) the monster can't be
+     * damaged by, so the whole Ranged style collapses to null (unusable) and is
+     * never offered — exactly as Magic already correctly collapses.
+     */
+    @Test
+    public void broadAmmoGate_dropsRangedWhenNoLegalAmmoAvailable() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = RUNE_CROSSBOW; // worn-ammo ranged weapon, no legal ammo to fire
+
+        MonsterCombatRequirement kurask = MonsterCombatRequirement.weaponGate(
+                Collections.emptySet(),
+                new HashSet<>(Arrays.asList(BROAD_BOLTS)),
+                EnumSet.noneOf(CombatStyle.class),
+                "note");
+
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(RUNE_CROSSBOW, 0L);
+        // Broad bolts are NOT owned and NOT affordable — no legal ammo exists.
+        GearOptimizer.PriceSource prices = everyWeaponExpensiveExcept(fixed);
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .priceSource(prices)
+                .style(CombatStyle.RANGED)
+                .combatRequirement(kurask)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertTrue("with no legal ammo, the ranged search must collapse to an unusable (null-style) result",
+                result.style() == null);
+    }
+
+    /**
+     * B9-1 companion: when the player DOES own the gate's legal ammo (broad
+     * bolts), the ranged search must succeed and put that ammo in the ammo slot.
+     */
+    @Test
+    public void broadAmmoGate_recommendsBroadAmmoWhenOwned() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = RUNE_CROSSBOW;
+
+        MonsterCombatRequirement kurask = MonsterCombatRequirement.weaponGate(
+                Collections.emptySet(),
+                new HashSet<>(Arrays.asList(BROAD_BOLTS)),
+                EnumSet.noneOf(CombatStyle.class),
+                "note");
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .owned(new HashSet<>(Arrays.asList(RUNE_CROSSBOW, BROAD_BOLTS)))
+                .style(CombatStyle.RANGED)
+                .combatRequirement(kurask)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertTrue("with broad bolts owned, a usable ranged result must be produced", result.style() != null);
+        assertEquals("the ammo slot must hold the gate-legal broad bolts",
+                BROAD_BOLTS, slotIdIn(result, 13)); // slot 13 = ammo
+    }
+
+    /**
+     * B9-2: the optimiser must fill DPS-neutral slots (legs, ring, etc.) with
+     * the best wearable owned item rather than leaving them empty. Starting
+     * from a naked loadout, plate legs contribute no offensive bonus so
+     * equipping them never RAISES DPS — the DPS-only search used to leave the
+     * slot empty ("recommend no legs"). A tie-break now fills the slot on a DPS
+     * tie so the recommended loadout is a complete setup.
+     */
+    @Test
+    public void fillsDpsNeutralSlotWithBestOwnedItem() {
+        int[] live = emptyLoadout(); // naked
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .priceSource(everyWeaponExpensiveExcept(new java.util.HashMap<>())) // only owned gear is affordable
+                .owned(new HashSet<>(Arrays.asList(RUNE_SCIMITAR, RUNE_PLATELEGS)))
+                .style(CombatStyle.SLASH)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("a DPS-neutral legs slot must be filled with the owned plate legs, not left empty",
+                RUNE_PLATELEGS, slotIdIn(result, 7)); // slot 7 = legs
     }
 
     @Test
