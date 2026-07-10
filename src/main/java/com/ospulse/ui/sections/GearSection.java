@@ -33,6 +33,7 @@ import com.ospulse.session.GearVariants;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
+import com.ospulse.ui.sections.gear.GpFormat;
 import com.ospulse.ui.sections.gear.RoundedButton;
 import com.ospulse.wealth.WealthSnapshot;
 
@@ -921,12 +922,23 @@ public final class GearSection extends CollapsibleSection
 		// "500k" free-text field — split so the number entry never has to deal
 		// with a trailing unit letter itself). budgetUnitIsMillions defaults to
 		// true (M) since most upgrade budgets are in the millions.
+		// Budget & risk (item: icon row). Coins icon labels the budget (its value
+		// is colour-coded by magnitude — GpFormat: <100K yellow, <10M white,
+		// >=10M green); the item-risk face icon labels the two wilderness/PvP
+		// risk fields (expensive-item count + threshold) and carries a tooltip
+		// explaining both. NOTE: the mockup's budget *slider* isn't built yet
+		// (its range/step is unconfirmed) — the proven text-field entry stays.
+		ImageIcon coinsIcon = loadPanelIcon("coins.png", 18);
+		ImageIcon riskIcon = loadPanelIcon("item-risk.png", 18);
+
 		JPanel budgetRow = new JPanel(new BorderLayout(4, 0));
 		budgetRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		budgetRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-		JLabel budgetLabel = new JLabel("Budget");
+		JLabel budgetLabel = new JLabel("Budget", coinsIcon, SwingConstants.LEFT);
+		budgetLabel.setIconTextGap(4);
 		budgetLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
 		budgetLabel.setFont(FontManager.getRunescapeSmallFont());
+		budgetLabel.setToolTipText("Extra GP to spend on upgrades beyond your owned gear (blank/0 = owned gear only)");
 		budgetField = new javax.swing.JTextField("0");
 		budgetField.setToolTipText("Extra GP to spend on upgrades beyond your owned gear (blank/0 = owned gear only)");
 		budgetField.setFont(FontManager.getRunescapeSmallFont());
@@ -949,12 +961,25 @@ public final class GearSection extends CollapsibleSection
 		// Plumbed into GearOptimizer.Request (expensiveItemCount/
 		// expensiveItemThreshold) but not yet enforced by the search itself
 		// (see that class's javadoc) — a later pass consumes them.
+		String riskTooltip = "<html><b>Expensive items</b> — how many expensive items you want to allow "
+			+ "in the setup (e.g. 4 = keep only 4 pricey items, the rest cheap) for wilderness / PvP worlds."
+			+ "<br><b>Threshold</b> — the value at or above which an item counts as expensive.</html>";
 		expensiveCountField = new javax.swing.JTextField("0");
 		expensiveCountField.setToolTipText(EXPENSIVE_COUNT_TOOLTIP);
 		expensiveCountField.setFont(FontManager.getRunescapeSmallFont());
 		expensiveCountField.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		expensiveCountField.setForeground(java.awt.Color.WHITE);
-		JPanel expensiveCountRow = labelledFieldRow("Expensive items", EXPENSIVE_COUNT_TOOLTIP, expensiveCountField);
+		JLabel countLabel = new JLabel("Expensive items", riskIcon, SwingConstants.LEFT);
+		countLabel.setIconTextGap(4);
+		countLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		countLabel.setFont(FontManager.getRunescapeSmallFont());
+		countLabel.setToolTipText(riskTooltip);
+		JPanel expensiveCountRow = new JPanel(new BorderLayout(4, 0));
+		expensiveCountRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		expensiveCountRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		expensiveCountRow.add(countLabel, BorderLayout.WEST);
+		expensiveCountRow.add(expensiveCountField, BorderLayout.CENTER);
+		expensiveCountRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
 		body().add(expensiveCountRow);
 		body().add(Box.createRigidArea(new Dimension(0, 2)));
 
@@ -970,8 +995,7 @@ public final class GearSection extends CollapsibleSection
 		expensiveThresholdFieldRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		expensiveThresholdFieldRow.add(expensiveThresholdField, BorderLayout.CENTER);
 		expensiveThresholdFieldRow.add(expensiveThresholdUnitToggle, BorderLayout.EAST);
-		JPanel expensiveThresholdRow = labelledFieldRow("Expensive threshold", EXPENSIVE_THRESHOLD_TOOLTIP,
-			expensiveThresholdFieldRow);
+		JPanel expensiveThresholdRow = labelledFieldRow("Threshold", riskTooltip, expensiveThresholdFieldRow);
 		body().add(expensiveThresholdRow);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
 
@@ -985,6 +1009,35 @@ public final class GearSection extends CollapsibleSection
 		budgetMToggle.addActionListener(e -> saveOptimizerPrefs());
 		expensiveThresholdKToggle.addActionListener(e -> saveOptimizerPrefs());
 		expensiveThresholdMToggle.addActionListener(e -> saveOptimizerPrefs());
+		// Colour the budget/threshold text by magnitude, live as the user types
+		// or flips the K/M toggle (GpFormat: <100K yellow, <10M white, >=10M green).
+		DocumentListener recolourGp = new DocumentListener()
+		{
+			@Override
+			public void insertUpdate(DocumentEvent e)
+			{
+				recolourGpFields();
+			}
+
+			@Override
+			public void removeUpdate(DocumentEvent e)
+			{
+				recolourGpFields();
+			}
+
+			@Override
+			public void changedUpdate(DocumentEvent e)
+			{
+				recolourGpFields();
+			}
+		};
+		budgetField.getDocument().addDocumentListener(recolourGp);
+		expensiveThresholdField.getDocument().addDocumentListener(recolourGp);
+		budgetKToggle.addActionListener(e -> recolourGpFields());
+		budgetMToggle.addActionListener(e -> recolourGpFields());
+		expensiveThresholdKToggle.addActionListener(e -> recolourGpFields());
+		expensiveThresholdMToggle.addActionListener(e -> recolourGpFields());
+		recolourGpFields();
 
 		findBestSetupButton = new JButton("Find best setup");
 		findBestSetupButton.setFont(FontManager.getRunescapeSmallFont());
@@ -3187,6 +3240,20 @@ public final class GearSection extends CollapsibleSection
 	private long resolvedBudget()
 	{
 		return parseUnitAmount(budgetField.getText(), budgetKToggle, budgetMToggle);
+	}
+
+	/** Loads a panel icon from {@code /com/ospulse/ui/icon/} scaled to {@code size}px square. */
+	private static ImageIcon loadPanelIcon(String file, int size)
+	{
+		BufferedImage img = ImageUtil.loadImageResource(GearSection.class, "/com/ospulse/ui/icon/" + file);
+		return new ImageIcon(img.getScaledInstance(size, size, Image.SCALE_SMOOTH));
+	}
+
+	/** Recolours the budget + threshold fields by their resolved gp magnitude (see {@link GpFormat}). */
+	private void recolourGpFields()
+	{
+		budgetField.setForeground(GpFormat.color(resolvedBudget()));
+		expensiveThresholdField.setForeground(GpFormat.color(resolvedExpensiveThreshold()));
 	}
 
 	/** The "expensive item" gp threshold from {@link #expensiveThresholdField} + its K/M toggle. */
