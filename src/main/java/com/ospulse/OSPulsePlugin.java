@@ -27,7 +27,9 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.plugins.Plugin;
+import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.plugins.banktags.BankTagsPlugin;
 import net.runelite.client.plugins.loottracker.LootReceived;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
@@ -53,6 +55,11 @@ import java.awt.image.BufferedImage;
 		+ "flip P&L, valued with RuneLite's GE prices.",
 	tags = {"profit", "loot", "wealth", "gp", "session", "tracker", "ge", "flipping", "xp"}
 )
+// The "Show in bank" feature drives RuneLite's Bank Tags to filter the open
+// bank to the optimiser's recommended items. BankTagsService/TagManager are
+// bound inside the banktags plugin's own injector, so without declaring the
+// dependency they inject as null and the feature silently no-ops.
+@PluginDependency(BankTagsPlugin.class)
 public class OSPulsePlugin extends Plugin
 {
 	@Inject
@@ -118,6 +125,13 @@ public class OSPulsePlugin extends Plugin
 
 		bankHighlighter = new com.ospulse.integration.BankRecommendationHighlighter(
 			bankTagsService, tagManager, clientThread);
+		if (bankTagsService == null || tagManager == null)
+		{
+			// With @PluginDependency(BankTagsPlugin) these should always resolve;
+			// log loudly if not so the inert "Show in bank" is diagnosable.
+			log.warn("OSPulse: Bank Tags unavailable (bankTagsService={}, tagManager={}) — 'Show in bank' will be inert",
+				bankTagsService != null, tagManager != null);
+		}
 
 		RuneLiteItemValuation valuation = new RuneLiteItemValuation(itemManager);
 		// Precomputes BOTH prices and tradeability on the client thread
