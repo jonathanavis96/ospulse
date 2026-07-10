@@ -4,7 +4,6 @@ import net.runelite.client.callback.ClientThread;
 import net.runelite.client.plugins.banktags.BankTagsService;
 import net.runelite.client.plugins.banktags.TagManager;
 
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -24,7 +23,7 @@ public class BankRecommendationHighlighter
     private final TagManager tagManager;      // nullable
     private final ClientThread clientThread;
 
-    private final Set<Integer> current = new LinkedHashSet<>();
+    private Set<Integer> current = new LinkedHashSet<>();
     private boolean armed;
 
     public BankRecommendationHighlighter(BankTagsService bankTags, TagManager tagManager,
@@ -46,21 +45,25 @@ public class BankRecommendationHighlighter
         {
             return;
         }
-        current.clear();
+        Set<Integer> snapshot = new LinkedHashSet<>();
         for (Integer id : itemIds)
         {
             if (id != null && id > 0)
             {
-                current.add(id);
+                snapshot.add(id);
             }
         }
         armed = true;
-        clientThread.invoke(this::applyReserved);
+        clientThread.invoke(() ->
+        {
+            current = snapshot;
+            applyReserved();
+        });
     }
 
     public void reapplyIfArmed()
     {
-        if (armed && bankTags != null && clientThread != null)
+        if (armed && bankTags != null && tagManager != null && clientThread != null)
         {
             clientThread.invoke(this::applyReserved);
         }
@@ -69,13 +72,13 @@ public class BankRecommendationHighlighter
     public void clear()
     {
         armed = false;
-        current.clear();
         if (tagManager == null || bankTags == null || clientThread == null)
         {
             return;
         }
         clientThread.invoke(() ->
         {
+            current = new LinkedHashSet<>();
             tagManager.removeTag(RESERVED_TAG);
             bankTags.closeBankTag();
         });
