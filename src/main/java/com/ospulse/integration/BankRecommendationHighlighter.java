@@ -24,7 +24,8 @@ public class BankRecommendationHighlighter
     private final ClientThread clientThread;
 
     private Set<Integer> current = new LinkedHashSet<>();
-    private boolean armed;
+    // Written on the EDT (showInBank/clear), read on the client thread (reapplyIfArmed).
+    private volatile boolean armed;
 
     public BankRecommendationHighlighter(BankTagsService bankTags, TagManager tagManager,
                                          ClientThread clientThread)

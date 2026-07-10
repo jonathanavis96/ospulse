@@ -69,6 +69,35 @@ public class BankRecommendationHighlighterTest
     }
 
     @Test
+    public void reapplyIfArmedReappliesReservedTagWhenArmed()
+    {
+        highlighter.showInBank(java.util.Collections.singleton(4151));
+        reset(tagManager, tags);
+
+        highlighter.reapplyIfArmed();
+
+        // re-tags the still-current id set and re-opens the reserved tag
+        verify(tagManager).removeTag(BankRecommendationHighlighter.RESERVED_TAG);
+        verify(tagManager).addTag(4151, BankRecommendationHighlighter.RESERVED_TAG, false);
+        verify(tags).openBankTag(eq(BankRecommendationHighlighter.RESERVED_TAG), anyInt());
+    }
+
+    @Test
+    public void reapplyIfArmedNoOpWhenNotArmed()
+    {
+        // never armed
+        highlighter.reapplyIfArmed();
+        verifyNoInteractions(tagManager, tags);
+
+        // and after a clear
+        highlighter.showInBank(java.util.Collections.singleton(4151));
+        highlighter.clear();
+        reset(tagManager, tags);
+        highlighter.reapplyIfArmed();
+        verifyNoInteractions(tagManager, tags);
+    }
+
+    @Test
     public void nullServicesNoOp()
     {
         BankRecommendationHighlighter h = new BankRecommendationHighlighter(null, null, clientThread);
