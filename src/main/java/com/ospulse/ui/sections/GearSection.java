@@ -645,6 +645,114 @@ public final class GearSection extends CollapsibleSection
 		// covers this. The object is kept so the existing setVisible(...) calls
 		// remain harmless no-ops on a detached component.
 
+		// --------------------------------------------------- target search
+		// Sits directly below the gear grid (per the redesign): the search bar,
+		// its result list, then the "Best setup" selector, ahead of the styles.
+		monsterSearchField = new IconTextField();
+		monsterSearchField.setIcon(IconTextField.Icon.SEARCH);
+		monsterSearchField.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		monsterSearchField.setHoverBackgroundColor(ColorScheme.DARK_GRAY_HOVER_COLOR);
+		monsterSearchField.setToolTipText("Search the monster to compute DPS against");
+		monsterSearchField.setAlignmentX(Component.LEFT_ALIGNMENT);
+		monsterSearchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		monsterSearchField.setPreferredSize(new Dimension(100, 24));
+		monsterSearchField.getDocument().addDocumentListener(new DocumentListener()
+		{
+			@Override
+			public void insertUpdate(DocumentEvent e)
+			{
+				onSearchChanged();
+			}
+
+			@Override
+			public void removeUpdate(DocumentEvent e)
+			{
+				onSearchChanged();
+			}
+
+			@Override
+			public void changedUpdate(DocumentEvent e)
+			{
+				onSearchChanged();
+			}
+		});
+		body().add(monsterSearchField);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
+
+		monsterList = new JList<>(monsterListModel);
+		monsterList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+		monsterList.setFont(FontManager.getRunescapeSmallFont());
+		monsterList.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		monsterList.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		monsterList.setSelectionBackground(ColorScheme.BRAND_ORANGE);
+		monsterList.setSelectionForeground(ColorScheme.DARK_GRAY_COLOR);
+		monsterList.setVisibleRowCount(6);
+		// Fixed cell size so the (up to ~2830-row) list never measures every
+		// cell — keeps filtering-while-typing snappy.
+		monsterList.setPrototypeCellValue("Abyssal demon (Catacombs of Kourend)");
+		monsterList.addListSelectionListener(e ->
+		{
+			if (suppressListEvents || e.getValueIsAdjusting())
+			{
+				return;
+			}
+			int index = monsterList.getSelectedIndex();
+			if (index >= 0 && index < filteredMonsters.size())
+			{
+				selectedMonster = filteredMonsters.get(index);
+				resetBankHighlightToggle();
+				updateTargetLabel();
+				rankAndRender();
+				// The picked target's canonical name is written back into the
+				// search field itself (replacing what the user typed) — there is
+				// no separate "Target:" line any more. Guard the write so it
+				// doesn't re-open the just-collapsed result list.
+				suppressSearchEvents = true;
+				monsterSearchField.setText(selectedMonster.name());
+				suppressSearchEvents = false;
+				// Collapse the result list once a target is picked; editing the
+				// search text again re-opens it (see onSearchChanged).
+				setListOpen(false);
+			}
+		});
+
+		listScroll = new JScrollPane(monsterList);
+		listScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+		listScroll.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
+		listScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+		listScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, listScroll.getPreferredSize().height));
+		body().add(listScroll);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
+
+		// The picked target now shows in the search field itself, so the old
+		// "Target: <name>" line is not added to the panel. The label object is
+		// kept and still updated (updateTargetLabel) for its note side-effects
+		// and the test getter that reads its text.
+		targetLabel = PanelWidgets.emptyRowLabel("Target: -");
+		targetLabel.setForeground(java.awt.Color.WHITE);
+		targetLabel.setToolTipText("The monster the DPS numbers below are computed against");
+		body().add(Box.createRigidArea(new Dimension(0, 6)));
+
+		// ------------------------------------- Phase 3: optimiser ("Best Setup")
+		// Owned pool = worn gear (always free) + WealthSnapshot.topHoldings (worn
+		// + inventory + bank, already GE-priced client-thread-side by
+		// SessionTracker — see lastWealth/apply) filtered to equippable items;
+		// budget = extra gp allowed for GE purchases beyond that pool. Search runs
+		// off the EDT (SwingWorker) per the design spec's <500ms-in-a-side-panel
+		// target — a pruned search over ~3000 items can still take tens of ms.
+		JLabel optimizerHeading = PanelWidgets.emptyRowLabel("Best setup for this target");
+		optimizerHeading.setForeground(ColorScheme.BRAND_ORANGE);
+		optimizerHeading.setToolTipText("Searches your owned gear (worn + bank/inventory) plus anything "
+			+ "affordable within the budget below for the highest-DPS loadout against your selected target");
+		body().add(optimizerHeading);
+		body().add(Box.createRigidArea(new Dimension(0, 2)));
+
+		// Item #6e: 5-way damage-type selector (Ranged/Magic/Crush/Slash/Stab).
+		// Defaults to the equipped weapon's current combat style (item #6g) and
+		// re-runs a visible search immediately when the user picks another type.
+		body().add(buildOptimizerStyleSelector());
+		body().add(Box.createRigidArea(new Dimension(0, 4)));
+
 		// --------------------------------------- ranked attack-style picker
 		stylesHeading = PanelWidgets.emptyRowLabel("Attack styles (best DPS first)");
 		stylesHeading.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
@@ -765,92 +873,6 @@ public final class GearSection extends CollapsibleSection
 		body().add(boostRow);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
 
-		// -------------------------------------------------- target picker
-		monsterSearchField = new IconTextField();
-		monsterSearchField.setIcon(IconTextField.Icon.SEARCH);
-		monsterSearchField.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		monsterSearchField.setHoverBackgroundColor(ColorScheme.DARK_GRAY_HOVER_COLOR);
-		monsterSearchField.setToolTipText("Search the monster to compute DPS against");
-		monsterSearchField.setAlignmentX(Component.LEFT_ALIGNMENT);
-		monsterSearchField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
-		monsterSearchField.setPreferredSize(new Dimension(100, 24));
-		monsterSearchField.getDocument().addDocumentListener(new DocumentListener()
-		{
-			@Override
-			public void insertUpdate(DocumentEvent e)
-			{
-				onSearchChanged();
-			}
-
-			@Override
-			public void removeUpdate(DocumentEvent e)
-			{
-				onSearchChanged();
-			}
-
-			@Override
-			public void changedUpdate(DocumentEvent e)
-			{
-				onSearchChanged();
-			}
-		});
-		body().add(monsterSearchField);
-		body().add(Box.createRigidArea(new Dimension(0, 2)));
-
-		monsterList = new JList<>(monsterListModel);
-		monsterList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-		monsterList.setFont(FontManager.getRunescapeSmallFont());
-		monsterList.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		monsterList.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		monsterList.setSelectionBackground(ColorScheme.BRAND_ORANGE);
-		monsterList.setSelectionForeground(ColorScheme.DARK_GRAY_COLOR);
-		monsterList.setVisibleRowCount(6);
-		// Fixed cell size so the (up to ~2830-row) list never measures every
-		// cell — keeps filtering-while-typing snappy.
-		monsterList.setPrototypeCellValue("Abyssal demon (Catacombs of Kourend)");
-		monsterList.addListSelectionListener(e ->
-		{
-			if (suppressListEvents || e.getValueIsAdjusting())
-			{
-				return;
-			}
-			int index = monsterList.getSelectedIndex();
-			if (index >= 0 && index < filteredMonsters.size())
-			{
-				selectedMonster = filteredMonsters.get(index);
-				resetBankHighlightToggle();
-				updateTargetLabel();
-				rankAndRender();
-				// The picked target's canonical name is written back into the
-				// search field itself (replacing what the user typed) — there is
-				// no separate "Target:" line any more. Guard the write so it
-				// doesn't re-open the just-collapsed result list.
-				suppressSearchEvents = true;
-				monsterSearchField.setText(selectedMonster.name());
-				suppressSearchEvents = false;
-				// Collapse the result list once a target is picked; editing the
-				// search text again re-opens it (see onSearchChanged).
-				setListOpen(false);
-			}
-		});
-
-		listScroll = new JScrollPane(monsterList);
-		listScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-		listScroll.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
-		listScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
-		listScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, listScroll.getPreferredSize().height));
-		body().add(listScroll);
-		body().add(Box.createRigidArea(new Dimension(0, 2)));
-
-		// The picked target now shows in the search field itself, so the old
-		// "Target: <name>" line is not added to the panel. The label object is
-		// kept and still updated (updateTargetLabel) for its note side-effects
-		// and the test getter that reads its text.
-		targetLabel = PanelWidgets.emptyRowLabel("Target: -");
-		targetLabel.setForeground(java.awt.Color.WHITE);
-		targetLabel.setToolTipText("The monster the DPS numbers below are computed against");
-		body().add(Box.createRigidArea(new Dimension(0, 6)));
-
 		// Monster-mechanic gear override advisory (e.g. Insulated boots vs Rune
 		// dragons) — a curated, DPS-blind requirement the optimiser would never
 		// suggest on its own. Empty/invisible until updateGearOverrideNote()
@@ -909,30 +931,6 @@ public final class GearSection extends CollapsibleSection
 		body().add(whatIfRow);
 		body().add(Box.createRigidArea(new Dimension(0, 6)));
 
-		// ------------------------------------- Phase 3: optimiser ("Best Setup")
-		// Owned pool = worn gear (always free) + WealthSnapshot.topHoldings (worn
-		// + inventory + bank, already GE-priced client-thread-side by
-		// SessionTracker — see lastWealth/apply) filtered to equippable items;
-		// budget = extra gp allowed for GE purchases beyond that pool. Search runs
-		// off the EDT (SwingWorker) per the design spec's <500ms-in-a-side-panel
-		// target — a pruned search over ~3000 items can still take tens of ms.
-		JLabel optimizerHeading = PanelWidgets.emptyRowLabel("Best setup for this target");
-		optimizerHeading.setForeground(ColorScheme.BRAND_ORANGE);
-		optimizerHeading.setToolTipText("Searches your owned gear (worn + bank/inventory) plus anything "
-			+ "affordable within the budget below for the highest-DPS loadout against your selected target");
-		body().add(optimizerHeading);
-		body().add(Box.createRigidArea(new Dimension(0, 2)));
-
-		// Item #6e: 5-way damage-type selector (Ranged/Magic/Crush/Slash/Stab).
-		// Defaults to the equipped weapon's current combat style (item #6g) and
-		// re-runs a visible search immediately when the user picks another type.
-		body().add(buildOptimizerStyleSelector());
-		body().add(Box.createRigidArea(new Dimension(0, 4)));
-
-		// Budget: a numeric field + a K/M segmented toggle (was a single "10m"/
-		// "500k" free-text field — split so the number entry never has to deal
-		// with a trailing unit letter itself). budgetUnitIsMillions defaults to
-		// true (M) since most upgrade budgets are in the millions.
 		// Budget & risk (item: icon row). Coins icon labels the budget (its value
 		// is colour-coded by magnitude — GpFormat: <100K yellow, <10M white,
 		// >=10M green); the item-risk face icon labels the two wilderness/PvP
