@@ -1340,26 +1340,29 @@ public final class GearSection extends CollapsibleSection
 		{
 			return false;
 		}
+		// Weapon gate (e.g. Kurask): the equipped weapon can't damage the target.
 		if (slot == WEAPON_SLOT)
 		{
-			if (selectedStyle == null)
-			{
-				return false;
-			}
 			MonsterCombatRequirement combatReq =
 				MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.name()).orElse(null);
-			return combatReq != null && !combatReq.permits(shownId, selectedStyle.type(), effectiveAmmoId());
-		}
-		if (slot == WhatIfLoadout.SHIELD_SLOT)
-		{
-			for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(selectedMonster.name()))
+			// selectedStyle is null when EVERY style was gated out — i.e. the
+			// weapon has no attack style that can damage this target (the
+			// Kurask-with-a-whip case), which is itself invalid.
+			if (combatReq != null
+				&& (selectedStyle == null
+					|| !combatReq.permits(shownId, selectedStyle.type(), effectiveAmmoId())))
 			{
-				if (override.slot().slotOrdinal() == WhatIfLoadout.SHIELD_SLOT && override.itemId() != shownId)
-				{
-					return true;
-				}
+				return true;
 			}
-			return false;
+		}
+		// Required-gear override for THIS slot not worn (mirror shield vs
+		// Basilisk, insulated boots vs Rune dragons, ...): flag red on ANY slot.
+		for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(selectedMonster.name()))
+		{
+			if (override.slot().slotOrdinal() == slot && override.itemId() != shownId)
+			{
+				return true;
+			}
 		}
 		return false;
 	}
