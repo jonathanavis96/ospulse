@@ -144,6 +144,53 @@ public class BankRecommendationHighlighterTest
     }
 
     @Test
+    public void reapplyIfArmedNoOpWhenSuspended()
+    {
+        highlighter.showInBank(slot(3, 4151));
+        highlighter.suspend();
+        reset(tagManager, tags, configManager);
+
+        highlighter.reapplyIfArmed();
+
+        verifyNoInteractions(tagManager, tags);
+        assertTrue("suspend must not disarm", highlighter.isArmed());
+    }
+
+    @Test
+    public void resumeClearsSuspendedAndReapplies()
+    {
+        highlighter.showInBank(slot(3, 4151));
+        highlighter.suspend();
+        reset(tagManager, tags, configManager);
+
+        highlighter.resume();
+
+        verify(tagManager).removeTag(BankRecommendationHighlighter.RESERVED_TAG);
+        verify(tagManager).addTag(4151, BankRecommendationHighlighter.RESERVED_TAG, false);
+        verify(tags).openBankTag(eq(BankRecommendationHighlighter.RESERVED_TAG), anyInt());
+
+        // and a subsequent bank-open re-apply now goes through again
+        reset(tagManager, tags, configManager);
+        highlighter.reapplyIfArmed();
+        verify(tags).openBankTag(eq(BankRecommendationHighlighter.RESERVED_TAG), anyInt());
+    }
+
+    @Test
+    public void showInBankClearsStaleSuspendedFlag()
+    {
+        highlighter.showInBank(slot(3, 4151));
+        highlighter.suspend();
+        reset(tagManager, tags, configManager);
+
+        // Arming fresh while suspended (e.g. user re-selects gear from the inactive
+        // panel state) must not leave reapplyIfArmed permanently blocked.
+        highlighter.showInBank(slot(0, 11802));
+        reset(tagManager, tags, configManager);
+        highlighter.reapplyIfArmed();
+        verify(tags).openBankTag(eq(BankRecommendationHighlighter.RESERVED_TAG), anyInt());
+    }
+
+    @Test
     public void nullServicesNoOp()
     {
         BankRecommendationHighlighter h = new BankRecommendationHighlighter(null, null, null, clientThread);

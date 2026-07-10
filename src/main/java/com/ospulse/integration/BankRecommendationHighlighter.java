@@ -62,6 +62,9 @@ public class BankRecommendationHighlighter
     private Map<Integer, Integer> current = new LinkedHashMap<>();
     // Written on the EDT (showInBank/clear), read on the client thread (reapplyIfArmed).
     private volatile boolean armed;
+    // Written on the EDT (suspend/resume via the panel's HierarchyListener), read on
+    // the client thread (reapplyIfArmed) — true while the OSPulse panel is not showing.
+    private volatile boolean suspended;
 
     public BankRecommendationHighlighter(BankTagsService bankTags, TagManager tagManager,
                                          ConfigManager configManager, ClientThread clientThread)
@@ -97,6 +100,7 @@ public class BankRecommendationHighlighter
             }
         }
         armed = true;
+        suspended = false;
         clientThread.invoke(() ->
         {
             current = snapshot;
@@ -104,10 +108,15 @@ public class BankRecommendationHighlighter
         });
     }
 
-    /** Re-open the filtered grid if armed (bank re-open, or OSPulse panel re-activated). */
+    /**
+     * Re-open the filtered grid if armed (bank re-open, or OSPulse panel
+     * re-activated). Refuses while {@link #suspended} — i.e. while the OSPulse
+     * panel isn't the active side panel — so a bank open/close in the meantime
+     * doesn't resurrect the filtered view.
+     */
     public void reapplyIfArmed()
     {
-        if (armed && bankTags != null && tagManager != null && configManager != null && clientThread != null)
+        if (armed && !suspended && bankTags != null && tagManager != null && configManager != null && clientThread != null)
         {
             clientThread.invoke(this::applyReserved);
         }
@@ -116,19 +125,34 @@ public class BankRecommendationHighlighter
     /**
      * Hide the filtered view WITHOUT disarming, so re-activating the OSPulse
      * panel (or re-opening the bank) restores it — used when the user switches
-     * to another side-panel plugin (e.g. Inventory Setups).
+     * to another side-panel plugin (e.g. Inventory Setups). Also records the
+     * suspended state so {@link #reapplyIfArmed()} refuses to re-show the
+     * filtered grid on a bank re-open while the panel is inactive (B8-8 follow-up).
      */
     public void suspend()
     {
+        suspended = true;
         if (armed && bankTags != null && clientThread != null)
         {
             clientThread.invoke(bankTags::closeBankTag);
         }
     }
 
+    /**
+     * Re-activate after {@link #suspend()} — called when the OSPulse panel
+     * becomes the shown side panel again. Clears the suspended state and, if
+     * still armed, re-applies the filtered grid immediately.
+     */
+    public void resume()
+    {
+        suspended = false;
+        reapplyIfArmed();
+    }
+
     public void clear()
     {
         armed = false;
+        suspended = false;
         if (tagManager == null || bankTags == null || configManager == null || clientThread == null)
         {
             return;

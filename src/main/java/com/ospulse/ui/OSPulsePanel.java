@@ -175,7 +175,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 			}
 			if (isShowing())
 			{
-				this.bankHighlighter.reapplyIfArmed();
+				this.bankHighlighter.resume();
 			}
 			else
 			{
