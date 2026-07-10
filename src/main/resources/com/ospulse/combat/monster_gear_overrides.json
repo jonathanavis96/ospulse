@@ -6,6 +6,55 @@
       "itemId": 7159,
       "itemName": "Insulated boots",
       "reason": "Halves the lightning special-attack damage from Rune dragons."
+    },
+    {
+      "monsters": ["Basilisk", "Monstrous basilisk", "Basilisk Knight", "Cockatrice"],
+      "slot": "SHIELD",
+      "itemId": 4156,
+      "itemName": "Mirror shield",
+      "reason": "The petrifying gaze drains your combat stats every hit unless a mirror shield is worn."
+    },
+    {
+      "monsters": ["Banshee", "Screaming banshee", "Twisted banshee"],
+      "slot": "HEAD",
+      "itemId": 4166,
+      "itemName": "Earmuffs",
+      "reason": "The scream drains multiple combat stats and hits harder without ear protection."
+    },
+    {
+      "monsters": ["Aberrant spectre", "Deviant spectre", "Abhorrent spectre"],
+      "slot": "HEAD",
+      "itemId": 4168,
+      "itemName": "Nose peg",
+      "reason": "The stench hits through prayer and rapidly drains combat stats without a nose peg."
+    },
+    {
+      "monsters": ["Dust devil", "Choke devil", "Smoke devil", "Thermonuclear smoke devil"],
+      "slot": "HEAD",
+      "itemId": 4164,
+      "itemName": "Facemask",
+      "reason": "The dust and smoke prevent safe combat and drain your stats without face protection."
+    },
+    {
+      "monsters": ["Wall beast"],
+      "slot": "HEAD",
+      "itemId": 4551,
+      "itemName": "Spiny helmet",
+      "reason": "It grabs and damages you unless your head is protected by a spiny helmet."
+    },
+    {
+      "monsters": ["Sourhog"],
+      "slot": "HEAD",
+      "itemId": 24942,
+      "itemName": "Reinforced goggles",
+      "reason": "Its caustic spit burns your eyes, draining Attack and Defence heavily without eye protection."
+    },
+    {
+      "monsters": ["Harpie bug swarm"],
+      "slot": "SHIELD",
+      "itemId": 7053,
+      "itemName": "Lit bug lantern",
+      "reason": "It takes damage only while a lit bug lantern is equipped in the shield slot."
     }
   ]
 }

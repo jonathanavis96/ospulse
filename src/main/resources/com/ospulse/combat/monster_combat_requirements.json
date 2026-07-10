@@ -1,18 +1,48 @@
 {
   "requirements": [
     {
-      "monsters": ["Kurask"],
+      "monsters": ["Kurask", "King kurask", "Turoth"],
       "type": "WEAPON_GATE",
-      "allowedItemIds": [20368],
-      "allowedAmmoIds": [11875],
-      "allowedStyles": ["MAGIC"],
-      "note": "Kurask can only be harmed by leaf-bladed weapons, broad ammunition, or magic."
+      "allowedItemIds": [4158, 20727, 11902],
+      "allowedAmmoIds": [4160, 11875, 21316],
+      "note": "Only leaf-bladed weapons, broad ammunition, or the Magic Dart spell can harm this monster."
     },
     {
-      "monsters": ["Gargoyle"],
+      "monsters": ["Aviansie", "Kree'arra", "Flight Kilisa", "Wingman Skree", "Flockleader Geerin", "Armadylean guard"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["RANGED", "MAGIC"],
+      "allowedItemIds": [3190, 3192, 3194, 3196, 3198, 3200, 3202, 3204, 6599, 23849, 23850, 23851, 23895, 23896, 23897, 23987, 28049, 29796, 10146, 10147, 10148, 10149, 28834],
+      "note": "This target flies — use ranged, magic, a halberd, or a salamander to reach it."
+    },
+    {
+      "monsters": ["Dusk"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["STAB", "SLASH", "CRUSH"],
+      "note": "Dusk is immune to ranged and magic in every phase — melee only, and you need a rock or granite hammer to land the finishing blow at low HP."
+    },
+    {
+      "monsters": ["Gargoyle", "Marble gargoyle"],
       "type": "FINISHER",
-      "finisherItemIds": [4162],
-      "note": "Gargoyles must be finished with a rock or granite hammer at low HP."
+      "finisherItemIds": [4162, 21754, 21742],
+      "note": "Finish with a rock hammer or granite hammer once its HP is low (about 8 or below)."
+    },
+    {
+      "monsters": ["Rockslug", "Giant rockslug"],
+      "type": "FINISHER",
+      "finisherItemIds": [4161],
+      "note": "Finish with a bag of salt at low HP (about 4 or below), or use a brine sabre to bypass this."
+    },
+    {
+      "monsters": ["Desert Lizard", "Small Lizard"],
+      "type": "FINISHER",
+      "finisherItemIds": [6696],
+      "note": "Finish with an ice cooler at low HP."
+    },
+    {
+      "monsters": ["Zygomite", "Mutated Zygomite", "Ancient Zygomite"],
+      "type": "FINISHER",
+      "finisherItemIds": [7421],
+      "note": "Finish with fungicide spray once its HP is low (about 8 or below)."
     }
   ]
 }
