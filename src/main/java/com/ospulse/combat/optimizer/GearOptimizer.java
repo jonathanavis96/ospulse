@@ -252,8 +252,9 @@ public final class GearOptimizer {
             /**
              * How many "expensive" items (see {@link #expensiveItemThreshold}) the
              * caller wants allowed in the result, e.g. for wilderness/PvP risk
-             * budgeting. Captured/plumbed through to {@link Request} only — the
-             * search does not yet enforce this (see {@link Request#expensiveItemCount()}).
+             * budgeting. Enforced by the search (see {@link Request#expensiveItemCount()})
+             * only when the cap can bind — a positive threshold and an allowance
+             * below the number of searchable slots.
              */
             public Builder expensiveItemCount(int count) {
                 this.expensiveItemCount = Math.max(0, count);
@@ -262,8 +263,8 @@ public final class GearOptimizer {
 
             /**
              * The gp value at/above which an item counts as "expensive" for
-             * {@link #expensiveItemCount}. Captured/plumbed through to
-             * {@link Request} only — not yet enforced by the search (see
+             * {@link #expensiveItemCount}. A threshold of 0 (the default) means
+             * "no item is expensive" and disables the cap (see
              * {@link Request#expensiveItemThreshold()}).
              */
             public Builder expensiveItemThreshold(long threshold) {
@@ -354,9 +355,13 @@ public final class GearOptimizer {
         /**
          * The number of "expensive" items (see {@link #expensiveItemThreshold()})
          * the caller wants allowed in the result (e.g. for wilderness/PvP risk
-         * budgeting). NOT YET enforced by {@link GearOptimizer#optimize} — captured
-         * here so the UI can collect + persist the setting ahead of a later pass
-         * that wires it into the search itself.
+         * budgeting). Enforced by {@link GearOptimizer#optimize}: the returned
+         * loadout holds no more than this many items at/above the threshold
+         * whenever that's achievable from the candidate pool — the local search
+         * de-risks even a live loadout that starts over the cap. Counts owned
+         * items too (an owned high-value item is still riskable). Inert unless
+         * the threshold is positive and this allowance is below the searchable
+         * slot count (an allowance that large can never bind).
          */
         public int expensiveItemCount() {
             return expensiveItemCount;
@@ -364,8 +369,9 @@ public final class GearOptimizer {
 
         /**
          * The gp value at/above which an item is considered "expensive" for
-         * {@link #expensiveItemCount()}. NOT YET enforced by
-         * {@link GearOptimizer#optimize} — see that method's javadoc note.
+         * {@link #expensiveItemCount()}. A threshold of 0 (the default) means
+         * "no item is expensive" and disables the cap in
+         * {@link GearOptimizer#optimize}.
          */
         public long expensiveItemThreshold() {
             return expensiveItemThreshold;
@@ -535,6 +541,11 @@ public final class GearOptimizer {
                 if (request.include.contains(current[slot])) {
                     continue; // forced — never swapped away by local search
                 }
+                // Expensive-item risk of the loadout as it stands entering this
+                // slot (recomputed per slot since an earlier slot's swap this
+                // pass may have changed it) — a swap is judged first on whether
+                // it moves this toward/away from the cap, then on DPS.
+                int currentOverflow = expensiveOverflowOf(current, request);
                 for (Candidate c : candidatesBySlot.get(i)) {
                     if (c.itemId() == current[slot]) {
                         continue;
@@ -555,8 +566,16 @@ public final class GearOptimizer {
                     if (trialEval == null) {
                         continue;
                     }
+                    int trialOverflow = expensiveOverflowOf(trial, request);
                     boolean better;
-                    if (slot == AMMO_SLOT) {
+                    if (trialOverflow != currentOverflow) {
+                        // Feasibility dominates DPS: de-risk toward the cap
+                        // (accept a lower overflow), never add risk (reject a
+                        // higher one). Equal overflow falls through to the
+                        // DPS/tie-break decision below; an inactive cap keeps
+                        // every overflow 0, so this is a no-op there.
+                        better = trialOverflow < currentOverflow;
+                    } else if (slot == AMMO_SLOT) {
                         // Ammo compares (DPS, then prayer on a DPS tie): worn
                         // ammo a weapon doesn't fire is DPS-invisible (see
                         // AmmoCompatibility/GearMapper), so among DPS-tied
@@ -657,6 +676,60 @@ public final class GearOptimizer {
      */
     private static boolean withinBudget(int[] itemIds, Request request) {
         return totalSpendOf(itemIds, request) <= request.budget;
+    }
+
+    /**
+     * True when the expensive-item cap is an ACTIVE constraint: a positive
+     * threshold (0 means "no item is expensive" — the disabled default) and an
+     * allowance below the number of searchable slots (an allowance >= slots can
+     * never bind, so the whole search runs unchanged). When inactive, every
+     * {@link #expensiveOverflowOf} is 0 and the local search behaves exactly as
+     * the pre-cap DPS-only search.
+     */
+    private static boolean expensiveCapActive(Request request) {
+        return request.expensiveItemThreshold() > 0
+                && request.expensiveItemCount() < SEARCHABLE_SLOTS.length;
+    }
+
+    /**
+     * Count of non-empty slots in {@code itemIds} holding an "expensive" item —
+     * GE value at/above {@link Request#expensiveItemThreshold()}. Unlike
+     * {@link #totalSpendOf} this counts OWNED items too: an owned high-value
+     * item is still riskable gear in the wilderness/PvP, which is exactly what
+     * the expensive-item cap protects against, so ownership (= free to equip)
+     * must not exempt it from the risk count.
+     */
+    private static int expensiveItemCountOf(int[] itemIds, Request request) {
+        long threshold = request.expensiveItemThreshold();
+        int count = 0;
+        for (int slot : SEARCHABLE_SLOTS) {
+            int itemId = slot < itemIds.length ? itemIds[slot] : -1;
+            if (itemId <= 0) {
+                continue;
+            }
+            if (priceOf(itemId, request) >= threshold) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * By how much {@code itemIds} exceeds the expensive-item allowance (0 when
+     * within the cap, or the cap is inactive). The local search treats this as
+     * a feasibility "violation" that dominates DPS — it drives the overflow
+     * toward 0 first, then optimises DPS among equally-feasible loadouts. This
+     * is what lets a starting loadout that already over-risks (the player's own
+     * worn gear can, since the seed is never rejected up front) be DE-RISKED
+     * rather than leaving the search stuck: a hard "reject any over-cap
+     * loadout" gate would reject every single-slot step of a multi-item de-risk
+     * too, since intermediate loadouts are still over the cap.
+     */
+    private static int expensiveOverflowOf(int[] itemIds, Request request) {
+        if (!expensiveCapActive(request)) {
+            return 0;
+        }
+        return Math.max(0, expensiveItemCountOf(itemIds, request) - request.expensiveItemCount());
     }
 
     private static int[] applySlotChoice(int[] itemIds, int slot, int itemId) {

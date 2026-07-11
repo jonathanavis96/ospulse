@@ -380,7 +380,7 @@ public final class GearSection extends CollapsibleSection
 	private final JToggleButton budgetMToggle;
 	/** Gold-pile badge showing the resolved budget (e.g. "50M") magnitude-coloured over its top-left — see {@link #updateBudgetDisplay}. */
 	private CoinPileBadge budgetBadge;
-	/** "Expensive items to allow" count (wilderness/PvP) — plumbed into {@link GearOptimizer.Request#expensiveItemCount()}, not yet enforced by the search. */
+	/** "Expensive items to allow" count (wilderness/PvP) — plumbed into {@link GearOptimizer.Request#expensiveItemCount()} and enforced by the search (caps items worth >= the threshold). */
 	private final javax.swing.JTextField expensiveCountField;
 	/** GP value at/above which an item counts as "expensive" — see {@link #expensiveCountField}. */
 	private final javax.swing.JTextField expensiveThresholdField;

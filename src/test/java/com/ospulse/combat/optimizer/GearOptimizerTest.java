@@ -142,10 +142,10 @@ public class GearOptimizerTest {
 
     /**
      * {@code expensiveItemCount}/{@code expensiveItemThreshold} default to 0
-     * when never set on the builder — the search does not yet enforce them
-     * (see {@link GearOptimizer.Request} javadoc), but the values must round
-     * -trip through the builder/getter so the UI (GearSection) can capture
-     * and persist them ahead of a later pass wiring them into the search.
+     * when never set on the builder (a 0 threshold disables the cap), and the
+     * values round-trip through the builder/getter so the UI (GearSection) can
+     * capture and persist them. Enforcement of a live cap is covered by the
+     * {@code expensiveCap_*} tests above.
      */
     @Test
     public void expensiveItemSettings_defaultToZeroWhenNotSet() {
@@ -188,6 +188,111 @@ public class GearOptimizerTest {
 
         assertEquals(0, request.expensiveItemCount());
         assertEquals(0L, request.expensiveItemThreshold());
+    }
+
+    // ------------------------------------ expensive-item cap ENFORCEMENT (wildy/PvP risk)
+
+    // The whip out-DPSes the scimitar against Cerberus, so an unconstrained
+    // search always keeps the whip — only an ACTIVE expensive-item cap should
+    // force the cheaper scimitar in. Both are owned (budget 0), so purchase
+    // cost is 0 for each; only their GE *value* differs, which is what the cap
+    // weighs (an owned high-value item is still riskable gear).
+    private static final long WHIP_VALUE = 100_000_000L;
+    private static final long SCIM_VALUE = 1_000_000L;
+
+    private static GearOptimizer.PriceSource whipVsScimPrices() {
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(ABYSSAL_WHIP, WHIP_VALUE);
+        fixed.put(DRAGON_SCIMITAR, SCIM_VALUE);
+        return everyWeaponExpensiveExcept(fixed);
+    }
+
+    private static int expensiveItemsIn(GearOptimizer.Result result, long threshold, GearOptimizer.PriceSource prices) {
+        int count = 0;
+        for (GearOptimizer.SlotChoice choice : result.loadout()) {
+            if (choice.itemId() > 0 && prices.priceFor(choice.itemId()) >= threshold) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * The core enforcement case: the live loadout ALREADY exceeds the
+     * allowance (a pricey worn whip, zero expensive items permitted), so the
+     * search must DE-RISK the seed down to the cheaper scimitar — accepting the
+     * DPS loss — rather than reject every over-cap swap and stay stuck on the
+     * infeasible starting gear.
+     */
+    @Test
+    public void expensiveCap_forcesCheaperWeaponEvenAtLowerDps_whenLiveGearExceedsAllowance() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = ABYSSAL_WHIP;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(ABYSSAL_WHIP, DRAGON_SCIMITAR));
+        GearOptimizer.PriceSource prices = whipVsScimPrices();
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .owned(owned)
+                .priceSource(prices)
+                .expensiveItemThreshold(50_000_000L) // whip is expensive, scimitar is not
+                .expensiveItemCount(0)               // ...and zero expensive items are allowed
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("a zero expensive-item allowance must de-risk the pricey whip to the cheaper scimitar",
+                DRAGON_SCIMITAR, weaponIdIn(result));
+        assertEquals("the returned loadout must hold no items at/above the expensive threshold",
+                0, expensiveItemsIn(result, 50_000_000L, prices));
+    }
+
+    /** A cap the whip fits under must NOT over-constrain — the best-DPS weapon stays. */
+    @Test
+    public void expensiveCap_keepsBestWeapon_whenAllowanceCoversIt() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = ABYSSAL_WHIP;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(ABYSSAL_WHIP, DRAGON_SCIMITAR));
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .owned(owned)
+                .priceSource(whipVsScimPrices())
+                .expensiveItemThreshold(50_000_000L)
+                .expensiveItemCount(1) // one expensive item allowed — the whip fits
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("with the whip within the allowance the best-DPS weapon must be kept",
+                ABYSSAL_WHIP, weaponIdIn(result));
+    }
+
+    /** A zero threshold means "no item is expensive" — the cap is disabled, even at count 0. */
+    @Test
+    public void expensiveCap_disabledAtZeroThreshold_keepsBestWeaponEvenAtZeroCount() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = ABYSSAL_WHIP;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(ABYSSAL_WHIP, DRAGON_SCIMITAR));
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .owned(owned)
+                .priceSource(whipVsScimPrices())
+                .expensiveItemThreshold(0L) // disabled
+                .expensiveItemCount(0)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("a zero threshold disables the cap, so the best-DPS whip is kept",
+                ABYSSAL_WHIP, weaponIdIn(result));
     }
 
     // -------------------------------------------------- exclude / include
