@@ -424,14 +424,6 @@ public final class GearSection extends CollapsibleSection
 	private final IconTextField excludedSearchField;
 	private GearOptimizer.Result lastOptimizerResult;
 	/**
-	 * Damage types the LAST "Find best setup" (all-styles) run found no usable
-	 * weapon for at all — populated/cleared wholesale in {@link
-	 * #runOptimizerAndRankStyles()} from its per-style results map, used by
-	 * {@link #displayedStyleHasNoSetup()} to decide whether every gear slot
-	 * should render crossed-out (item #4).
-	 */
-	private final java.util.EnumSet<CombatStyle> stylesWithNoSetup = java.util.EnumSet.noneOf(CombatStyle.class);
-	/**
 	 * Item ids the user right-clicked "Exclude from suggestions" on (item #6a)
 	 * — never suggested by the optimiser (wired into
 	 * {@link GearOptimizer.Request.Builder#exclude}), persisted via
@@ -1455,8 +1447,9 @@ public final class GearSection extends CollapsibleSection
 	/**
 	 * An equipment-slot cell that can paint a bold red diagonal strike-through
 	 * over its icon (see {@link #setCrossedOut}) — used by {@link #updateGearGrid}
-	 * to mark every slot "unusable" when {@link #displayedStyleHasNoSetup()} is
-	 * true (item #4), the same paintComponent-override approach as {@link
+	 * to mark an individual slot "unusable" when {@link #isSlotInvalidForTarget}
+	 * flags it (e.g. the weapon that can't damage the target), the same
+	 * paintComponent-override approach as {@link
 	 * HintableToggleButton}'s right-click-hint marker.
 	 */
 	private static final class CrossableSlotLabel extends JLabel
@@ -1531,10 +1524,6 @@ public final class GearSection extends CollapsibleSection
 		// at least one slot is overridden (i.e. a what-if/optimiser preview).
 		java.util.Map<Integer, Long> ownedIds = override.isEmpty() ? null : ownedPriceMap();
 		EquipmentIndexRepository index = override.isEmpty() ? null : EquipmentIndexRepository.getInstance();
-		// Item #4: the currently displayed optimiser style (or live readout)
-		// has no viable setup at all against the target — every slot renders
-		// red-bordered + crossed-out, not just WEAPON/SHIELD.
-		boolean noSetupForDisplayedStyle = displayedStyleHasNoSetup();
 		for (int slot = 0; slot < slotLabels.length; slot++)
 		{
 			JLabel cell = slotLabels[slot];
@@ -1551,13 +1540,17 @@ public final class GearSection extends CollapsibleSection
 			// id <= 0, counts as owned = grey).
 			boolean ownedItem = id <= 0 || (ownedIds != null && ownedIds.containsKey(id));
 			Border recommendedBorder = ownedItem ? OWNED_OVERRIDE_BORDER : OVERRIDE_BORDER;
-			boolean invalid = noSetupForDisplayedStyle || isSlotInvalidForTarget(slot, id);
+			// Only the genuinely-unusable slot is flagged — the weapon that can't
+			// damage the target (Kurask: needs leaf-bladed/broad/magic), or a
+			// required-gear slot holding the wrong item. The rest of the worn set
+			// is perfectly usable, so it renders normally (no red border / cross).
+			boolean invalid = isSlotInvalidForTarget(slot, id);
 			cell.setBorder(invalid
 				? (overridden ? BorderFactory.createCompoundBorder(INVALID_BORDER, recommendedBorder) : INVALID_BORDER)
 				: (overridden ? recommendedBorder : null));
 			if (cell instanceof CrossableSlotLabel)
 			{
-				((CrossableSlotLabel) cell).setCrossedOut(noSetupForDisplayedStyle);
+				((CrossableSlotLabel) cell).setCrossedOut(invalid);
 			}
 			// Item #6f (second site): the cell tooltip must describe what the
 			// cell is actually SHOWING. While previewing it names the previewed
@@ -1639,29 +1632,6 @@ public final class GearSection extends CollapsibleSection
 			}
 		}
 		return false;
-	}
-
-	/**
-	 * Item #4: true when the style currently shown in the optimiser result
-	 * panel (or, absent any optimiser run, the live readout itself) has no
-	 * viable setup at all against {@link #selectedMonster} — every equipment
-	 * slot should render crossed-out in that case (see {@link #updateGearGrid}).
-	 * Only meaningful after at least one optimiser run or once every attack
-	 * style has been gated out for the live weapon; otherwise (no run yet,
-	 * normal live readout) this is always {@code false}.
-	 */
-	private boolean displayedStyleHasNoSetup()
-	{
-		boolean optimizerNoSetup = lastOptimizerResult != null
-			&& (lastOptimizerResult.style() == null || stylesWithNoSetup.contains(optimizerConstraint()));
-		// Live-readout gate (A5/A6): EVERY attack style for the currently
-		// effective weapon was gated out for this target (Kurask-with-a-whip),
-		// i.e. selectedStyle == null with a real target and a weapon that
-		// actually has styles to gate. Skipped while an override is active —
-		// that's a what-if weapon, not the live one this gate describes.
-		boolean liveGated = selectedMonster != null && selectedStyle == null && override.isEmpty()
-			&& !weaponRepo.stylesForItem(effectiveWeaponId()).isEmpty();
-		return optimizerNoSetup || liveGated;
 	}
 
 	// ------------------------------------------------- attack-style picker
@@ -3104,7 +3074,6 @@ public final class GearSection extends CollapsibleSection
 	{
 		override = LoadoutOverride.empty();
 		lastOptimizerResult = null;
-		stylesWithNoSetup.clear();
 		optimizerResultPanel.setVisible(false);
 		clearOptimizerPreviewButton.setVisible(false);
 		optimizerStatusLabel.setVisible(false);
@@ -4076,8 +4045,7 @@ public final class GearSection extends CollapsibleSection
 
 	/**
 	 * Shared by the real ({@code SwingWorker}) and sync-test paths of
-	 * {@link #runOptimizerAndRankStyles}: records which styles found no usable
-	 * setup ({@link #stylesWithNoSetup}), resolves which style to actually
+	 * {@link #runOptimizerAndRankStyles}: resolves which style to actually
 	 * display, renders it, and reorders the 5-way selector by DPS.
 	 *
 	 * <p>If the user has a style explicitly locked in ({@code selected}, from
@@ -4091,15 +4059,6 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private void applyRankedStyleResults(java.util.Map<CombatStyle, GearOptimizer.Result> results, CombatStyle selected)
 	{
-		stylesWithNoSetup.clear();
-		for (java.util.Map.Entry<CombatStyle, GearOptimizer.Result> entry : results.entrySet())
-		{
-			if (entry.getValue() == null || entry.getValue().style() == null)
-			{
-				stylesWithNoSetup.add(entry.getKey());
-			}
-		}
-
 		CombatStyle display = selected;
 		if (!optimizerStyleUserPicked)
 		{
