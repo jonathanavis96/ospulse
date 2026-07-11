@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img width="260" src="https://raw.githubusercontent.com/jonathanavis96/ospulse/master/screenshots/gear-dps.png" alt="Live gear DPS and max-hit calculator">
+  <img width="270" src="https://raw.githubusercontent.com/jonathanavis96/ospulse/master/screenshots/gear-dps-hero.png" alt="Live gear DPS and max-hit calculator panel showing worn gear, ranked attack styles and the max hit / accuracy / DPS / time-to-kill readout">
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
 | | |
 | --- | --- |
 | ⚔️ **Gear DPS & max hit** | Live max hit, accuracy, DPS and time‑to‑kill, auto‑filled from your worn gear, boosted stats and prayers. |
-| 🧠 **Gear optimiser** | "Find best setup" searches your owned and affordable items for the highest DPS‑per‑GP. |
+| 🧠 **Gear optimiser** | **Find Best** searches your owned and affordable items for the highest DPS‑per‑GP, respects each monster's required items, and highlights the picks in your bank. |
 | 💰 **Session profit** | Banking‑aware, so bank trips are never counted as losses. |
 | 🎒 **Loot feed** | Built from wealth changes, so it catches *everything* you gain — not just NPC drops. |
 | 📈 **Net worth & XP** | Bank + inventory + equipment + GE, plus XP and levels gained this session. |
@@ -36,29 +36,52 @@
 
 ## ⚔️ Gear DPS & max hit
 
-<img align="left" width="220" hspace="20" vspace="6" src="https://raw.githubusercontent.com/jonathanavis96/ospulse/master/screenshots/gear-preview.png" alt="What-if gear swap preview showing DPS delta vs worn gear">
+<img align="left" width="230" hspace="20" vspace="6" src="https://raw.githubusercontent.com/jonathanavis96/ospulse/master/screenshots/gear-dps-full.png" alt="Full Gear DPS panel: worn-gear grid, Find Best / Reset, a searchable target, attack styles ranked by DPS, and the max hit / accuracy / DPS / time-to-kill readout with the optimiser's suggested swaps below">
 
-The gear calculator is auto‑filled from your worn gear, live boosted stats and active prayers — no manual entry, always reflecting your real current setup. Where a standalone DPS calculator makes you type in your gear, levels and boosts, OSPulse reads them from the client and recomputes as you swap gear, sip a potion or flick a prayer.
+Where a standalone **DPS calculator** makes you type in your gear, levels and boosts, OSPulse reads them straight from the client and recomputes as you swap gear, sip a potion or flick a prayer — always reflecting your real current setup, with no manual entry.
 
 - Live **max hit, accuracy, average hit, DPS and time‑to‑kill**, across the weapon's real in‑game attack styles, ranked by DPS with the best auto‑selected.
-- A searchable target monster (per‑style defence applied), plus on‑task, potion and prayer toggles.
+- A searchable **target monster** (per‑style defence applied), plus on‑task, potion and prayer toggles.
 - Variant/effect handling: Salve (e)(i), Slayer helm/black mask (i), Void, demonbane and dragon hunter weapons, powered staves and standard/ancient spells, the elemental **tomes** (fire/water/earth) and the **blowpipe** (dart set by right‑clicking the weapon in the gear panel).
-- **What‑if swaps:** click any slot, search an item, and see the DPS delta before committing.
-- **Monster‑mechanic overrides:** pins items required by mechanics rather than raw DPS (e.g. **Insulated boots vs Rune dragons**) and shows the reason.
+- **What‑if swaps:** click any slot, search an item, and see the DPS delta versus your worn gear before committing.
 
 Damage is calculated player‑vs‑monster (PvM); PvP is not modelled.
 
 <br clear="all">
 
-### 🧠 Gear optimiser
+### 🎯 Knows each monster's requirements
 
-<img align="right" width="230" hspace="20" vspace="6" src="https://raw.githubusercontent.com/jonathanavis96/ospulse/master/screenshots/gear-optimiser.png" alt="Find best setup optimiser results with suggested swaps and exclude menu">
+<img align="right" width="200" hspace="20" vspace="6" src="https://raw.githubusercontent.com/jonathanavis96/ospulse/master/screenshots/gear-required-item.png" alt="Monstrous basilisk target with the mechanic-required mirror / V's shield pinned into the recommended setup">
 
-**"Find best setup"** searches your owned and affordable items (with a GP budget) for the highest DPS, ranked by **DPS‑per‑GP**; apply the result straight to the readout.
+Some kills need a specific item, not just the highest DPS. OSPulse pins the piece a monster's mechanic **requires** — a mirror / V's shield for **basilisks**, Insulated boots for **Rune dragons** — and shows the reason, so the "best setup" is one that actually works.
 
+<img align="left" width="200" hspace="20" vspace="6" src="https://raw.githubusercontent.com/jonathanavis96/ospulse/master/screenshots/gear-incompatible-weapon.png" alt="Kurask target with an incompatible weapon crossed out by a red X">
+
+It also **crosses out** styles and weapons that can't damage the target — an unusable attack style, a weapon a monster is immune to (a leaf‑bladed requirement on **Kurasks**) — so you never set out with gear that can't land a hit.
+
+<br clear="all">
+
+### 🧠 Gear optimiser — best DPS per GP
+
+<img align="right" width="200" hspace="20" vspace="6" src="https://raw.githubusercontent.com/jonathanavis96/ospulse/master/screenshots/gear-optimiser-budget.png" alt="Gear optimiser with a custom GP budget, listing suggested swaps and their cost with most slots already owned">
+
+**"Find Best"** searches your owned and affordable items for the highest DPS, ranked by **DPS‑per‑GP**, and applies the result straight to the readout.
+
+- Set a **GP budget** and it finds the cheapest route to more DPS — most swaps come from gear you already own, and each paid upgrade shows its price and the exact DPS it buys.
 - It ranks the five damage‑type selectors (Stab/Slash/Crush/Ranged/Magic) by the best achievable DPS for each, so the strongest style is offered first.
-- Ammo is **weapon‑compatible**: arrows only with bows, bolts with crossbows and so on (never javelins on a bow), and each candidate weapon is trialled with its own best compatible ammo.
-- Include/exclude lists let you steer the search; right‑click any suggestion to exclude it and instantly re‑optimise.
+- Ammo is **weapon‑compatible**: arrows only with bows, bolts with crossbows (never javelins on a bow), and each candidate weapon is trialled with its own best compatible ammo.
+
+<img align="left" width="230" hspace="20" vspace="6" src="https://raw.githubusercontent.com/jonathanavis96/ospulse/master/screenshots/gear-optimiser-exclude.png" alt="Excluded-from-suggestions list, each item with a per-item remove button">
+
+**Steer the search:** right‑click any suggestion to exclude it and instantly re‑optimise. The excluded list is editable, so you can drop items you'll never buy and keep the recommendations realistic.
+
+<br clear="all">
+
+### 🏦 Highlights the upgrades in your bank
+
+<img align="right" width="230" hspace="20" vspace="6" src="https://raw.githubusercontent.com/jonathanavis96/ospulse/master/screenshots/bank-highlighting.png" alt="Bank view with the optimiser's recommended gear pieces highlighted">
+
+Once you've settled on a setup, OSPulse **highlights the recommended pieces in your bank**, so you can grab the exact upgrade without cross‑referencing item names — the swap you just planned, marked where you'll actually pick it up.
 
 <br clear="all">
 
