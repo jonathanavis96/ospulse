@@ -159,8 +159,25 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 
 ## 📝 Changelog
 
+### 0.2.0 — Smarter gear, per‑monster
+
+**✨ New**
+
+- 🎯 **Knows each monster's requirements.** Pins the item a boss actually needs (mirror / V's shield for **basilisks**, Insulated boots for **Rune dragons**) and greys out styles or weapons a monster is immune to — so the "best setup" is one that can really land hits.
+- 🏦 **Highlights upgrades in your bank.** After **Find Best**, the pieces it recommends are highlighted in your bank, so you can grab the exact swap without hunting for item names.
+- 💸 **Budget & risk controls.** Set a GP budget for the cheapest DPS boost, plus a spend cap so it won't push wildly expensive gear — and it never suggests items above your level.
+- 🧭 **Faster optimiser.** Picking a target auto‑runs Find Best and auto‑selects your strongest style; owned‑vs‑buy items are colour‑coded at a glance.
+- 🎨 **Cleaner gear panel.** Redesigned layout — green **Find Best** / red **Reset** buttons, attack styles in a tidy 2‑column grid, and a clearer budget / risk block.
+
+**🔧 Fixed**
+
+- Only the weapon a monster can't be hurt by is crossed out now — not your whole setup.
+- Bank highlights no longer flicker or reappear when the OSPulse panel isn't open.
+- More accurate session tracking (one settled transaction per game tick).
+- Plays nicely with Bank Tag Layouts, and the suggested‑swap labels no longer clip.
+
 <details>
-<summary>Version history — newest first</summary>
+<summary>Older versions</summary>
 
 <br>
 
