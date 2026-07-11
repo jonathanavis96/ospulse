@@ -165,6 +165,7 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 
 - 🎯 **Knows each monster's requirements.** Recommends and pins the weapons, ammunition, styles and special items a target actually needs — a mirror / V's shield for **basilisks**, Insulated boots for **Rune dragons** — with clear warnings for gear a monster is immune to, so the "best setup" is one that can really land hits.
 - 🧠 **Smarter optimiser.** Now factors in combat style, weapon‑compatible ammunition, your player level, shield compatibility and an expensive‑item risk cap — so it never suggests gear you can't use, can't afford, or shouldn't take into danger.
+- 💸 **Budget & faster picks.** Set a GP budget for the cheapest DPS boost; picking a target auto‑runs **Find Best** and auto‑selects your strongest style, with owned‑vs‑buy items colour‑coded at a glance.
 - 🏦 **Highlights upgrades in your bank.** After **Find Best**, the recommended pieces are highlighted in your bank, so you can grab the exact swap without hunting for item names.
 - 🎨 **Redesigned gear controls.** New layout for the buttons, budget display, style selection and optimiser previews — green **Find Best** / red **Reset**, a tidy 2‑column style grid and a clearer budget / risk block.
 - 📊 **Slayer & Agility aware.** Gear snapshots now capture your Slayer and Agility levels alongside your combat stats.
@@ -174,7 +175,9 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 - Better matching for monsters with variant names (e.g. *Kurask (Normal)*), so requirements always resolve.
 - No more duplicate economic updates within the same game tick — session numbers stay accurate.
 - Smarter handling of two‑handed weapons and of slots that don't change your DPS.
-- Only the weapon a monster can't be hurt by is crossed out now — not your whole setup — and bank highlights no longer flicker when the panel is closed.
+- Only the weapon a monster can't be hurt by is crossed out now — not your whole setup.
+- Bank highlights no longer flicker or reappear when the OSPulse panel is closed.
+- Plays nicely with **Bank Tag Layouts**, and the suggested‑swap labels no longer clip on the right.
 
 <details>
 <summary>Older versions</summary>
