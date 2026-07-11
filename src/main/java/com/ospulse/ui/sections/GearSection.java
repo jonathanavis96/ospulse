@@ -4705,6 +4705,11 @@ public final class GearSection extends CollapsibleSection
 		caption.setForeground(choice.owned() ? ColorScheme.MEDIUM_GRAY_COLOR : NOT_OWNED_GOLD);
 		caption.setFont(FontManager.getRunescapeSmallFont().deriveFont(Font.ITALIC));
 		caption.setHorizontalAlignment(SwingConstants.RIGHT);
+		// Right inset keeps the "(52.6m)" / "(owned)" tail off the panel's right
+		// edge — the side-panel scrollbar overlaps the last ~10px and was
+		// clipping the caption's final characters; the small left inset gives it
+		// breathing room from the WEST icons.
+		caption.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 10));
 		row.add(caption, BorderLayout.EAST);
 
 		row.setToolTipText(slotName + ": " + currentName + " -> " + suggestedName + " (" + spend
