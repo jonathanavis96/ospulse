@@ -67,8 +67,31 @@ Requires a JDK 17+ to build (the plugin targets Java 11 at runtime).
 
 # Produce the shadowed plugin jar (build/libs/ospulse-<version>-all.jar)
 ./gradlew shadowJar
+
+# Produce a SIDELOADED TESTING jar named "OSPulse (dev)" in the client
+./gradlew -Pdev shadowJar
 ```
 
 To test in the client, launch RuneLite in developer mode and load the jar from your `.runelite/sideloaded-plugins/` directory. RuneLite scans that directory only at startup, so relaunch the client after replacing the jar.
+
+### The `-Pdev` flag — name the test build "OSPulse (dev)"
+
+Once the plugin is live on the Plugin Hub, a machine running RuneLite ends up
+with **two** copies: the Hub-installed one and your sideloaded testing jar. To
+tell them apart, build the sideloaded jar with **`-Pdev`** — its `@PluginDescriptor`
+name becomes **"OSPulse (dev)"** while the plain build (what the Plugin Hub
+compiles) stays **"OSPulse"**.
+
+How it works: the `generateBuildInfo` Gradle task (in `build.gradle`) emits
+`com.ospulse.BuildInfo.PLUGIN_NAME` as a compile-time constant — `"OSPulse (dev)"`
+when `-Pdev` is present, `"OSPulse"` otherwise — and `@PluginDescriptor(name = ...)`
+references it. The Plugin Hub runs a clean `./gradlew` with **no** `-Pdev`, so the
+shipped plugin is always plain "OSPulse". **Never** hard-code "(dev)" into the
+descriptor source — it would leak into the Hub build.
+
+**Deploy gotcha:** RuneLite loads *every* `.jar` in `sideloaded-plugins/`, and the
+jar filename is version-stamped (`ospulse-<version>-all.jar`), so `cp` does **not**
+overwrite a previous version. Always delete the old jar after a version bump, or
+you will run two copies at once and see stale behaviour.
 
 The build uses only dependencies already transitive to the RuneLite client (OkHttp and Gson are `compileOnly`); no additional HTTP or JSON library is introduced.

@@ -50,7 +50,11 @@ import java.awt.image.BufferedImage;
  */
 @Slf4j
 @PluginDescriptor(
-	name = "OSPulse",
+	// BuildInfo.PLUGIN_NAME is "OSPulse" for the Plugin Hub build and
+	// "OSPulse (dev)" for a local -Pdev sideloaded testing build (see
+	// generateBuildInfo in build.gradle) so the two are distinguishable
+	// in the client's plugin list.
+	name = BuildInfo.PLUGIN_NAME,
 	description = "Accurate session profit (banking-aware), loot feed, net worth, XP and GE "
 		+ "flip P&L, valued with RuneLite's GE prices.",
 	tags = {"profit", "loot", "wealth", "gp", "session", "tracker", "ge", "flipping", "xp"}
