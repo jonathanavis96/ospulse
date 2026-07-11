@@ -77,12 +77,15 @@ public final class MonsterGearOverrideRepository {
                     } catch (IllegalArgumentException ignored) {
                         continue; // unknown slot name in the data — skip defensively
                     }
+                    java.util.Set<Integer> alternativeItemIds = dto.alternativeItemIds == null
+                            ? java.util.Collections.emptySet()
+                            : new java.util.LinkedHashSet<>(dto.alternativeItemIds);
                     for (String monsterName : dto.monsters) {
                         if (monsterName == null || monsterName.isEmpty()) {
                             continue;
                         }
                         MonsterGearOverride override = new MonsterGearOverride(
-                                monsterName, slot, dto.itemId, dto.itemName, dto.reason);
+                                monsterName, slot, dto.itemId, dto.itemName, dto.reason, alternativeItemIds);
                         byName.computeIfAbsent(monsterName.toLowerCase(Locale.ROOT), k -> new ArrayList<>())
                                 .add(override);
                     }
@@ -143,5 +146,12 @@ public final class MonsterGearOverrideRepository {
         int itemId;
         String itemName;
         String reason;
+        /**
+         * Optional: other item ids that satisfy this requirement equally well
+         * as {@code itemId} (review finding 3 — e.g. every Slayer helmet
+         * variant substitutes for a plain face-protection item). Absent/empty
+         * for every requirement with no known substitute.
+         */
+        List<Integer> alternativeItemIds;
     }
 }

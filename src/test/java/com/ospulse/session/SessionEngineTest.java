@@ -255,6 +255,68 @@ public class SessionEngineTest
 		assertTrue(result.getLoot().isEmpty());
 	}
 
+	// ------------------------------------------------ review finding 5: preview must not mutate bookkeeping
+
+	/**
+	 * Review finding 5: {@code snapshot(..., commit=false)} — the read-only
+	 * PREVIEW path ({@code SessionTracker#previewRefresh}) — must not fold a
+	 * newly-known bank into the starting net worth ({@link
+	 * #foldNewlyKnownBankIntoStart}), reconcile bank movement, or sync cost
+	 * basis; only {@code commit=true} may. Proven by: several eager preview
+	 * calls before the tick's one real commit must produce EXACTLY the same
+	 * committed result as an engine that never previewed at all — if preview
+	 * had already folded/advanced the bookkeeping, the eventual commit would
+	 * see a different (already-adjusted) starting point and diverge.
+	 */
+	@Test
+	public void previewSnapshot_doesNotFoldNewlyKnownBankAheadOfTheRealCommit()
+	{
+		WealthSnapshot initial = WealthSnapshot.builder()
+			.inventoryValue(10_000_000L)
+			.bankValue(0L)
+			.bankKnown(false)
+			.timestampMs(0L)
+			.build();
+		engine.startSession(initial, 0L);
+
+		// The bank becomes known mid-tick, holding 50M — a genuine trigger for
+		// foldNewlyKnownBankIntoStart (called from inside snapshot()).
+		WealthSnapshot bankNowKnown = WealthSnapshot.builder()
+			.inventoryValue(10_000_000L)
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(500L)
+			.build();
+
+		// Several eager, non-committing preview snapshots fire within the same
+		// tick — mirroring several ItemContainerChanged events before the one
+		// authoritative per-tick commit (see SessionTracker#refresh's javadoc).
+		SessionSnapshot preview1 = engine.snapshot(bankNowKnown, 0L, Collections.emptyList(),
+			Collections.emptyList(), Collections.emptyMap(), 0L, 500L, false);
+		SessionSnapshot preview2 = engine.snapshot(bankNowKnown, 0L, Collections.emptyList(),
+			Collections.emptyList(), Collections.emptyMap(), 0L, 500L, false);
+		assertEquals("repeated read-only previews of the same reading must report the same value",
+			preview1.getNetWorthDelta(), preview2.getNetWorthDelta());
+
+		// The tick's one real commit — mirrors SessionTracker#refresh(ts, true).
+		engine.update(bankNowKnown, Collections.emptySet(), 500L);
+		SessionSnapshot committed = engine.snapshot(bankNowKnown, 0L, Collections.emptyList(),
+			Collections.emptyList(), Collections.emptyMap(), 0L, 500L, true);
+
+		// A second engine that goes straight to commit, with NO preceding
+		// preview calls at all — the ground truth this test compares against.
+		SessionEngine directEngine = new SessionEngine();
+		directEngine.startSession(initial, 0L);
+		directEngine.update(bankNowKnown, Collections.emptySet(), 500L);
+		SessionSnapshot directCommit = directEngine.snapshot(bankNowKnown, 0L, Collections.emptyList(),
+			Collections.emptyList(), Collections.emptyMap(), 0L, 500L, true);
+
+		assertEquals("preceding eager previews must not have already folded the bank into "
+				+ "startNetWorth — the real commit must match an engine that never previewed",
+			directCommit.getNetWorthDelta(), committed.getNetWorthDelta());
+		assertEquals(directCommit.isBankKnown(), committed.isBankKnown());
+	}
+
 	@Test
 	public void geProceedsCollectedToInventoryDoesNotCreatePhantomGainOrLoss()
 	{

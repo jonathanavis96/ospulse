@@ -1,5 +1,9 @@
 package com.ospulse.combat;
 
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Set;
+
 /**
  * One curated monster-mechanic gear requirement: a specific item that matters
  * for a MECHANICS reason (special-attack mitigation, safespotting, immunity,
@@ -44,13 +48,28 @@ public final class MonsterGearOverride {
     private final int itemId;
     private final String itemName;
     private final String reason;
+    private final Set<Integer> alternativeItemIds;
 
     MonsterGearOverride(String monsterName, Slot slot, int itemId, String itemName, String reason) {
+        this(monsterName, slot, itemId, itemName, reason, Collections.emptySet());
+    }
+
+    /**
+     * @param alternativeItemIds Other item ids that ALSO satisfy this
+     * requirement just as well as {@code itemId} (e.g. a Slayer helmet
+     * substitutes for a Dust devil's Facemask requirement — see review
+     * finding 3). {@code itemId} itself never needs to be repeated here.
+     */
+    MonsterGearOverride(String monsterName, Slot slot, int itemId, String itemName, String reason,
+                         Set<Integer> alternativeItemIds) {
         this.monsterName = monsterName;
         this.slot = slot;
         this.itemId = itemId;
         this.itemName = itemName;
         this.reason = reason;
+        this.alternativeItemIds = alternativeItemIds == null || alternativeItemIds.isEmpty()
+            ? Collections.emptySet()
+            : Collections.unmodifiableSet(new LinkedHashSet<>(alternativeItemIds));
     }
 
     /** The exact monster display name this entry was declared under (one name per expanded entry). */
@@ -62,6 +81,7 @@ public final class MonsterGearOverride {
         return slot;
     }
 
+    /** The primary/canonical item id — shown in the advisory note and what the optimiser force-includes. */
     public int itemId() {
         return itemId;
     }
@@ -73,5 +93,20 @@ public final class MonsterGearOverride {
     /** One short sentence explaining why this item matters (shown verbatim in the advisory note). */
     public String reason() {
         return reason;
+    }
+
+    /**
+     * Other item ids that satisfy this requirement equally well as
+     * {@link #itemId()} (e.g. every Slayer helmet variant substitutes for a
+     * plain face-protection item like a Facemask) — see {@link #satisfiedBy}.
+     * Empty when this requirement has no known substitutes.
+     */
+    public Set<Integer> alternativeItemIds() {
+        return alternativeItemIds;
+    }
+
+    /** True when {@code shownId} is either the primary {@link #itemId()} or one of {@link #alternativeItemIds()}. */
+    public boolean satisfiedBy(int shownId) {
+        return shownId == itemId || alternativeItemIds.contains(shownId);
     }
 }

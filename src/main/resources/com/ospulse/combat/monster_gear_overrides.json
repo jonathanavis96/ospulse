@@ -19,28 +19,32 @@
       "slot": "HEAD",
       "itemId": 4166,
       "itemName": "Earmuffs",
-      "reason": "The scream drains multiple combat stats and hits harder without ear protection."
+      "reason": "The scream drains multiple combat stats and hits harder without ear protection.",
+      "alternativeItemIds": [11864, 19639, 19643, 19647, 21264, 21888, 23073, 24370, 25898, 25904, 25910, 29816, 33066, 11865, 19641, 19645, 19649, 21266, 21890, 23075, 24444, 25900, 25906, 25912, 29818, 33068, 25177, 25179, 25181, 25183, 25185, 25187, 25189, 25191, 25902, 25908, 25914, 29820, 33070, 26674, 26675, 26676, 26677, 26678, 26679, 26680, 26681, 26682, 26683, 26684, 29822, 33072]
     },
     {
       "monsters": ["Aberrant spectre", "Deviant spectre", "Abhorrent spectre"],
       "slot": "HEAD",
       "itemId": 4168,
       "itemName": "Nose peg",
-      "reason": "The stench hits through prayer and rapidly drains combat stats without a nose peg."
+      "reason": "The stench hits through prayer and rapidly drains combat stats without a nose peg.",
+      "alternativeItemIds": [11864, 19639, 19643, 19647, 21264, 21888, 23073, 24370, 25898, 25904, 25910, 29816, 33066, 11865, 19641, 19645, 19649, 21266, 21890, 23075, 24444, 25900, 25906, 25912, 29818, 33068, 25177, 25179, 25181, 25183, 25185, 25187, 25189, 25191, 25902, 25908, 25914, 29820, 33070, 26674, 26675, 26676, 26677, 26678, 26679, 26680, 26681, 26682, 26683, 26684, 29822, 33072]
     },
     {
       "monsters": ["Dust devil", "Choke devil", "Smoke devil", "Thermonuclear smoke devil"],
       "slot": "HEAD",
       "itemId": 4164,
       "itemName": "Facemask",
-      "reason": "The dust and smoke prevent safe combat and drain your stats without face protection."
+      "reason": "The dust and smoke prevent safe combat and drain your stats without face protection.",
+      "alternativeItemIds": [11864, 19639, 19643, 19647, 21264, 21888, 23073, 24370, 25898, 25904, 25910, 29816, 33066, 11865, 19641, 19645, 19649, 21266, 21890, 23075, 24444, 25900, 25906, 25912, 29818, 33068, 25177, 25179, 25181, 25183, 25185, 25187, 25189, 25191, 25902, 25908, 25914, 29820, 33070, 26674, 26675, 26676, 26677, 26678, 26679, 26680, 26681, 26682, 26683, 26684, 29822, 33072]
     },
     {
       "monsters": ["Wall beast"],
       "slot": "HEAD",
       "itemId": 4551,
       "itemName": "Spiny helmet",
-      "reason": "It grabs and damages you unless your head is protected by a spiny helmet."
+      "reason": "It grabs and damages you unless your head is protected by a spiny helmet.",
+      "alternativeItemIds": [11864, 19639, 19643, 19647, 21264, 21888, 23073, 24370, 25898, 25904, 25910, 29816, 33066, 11865, 19641, 19645, 19649, 21266, 21890, 23075, 24444, 25900, 25906, 25912, 29818, 33068, 25177, 25179, 25181, 25183, 25185, 25187, 25189, 25191, 25902, 25908, 25914, 29820, 33070, 26674, 26675, 26676, 26677, 26678, 26679, 26680, 26681, 26682, 26683, 26684, 29822, 33072]
     },
     {
       "monsters": ["Sourhog"],

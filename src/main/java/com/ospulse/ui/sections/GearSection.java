@@ -1508,7 +1508,7 @@ public final class GearSection extends CollapsibleSection
 	 * {@link BorderFactory#createCompoundBorder} when the slot is ALSO
 	 * overridden, so both signals show at once.
 	 */
-	private static final Border INVALID_BORDER = BorderFactory.createLineBorder(ColorScheme.PROGRESS_ERROR_COLOR, 2);
+	static final Border INVALID_BORDER = BorderFactory.createLineBorder(ColorScheme.PROGRESS_ERROR_COLOR, 2);
 
 	/**
 	 * Diff-updates the worn-gear icon grid; only touched slots reload their
@@ -1624,14 +1624,26 @@ public final class GearSection extends CollapsibleSection
 		}
 		// Required-gear override for THIS slot not worn (mirror shield vs
 		// Basilisk, insulated boots vs Rune dragons, ...): flag red on ANY slot.
+		// Finding 3 fix: a slot can have more than one acceptable item (e.g. a
+		// Slayer helmet substitutes for a Dust devil's Facemask requirement —
+		// see MonsterGearOverride#satisfiedBy) via either a separate override
+		// entry for the same slot or one entry's alternativeItemIds, so this
+		// must only flag invalid when the slot has an override AND shownId
+		// satisfies NONE of them — not as soon as any single entry mismatches.
+		boolean sawOverrideForSlot = false;
 		for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(selectedMonster.name()))
 		{
-			if (override.slot().slotOrdinal() == slot && override.itemId() != shownId)
+			if (override.slot().slotOrdinal() != slot)
 			{
-				return true;
+				continue;
 			}
+			if (override.satisfiedBy(shownId))
+			{
+				return false;
+			}
+			sawOverrideForSlot = true;
 		}
-		return false;
+		return sawOverrideForSlot;
 	}
 
 	// ------------------------------------------------- attack-style picker
@@ -3053,8 +3065,15 @@ public final class GearSection extends CollapsibleSection
 		// re-defaults the style/spell selection whenever the effective weapon
 		// id it sees changes, since it reads lastGear.itemIdAt(WEAPON_SLOT) —
 		// see effectiveWeaponId()).
-		updateGearGrid(lastGear);
+		//
+		// Finding 4 fix: rankAndRender() FIRST, updateGearGrid() SECOND —
+		// isSlotInvalidForTarget (which updateGearGrid drives) reads
+		// selectedStyle, and only rankAndRender re-selects it for the new
+		// weapon. Calling updateGearGrid first would cross out a newly-valid
+		// weapon using the PREVIOUS weapon's now-stale style until some
+		// later, unrelated refresh happened to fix it.
 		rankAndRender();
+		updateGearGrid(lastGear);
 	}
 
 	/**
@@ -3081,8 +3100,9 @@ public final class GearSection extends CollapsibleSection
 		userPickedStyle = false;
 		userPickedSpell = false;
 		closeItemSearch();
-		updateGearGrid(lastGear);
+		// Finding 4 fix: re-rank before regridding — see applyOverride()'s comment.
 		rankAndRender();
+		updateGearGrid(lastGear);
 	}
 
 	/**
@@ -3138,8 +3158,9 @@ public final class GearSection extends CollapsibleSection
 	private void resetSlotOverride(int slotOrdinal)
 	{
 		override = override.withoutSlot(slotOrdinal);
-		updateGearGrid(lastGear);
+		// Finding 4 fix: re-rank before regridding — see applyOverride()'s comment.
 		rankAndRender();
+		updateGearGrid(lastGear);
 	}
 
 	/**
@@ -4067,7 +4088,12 @@ public final class GearSection extends CollapsibleSection
 			for (CombatStyle style : OPTIMIZER_STYLE_ORDER)
 			{
 				double score = bestDps(results.get(style));
-				if (score > bestScore)
+				// best == null takes the first candidate unconditionally: if every
+				// style is unusable (all-NEGATIVE_INFINITY), the strict `score >
+				// bestScore` alone would never fire and `best` would stay null,
+				// leaving `display` null when nothing was explicitly selected
+				// either — see onOptimizerResult's NPE on result.style() below.
+				if (best == null || score > bestScore)
 				{
 					bestScore = score;
 					best = style;
@@ -4091,7 +4117,18 @@ public final class GearSection extends CollapsibleSection
 			}
 		}
 
-		onOptimizerResult(results.get(display));
+		GearOptimizer.Result displayResult = results.get(display);
+		if (displayResult == null)
+		{
+			// Defensive fallback: `display` is null (no style was selected/locked
+			// and results was empty above) or points to a style missing from the
+			// map. Both should be unreachable given OPTIMIZER_STYLE_ORDER is
+			// always fully populated by runOptimizerAndRankStyles, but falling
+			// back to any available entry beats an NPE in onOptimizerResult.
+			java.util.Iterator<GearOptimizer.Result> any = results.values().iterator();
+			displayResult = any.hasNext() ? any.next() : null;
+		}
+		onOptimizerResult(displayResult);
 		reorderSelectorsByDps(results);
 	}
 
@@ -4355,6 +4392,11 @@ public final class GearSection extends CollapsibleSection
 			.builder(liveIds, target, template)
 			.budget(budget)
 			.owned(ownedPrices.keySet())
+			// Finding 2 fix: the expensive-item risk cap needs each owned item's
+			// real GE/bank value, not the (unowned-only) async priceSource — see
+			// GearOptimizer.expensiveItemCountOf's javadoc for why routing owned
+			// ids through priceSource wrongly prices them at Long.MAX_VALUE.
+			.ownedItemPrices(ownedPrices)
 			.exclude(exclusions)
 			.include(mandatoryOverrideItemIds(target, exclusions))
 			.priceSource(priceSource)
@@ -4877,9 +4919,13 @@ public final class GearSection extends CollapsibleSection
 	{
 		lastGear = snapshot.getGear();
 		lastWealth = snapshot.getWealth();
-		updateGearGrid(lastGear);
 		autoToggleSlayerFromGear();
+		// Finding 4 fix: re-rank before regridding — see applyOverride()'s
+		// comment. Matters here too: a live gear change (e.g. the player
+		// swaps weapon in-game) must not leave a newly-valid weapon crossed
+		// out against the STALE style from before this snapshot.
 		rankAndRender();
+		updateGearGrid(lastGear);
 		refreshSummary();
 	}
 
@@ -5178,6 +5224,12 @@ public final class GearSection extends CollapsibleSection
 		closeItemSearch();
 	}
 
+	/** Directly drives {@link #applyOverride} (the what-if picker's real action) without needing the item search UI open. */
+	void applyOverrideForTest(int slotOrdinal, int itemId)
+	{
+		applyOverride(slotOrdinal, itemId);
+	}
+
 	/** Number of icon cells currently rendered in the item-picker grid — mirrors {@link #filteredItems}' size once populated. */
 	int itemGridCellCountForTest()
 	{
@@ -5422,6 +5474,28 @@ public final class GearSection extends CollapsibleSection
 	GearOptimizer.Result lastOptimizerResultForTest()
 	{
 		return lastOptimizerResult;
+	}
+
+	/**
+	 * Test seam: forces a synchronous {@link #updateGearGrid} refresh (e.g.
+	 * right after picking a target) without needing to also drive the
+	 * asynchronous optimiser run that normally triggers it in production —
+	 * see {@link #onOptimizerResult}'s call to {@code updateGearGrid}.
+	 */
+	void updateGearGridForTest()
+	{
+		updateGearGrid(lastGear);
+	}
+
+	/**
+	 * Test seam exercising {@link #applyRankedStyleResults} directly with a
+	 * caller-supplied results map — used to drive the all-styles-unusable
+	 * (every {@code result.style() == null}) edge case without needing a real
+	 * monster/gear/budget combination that happens to gate out every style.
+	 */
+	void applyRankedStyleResultsForTest(java.util.Map<CombatStyle, GearOptimizer.Result> results, CombatStyle selected)
+	{
+		applyRankedStyleResults(results, selected);
 	}
 
 	/** Test seam: {@link #ownedPriceMap()} (bug B — variant-aware ownership). */

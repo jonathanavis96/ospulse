@@ -426,7 +426,7 @@ public class SessionTracker implements SessionService
 			// by buildWealth above — persist them for the next login.
 			saveBankCache();
 		}
-		publish(buildSnapshot(current, ts));
+		publish(buildSnapshot(current, ts, true));
 	}
 
 	/**
@@ -464,7 +464,7 @@ public class SessionTracker implements SessionService
 			engine.setBankOpen(true, current, ts);
 		}
 		started = true;
-		publish(buildSnapshot(current, ts));
+		publish(buildSnapshot(current, ts, true));
 	}
 
 	// ------------------------------------------------------------- SessionService
@@ -514,7 +514,7 @@ public class SessionTracker implements SessionService
 		WealthSnapshot initial = buildWealth(ts);
 		engine.startSession(initial, ts);
 		started = true;
-		publish(buildSnapshot(initial, ts));
+		publish(buildSnapshot(initial, ts, true));
 	}
 
 	/**
@@ -563,7 +563,7 @@ public class SessionTracker implements SessionService
 			pendingSignals = MovementSignals.builder();
 			engine.update(current, geReconciler, signals, ts);
 		}
-		publish(buildSnapshot(current, ts));
+		publish(buildSnapshot(current, ts, commit));
 	}
 
 	/**
@@ -599,11 +599,18 @@ public class SessionTracker implements SessionService
 	 * Builds the published snapshot: the engine's wealth/loot view decorated
 	 * with the per-skill XP progress views and overall XP rate computed from
 	 * the {@link XpTracker} and the {@link LevelTable}.
+	 *
+	 * <p>Review finding 5: {@code commit} is forwarded to {@link
+	 * SessionEngine#snapshot(WealthSnapshot, long, List, List, Map, long, long, boolean)}
+	 * unchanged — {@code false} (an eager, non-committing preview — see
+	 * {@link #previewRefresh}) must not let the engine advance its
+	 * bookkeeping (start net worth / baseline / stale-bank-drop tracking /
+	 * diagnostic log baseline) ahead of the tick's one authoritative commit.
 	 */
-	private SessionSnapshot buildSnapshot(WealthSnapshot current, long ts)
+	private SessionSnapshot buildSnapshot(WealthSnapshot current, long ts, boolean commit)
 	{
 		SessionSnapshot base = engine.snapshot(current, geReconciler.realizedPnl(),
-			buildGeOffers(), buildLootSources(), xpTracker.gained(), xpTracker.totalGained(), ts);
+			buildGeOffers(), buildLootSources(), xpTracker.gained(), xpTracker.totalGained(), ts, commit);
 
 		long elapsedMs = base.getElapsedMs();
 		long overallXpPerHour = elapsedMs > 0

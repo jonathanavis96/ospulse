@@ -17,7 +17,10 @@ import org.mockito.ArgumentCaptor;
 
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -107,5 +110,31 @@ public class SessionTrackerTest
 			signals.capture(), anyLong());
 		assertTrue("death survives the eager container events and commits exactly once on the tick",
 			signals.getValue().diedThisTick());
+	}
+
+	/**
+	 * Review finding 5: eager (non-commit) events must call {@link
+	 * SessionEngine#snapshot} with {@code commit == false} — a read-only
+	 * preview — so the engine's bookkeeping (start net worth / baseline /
+	 * stale-bank-drop tracking) only ever advances on the tick's one
+	 * authoritative {@code commit == true} call. Before the fix, {@code
+	 * snapshot} had no {@code commit} parameter at all and unconditionally
+	 * folded/reconciled/synced on every call, preview or not.
+	 */
+	@Test
+	public void eagerContainerEventsPreviewSnapshotOnly_tickCommitsTheSnapshot()
+	{
+		eagerContainerEvent();
+		eagerContainerEvent();
+
+		verify(engine, times(2)).snapshot(any(WealthSnapshot.class), anyLong(),
+			anyList(), anyList(), anyMap(), anyLong(), anyLong(), eq(false));
+		verify(engine, never()).snapshot(any(WealthSnapshot.class), anyLong(),
+			anyList(), anyList(), anyMap(), anyLong(), anyLong(), eq(true));
+
+		tracker.onTick();
+
+		verify(engine, times(1)).snapshot(any(WealthSnapshot.class), anyLong(),
+			anyList(), anyList(), anyMap(), anyLong(), anyLong(), eq(true));
 	}
 }

@@ -295,6 +295,50 @@ public class GearOptimizerTest {
                 ABYSSAL_WHIP, weaponIdIn(result));
     }
 
+    /**
+     * Review finding 2 regression: {@code GearSection}'s real price source
+     * (see {@code resolveOptimizerPriceSource}) never resolves OWNED item
+     * ids at all — they're deliberately excluded from the async GE lookup —
+     * so an unresolved id there is wrapped as {@link Long#MAX_VALUE}
+     * ("unpriced = unaffordable"). Routing the owned/equipped whip through
+     * that price source for the expensive-item risk count would therefore
+     * always read it as maximally expensive, forcing a de-risk to the
+     * scimitar even though the whip is cheap and well within the allowance.
+     * {@link GearOptimizer.Request.Builder#ownedItemPrices} must take
+     * priority over such a price source for owned ids so the whip's real
+     * (cheap) value is used instead.
+     */
+    @Test
+    public void expensiveCap_usesOwnedItemPrices_notThePriceSourcesMaxValueForUnresolvedOwnedIds() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = ABYSSAL_WHIP;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(ABYSSAL_WHIP, DRAGON_SCIMITAR));
+        // Mirrors GearSection#resolveOptimizerPriceSource: any id the async
+        // lookup never resolved (which for a real caller is every owned id)
+        // reads back as "unpriced = unaffordable".
+        GearOptimizer.PriceSource unresolvedOwnedIdsAreMaxValue = itemId -> Long.MAX_VALUE;
+
+        java.util.Map<Integer, Long> ownedItemPrices = new java.util.HashMap<>();
+        ownedItemPrices.put(ABYSSAL_WHIP, 100_000L); // cheap — well under the threshold below
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .owned(owned)
+                .priceSource(unresolvedOwnedIdsAreMaxValue)
+                .ownedItemPrices(ownedItemPrices)
+                .expensiveItemThreshold(50_000_000L)
+                .expensiveItemCount(0) // zero expensive items allowed
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("the owned whip's real (cheap) value must be used, not the price source's "
+                        + "Long.MAX_VALUE for an unresolved owned id — the whip must be kept, not de-risked away",
+                ABYSSAL_WHIP, weaponIdIn(result));
+    }
+
     // -------------------------------------------------- exclude / include
 
     @Test

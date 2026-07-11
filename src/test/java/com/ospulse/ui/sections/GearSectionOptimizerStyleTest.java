@@ -365,6 +365,57 @@ public class GearSectionOptimizerStyleTest
 		});
 	}
 
+	// ------------------------------------------------ CRITICAL regression: all-unusable styles must not NPE
+
+	/**
+	 * Every style's {@link GearOptimizer.Result} unusable ({@code style() ==
+	 * null}, i.e. {@code bestDps()} is {@code Double.NEGATIVE_INFINITY} for
+	 * all five) used to NPE: the best-style search seeded {@code bestScore}
+	 * at {@code NEGATIVE_INFINITY} and compared with a STRICT {@code score >
+	 * bestScore}, so {@code best} never got assigned; with no equipped style
+	 * detected ({@code selected == null}) either, {@code display} stayed
+	 * {@code null} and {@code onOptimizerResult(results.get(null))}
+	 * dereferenced a null {@code Result}. Must now degrade gracefully to a
+	 * "no usable weapon" result instead of crashing.
+	 */
+	@Test
+	public void allStylesUnusable_doesNotThrow_andShowsNoUsableWeaponState()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(-1)), null));
+			pickCerberus(section);
+
+			// Every style's result is "unusable" (style() == null): a request
+			// built with a null target short-circuits GearOptimizer's evaluate()
+			// immediately, guaranteeing no weapon/style is ever scored, without
+			// needing a real monster combat-requirement gate to reproduce it.
+			java.util.Map<CombatStyle, GearOptimizer.Result> allUnusable = new java.util.LinkedHashMap<>();
+			for (CombatStyle style : CombatStyle.values())
+			{
+				com.ospulse.combat.PlayerCombat.Builder player = com.ospulse.combat.PlayerCombat.builder()
+					.attack(1, 1).strength(1, 1).defence(1, 1).ranged(1, 1).magic(1, 1)
+					.prayer(1, 1).hitpoints(1, 1)
+					.assumeBestPotion(false).assumeBestPrayer(false).onSlayerTask(false);
+				GearOptimizer.Request request = GearOptimizer.Request.builder(loadout(-1), null, player)
+					.style(style)
+					.build();
+				GearOptimizer.Result result = GearOptimizer.optimize(request);
+				assertEquals("fixture sanity: a null-target request must never resolve a usable style",
+					null, result.style());
+				allUnusable.put(style, result);
+			}
+
+			// selected == null mirrors "no equipped style detected" — the exact
+			// condition needed to leave `display` unset before the fix.
+			section.applyRankedStyleResultsForTest(allUnusable, null);
+
+			assertTrue("the shown result must report no usable weapon",
+				section.lastOptimizerResultForTest().style() == null);
+		});
+	}
+
 	/**
 	 * Item #1 companion: a deliberate MANUAL style pick must SURVIVE a target
 	 * change (only the auto-pick is re-evaluated). Guards that the two-flag

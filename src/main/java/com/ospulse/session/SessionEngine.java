@@ -2383,7 +2383,8 @@ public final class SessionEngine
 	/**
 	 * Produces a read-only snapshot of the session's current state given the
 	 * latest wealth reading and externally-tracked GE/XP data. No active-offer
-	 * breakdown (delegates with an empty offer list).
+	 * breakdown (delegates with an empty offer list). Always a COMMITTING
+	 * snapshot — see {@link #snapshot(WealthSnapshot, long, List, List, Map, long, long, boolean)}.
 	 */
 	public SessionSnapshot snapshot(
 		WealthSnapshot current,
@@ -2393,12 +2394,13 @@ public final class SessionEngine
 		long tsMs)
 	{
 		return snapshot(current, geRealizedPnl, Collections.emptyList(),
-			Collections.emptyList(), xpGained, xpTotal, tsMs);
+			Collections.emptyList(), xpGained, xpTotal, tsMs, true);
 	}
 
 	/**
 	 * Produces a read-only snapshot of the session's current state given the
 	 * latest wealth reading and externally-tracked GE/XP/loot-source data.
+	 * Always a COMMITTING snapshot — see {@link #snapshot(WealthSnapshot, long, List, List, Map, long, long, boolean)}.
 	 */
 	public SessionSnapshot snapshot(
 		WealthSnapshot current,
@@ -2409,9 +2411,46 @@ public final class SessionEngine
 		long xpTotal,
 		long tsMs)
 	{
-		foldNewlyKnownBankIntoStart(current);
-		reconcileBankMovement(current, tsMs);
-		syncCostBasis(current);
+		return snapshot(current, geRealizedPnl, geOffers, lootSources, xpGained, xpTotal, tsMs, true);
+	}
+
+	/**
+	 * Produces a read-only snapshot of the session's current state given the
+	 * latest wealth reading and externally-tracked GE/XP/loot-source data.
+	 *
+	 * <p>Review finding 5: {@code commit} gates every state MUTATION this
+	 * method makes ({@link #foldNewlyKnownBankIntoStart}, {@link
+	 * #reconcileBankMovement}, {@link #syncCostBasis}, and the diagnostic
+	 * {@link #lastLoggedFigures} bookkeeping) — {@code startNetWorth},
+	 * {@code baseline}, {@code pendingStaleBankDrop}, and {@code
+	 * lastLoggedFigures} only ever change when {@code commit} is {@code
+	 * true}. {@code false} (an eager, non-committing PREVIEW — e.g. {@code
+	 * SessionTracker#previewRefresh}) still computes and returns a snapshot
+	 * from {@code current} and the engine's EXISTING state exactly as it
+	 * stands, it just never advances that state — so several eager preview
+	 * events within one game tick can't each independently fold/reconcile/
+	 * sync ahead of the tick's one authoritative commit. The two 7-arg
+	 * overloads above are historical convenience callers that always commit
+	 * (preserving every existing caller's behaviour unchanged); only a
+	 * caller that actually distinguishes preview from commit (currently just
+	 * {@code SessionTracker}) needs this 8-arg form.
+	 */
+	public SessionSnapshot snapshot(
+		WealthSnapshot current,
+		long geRealizedPnl,
+		List<GeOfferView> geOffers,
+		List<SourceLoot> lootSources,
+		Map<String, Long> xpGained,
+		long xpTotal,
+		long tsMs,
+		boolean commit)
+	{
+		if (commit)
+		{
+			foldNewlyKnownBankIntoStart(current);
+			reconcileBankMovement(current, tsMs);
+			syncCostBasis(current);
+		}
 
 		// In-flight deposits (tracked drop observed, lagged bank rise not
 		// yet) are still owned wealth: add them back so a transfer is
@@ -2474,7 +2513,13 @@ public final class SessionEngine
 				current.getBankValue(), current.isBankKnown(),
 				bankOpen, pendingSettle, pendingStaleBankDrop, baseline, markToMarket, profit, unrealizedPnl, netWorthDelta,
 				profitDelta, unrealizedDelta, netWorthDeltaDelta);
-			lastLoggedFigures = new DebugFigures(netWorthDelta, profit, unrealizedPnl);
+			if (commit)
+			{
+				// Finding 5: only a COMMITTED snapshot updates the delta-vs-previous
+				// baseline — an eager preview must not poison the next committed
+				// log line's Δrealised/Δunrealized/ΔnetWorthDelta comparison.
+				lastLoggedFigures = new DebugFigures(netWorthDelta, profit, unrealizedPnl);
+			}
 		}
 
 		return new SessionSnapshot(

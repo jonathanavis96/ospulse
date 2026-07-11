@@ -162,6 +162,7 @@ public final class GearOptimizer {
         private final Spell.SpellBook spellBook;
         private final MonsterCombatRequirement combatRequirement;
         private final java.util.Map<String, Integer> playerBaseLevels;
+        private final java.util.Map<Integer, Long> ownedItemPrices;
 
         private Request(Builder b) {
             this.liveItemIds = b.liveItemIds.clone();
@@ -179,6 +180,7 @@ public final class GearOptimizer {
             this.spellBook = b.spellBook;
             this.combatRequirement = b.combatRequirement;
             this.playerBaseLevels = java.util.Collections.unmodifiableMap(new java.util.HashMap<>(b.playerBaseLevels));
+            this.ownedItemPrices = java.util.Collections.unmodifiableMap(new java.util.HashMap<>(b.ownedItemPrices));
         }
 
         public static Builder builder(int[] liveItemIds, Monster target, PlayerCombat.Builder playerTemplate) {
@@ -201,6 +203,7 @@ public final class GearOptimizer {
             private Spell.SpellBook spellBook;
             private MonsterCombatRequirement combatRequirement;
             private java.util.Map<String, Integer> playerBaseLevels = java.util.Collections.emptyMap();
+            private java.util.Map<Integer, Long> ownedItemPrices = java.util.Collections.emptyMap();
 
             private Builder(int[] liveItemIds, Monster target, PlayerCombat.Builder playerTemplate) {
                 this.liveItemIds = liveItemIds;
@@ -332,6 +335,27 @@ public final class GearOptimizer {
                 return this;
             }
 
+            /**
+             * Known GE/bank values for OWNED item ids, keyed by item id — used
+             * exclusively by the expensive-item risk cap ({@link #expensiveItemCount}/
+             * {@link #expensiveItemThreshold}) to price owned/equipped gear,
+             * taking priority over {@link #priceSource} for any id present here.
+             * Owned ids are commonly excluded from an async price-source lookup
+             * (no need to check affordability on something already owned), so
+             * that lookup either doesn't know an owned id at all or — worse,
+             * once wrapped as "unresolved = unaffordable" — reports it as
+             * {@link Long#MAX_VALUE}; without this map taking priority the risk
+             * count would then price every such owned item as maximally
+             * expensive regardless of its real value. An owned id absent from
+             * this map still falls back to {@link #priceSource}. {@code null}/
+             * empty (the default) leaves every owned item priced by {@link
+             * #priceSource} unchanged, preserving historical behaviour.
+             */
+            public Builder ownedItemPrices(java.util.Map<Integer, Long> ownedItemPrices) {
+                this.ownedItemPrices = ownedItemPrices != null ? ownedItemPrices : java.util.Collections.emptyMap();
+                return this;
+            }
+
             public Request build() {
                 return new Request(this);
             }
@@ -375,6 +399,11 @@ public final class GearOptimizer {
          */
         public long expensiveItemThreshold() {
             return expensiveItemThreshold;
+        }
+
+        /** Known GE/bank values for owned item ids, used only by the expensive-item risk cap — see {@link Builder#ownedItemPrices}. */
+        public java.util.Map<Integer, Long> ownedItemPrices() {
+            return ownedItemPrices;
         }
     }
 
@@ -698,6 +727,19 @@ public final class GearOptimizer {
      * item is still riskable gear in the wilderness/PvP, which is exactly what
      * the expensive-item cap protects against, so ownership (= free to equip)
      * must not exempt it from the risk count.
+     *
+     * <p>An owned item prefers {@link Request#ownedItemPrices()} over
+     * {@link Request#priceSource()}: the caller's async price source
+     * typically only resolves NON-owned ids (owned ids are deliberately
+     * skipped by the lookup that builds it — see {@code
+     * GearSection#withResolvedPrices}), so routing an owned item through it
+     * would resolve to "unpriced" and get wrapped as {@link Long#MAX_VALUE}
+     * by the untradeable-= unpurchasable rule, wrongly flagging every owned/
+     * equipped item as maximally expensive regardless of its real value. An
+     * owned id absent from {@code ownedItemPrices} (the default: an empty
+     * map, e.g. every caller that never sets it) still falls back to {@code
+     * priceSource} unchanged, preserving prior behaviour for callers that
+     * supply a price source able to price owned ids directly.
      */
     private static int expensiveItemCountOf(int[] itemIds, Request request) {
         long threshold = request.expensiveItemThreshold();
@@ -707,7 +749,9 @@ public final class GearOptimizer {
             if (itemId <= 0) {
                 continue;
             }
-            if (priceOf(itemId, request) >= threshold) {
+            Long ownedPrice = request.owned.contains(itemId) ? request.ownedItemPrices().get(itemId) : null;
+            long price = ownedPrice != null ? ownedPrice : priceOf(itemId, request);
+            if (price >= threshold) {
                 count++;
             }
         }
