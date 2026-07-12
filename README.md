@@ -159,6 +159,14 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 
 ## 📝 Changelog
 
+<!-- Unreleased: staged notes for the next Plugin Hub update. On release, rename this
+     heading to the new version (e.g. "### 0.2.1 — …") and bump the manifest PR. -->
+### Unreleased
+
+**🔧 Fixed**
+
+- **Clearer DPS numbers.** The whole number is now bold and the decimals dimmed, so a reading like **1.98** can't be mistaken for *198*.
+
 ### 0.2.0 — Smarter gear, per‑monster
 
 **✨ New**
