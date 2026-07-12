@@ -2116,7 +2116,40 @@ public final class GearSection extends CollapsibleSection
 		{
 			return "-";
 		}
-		return result == null ? name : name + "  ·  " + String.format(Locale.ROOT, "%.2f", result.dps());
+		return result == null ? name
+			: "<html>" + escapeHtml(name) + " &middot; " + dpsFragment(result.dps()) + "</html>";
+	}
+
+	// Colour of the de-emphasised fractional digits in a DPS number (see dpsFragment).
+	private static final String DPS_DECIMAL_COLOR = "#8C8C8C";
+
+	/**
+	 * Renders a DPS value as an HTML fragment that resists the "1.98 read as
+	 * 198" misread — a real report, since a woodcutting felling axe legitimately
+	 * does ~2 DPS. Price-tag style: the whole-number part is bold in the label's
+	 * own colour, and the decimal point plus the fractional digits are dimmed
+	 * grey, so the magnitude reads at a glance and the decimals visibly recede.
+	 *
+	 * <p>Font SIZE is deliberately left unchanged: the RuneScape bitmap font
+	 * doesn't scale, so a smaller size would silently fall back to a mismatched
+	 * proportional AWT font. Bold + colour contrast alone kills the misread.
+	 */
+	private static String dpsFragment(double dps)
+	{
+		String s = String.format(Locale.ROOT, "%.2f", dps);
+		int dot = s.indexOf('.');
+		if (dot < 0)
+		{
+			return "<b>" + s + "</b>";
+		}
+		return "<b>" + s.substring(0, dot) + "</b>"
+			+ "<font color='" + DPS_DECIMAL_COLOR + "'>" + s.substring(dot) + "</font>";
+	}
+
+	/** {@link #dpsFragment} as a standalone HTML label string. */
+	private static String dpsHtml(double dps)
+	{
+		return "<html>" + dpsFragment(dps) + "</html>";
 	}
 
 	private void setPrimarySecondary(String primary, String secondary)
@@ -3243,7 +3276,7 @@ public final class GearSection extends CollapsibleSection
 		java.awt.Color color = delta > 1e-9 ? DELTA_UP_COLOR
 			: delta < -1e-9 ? DELTA_DOWN_COLOR : java.awt.Color.WHITE;
 		whatIfDeltaValue.setForeground(color);
-		whatIfDeltaValue.setText(String.format(Locale.ROOT, "%.2f -> %.2f", baselineDps, lastDps));
+		whatIfDeltaValue.setText("<html>" + dpsFragment(baselineDps) + " -> " + dpsFragment(lastDps) + "</html>");
 		whatIfRow.setVisible(true);
 	}
 
@@ -4482,7 +4515,7 @@ public final class GearSection extends CollapsibleSection
 			optimizerStatusLabel.setVisible(false);
 		}
 
-		optimizerResultDps.setText(String.format(Locale.ROOT, "%.2f", result.dps().dps()));
+		optimizerResultDps.setText(dpsHtml(result.dps().dps()));
 		double delta = result.deltaDps();
 		// Item #6b: no literal triangle glyph — "owned-only DPS -> best-found
 		// DPS", the whole readout coloured green (upgrade) / red (downgrade),
@@ -4491,7 +4524,7 @@ public final class GearSection extends CollapsibleSection
 		java.awt.Color deltaColor = delta > 1e-9 ? DELTA_UP_COLOR
 			: delta < -1e-9 ? DELTA_DOWN_COLOR : java.awt.Color.WHITE;
 		optimizerResultDelta.setForeground(deltaColor);
-		optimizerResultDelta.setText(String.format(Locale.ROOT, "%.2f -> %.2f", result.ownedOnlyDps(), result.dps().dps()));
+		optimizerResultDelta.setText("<html>" + dpsFragment(result.ownedOnlyDps()) + " -> " + dpsFragment(result.dps().dps()) + "</html>");
 		optimizerResultSpend.setText(formatGp(result.totalSpend()));
 		optimizerResultDpsPerGp.setText(result.totalSpend() > 0
 			? String.format(Locale.ROOT, "%.6f", result.dpsPerGp())
@@ -4966,7 +4999,7 @@ public final class GearSection extends CollapsibleSection
 		accuracyValue.setText(String.format(Locale.ROOT, "%.1f%%", result.accuracy() * 100.0));
 		avgHitValue.setText(String.format(Locale.ROOT, "%.2f", result.avgHit()));
 		lastDps = result.dps();
-		dpsValue.setText(String.format(Locale.ROOT, "%.2f", lastDps));
+		dpsValue.setText(dpsHtml(lastDps));
 		ttkValue.setText(formatTtk(result.ttkSeconds()));
 		overkillValue.setText(String.format(Locale.ROOT, "%.1f", result.overkillPerKill()));
 		baseEstimateNote.setVisible(result.baseEstimate());
@@ -5721,9 +5754,28 @@ public final class GearSection extends CollapsibleSection
 		}
 	}
 
+	/**
+	 * Strips the HTML markup that styles DPS numbers (see {@link #dpsFragment})
+	 * so a test asserts the displayed VALUE, not its presentation. Plain
+	 * (non-HTML) text — e.g. the "-" placeholder — passes through unchanged.
+	 */
+	private static String plainTextForTest(String text)
+	{
+		if (text == null || !text.startsWith("<html>"))
+		{
+			return text;
+		}
+		return text.replaceAll("<[^>]*>", "")
+			.replace("&middot;", "·")
+			.replace("&nbsp;", " ")
+			.replace("&lt;", "<")
+			.replace("&gt;", ">")
+			.replace("&amp;", "&");
+	}
+
 	String dpsTextForTest()
 	{
-		return dpsValue.getText();
+		return plainTextForTest(dpsValue.getText());
 	}
 
 	String maxHitTextForTest()
@@ -5848,12 +5900,12 @@ public final class GearSection extends CollapsibleSection
 
 	String primaryTextForTest()
 	{
-		return primaryValue.getText();
+		return plainTextForTest(primaryValue.getText());
 	}
 
 	String secondaryTextForTest()
 	{
-		return secondaryValue.getText();
+		return plainTextForTest(secondaryValue.getText());
 	}
 
 	/**
@@ -5972,7 +6024,7 @@ public final class GearSection extends CollapsibleSection
 				name.setIconTextGap(4);
 			}
 
-			JLabel dps = new JLabel(result == null ? "—" : String.format(Locale.ROOT, "%.2f", result.dps()));
+			JLabel dps = new JLabel(result == null ? "—" : dpsHtml(result.dps()));
 			dps.setFont(FontManager.getRunescapeSmallFont());
 			dps.setForeground(best ? ColorScheme.BRAND_ORANGE : java.awt.Color.WHITE);
 			dps.setToolTipText("DPS autocasting this spell");
@@ -6031,7 +6083,7 @@ public final class GearSection extends CollapsibleSection
 			}
 			name.setToolTipText(style.name() + " (" + typeLabel(style.type()) + ")");
 
-			JLabel dps = new JLabel(result == null ? "—" : String.format(Locale.ROOT, "%.2f", result.dps()));
+			JLabel dps = new JLabel(result == null ? "—" : dpsHtml(result.dps()));
 			dps.setFont(FontManager.getRunescapeSmallFont());
 			dps.setForeground(best ? ColorScheme.BRAND_ORANGE : java.awt.Color.WHITE);
 			dps.setToolTipText("DPS with this attack style");
