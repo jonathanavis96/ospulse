@@ -468,6 +468,12 @@ public class SessionTracker implements SessionService
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
 		geReconciler.reset();
+		// Restore the GE cost-basis ledger immediately after the reset, mirroring
+		// bootstrapSession — a manual "reset session" must not wipe the cost basis
+		// of GE buys still open, or the next save (logout/flush/bank-close) exports
+		// the emptied ledger over the good one and a later sale credits zero flip
+		// P&L instead of sale-minus-basis-minus-tax.
+		loadGeLedger();
 		// Drop any signals accumulated in the tick preceding this reset so they
 		// don't leak into the fresh session's first #refresh.
 		pendingSignals = MovementSignals.builder();
