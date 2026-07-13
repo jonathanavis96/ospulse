@@ -306,11 +306,11 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	}
 
 	/**
-	 * Flushes any section-owned persisted state (currently just
-	 * {@link HoldingsSection}'s "since last login" Unrealized P/L snapshot,
-	 * feature 7) to the RuneLite config on plugin shutdown, so the very
-	 * latest value is what's read back next login even if it postdates the
-	 * last {@link #onSessionUpdate} snapshot.
+	 * Flushes any section-owned persisted state on plugin shutdown.
+	 * {@link HoldingsSection#shutdown()} is currently a no-op (the "since last
+	 * login" Unrealized P/L snapshot it used to persist was removed along with
+	 * the session-wide Unrealized P/L stat row), but the call stays so a
+	 * future section-owned persisted value has somewhere to flush from.
 	 */
 	public void persistState()
 	{

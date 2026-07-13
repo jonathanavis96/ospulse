@@ -1074,18 +1074,20 @@ public class SessionEngineTest
 	}
 
 	@Test
-	public void bankRevaluationWhileClosedDoesNotMoveNetWorthDeltaOrProfit()
+	public void bankRevaluationWhileClosedMovesTheBankLineNotProfit()
 	{
-		// The bank is valued at live prices, so a GE price reload can move a
-		// closed bank by millions with no transfer at all (observed in the
-		// wild: +4.09M on a ~1.1B bank in a single update, every wealth
-		// component repricing at once with zero quantity changes). That paper
-		// drift on cold storage is not session activity: it must not read as
-		// a net-worth gain, and the accounting identity
-		// netWorthDelta == profit - suppliesUsed + unrealizedPnl must survive
-		// the reload (profit and unrealized both exclude the bank by design,
-		// so counting the reload in netWorthDelta breaks the books by the
-		// full drift amount).
+		// REWRITTEN for the locked session model (was
+		// bankRevaluationWhileClosedDoesNotMoveNetWorthDeltaOrProfit, which
+		// asserted the OLD invariant that a closed-bank repricing must not
+		// register anywhere). The locked model deliberately flips this: "price
+		// wobble only counts once BANKED (via the Bank line)" — a GE price
+		// reload can move a large closed bank by millions with no transfer at
+		// all (observed in the wild: +4.09M on a ~1.1B bank in a single
+		// update), and since that value is *already sitting in the bank* (not
+		// merely held/worn), it is real wealth movement on cold storage and
+		// now legitimately shows up as a Bank-component gain. Profit stays
+		// untouched either way (bottom-up, LootLedger-based — never reads bank
+		// state at all).
 		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 1_000_000_000L, true, 0L);
 		engine.startSession(initial, 0L);
 
@@ -1096,12 +1098,187 @@ public class SessionEngineTest
 
 		SessionSnapshot result = engine.snapshot(repriced, 0L, Collections.emptyMap(), 0L, 600_000L);
 		assertEquals(0L, result.getLootValue());
-		assertEquals("closed-bank revaluation is not a session gain",
-			0L, result.getNetWorthDelta());
-		assertEquals("identity must hold across a bank repricing",
-			result.getLootValue() - result.getSuppliesUsed() + result.getUnrealizedPnl(),
-			result.getNetWorthDelta());
+		assertEquals("bank revaluation is not loot/profit", 0L, result.getNetProfit());
+		assertEquals("bank revaluation shows on the Bank component", 4_000_000L, result.getBankDelta());
+		assertEquals("GE positions is untouched by a bank-only repricing", 0L, result.getGePositions());
+		assertEquals("Net worth change = Profit + GE flip + GE positions + Bank",
+			4_000_000L, result.getNetWorthDelta());
 		assertTrue(result.isBankKnown());
+	}
+
+	// ---------------------------------------------------- locked session model
+
+	@Test
+	public void netWorthChangeSumsProfitGeFlipGePositionsAndBank()
+	{
+		// The locked spec's worked example: loot 1M - supplies 100k = 900k
+		// Profit, plus a 1M GE flip, with no GE positions or Bank movement =>
+		// Net worth change = +1.9M. The flip's 1M proceeds are folded into
+		// the raw tracked-wealth reading (mirroring pureGeFlipIsNotLootAndReconciles)
+		// so the scenario is internally consistent: a flip that isn't backed
+		// by any actual tracked-wealth movement has nowhere honest to land.
+		Map<Integer, ItemStack> initialTracked = new LinkedHashMap<>();
+		initialTracked.put(SHARK, new ItemStack(SHARK, "Shark", 5L, 20_000L));
+		WealthSnapshot initial = snap(100_000L, initialTracked, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		Map<Integer, ItemStack> after = new LinkedHashMap<>();
+		after.put(DRAGON_BONES, new ItemStack(DRAGON_BONES, "Dragon bones", 100L, 10_000L));
+		WealthSnapshot current = snap(2_000_000L, after, 0L, false, 1000L);
+		engine.update(current, Collections.emptySet(), 1000L);
+
+		SessionSnapshot result = engine.snapshot(current, 1_000_000L, Collections.emptyMap(), 0L, 1000L);
+
+		assertEquals(1_000_000L, result.getLootValue());
+		assertEquals(100_000L, result.getSuppliesUsed());
+		assertEquals("Profit = Loot - Supplies", 900_000L, result.getNetProfit());
+		assertEquals(1_000_000L, result.getGeRealizedPnl());
+		assertEquals(0L, result.getGePositions());
+		assertEquals(0L, result.getBankDelta());
+		assertEquals("Net worth change = Profit + GE flip + GE positions + Bank",
+			1_900_000L, result.getNetWorthDelta());
+	}
+
+	@Test
+	public void movingOwnCoinsIntoGeBuyOfferDoesNotInflateGePositions()
+	{
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Place a buy offer escrowing 1,000,000 coins: inventory drops by the
+		// escrow, geInFlight rises by the same (GeValuation.buyOfferValue
+		// values still-locked escrow at cost, not market) — a pure transfer
+		// of the player's own coins into the GE, must not create a
+		// GE-positions spread.
+		WealthSnapshot afterPlace = WealthSnapshot.builder()
+			.inventoryValue(9_000_000L)
+			.geInFlightValue(1_000_000L)
+			.bankKnown(false)
+			.timestampMs(1000L)
+			.build();
+		engine.update(afterPlace, Collections.emptySet(), 1000L);
+
+		SessionSnapshot result = engine.snapshot(afterPlace, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("moving your own coins into an offer must not inflate GE positions",
+			0L, result.getGePositions());
+		assertEquals(0L, result.getLootValue());
+	}
+
+	@Test
+	public void favourableGeFillShowsAsGePositionsGain()
+	{
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Buy offer escrows 1,000,000.
+		WealthSnapshot afterPlace = WealthSnapshot.builder()
+			.inventoryValue(9_000_000L)
+			.geInFlightValue(1_000_000L)
+			.bankKnown(false)
+			.timestampMs(1000L)
+			.build();
+		engine.update(afterPlace, Collections.emptySet(), 1000L);
+
+		// The offer fully fills below current market: escrow converts to
+		// collectable valued at the live 1,050,000 market price — a 50,000
+		// favourable-fill gain materialising purely from the fill, with no
+		// tracked-wealth transfer involved.
+		WealthSnapshot afterFill = WealthSnapshot.builder()
+			.inventoryValue(9_000_000L)
+			.geInFlightValue(0L)
+			.geCollectableValue(1_050_000L)
+			.bankKnown(false)
+			.timestampMs(2000L)
+			.build();
+		engine.update(afterFill, Collections.emptySet(), 2000L);
+
+		SessionSnapshot result = engine.snapshot(afterFill, 0L, Collections.emptyMap(), 0L, 2000L);
+		assertEquals("a favourable fill's spread shows as an unrealised GE-positions gain",
+			50_000L, result.getGePositions());
+		assertEquals(0L, result.getLootValue());
+	}
+
+	@Test
+	public void geCollectToBankIsNotBookedAsGePositionsLoss()
+	{
+		WealthSnapshot initial = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geCollectableValue(200_000L)
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(0L)
+			.build();
+		engine.startSession(initial, 0L);
+
+		// Collected straight to the bank (the collection box's "Bank"
+		// button): geCollectable drops to 0, bank rises by 200k, all while
+		// bankOpen stays false.
+		WealthSnapshot afterCollectToBank = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geCollectableValue(0L)
+			.bankValue(50_200_000L)
+			.bankKnown(true)
+			.timestampMs(1000L)
+			.build();
+		engine.update(afterCollectToBank, Collections.emptySet(), 1000L);
+
+		SessionSnapshot result = engine.snapshot(afterCollectToBank, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("GE proceeds collected straight to the bank must not book as a GE-positions loss",
+			0L, result.getGePositions());
+		assertEquals(0L, result.getLootValue());
+	}
+
+	@Test
+	public void bankDepositCancelsToZeroOnNetWorthChange()
+	{
+		WealthSnapshot initial = snap(100_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		WealthSnapshot atOpen = snap(100_000_000L, Collections.emptyMap(), 0L, true, 100L);
+		engine.setBankOpen(true, atOpen, 100L);
+
+		WealthSnapshot afterDeposit = snap(50_000_000L, Collections.emptyMap(), 50_000_000L, true, 200L);
+		engine.setBankOpen(false, afterDeposit, 200L);
+
+		SessionSnapshot result = engine.snapshot(afterDeposit, 0L, Collections.emptyMap(), 0L, 200L);
+		assertEquals("a deposit of the player's own money must cancel to zero on the Bank line",
+			0L, result.getBankDelta());
+		assertEquals(0L, result.getNetWorthDelta());
+	}
+
+	@Test
+	public void heldItemDriftIsZeroedUntilBanked()
+	{
+		// "Held/worn/inventory gear unrealised drift is ZEROED ... price
+		// wobble only counts once BANKED (via the Bank line)."
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(RUNE_ITEM, new ItemStack(RUNE_ITEM, "Nature rune", 100L, 1_000L));
+		WealthSnapshot initial = snap(100_000L, held, 0L, true, 0L);
+		engine.startSession(initial, 0L);
+
+		// Price drifts to 1.5k (+50k accrued unrealised) while still held.
+		Map<Integer, ItemStack> drifted = new LinkedHashMap<>();
+		drifted.put(RUNE_ITEM, new ItemStack(RUNE_ITEM, "Nature rune", 100L, 1_500L));
+		WealthSnapshot afterDrift = snap(150_000L, drifted, 0L, true, 1000L);
+		engine.update(afterDrift, Collections.emptySet(), 1000L);
+		SessionSnapshot mid = engine.snapshot(afterDrift, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals(50_000L, mid.getUnrealizedPnl());
+		assertEquals("held-item drift must not move the Bank component while unbanked",
+			0L, mid.getBankDelta());
+		assertEquals("held-item drift must not move Net worth change while unbanked",
+			0L, mid.getNetWorthDelta());
+
+		// Deposit the whole (appreciated) stack: the accrued drift now shows
+		// on the Bank line, "released" the instant it's banked.
+		engine.setBankOpen(true, afterDrift, 1100L);
+		WealthSnapshot afterDeposit = snap(0L, Collections.emptyMap(), 150_000L, true, 1200L);
+		engine.update(afterDeposit, Collections.emptySet(), 1200L);
+		engine.setBankOpen(false, afterDeposit, 1300L);
+		SessionSnapshot closed = engine.snapshot(afterDeposit, 0L, Collections.emptyMap(), 0L, 1300L);
+		assertEquals(0L, closed.getUnrealizedPnl());
+		assertEquals("the accrued drift now shows on the Bank line",
+			50_000L, closed.getBankDelta());
+		assertEquals(50_000L, closed.getNetWorthDelta());
 	}
 
 	@Test
@@ -1384,6 +1561,74 @@ public class SessionEngineTest
 		assertEquals("Item A", result.getHoldingPnls().get(0).getName());
 		assertEquals(3_000L, result.getHoldingPnls().get(0).unrealized());
 		assertEquals(-2_000L, result.getHoldingPnls().get(1).unrealized());
+	}
+
+	@Test
+	public void idSwapIntoAnAlreadyHeldItemCarriesTheSwappedInPortionsAccruedUnrealized()
+	{
+		// Repro for the syncCostBasis id-swap write-off leak (BasisCarry, see
+		// applyBasisCarry): an id swap into a destination id that ALREADY
+		// holds some quantity used to silently drop the swapped-in portion's
+		// accrued unrealised P/L. syncCostBasis re-prices newly-arrived
+		// quantity at the live rate (it cannot tell "just bought" from "just
+		// swapped in"); the carry exists to correct that by substituting the
+		// swapped-in unit's TRUE cost. The old guard only applied the carry
+		// when the destination's post-sync quantity exactly equalled the
+		// carried quantity — true for a swap into a previously-empty id, but
+		// NEVER true once the destination already held anything (its quantity
+		// is then the combined total) — so the carry was silently dropped and
+		// the swapped-in unit's accrued gain evaporated as if bought fresh at
+		// the live price.
+		//
+		// Session starts holding one Battlestaff (basis 300,000, its own,
+		// unrelated cost) and one Rune sq shield (basis 400,000) — both enter
+		// at their live price per the "holdings present at session start"
+		// rule.
+		Map<Integer, ItemStack> held = new LinkedHashMap<>();
+		held.put(BATTLESTAFF, new ItemStack(BATTLESTAFF, "Battlestaff", 1L, 300_000L));
+		held.put(RUNE_SQ_SHIELD, new ItemStack(RUNE_SQ_SHIELD, "Rune sq shield", 1L, 400_000L));
+		WealthSnapshot initial = snap(700_000L, held, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// The Rune sq shield's price drifts to 500,000 with no quantity
+		// change (+100,000 accrued unrealised, cost basis stays 400,000).
+		Map<Integer, ItemStack> drifted = new LinkedHashMap<>();
+		drifted.put(BATTLESTAFF, new ItemStack(BATTLESTAFF, "Battlestaff", 1L, 300_000L));
+		drifted.put(RUNE_SQ_SHIELD, new ItemStack(RUNE_SQ_SHIELD, "Rune sq shield", 1L, 500_000L));
+		WealthSnapshot afterDrift = snap(800_000L, drifted, 0L, false, 1000L);
+		engine.update(afterDrift, Collections.emptySet(), 1000L);
+
+		// It then id-swaps into the ALREADY-HELD Battlestaff id: both items
+		// now show as Battlestaff, quantity 2, priced at the shield's last
+		// live rate (500,000) — the shape RuneLite reports for an
+		// equip/unequip landing on a shared id, or a GE fill completing on
+		// top of an existing holding.
+		Map<Integer, ItemStack> swapped = new LinkedHashMap<>();
+		swapped.put(BATTLESTAFF, new ItemStack(BATTLESTAFF, "Battlestaff", 2L, 500_000L));
+		WealthSnapshot afterSwap = snap(1_000_000L, swapped, 0L, false, 2000L);
+		engine.update(afterSwap, Collections.emptySet(), 2000L);
+
+		SessionSnapshot result = engine.snapshot(afterSwap, 0L, Collections.emptyMap(), 0L, 2000L);
+
+		// Nothing here is loot/profit — it's a pure id-swap plus price drift.
+		assertEquals("an id swap is not loot", 0L, result.getLootValue());
+
+		// Correct unrealised: pre-existing unit (300k -> 500k, +200k) plus
+		// the swapped-in unit carrying ITS OWN true cost (400k -> 500k,
+		// +100k) = 300k. The pre-fix write-off left this at 200k (the
+		// swapped-in unit's 100k accrued gain silently discarded, priced as
+		// if it had been bought fresh at 500k).
+		assertEquals("the swapped-in unit's accrued unrealised must carry across the id swap "
+				+ "into an already-held destination, not be written off at the live price",
+			300_000L, result.getUnrealizedPnl());
+
+		assertEquals(1, result.getHoldingPnls().size());
+		HoldingPnl row = result.getHoldingPnls().get(0);
+		assertEquals(BATTLESTAFF, row.getItemId());
+		assertEquals(2L, row.getQuantity());
+		assertEquals("combined cost basis: pre-existing 300k + carried 400k",
+			700_000L, row.getCostBasis());
+		assertEquals(1_000_000L, row.getCurrentValue());
 	}
 
 	@Test
@@ -3336,15 +3581,18 @@ public class SessionEngineTest
 	}
 
 	/**
-	 * The core accounting identity: net worth delta must equal realised loot
-	 * minus supplies used, plus GE flip P&L and unrealised paper gains. When it
-	 * drifts, value is leaking (undercount) or being booked twice (overcount).
+	 * The core accounting identity of the LOCKED session model: "Net worth
+	 * change" must equal the SUM of its four components — Profit (loot minus
+	 * supplies used), GE flip (realised), GE positions (unrealised
+	 * mark-to-market on open/collectable GE offers) and Bank (bankValue minus
+	 * its session anchor, residual of everything else). When it drifts, value
+	 * is leaking (undercount) or being booked twice (overcount).
 	 */
 	private static void assertIdentity(String msg, SessionSnapshot s)
 	{
-		assertEquals(msg + " [netWorthDelta == loot - supplies + geRealizedPnl + unrealizedPnl]",
+		assertEquals(msg + " [netWorthDelta == netProfit + geRealizedPnl + gePositions + bankDelta]",
 			s.getNetWorthDelta(),
-			s.getLootValue() - s.getSuppliesUsed() + s.getGeRealizedPnl() + s.getUnrealizedPnl());
+			s.getNetProfit() + s.getGeRealizedPnl() + s.getGePositions() + s.getBankDelta());
 	}
 
 	@Test

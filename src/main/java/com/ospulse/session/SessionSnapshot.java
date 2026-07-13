@@ -36,6 +36,8 @@ public final class SessionSnapshot
 	private final long unrealizedPnl;
 	private final List<HoldingPnl> holdingPnls;
 	private final long suppliesUsed;
+	private final long gePositions;
+	private final long bankDelta;
 
 	/**
 	 * Backward-compatible constructor: no active-offer / source-loot breakdown.
@@ -164,11 +166,8 @@ public final class SessionSnapshot
 	}
 
 	/**
-	 * Full constructor including {@code suppliesUsed} — the running session
-	 * total (gp value) of consumable supplies (potions/food/ammo/runes)
-	 * consumed, as distinct from {@code lootValue} (unchanged: realised
-	 * activity only). See {@link SessionEngine#update} for how this is
-	 * detected and its heuristic's limitations.
+	 * Backward-compatible constructor: no GE-positions / Bank component
+	 * breakdown. Delegates to the full constructor with both zeroed.
 	 */
 	public SessionSnapshot(
 		long startMs,
@@ -190,6 +189,43 @@ public final class SessionSnapshot
 		long unrealizedPnl,
 		List<HoldingPnl> holdingPnls,
 		long suppliesUsed)
+	{
+		this(startMs, elapsedMs, lootValue, profitPerHour, geRealizedPnl, netWorthDelta,
+			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
+			xpSkills, xpPerHour, gear, unrealizedPnl, holdingPnls, suppliesUsed, 0L, 0L);
+	}
+
+	/**
+	 * Full constructor including {@code suppliesUsed} — the running session
+	 * total (gp value) of consumable supplies (potions/food/ammo/runes)
+	 * consumed, as distinct from {@code lootValue} (unchanged: realised
+	 * activity only) — and the LOCKED session-panel model's {@code
+	 * gePositions} / {@code bankDelta} components, whose sum with {@code
+	 * lootValue - suppliesUsed} and {@code geRealizedPnl} defines {@code
+	 * netWorthDelta} ("Net worth change" — see {@link SessionEngine#snapshot}).
+	 */
+	public SessionSnapshot(
+		long startMs,
+		long elapsedMs,
+		long lootValue,
+		long profitPerHour,
+		long geRealizedPnl,
+		long netWorthDelta,
+		boolean bankKnown,
+		List<LootEntry> loot,
+		Map<String, Long> xpGained,
+		long xpTotal,
+		WealthSnapshot wealth,
+		List<GeOfferView> geOffers,
+		List<SourceLoot> lootSources,
+		List<XpSkillView> xpSkills,
+		long xpPerHour,
+		GearSnapshot gear,
+		long unrealizedPnl,
+		List<HoldingPnl> holdingPnls,
+		long suppliesUsed,
+		long gePositions,
+		long bankDelta)
 	{
 		this.startMs = startMs;
 		this.elapsedMs = elapsedMs;
@@ -222,6 +258,8 @@ public final class SessionSnapshot
 			? Collections.emptyList()
 			: Collections.unmodifiableList(new ArrayList<>(holdingPnls));
 		this.suppliesUsed = suppliesUsed;
+		this.gePositions = gePositions;
+		this.bankDelta = bankDelta;
 	}
 
 	public long getStartMs()
@@ -271,6 +309,17 @@ public final class SessionSnapshot
 		return geRealizedPnl;
 	}
 
+	/**
+	 * "Net worth change" — the LOCKED session-panel model: the SUM of {@code
+	 * getNetProfit()} (Loot − Supplies), {@link #getGeRealizedPnl()} (GE flip),
+	 * {@link #getGePositions()} (GE positions) and {@link #getBankDelta()}
+	 * (Bank). Held/worn/inventory gear price drift deliberately contributes to
+	 * none of the four and so never shows here — it is zeroed until the item
+	 * transacts (sold via GE, banked, or consumed/looted). Always the FULL,
+	 * untoggled sum; a session-panel include/exclude toggle on GE positions or
+	 * Bank (default both on) is display-only and subtracts the relevant raw
+	 * component when rendering, never mutating this value.
+	 */
 	public long getNetWorthDelta()
 	{
 		return netWorthDelta;
@@ -385,5 +434,37 @@ public final class SessionSnapshot
 	public long getSuppliesUsed()
 	{
 		return suppliesUsed;
+	}
+
+	/**
+	 * "GE positions" — the LOCKED session-panel model's unrealised
+	 * mark-to-market on open/collectable Grand Exchange offers: current pool
+	 * value ({@code geInFlight + geCollectable}) minus the pool's cost basis.
+	 * Moving the player's own coins/items into an offer never moves this figure
+	 * (entries are added to the cost basis at the same live value that left
+	 * tracked wealth); only genuine repricing while the value sits in the GE
+	 * (a favourable/unfavourable fill, a sell offer's unsold remainder
+	 * repricing) does. One of the four components summed into {@link
+	 * #getNetWorthDelta()}; a session-panel toggle (default on) may exclude it
+	 * from the displayed "Net worth change" without affecting this raw value.
+	 */
+	public long getGePositions()
+	{
+		return gePositions;
+	}
+
+	/**
+	 * "Bank" — the LOCKED session-panel model's bank component: current bank
+	 * value minus the session's Bank-line anchor. A deposit/withdrawal (the
+	 * player's own money moving in/out) cancels to zero here; price wobble on
+	 * ALREADY-banked contents (a GE price reload while the bank sits closed)
+	 * shows through, since that is real wealth movement on cold storage. One of
+	 * the four components summed into {@link #getNetWorthDelta()}; a
+	 * session-panel toggle (default on) may exclude it from the displayed "Net
+	 * worth change" without affecting this raw value.
+	 */
+	public long getBankDelta()
+	{
+		return bankDelta;
 	}
 }
