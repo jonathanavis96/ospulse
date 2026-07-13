@@ -251,6 +251,46 @@ public class GearSectionOptimizerTest
 		});
 	}
 
+	/**
+	 * Bug B (end-to-end): the reported "Find best still recommends 20-30M gear
+	 * even with the expensive-item cap set" is the SAME owned-price-0 defect as
+	 * bug A, exercised through the real GearSection -> GearOptimizer wiring the
+	 * cap was never end-to-end tested against. A worn 5m whip, with the cap set
+	 * to "0 expensive items allowed, threshold 50k", must be DE-RISKED to a
+	 * cheaper owned weapon (a 30k scimitar). Before the ownedPriceMap fix the
+	 * worn whip priced at 0, counted as 0 expensive items, and was kept — this
+	 * test would have failed. Mirrors
+	 * {@code GearOptimizerTest#expensiveCap_forcesCheaperWeaponEvenAtLowerDps}
+	 * but proves the wiring feeds the cap each owned item's REAL value.
+	 */
+	@Test
+	public void expensiveCap_deRisksWornExpensiveWeaponThroughGearSectionWiring()
+	{
+		onEdt(() ->
+		{
+			final int whip = ABYSSAL_WHIP;         // worn, 5m -> expensive
+			final int scimitar = DRAGON_SCIMITAR;  // owned in bank, 30k -> not expensive
+			GearSection section = new GearSection(NO_STORE, null, null);
+
+			java.util.Map<Integer, ItemStack> all = new java.util.LinkedHashMap<>();
+			all.put(whip, new ItemStack(whip, "Abyssal whip", 1, 5_000_000L));
+			all.put(scimitar, new ItemStack(scimitar, "Dragon scimitar", 1, 30_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().allHoldings(all).build();
+
+			section.apply(snapshotWith(gearFor(loadout(whip)), wealth));
+			pickCerberus(section);
+
+			section.setBudgetTextForTest("0");                // owned-only: the scimitar is the free de-risk target
+			section.setExpensiveCountTextForTest("0");        // zero expensive items allowed
+			section.setExpensiveThresholdTextForTest("50k");  // whip is expensive, scimitar is not
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			assertEquals("a worn 5m whip must be de-risked to the cheaper owned scimitar (the cap now sees its real value)",
+				scimitar, weaponIdInResult(result));
+		});
+	}
+
 	@Test
 	public void applyToReadout_createsOverridesMatchingTheResult()
 	{
