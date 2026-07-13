@@ -424,6 +424,19 @@ public final class GearSection extends CollapsibleSection
 	private final IconTextField excludedSearchField;
 	private GearOptimizer.Result lastOptimizerResult;
 	/**
+	 * Item ids from the MOST RECENT optimiser run that were only priced via
+	 * the Trouver-parchment fallback (see {@link PriceLookup#needsProtection()}
+	 * / {@code com.ospulse.combat.RiskValuation.Source#PARCHMENT}) — rare
+	 * untradeables with no real tradeable equivalent, that must be protected
+	 * with a Trouver parchment on death or they're lost outright. Set
+	 * alongside every {@link #onOptimizerResult} call (both the real
+	 * {@code SwingWorker} paths and the {@code *SyncForTest} seams) so
+	 * {@link #renderOptimizerSwapList}/{@link #buildSwapRow} can flag a
+	 * suggested cell for this without threading the set through every
+	 * rendering method's signature.
+	 */
+	private java.util.Set<Integer> lastOptimizerNeedsProtection = java.util.Collections.emptySet();
+	/**
 	 * Item ids the user right-clicked "Exclude from suggestions" on (item #6a)
 	 * — never suggested by the optimiser (wired into
 	 * {@link GearOptimizer.Request.Builder#exclude}), persisted via
@@ -471,6 +484,24 @@ public final class GearSection extends CollapsibleSection
 
 	/** Gold marker for a suggested item the player does NOT own (border + price label) — RuneLite's GE-gold tone. */
 	private static final java.awt.Color NOT_OWNED_GOLD = new java.awt.Color(240, 207, 123);
+
+	/**
+	 * Subtle background tint for a suggested-swap cell whose item id is in
+	 * {@link PriceLookup#needsProtection()} — a rare untradeable priced only
+	 * via the Trouver-parchment fallback ({@code
+	 * com.ospulse.combat.RiskValuation.Source#PARCHMENT}), which must be
+	 * carried with a Trouver parchment or is lost outright on death. A
+	 * background fill rather than a border so it composes cleanly alongside
+	 * {@link #NOT_OWNED_GOLD} (a border) instead of competing with it — a
+	 * suggested item can be both not-owned AND needing protection at once. A
+	 * muted, parchment-toned brown: distinct from the brighter
+	 * {@link #NOT_OWNED_GOLD} at a glance, but deliberately understated next
+	 * to the panel's existing {@code ColorScheme.DARK_GRAY_COLOR} cells.
+	 */
+	static final java.awt.Color NEEDS_PROTECTION_TINT = new java.awt.Color(94, 72, 40);
+
+	/** Exact hover tooltip for a {@link #NEEDS_PROTECTION_TINT}-highlighted recommendation cell. Package-private so tests can assert the exact string. */
+	static final String NEEDS_PROTECTION_TOOLTIP = "must be protected (Trouver parchment)";
 
 	/**
 	 * Client-thread-precomputed pricing + tradeability for a candidate id set,
@@ -3184,6 +3215,7 @@ public final class GearSection extends CollapsibleSection
 	{
 		override = LoadoutOverride.empty();
 		lastOptimizerResult = null;
+		lastOptimizerNeedsProtection = java.util.Collections.emptySet();
 		optimizerResultPanel.setVisible(false);
 		clearOptimizerPreviewButton.setVisible(false);
 		optimizerStatusLabel.setVisible(false);
@@ -4160,8 +4192,11 @@ public final class GearSection extends CollapsibleSection
 	private void runOptimizer()
 	{
 		withResolvedPrices((budget, ownedPrices, priceSource, riskValues, needsProtection) ->
+		{
+			lastOptimizerNeedsProtection = needsProtection;
 			runOptimizerSearch(buildOptimizerRequest(budget, ownedPrices, priceSource, riskValues, needsProtection,
-				optimizerConstraint())));
+				optimizerConstraint()));
+		});
 	}
 
 	/**
@@ -4179,6 +4214,7 @@ public final class GearSection extends CollapsibleSection
 	{
 		withResolvedPrices((budget, ownedPrices, priceSource, riskValues, needsProtection) ->
 		{
+			lastOptimizerNeedsProtection = needsProtection;
 			CombatStyle selected = optimizerConstraint();
 			java.util.Map<CombatStyle, GearOptimizer.Request> requests = new java.util.LinkedHashMap<>();
 			for (CombatStyle style : OPTIMIZER_STYLE_ORDER)
@@ -4863,6 +4899,17 @@ public final class GearSection extends CollapsibleSection
 		iconsPanel.add(arrow);
 		JLabel suggestedIcon = swapItemIcon(suggestedItemId, suggestedName + " (" + spend + ")");
 		suggestedIcon.setComponentPopupMenu(buildExcludeItemPopup(suggestedItemId, suggestedName, -1));
+		if (lastOptimizerNeedsProtection.contains(suggestedItemId))
+		{
+			// Item #6/#6b follow-up: flag a recommended rare untradeable that
+			// must be carried with a Trouver parchment (or lost outright on
+			// death) — background tint (see NEEDS_PROTECTION_TINT's javadoc
+			// for why not a border) + an exact, dedicated tooltip; the row's
+			// own tooltip below already covers the name/slot/spend, so this
+			// icon's tooltip is free to be single-purpose.
+			suggestedIcon.setBackground(NEEDS_PROTECTION_TINT);
+			suggestedIcon.setToolTipText(NEEDS_PROTECTION_TOOLTIP);
+		}
 		if (choice.owned())
 		{
 			iconsPanel.add(suggestedIcon);
@@ -5594,6 +5641,7 @@ public final class GearSection extends CollapsibleSection
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
 				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()),
 				java.util.Collections.emptyMap(), java.util.Collections.emptySet(), optimizerConstraint());
+			lastOptimizerNeedsProtection = java.util.Collections.emptySet();
 			onOptimizerResult(GearOptimizer.optimize(request));
 			return;
 		}
@@ -5609,6 +5657,7 @@ public final class GearSection extends CollapsibleSection
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
 				resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()),
 				lookup.riskValues(), lookup.needsProtection(), optimizerConstraint());
+			lastOptimizerNeedsProtection = lookup.needsProtection();
 			onOptimizerResult(GearOptimizer.optimize(request));
 		});
 	}
@@ -5630,6 +5679,7 @@ public final class GearSection extends CollapsibleSection
 		{
 			GearOptimizer.PriceSource priceSource = resolveOptimizerPriceSource(
 				id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet());
+			lastOptimizerNeedsProtection = java.util.Collections.emptySet();
 			applyRankedStyleResults(
 				optimizeAllStyles(budget, ownedPrices, priceSource, java.util.Collections.emptyMap(),
 					java.util.Collections.emptySet()),
@@ -5646,6 +5696,7 @@ public final class GearSection extends CollapsibleSection
 		{
 			GearOptimizer.PriceSource priceSource = resolveOptimizerPriceSource(
 				id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds());
+			lastOptimizerNeedsProtection = lookup.needsProtection();
 			applyRankedStyleResults(
 				optimizeAllStyles(budget, ownedPrices, priceSource, lookup.riskValues(), lookup.needsProtection()),
 				selected);
@@ -5850,6 +5901,49 @@ public final class GearSection extends CollapsibleSection
 	int optimizerSwapRowCountForTest()
 	{
 		return optimizerSwapList.getComponentCount();
+	}
+
+	/**
+	 * Test-only inspection seam for the needsProtection highlight/tooltip
+	 * (items #5/#6): the suggested-item icon {@link JLabel} of swap row
+	 * {@code rowIndex} (0-based; the {@code Box.createRigidArea} spacers
+	 * {@link #renderOptimizerSwapList} interleaves between rows are skipped
+	 * automatically since they aren't {@link JPanel}s) — see
+	 * {@link #buildSwapRow}.
+	 */
+	private JLabel suggestedIconForTest(int rowIndex)
+	{
+		int seen = 0;
+		for (java.awt.Component c : optimizerSwapList.getComponents())
+		{
+			if (!(c instanceof JPanel))
+			{
+				continue;
+			}
+			if (seen != rowIndex)
+			{
+				seen++;
+				continue;
+			}
+			JPanel row = (JPanel) c;
+			java.awt.Component west = ((BorderLayout) row.getLayout()).getLayoutComponent(BorderLayout.WEST);
+			JPanel iconsPanel = (JPanel) west;
+			java.awt.Component last = iconsPanel.getComponent(iconsPanel.getComponentCount() - 1);
+			return last instanceof JLabel ? (JLabel) last : (JLabel) ((JPanel) last).getComponent(0);
+		}
+		throw new IllegalArgumentException("no swap row at index " + rowIndex);
+	}
+
+	/** @see #suggestedIconForTest(int) */
+	String suggestedIconTooltipForTest(int rowIndex)
+	{
+		return suggestedIconForTest(rowIndex).getToolTipText();
+	}
+
+	/** @see #suggestedIconForTest(int) */
+	java.awt.Color suggestedIconBackgroundForTest(int rowIndex)
+	{
+		return suggestedIconForTest(rowIndex).getBackground();
 	}
 
 	/** Item #6a: the current exclude set (read-only copy), for asserting persistence/wiring. */

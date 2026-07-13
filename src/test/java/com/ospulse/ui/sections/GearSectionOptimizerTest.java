@@ -510,6 +510,74 @@ public class GearSectionOptimizerTest
 		});
 	}
 
+	/** A fake resolver that also wires a {@code needsProtection} set — see {@link #fakeResolver} for the plain-prices-only version. */
+	private static GearSection.OptimizerPriceResolver fakeResolverWithNeedsProtection(
+		java.util.Map<Integer, Long> prices, java.util.Set<Integer> needsProtection)
+	{
+		return (ids, onResolved) -> onResolved.accept(
+			new GearSection.PriceLookup(prices, java.util.Set.of(), java.util.Map.of(), needsProtection));
+	}
+
+	/**
+	 * Items #5/#6: a recommended (suggested) item flagged in {@code
+	 * PriceLookup.needsProtection()} — a rare untradeable only priced via the
+	 * Trouver-parchment fallback (real-world source of this data), that must
+	 * be carried with a parchment or lost outright on death — must render its
+	 * swap-row icon with the {@code NEEDS_PROTECTION_TINT} background and the
+	 * exact {@code NEEDS_PROTECTION_TOOLTIP} hover text. Reuses the dragon
+	 * scimitar upgrade fixture from {@link #withInjectedPriceResolver_budgetBuysAffordableNonOwnedWeapon}
+	 * purely as a real, actually-recommended item id to flag — the semantics
+	 * of what's really untradeable/parchment-priced are RiskValuation's job
+	 * (covered by RiskValuationTest), not this rendering test's.
+	 */
+	@Test
+	public void suggestedItem_flaggedNeedsProtection_rendersHighlightAndExactTooltip()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(DRAGON_SCIMITAR, 50_000L);
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null,
+				fakeResolverWithNeedsProtection(prices, java.util.Set.of(DRAGON_SCIMITAR)));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(section);
+			section.setBudgetTextForTest("100k");
+			section.runOptimizerSyncForTest();
+
+			// Each changed slot renders as [row, spacer] — see renderOptimizerSwapList;
+			// only the weapon slot changes here, so exactly one row (+ its spacer).
+			assertEquals("expected exactly one swap row (the weapon upgrade) plus its spacer",
+				2, section.optimizerSwapRowCountForTest());
+			assertEquals(GearSection.NEEDS_PROTECTION_TINT, section.suggestedIconBackgroundForTest(0));
+			assertEquals(GearSection.NEEDS_PROTECTION_TOOLTIP, section.suggestedIconTooltipForTest(0));
+		});
+	}
+
+	/** Companion to the test above: a recommended item NOT in {@code needsProtection} must keep the plain (untinted) icon and its ordinary name/price tooltip. */
+	@Test
+	public void suggestedItem_notFlaggedNeedsProtection_keepsPlainIconAndTooltip()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(DRAGON_SCIMITAR, 50_000L);
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null,
+				fakeResolverWithNeedsProtection(prices, java.util.Set.of()));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(section);
+			section.setBudgetTextForTest("100k");
+			section.runOptimizerSyncForTest();
+
+			assertEquals(2, section.optimizerSwapRowCountForTest());
+			assertFalse("must not carry the needsProtection tint when not flagged",
+				GearSection.NEEDS_PROTECTION_TINT.equals(section.suggestedIconBackgroundForTest(0)));
+			assertFalse("must not carry the exact needsProtection tooltip when not flagged",
+				GearSection.NEEDS_PROTECTION_TOOLTIP.equals(section.suggestedIconTooltipForTest(0)));
+		});
+	}
+
 	private static int weaponIdInResult(GearOptimizer.Result result)
 	{
 		for (GearOptimizer.SlotChoice choice : result.loadout())
