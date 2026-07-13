@@ -93,6 +93,21 @@ public interface OSPulseConfig extends Config
 		return false;
 	}
 
+	@ConfigItem(
+		keyName = "hideUnprotectableItems",
+		name = "Hide unprotectable items",
+		description = "Hide rare untradeables that can't be protected on death (e.g. Fire cape, Fighter "
+			+ "torso, imbued capes) from Find Best recommendations. They still count against the "
+			+ "expensive-item wilderness/PvP risk cap either way; this only controls whether the "
+			+ "optimiser is allowed to recommend equipping one.",
+		position = 4,
+		section = sessionSection
+	)
+	default boolean hideUnprotectableItems()
+	{
+		return false;
+	}
+
 	// ---------------------------------------------------------- Price trends
 
 	@ConfigItem(

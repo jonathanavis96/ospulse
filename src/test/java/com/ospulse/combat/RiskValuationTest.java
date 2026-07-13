@@ -72,4 +72,78 @@ public class RiskValuationTest
 		long value = RiskValuation.riskValue(BARROWS_GLOVES, id -> false, id -> 5_000_000L);
 		assertEquals(0L, value);
 	}
+
+	// -------------------------------------------------------- classify() tests
+
+	/** 22322 = Avernic defender (untradeable, no ItemMapping entry), curated in {@link AssembledItemComponents}. */
+	private static final int AVERNIC_DEFENDER = 22322;
+
+	/** 22477 = Avernic defender hilt, the tradeable component {@link AssembledItemComponents} prices it at. */
+	private static final int AVERNIC_DEFENDER_HILT = 22477;
+
+	/** 24187 = Trouver parchment (verified via javap against the pinned net.runelite:client 1.12.32 jar). */
+	private static final int TROUVER_PARCHMENT = 24187;
+
+	/**
+	 * 6570 = Fire cape — a real untradeable id with no {@link net.runelite.client.game.ItemMapping}
+	 * entry, no {@link AssembledItemComponents} entry, and no curated fallback entry; the
+	 * "uncoverable rare untradeable" case that must fall to the Trouver parchment price.
+	 */
+	private static final int FIRE_CAPE = 6570;
+
+	/**
+	 * 13124 = ARDY_CAPE_ELITE (Ardougne cloak 4) — untradeable and free to reclaim on
+	 * death (diary reward). Verified via the same {@code javap}-inspection of {@code
+	 * net.runelite.api.gameval.ItemID} used elsewhere in this project (e.g. {@code
+	 * GearOptimizer.FREE_REOBTAINABLE}).
+	 */
+	private static final int ARDY_CLOAK_4 = 13124;
+
+	@Test
+	public void classify_assembledItem_usesComponentPrice()
+	{
+		RiskValuation.Risk risk = RiskValuation.classify(AVERNIC_DEFENDER,
+			id -> id != AVERNIC_DEFENDER,
+			id -> id == AVERNIC_DEFENDER_HILT ? 31_800_000L : 0L,
+			1_000_000L,
+			id -> false);
+		assertEquals(31_800_000L, risk.value);
+		assertEquals(RiskValuation.Source.ASSEMBLED, risk.source);
+	}
+
+	@Test
+	public void classify_uncoverableUntradeable_fallsBackToParchmentPrice()
+	{
+		RiskValuation.Risk risk = RiskValuation.classify(FIRE_CAPE,
+			id -> id == TROUVER_PARCHMENT,
+			id -> id == TROUVER_PARCHMENT ? 1_200_000L : 0L,
+			1_200_000L,
+			id -> false);
+		assertEquals(1_200_000L, risk.value);
+		assertEquals(RiskValuation.Source.PARCHMENT, risk.source);
+	}
+
+	@Test
+	public void classify_freeReobtainableUntradeable_isNeverPricedEvenWithParchmentAvailable()
+	{
+		RiskValuation.Risk risk = RiskValuation.classify(ARDY_CLOAK_4,
+			id -> false,
+			id -> 0L,
+			1_200_000L,
+			id -> id == ARDY_CLOAK_4);
+		assertEquals(0L, risk.value);
+		assertEquals(RiskValuation.Source.NONE, risk.source);
+	}
+
+	@Test
+	public void classify_tradeableItem_usesOwnGePriceAndTradeableSource()
+	{
+		RiskValuation.Risk risk = RiskValuation.classify(AHRIMS_HOOD,
+			id -> true,
+			id -> id == AHRIMS_HOOD ? 21_000_000L : 0L,
+			1_200_000L,
+			id -> false);
+		assertEquals(21_000_000L, risk.value);
+		assertEquals(RiskValuation.Source.TRADEABLE, risk.source);
+	}
 }
