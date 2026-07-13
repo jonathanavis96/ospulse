@@ -10,6 +10,7 @@ import com.ospulse.ui.GpFormat;
 import com.ospulse.ui.PanelWidgets;
 import com.ospulse.wealth.WealthSnapshot;
 
+import net.runelite.api.Client;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ColorScheme;
@@ -49,11 +50,15 @@ import java.util.OptionalLong;
  * the row tooltip. Realised profit lives in the Session section; price drift
  * only ever shows up here.
  *
- * <p>The Unrealized P/L value is also persisted to the RuneLite config (see
- * {@link #UNREALIZED_PNL_CONFIG_KEY}) on every update and on shutdown, so
- * that on the player's next login it can show a "since last login: +X / -Y"
- * delta badge next to the current value. First-ever login (no stored value
- * yet) shows no delta.
+ * <p>The Unrealized P/L value is also persisted to the RuneLite per-RS-profile
+ * config (see {@link #UNREALIZED_PNL_CONFIG_KEY}) on every update and on
+ * shutdown, so that on the player's next login <em>on that same account</em>
+ * it can show a "since last login: +X / -Y" delta badge next to the current
+ * value. Scoped via {@code getRSProfileConfiguration}/{@code
+ * setRSProfileConfiguration} (rather than the plain, client-wide config) so
+ * switching RuneLite accounts on the same client never reads or writes
+ * another account's baseline. First-ever login (no stored value yet) shows
+ * no delta.
  */
 public final class HoldingsSection extends CollapsibleSection
 {
@@ -68,6 +73,7 @@ public final class HoldingsSection extends CollapsibleSection
 	private final OSPulseConfig config;
 	private final PriceTrendService priceTrendService;
 	private final ConfigManager configManager;
+	private final Client client;
 
 	private final JLabel unrealizedValue;
 	private final JPanel holdingsListPanel;
@@ -89,22 +95,23 @@ public final class HoldingsSection extends CollapsibleSection
 	public HoldingsSection(CollapseStore store, ItemManager itemManager, OSPulseConfig config,
 		PriceTrendService priceTrendService)
 	{
-		this(store, itemManager, config, priceTrendService, null);
+		this(store, itemManager, config, priceTrendService, null, null);
 	}
 
 	public HoldingsSection(CollapseStore store, ItemManager itemManager, OSPulseConfig config,
-		PriceTrendService priceTrendService, ConfigManager configManager)
+		PriceTrendService priceTrendService, ConfigManager configManager, Client client)
 	{
 		super(KEY, "Top holdings", store);
 		this.itemManager = itemManager;
 		this.config = config;
 		this.priceTrendService = priceTrendService;
 		this.configManager = configManager;
+		this.client = client;
 		this.visibleCount = pageSize();
-		this.previousLoginUnrealizedPnl = configManager == null
+		this.previousLoginUnrealizedPnl = (configManager == null || client == null || client.getAccountHash() == -1L)
 			? OptionalLong.empty()
 			: UnrealizedPnlHistory.parseStored(
-				configManager.getConfiguration(OSPulseConfig.GROUP, UNREALIZED_PNL_CONFIG_KEY));
+				configManager.getRSProfileConfiguration(OSPulseConfig.GROUP, UNREALIZED_PNL_CONFIG_KEY));
 
 		unrealizedValue = PanelWidgets.statRow(body(), "Unrealized P/L");
 
@@ -167,18 +174,20 @@ public final class HoldingsSection extends CollapsibleSection
 	}
 
 	/**
-	 * Writes the current Unrealized P/L to the RuneLite config so it survives
-	 * a client restart and can be compared against on the next login (feature
-	 * 7). Called on every snapshot update (cheap: a single config write) and
-	 * again from {@link #shutdown()} so the very latest value is always the
-	 * one read back next time, even if the last {@link #apply} predates a
-	 * late price move.
+	 * Writes the current Unrealized P/L to the logged-in account's RS profile
+	 * config so it survives a client restart and can be compared against on
+	 * the next login on that same account (feature 7), without leaking into
+	 * another account's baseline after a switch. No-ops until the account
+	 * hash is known (profile not yet loaded). Called on every snapshot update
+	 * (cheap: a single config write) and again from {@link #shutdown()} so
+	 * the very latest value is always the one read back next time, even if
+	 * the last {@link #apply} predates a late price move.
 	 */
 	private void persistUnrealizedPnl()
 	{
-		if (configManager != null)
+		if (configManager != null && client != null && client.getAccountHash() != -1L)
 		{
-			configManager.setConfiguration(OSPulseConfig.GROUP, UNREALIZED_PNL_CONFIG_KEY,
+			configManager.setRSProfileConfiguration(OSPulseConfig.GROUP, UNREALIZED_PNL_CONFIG_KEY,
 				Long.toString(lastUnrealizedPnl));
 		}
 	}

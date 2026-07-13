@@ -121,7 +121,7 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		sectionList.add(gearSection);
 		sectionList.add(new GeSection(store, itemManager));
 		sectionList.add(new WealthSection(store));
-		sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService, configManager));
+		sectionList.add(new HoldingsSection(store, itemManager, config, priceTrendService, configManager, client));
 
 		// A width-tracking column so nothing is laid out wider than the fixed
 		// side-panel width; the widest row ellipsizes within its row instead of
