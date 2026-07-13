@@ -491,8 +491,26 @@ public final class GearSection extends CollapsibleSection
 	{
 		private final java.util.Map<Integer, Long> prices;
 		private final java.util.Set<Integer> untradeableIds;
+		private final java.util.Map<Integer, Long> riskValues;
 
 		public PriceLookup(java.util.Map<Integer, Long> prices, java.util.Set<Integer> untradeableIds)
+		{
+			this(prices, untradeableIds, null);
+		}
+
+		/**
+		 * @param riskValues per-item id -&gt; real gp "risk value" for the
+		 *                   expensive-item cap (see {@code
+		 *                   GearOptimizer.Request.Builder#riskValueSource} and
+		 *                   {@code com.ospulse.combat.RiskValuation}), computed
+		 *                   on the client thread alongside {@code prices} —
+		 *                   {@code null}/empty (the default via the 2-arg
+		 *                   constructor) leaves the risk cap falling back to
+		 *                   the budget price source, preserving prior
+		 *                   behaviour for every caller that doesn't supply one.
+		 */
+		public PriceLookup(java.util.Map<Integer, Long> prices, java.util.Set<Integer> untradeableIds,
+			java.util.Map<Integer, Long> riskValues)
 		{
 			this.prices = prices == null
 				? java.util.Collections.emptyMap()
@@ -500,6 +518,9 @@ public final class GearSection extends CollapsibleSection
 			this.untradeableIds = untradeableIds == null
 				? java.util.Collections.emptySet()
 				: java.util.Collections.unmodifiableSet(new java.util.HashSet<>(untradeableIds));
+			this.riskValues = riskValues == null
+				? java.util.Collections.emptyMap()
+				: java.util.Collections.unmodifiableMap(new HashMap<>(riskValues));
 		}
 
 		public java.util.Map<Integer, Long> prices()
@@ -510,6 +531,11 @@ public final class GearSection extends CollapsibleSection
 		public java.util.Set<Integer> untradeableIds()
 		{
 			return untradeableIds;
+		}
+
+		public java.util.Map<Integer, Long> riskValues()
+		{
+			return riskValues;
 		}
 	}
 
@@ -3994,11 +4020,12 @@ public final class GearSection extends CollapsibleSection
 		}
 	}
 
-	/** Callback invoked once a budget/owned-prices/price-source triple is ready — see {@link #withResolvedPrices}. */
+	/** Callback invoked once a budget/owned-prices/price-source/risk-values quadruple is ready — see {@link #withResolvedPrices}. */
 	@FunctionalInterface
 	private interface PriceReady
 	{
-		void run(long budget, java.util.Map<Integer, Long> ownedPrices, GearOptimizer.PriceSource priceSource);
+		void run(long budget, java.util.Map<Integer, Long> ownedPrices, GearOptimizer.PriceSource priceSource,
+			java.util.Map<Integer, Long> riskValues);
 	}
 
 	/**
@@ -4009,6 +4036,16 @@ public final class GearSection extends CollapsibleSection
 	 * and — once a {@link GearOptimizer.PriceSource} is available, either
 	 * immediately (no resolver wired) or asynchronously (client-thread GE
 	 * lookup) — hands them to {@code consumer}.
+	 *
+	 * <p>The candidate id set sent to the resolver deliberately does NOT
+	 * exclude owned ids (unlike the historical behaviour): the resolver also
+	 * computes each id's real gp risk value (see {@link PriceLookup#riskValues()}),
+	 * and an owned item's risk value must be resolved too — see {@code
+	 * GearOptimizer.expensiveItemCountOf}'s javadoc for why an owned item is
+	 * still riskable gear. This is safe for the BUDGET price too: {@link
+	 * GearOptimizer} never consults {@code priceSource} for an owned id
+	 * (owned items are always free via {@code Request.owned}), so pricing
+	 * them here has no budget-side effect.
 	 */
 	private void withResolvedPrices(PriceReady consumer)
 	{
@@ -4039,15 +4076,18 @@ public final class GearSection extends CollapsibleSection
 			// No client-thread price source available (headless test / not wired) —
 			// legitimate owned-only fallback: an unpriced non-owned item resolves to
 			// Long.MAX_VALUE (unaffordable at any budget); owned items are separately
-			// marked affordable via .owned(...) regardless of price.
+			// marked affordable via .owned(...) regardless of price. No risk-value
+			// data either — the cap falls back to the price source (see
+			// GearOptimizer.Request.Builder#riskValueSource).
 			consumer.run(budget, ownedPrices,
-				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()));
+				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()),
+				java.util.Collections.emptyMap());
 			return;
 		}
 
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Set<Integer> candidateIds = new java.util.HashSet<>(index.allItemIds());
-		candidateIds.removeAll(ownedPrices.keySet());
+		candidateIds.addAll(ownedPrices.keySet());
 
 		priceResolver.resolve(candidateIds, lookup ->
 		{
@@ -4056,15 +4096,16 @@ public final class GearSection extends CollapsibleSection
 			// (unknown) or flagged untradeable falls back to Long.MAX_VALUE =
 			// unaffordable — see resolveOptimizerPriceSource (bug D).
 			consumer.run(budget, ownedPrices,
-				resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()));
+				resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()),
+				lookup.riskValues());
 		});
 	}
 
 	/** Runs {@link GearOptimizer} off the EDT for the currently selected style and publishes the result back via {@link #onOptimizerResult}. */
 	private void runOptimizer()
 	{
-		withResolvedPrices((budget, ownedPrices, priceSource) ->
-			runOptimizerSearch(buildOptimizerRequest(budget, ownedPrices, priceSource, optimizerConstraint())));
+		withResolvedPrices((budget, ownedPrices, priceSource, riskValues) ->
+			runOptimizerSearch(buildOptimizerRequest(budget, ownedPrices, priceSource, riskValues, optimizerConstraint())));
 	}
 
 	/**
@@ -4080,13 +4121,13 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private void runOptimizerAndRankStyles()
 	{
-		withResolvedPrices((budget, ownedPrices, priceSource) ->
+		withResolvedPrices((budget, ownedPrices, priceSource, riskValues) ->
 		{
 			CombatStyle selected = optimizerConstraint();
 			java.util.Map<CombatStyle, GearOptimizer.Request> requests = new java.util.LinkedHashMap<>();
 			for (CombatStyle style : OPTIMIZER_STYLE_ORDER)
 			{
-				requests.put(style, buildOptimizerRequest(budget, ownedPrices, priceSource, style));
+				requests.put(style, buildOptimizerRequest(budget, ownedPrices, priceSource, riskValues, style));
 			}
 
 			new javax.swing.SwingWorker<java.util.Map<CombatStyle, GearOptimizer.Result>, Void>()
@@ -4406,9 +4447,15 @@ public final class GearSection extends CollapsibleSection
 	 * {@link #optimizerConstraint()}; the all-styles ranker
 	 * ({@link #runOptimizerAndRankStyles}) passes each of
 	 * {@link #OPTIMIZER_STYLE_ORDER} in turn.
+	 *
+	 * @param riskValues per-item id real gp risk value (see {@link
+	 *                   PriceLookup#riskValues()}), wired as {@link
+	 *                   GearOptimizer.Request.Builder#riskValueSource} — empty
+	 *                   (the no-resolver path) leaves the cap falling back to
+	 *                   {@code priceSource} unchanged.
 	 */
 	private GearOptimizer.Request buildOptimizerRequest(long budget, java.util.Map<Integer, Long> ownedPrices,
-		GearOptimizer.PriceSource priceSource, CombatStyle styleConstraint)
+		GearOptimizer.PriceSource priceSource, java.util.Map<Integer, Long> riskValues, CombatStyle styleConstraint)
 	{
 		int[] liveIds = lastGear.equippedItemIds();
 		Monster target = selectedMonster;
@@ -4448,14 +4495,24 @@ public final class GearSection extends CollapsibleSection
 			.builder(liveIds, target, template)
 			.budget(budget)
 			.owned(ownedPrices.keySet())
-			// Finding 2 fix: the expensive-item risk cap needs each owned item's
-			// real GE/bank value, not the (unowned-only) async priceSource — see
-			// GearOptimizer.expensiveItemCountOf's javadoc for why routing owned
-			// ids through priceSource wrongly prices them at Long.MAX_VALUE.
+			// Retained for any other budget-side consumer/back-compat, but no
+			// longer consulted by the expensive-item risk cap — riskValueSource
+			// below owns that job exclusively now (see
+			// GearOptimizer.expensiveItemCountOf's updated javadoc).
 			.ownedItemPrices(ownedPrices)
 			.exclude(exclusions)
 			.include(mandatoryOverrideItemIds(target, exclusions))
 			.priceSource(priceSource)
+			// The expensive-item risk cap's OWN price source: a real gp "risk
+			// value" per item — tradeable = GE price, untradeable = value of
+			// its tradeable components (see com.ospulse.combat.RiskValuation) —
+			// completely decoupled from priceSource/ownedItemPrices above,
+			// which drive budget/affordability only. Only wired when the
+			// client-thread resolver actually supplied risk data; an empty map
+			// (no resolver, e.g. a headless owned-only search) leaves the cap
+			// falling back to priceSource unchanged (see
+			// GearOptimizer.Request.Builder#riskValueSource).
+			.riskValueSource(riskValues.isEmpty() ? null : id -> riskValues.getOrDefault(id, 0L))
 			.expensiveItemCount(resolvedExpensiveCount())
 			.expensiveItemThreshold(resolvedExpensiveThreshold())
 			// Items #6e/#6g: anchor the search to the requested damage type,
@@ -5461,14 +5518,14 @@ public final class GearSection extends CollapsibleSection
 		{
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
 				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()),
-				optimizerConstraint());
+				java.util.Collections.emptyMap(), optimizerConstraint());
 			onOptimizerResult(GearOptimizer.optimize(request));
 			return;
 		}
 
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Set<Integer> candidateIds = new java.util.HashSet<>(index.allItemIds());
-		candidateIds.removeAll(ownedPrices.keySet());
+		candidateIds.addAll(ownedPrices.keySet());
 		// Mirror withResolvedPrices: craft-ingredient ids must be priced too.
 		candidateIds.addAll(UNTRADEABLE_CRAFT_INGREDIENT.values());
 
@@ -5476,7 +5533,7 @@ public final class GearSection extends CollapsibleSection
 		{
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
 				resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()),
-				optimizerConstraint());
+				lookup.riskValues(), optimizerConstraint());
 			onOptimizerResult(GearOptimizer.optimize(request));
 		});
 	}
@@ -5498,31 +5555,34 @@ public final class GearSection extends CollapsibleSection
 		{
 			GearOptimizer.PriceSource priceSource = resolveOptimizerPriceSource(
 				id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet());
-			applyRankedStyleResults(optimizeAllStyles(budget, ownedPrices, priceSource), selected);
+			applyRankedStyleResults(
+				optimizeAllStyles(budget, ownedPrices, priceSource, java.util.Collections.emptyMap()), selected);
 			return;
 		}
 
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Set<Integer> candidateIds = new java.util.HashSet<>(index.allItemIds());
-		candidateIds.removeAll(ownedPrices.keySet());
+		candidateIds.addAll(ownedPrices.keySet());
 		candidateIds.addAll(UNTRADEABLE_CRAFT_INGREDIENT.values());
 
 		priceResolver.resolve(candidateIds, lookup ->
 		{
 			GearOptimizer.PriceSource priceSource = resolveOptimizerPriceSource(
 				id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds());
-			applyRankedStyleResults(optimizeAllStyles(budget, ownedPrices, priceSource), selected);
+			applyRankedStyleResults(optimizeAllStyles(budget, ownedPrices, priceSource, lookup.riskValues()), selected);
 		});
 	}
 
-	/** Optimises every {@link #OPTIMIZER_STYLE_ORDER} style with one resolved price triple (test seam helper). */
+	/** Optimises every {@link #OPTIMIZER_STYLE_ORDER} style with one resolved price/risk-value pair (test seam helper). */
 	private java.util.Map<CombatStyle, GearOptimizer.Result> optimizeAllStyles(
-		long budget, java.util.Map<Integer, Long> ownedPrices, GearOptimizer.PriceSource priceSource)
+		long budget, java.util.Map<Integer, Long> ownedPrices, GearOptimizer.PriceSource priceSource,
+		java.util.Map<Integer, Long> riskValues)
 	{
 		java.util.Map<CombatStyle, GearOptimizer.Result> results = new java.util.LinkedHashMap<>();
 		for (CombatStyle style : OPTIMIZER_STYLE_ORDER)
 		{
-			results.put(style, GearOptimizer.optimize(buildOptimizerRequest(budget, ownedPrices, priceSource, style)));
+			results.put(style,
+				GearOptimizer.optimize(buildOptimizerRequest(budget, ownedPrices, priceSource, riskValues, style)));
 		}
 		return results;
 	}

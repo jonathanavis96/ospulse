@@ -178,7 +178,26 @@ public class OSPulsePlugin extends Plugin
 					m.put(id, v);
 				}
 			}
-			GearSection.PriceLookup lookup = new GearSection.PriceLookup(m, untradeable);
+			// Per-item real gp "risk value" for the expensive-item wilderness/
+			// PvP cap ONLY (see GearOptimizer.Request.Builder#riskValueSource) —
+			// deliberately independent of the budget map `m` above: a
+			// tradeable item's risk value is its own GE price; an untradeable
+			// item's risk value is the summed GE price of the tradeable
+			// component(s) it represents (Barrows pieces, imbued rings, Doom-
+			// of-Mokhaiotl weapons, etc. — see RiskValuation), resolved for
+			// EVERY id here (owned ids included, since the caller no longer
+			// excludes them — see GearSection#withResolvedPrices), so an owned
+			// or untradeable expensive item can no longer dodge the cap.
+			java.util.Map<Integer, Long> riskValues = new java.util.HashMap<>();
+			for (int id : ids)
+			{
+				long risk = com.ospulse.combat.RiskValuation.riskValue(id, valuation::isTradeable, valuation::unitValue);
+				if (risk > 0)
+				{
+					riskValues.put(id, risk);
+				}
+			}
+			GearSection.PriceLookup lookup = new GearSection.PriceLookup(m, untradeable, riskValues);
 			javax.swing.SwingUtilities.invokeLater(() -> cb.accept(lookup));
 		});
 

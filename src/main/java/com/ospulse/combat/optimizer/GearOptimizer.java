@@ -158,6 +158,7 @@ public final class GearOptimizer {
         private final int candidatesPerSlot;
         private final PlayerCombat.Builder playerTemplate;
         private final PriceSource priceSource;
+        private final PriceSource riskValueSource;
         private final int expensiveItemCount;
         private final long expensiveItemThreshold;
         private final CombatStyle style;
@@ -176,6 +177,10 @@ public final class GearOptimizer {
             this.candidatesPerSlot = b.candidatesPerSlot;
             this.playerTemplate = b.playerTemplate;
             this.priceSource = b.priceSource;
+            // Default to the budget priceSource when the caller never wires a
+            // dedicated risk source, so every existing caller/test (single
+            // price concept) behaves unchanged — see Builder#riskValueSource.
+            this.riskValueSource = b.riskValueSource != null ? b.riskValueSource : b.priceSource;
             this.expensiveItemCount = b.expensiveItemCount;
             this.expensiveItemThreshold = b.expensiveItemThreshold;
             this.style = b.style;
@@ -199,6 +204,7 @@ public final class GearOptimizer {
             private final Set<Integer> include = new HashSet<>();
             private int candidatesPerSlot = DEFAULT_CANDIDATES_PER_SLOT;
             private PriceSource priceSource = PriceSource.zero();
+            private PriceSource riskValueSource = null;
             private int expensiveItemCount = 0;
             private long expensiveItemThreshold = 0L;
             private CombatStyle style;
@@ -251,6 +257,27 @@ public final class GearOptimizer {
             /** Supplies GE prices for affordability filtering + spend/DPS-per-gp reporting (default: everything free). */
             public Builder priceSource(PriceSource priceSource) {
                 this.priceSource = priceSource != null ? priceSource : PriceSource.zero();
+                return this;
+            }
+
+            /**
+             * Supplies each item's real gp "risk value" for the expensive-item
+             * cap ({@link #expensiveItemCount}/{@link #expensiveItemThreshold})
+             * ONLY — completely separate from {@link #priceSource}, which drives
+             * budget/affordability. This decoupling is the fix for the
+             * under-counting bug where an OWNED item (free via {@link #owned})
+             * or an untradeable item (unpurchasable via {@link #priceSource})
+             * could dodge the risk cap despite being worth real gp: a tradeable
+             * item's risk value is its GE price; an untradeable item's risk
+             * value is the value of the tradeable components it represents
+             * (see {@code com.ospulse.combat.RiskValuation}), regardless of
+             * ownership or purchasability. {@code null} (the default) falls
+             * back to {@link #priceSource} unchanged, preserving prior
+             * behaviour for every existing caller/test that never wires a
+             * dedicated risk source.
+             */
+            public Builder riskValueSource(PriceSource riskValueSource) {
+                this.riskValueSource = riskValueSource;
                 return this;
             }
 
@@ -404,9 +431,23 @@ public final class GearOptimizer {
             return expensiveItemThreshold;
         }
 
-        /** Known GE/bank values for owned item ids, used only by the expensive-item risk cap — see {@link Builder#ownedItemPrices}. */
+        /**
+         * Known GE/bank values for owned item ids — see {@link Builder#ownedItemPrices}.
+         * No longer consulted by the expensive-item risk cap (see {@link #riskValueSource()}),
+         * which now owns that job exclusively; this map/getter is left in place
+         * for any other budget-side caller and for backward compatibility.
+         */
         public java.util.Map<Integer, Long> ownedItemPrices() {
             return ownedItemPrices;
+        }
+
+        /**
+         * The per-item risk-value source for the expensive-item cap — see
+         * {@link Builder#riskValueSource}. Never {@code null}: defaults to
+         * {@link #priceSource()} when the caller doesn't set one.
+         */
+        public PriceSource riskValueSource() {
+            return riskValueSource;
         }
     }
 
@@ -505,6 +546,8 @@ public final class GearOptimizer {
      * with no I/O, so any executor/background thread works; the caller
      * publishes the {@link Result} back to the EDT.
      */
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(GearOptimizer.class);
+
     public static Result optimize(Request request) {
         EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 
@@ -659,6 +702,45 @@ public final class GearOptimizer {
             loadoutOut.add(new SlotChoice(slot, itemId, owned, price));
         }
 
+        // TEMP dev diagnostic (dev jar only; remove before Hub push): when the
+        // expensive-item cap is active, dump per-slot the chosen id, the price
+        // the cap actually sees, whether it counts as expensive, the candidate
+        // pool size and how many of those candidates were at/below threshold —
+        // so a "cap not working / junk picks" report can be pinned to either a
+        // starved sub-threshold pool or a correctly-enforced-but-DPS-neutral
+        // pick. Fires once per search, only when the cap is on.
+        if (expensiveCapActive(request) && log.isInfoEnabled()) {
+            long thr = request.expensiveItemThreshold();
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < slotForIndex.length; i++) {
+                int slot = slotForIndex[i];
+                int id = current[slot];
+                long capPrice;
+                boolean exempt = FREE_REOBTAINABLE.contains(id);
+                if (id <= 0 || exempt) {
+                    capPrice = 0L;
+                } else {
+                    // Mirror expensiveItemCountOf exactly (now riskValueSource-driven)
+                    // so the diagnostic shows the value the cap actually counts by.
+                    capPrice = Math.max(0L, request.riskValueSource().priceFor(id));
+                }
+                List<Candidate> cands = candidatesBySlot.get(i);
+                int subThr = 0;
+                for (Candidate c : cands) {
+                    if (c.price() <= thr) {
+                        subThr++;
+                    }
+                }
+                sb.append(String.format(java.util.Locale.ROOT,
+                        " [slot=%d id=%d cap$=%d exp=%b%s cands=%d subThr=%d]",
+                        slot, id, capPrice, !exempt && id > 0 && capPrice > thr,
+                        exempt ? "(free)" : "", cands.size(), subThr));
+            }
+            log.info("optimizer-cap: threshold={} cap={} budget={} totalSpend={} expensiveInResult={}/{} |{}",
+                    thr, request.expensiveItemCount(), request.budget, totalSpend,
+                    expensiveItemCountOf(current, request), request.expensiveItemCount(), sb);
+        }
+
         DpsResult finalDps = currentEval != null ? currentEval.dps : zeroDps();
         WeaponStyle finalStyle = currentEval != null ? currentEval.style : null;
         Spell finalSpell = currentEval != null ? currentEval.spell : null;
@@ -765,18 +847,21 @@ public final class GearOptimizer {
      * {@link #FREE_REOBTAINABLE}: those ids are skipped (and never priced)
      * before this rule applies, since they carry no death risk at all.
      *
-     * <p>An owned item prefers {@link Request#ownedItemPrices()} over
-     * {@link Request#priceSource()}: the caller's async price source
-     * typically only resolves NON-owned ids (owned ids are deliberately
-     * skipped by the lookup that builds it — see {@code
-     * GearSection#withResolvedPrices}), so routing an owned item through it
-     * would resolve to "unpriced" and get wrapped as {@link Long#MAX_VALUE}
-     * by the untradeable-= unpurchasable rule, wrongly flagging every owned/
-     * equipped item as maximally expensive regardless of its real value. An
-     * owned id absent from {@code ownedItemPrices} (the default: an empty
-     * map, e.g. every caller that never sets it) still falls back to {@code
-     * priceSource} unchanged, preserving prior behaviour for callers that
-     * supply a price source able to price owned ids directly.
+     * <p>Every item — owned or not, tradeable or not — is priced via {@link
+     * Request#riskValueSource()} ONLY, completely separate from the budget
+     * path ({@link Request#priceSource()}/{@link Request#ownedItemPrices()}).
+     * This decoupling fixes two under-counting bugs the risk cap used to be
+     * vulnerable to: (1) an owned item could be marked "owned at price 0" by
+     * the caller (e.g. a variant's plain form) and dodge the cap entirely
+     * even though it's genuinely worth real gp; (2) an untradeable item has
+     * no budget price at all ({@link Request#priceSource()} treats it as
+     * unpurchasable), which used to leave it unpriced/free for risk purposes
+     * too. {@code riskValueSource} is built from real gp worth regardless of
+     * ownership or purchasability (see {@code com.ospulse.combat.RiskValuation}),
+     * so neither escape hatch works anymore; it defaults to {@link
+     * Request#priceSource()} when the caller never sets a dedicated one,
+     * preserving prior behaviour for callers that only supply one price
+     * concept.
      */
     private static int expensiveItemCountOf(int[] itemIds, Request request) {
         long threshold = request.expensiveItemThreshold();
@@ -790,8 +875,7 @@ public final class GearOptimizer {
                 // No death risk (free to reclaim), so it's never priced for the cap either.
                 continue;
             }
-            Long ownedPrice = request.owned.contains(itemId) ? request.ownedItemPrices().get(itemId) : null;
-            long price = ownedPrice != null ? ownedPrice : priceOf(itemId, request);
+            long price = Math.max(0L, request.riskValueSource.priceFor(itemId));
             if (price > threshold) {
                 count++;
             }
