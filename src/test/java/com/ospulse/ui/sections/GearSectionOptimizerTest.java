@@ -220,6 +220,37 @@ public class GearSectionOptimizerTest
 		});
 	}
 
+	/**
+	 * Bug A (expensive-item risk cap prices worn gear at 0): an item that is
+	 * WORN and also sits in the bank must be priced at its real GE value in
+	 * {@code ownedPriceMap()} — the map that feeds
+	 * {@link GearOptimizer.Request#ownedItemPrices()}, i.e. the expensive-item
+	 * RISK cap. The old code {@code put(id, 0L)} for the equipped copy and then
+	 * {@code merge(id, realValue, Math::min)} for the bank copy, so {@code min(0,
+	 * real)} kept 0 — a 5m worn whip counted as 0 gp of risk, so the cap never
+	 * saw any owned gear as "expensive" and silently never bound. The value here
+	 * must be the item's real GE value, NOT 0.
+	 */
+	@Test
+	public void equippedItemAlsoInBank_pricedAtRealValueForRiskCap_notZero()
+	{
+		onEdt(() ->
+		{
+			final int expensiveWhip = ABYSSAL_WHIP;
+			GearSection section = new GearSection(NO_STORE, null, null);
+
+			java.util.Map<Integer, ItemStack> all = new java.util.LinkedHashMap<>();
+			all.put(expensiveWhip, new ItemStack(expensiveWhip, "Abyssal whip", 1, 5_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().allHoldings(all).build();
+
+			section.apply(snapshotWith(gearFor(loadout(expensiveWhip)), wealth));
+
+			java.util.Map<Integer, Long> owned = section.ownedPriceMapForTest();
+			assertEquals("a worn item that is also banked must price at its real GE value for the risk cap, not 0",
+				Long.valueOf(5_000_000L), owned.get(expensiveWhip));
+		});
+	}
+
 	@Test
 	public void applyToReadout_createsOverridesMatchingTheResult()
 	{

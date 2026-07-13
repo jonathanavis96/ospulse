@@ -3795,17 +3795,18 @@ public final class GearSection extends CollapsibleSection
 	{
 		java.util.Map<Integer, Long> prices = new HashMap<>();
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
-		if (lastGear != null)
-		{
-			for (int id : lastGear.equippedItemIds())
-			{
-				if (id > 0 && index.entryFor(id) != null)
-				{
-					prices.put(id, 0L);
-					addVariantPlainForm(prices, index, id);
-				}
-			}
-		}
+		// Real GE/bank values FIRST. This map feeds the expensive-item RISK cap
+		// (GearOptimizer.Request.ownedItemPrices), which must price an owned item
+		// at its ACTUAL value — a worn 5m whip is 5m of risk in the wilderness,
+		// not free. (Ownership itself is membership-based and value-independent;
+		// the value stored here is only the risk figure and the budget never
+		// consults it — owned items are free via GearOptimizer's owned SET.)
+		// Bug A (finding 1): the equipped loop below used to put(id, 0L) and the
+		// wealth loop merged with Math::min, so min(0, realValue) kept 0 for any
+		// worn item that was ALSO banked at a real value — every piece of worn
+		// gear priced at 0 gp of risk, so the cap counted zero expensive items
+		// and could never bind on owned gear. Take the MAX across duplicate
+		// entries (worst-case risk) so a real value always wins over the 0 marker.
 		if (lastWealth != null)
 		{
 			java.util.Collection<ItemStack> ownedStacks = !lastWealth.getAllHoldings().isEmpty()
@@ -3815,8 +3816,23 @@ public final class GearSection extends CollapsibleSection
 			{
 				if (index.entryFor(stack.getId()) != null)
 				{
-					prices.merge(stack.getId(), Math.max(0L, stack.getUnitValue()), Math::min);
+					prices.merge(stack.getId(), Math.max(0L, stack.getUnitValue()), Math::max);
 					addVariantPlainForm(prices, index, stack.getId());
+				}
+			}
+		}
+		// Worn items the wealth snapshot didn't value (or a null snapshot) still
+		// count as owned, at a 0-gp fallback — an unknown-value item can't be
+		// judged expensive, so 0 (never flagged) is the safe default. putIfAbsent
+		// so a real value resolved above is never overwritten back to 0.
+		if (lastGear != null)
+		{
+			for (int id : lastGear.equippedItemIds())
+			{
+				if (id > 0 && index.entryFor(id) != null)
+				{
+					prices.putIfAbsent(id, 0L);
+					addVariantPlainForm(prices, index, id);
 				}
 			}
 		}
