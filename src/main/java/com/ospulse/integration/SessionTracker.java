@@ -24,6 +24,7 @@ import com.ospulse.xp.VirtualLevelTable;
 import com.ospulse.xp.XpSkillView;
 import com.ospulse.xp.XpTracker;
 import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.EnumComposition;
@@ -44,6 +45,7 @@ import net.runelite.client.game.ItemStats;
 
 import java.util.EnumSet;
 
+import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -72,6 +74,12 @@ public class SessionTracker implements SessionService
 	private static final int TOP_HOLDINGS_LIMIT = 50;
 	/** RS-profile config key under which the per-account bank cache is stored. */
 	private static final String BANK_CACHE_KEY = "bankCache";
+	/**
+	 * RS-profile config key under which the GE cost-basis buy ledger (see
+	 * {@link GeReconciler#exportCostBasis()}) is stored, so a buy made in an
+	 * earlier session still has its cost basis after a relog.
+	 */
+	private static final String GE_LEDGER_KEY = "geCostBasis";
 
 	private final Client client;
 	private final ItemManager itemManager;
@@ -189,17 +197,22 @@ public class SessionTracker implements SessionService
 		// Persist the latest bank contents so the next login restores the bank
 		// value, net worth and top holdings without reopening the bank.
 		saveBankCache();
+		// Persist the GE cost-basis ledger alongside the bank cache so a buy
+		// made this session still has its basis after the next relog.
+		saveGeLedger();
 		// Keep the session/latest snapshot as-is; we simply stop producing
 		// new ones until the next login.
 	}
 
 	/**
-	 * Persists the current bank cache. Called by the plugin on shutdown so a
-	 * clean plugin toggle / client close doesn't lose the last-known bank.
+	 * Persists the current bank cache and GE cost-basis ledger. Called by the
+	 * plugin on shutdown so a clean plugin toggle / client close doesn't lose
+	 * the last-known bank or open GE positions.
 	 */
 	public void flush()
 	{
 		saveBankCache();
+		saveGeLedger();
 	}
 
 	/**
@@ -423,8 +436,10 @@ public class SessionTracker implements SessionService
 		if (!open)
 		{
 			// Bank just closed: its final contents are captured in cachedBankItems
-			// by buildWealth above — persist them for the next login.
+			// by buildWealth above — persist them for the next login, along with
+			// the GE cost-basis ledger.
 			saveBankCache();
+			saveGeLedger();
 		}
 		publish(buildSnapshot(current, ts, true));
 	}
@@ -498,6 +513,12 @@ public class SessionTracker implements SessionService
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
 		geReconciler.reset();
+		// Restore the GE cost-basis ledger immediately after the reset, so a buy
+		// made in an earlier session (before this relog/login) still has its
+		// cost basis when it's eventually sold — otherwise the reset above would
+		// wipe it and a weeks-old buy sold after this relog would credit zero
+		// flip P&L instead of the correct sale-minus-basis-minus-tax profit.
+		loadGeLedger();
 		// A genuine login (not a mere zone hop, and not the panel's manual
 		// session-value reset — see resetSession()'s javadoc) is the only point
 		// the barrel's inferred contents should be wiped: unlike bank/pouches,
@@ -1364,6 +1385,70 @@ public class SessionTracker implements SessionService
 		catch (Exception ex)
 		{
 			log.debug("Failed to save OSPulse bank cache", ex);
+		}
+	}
+
+	// ------------------------------------------------------ GE ledger persistence
+
+	/**
+	 * Restores the GE cost-basis buy ledger (see
+	 * {@link GeReconciler#exportCostBasis()}) into the reconciler at the start
+	 * of a session. Keyed automatically to the logged-in RS profile, mirroring
+	 * {@link #loadBankCache()}. MUST be called right after
+	 * {@link GeReconciler#reset()} so the restore isn't immediately wiped.
+	 */
+	private void loadGeLedger()
+	{
+		if (configManager == null || gson == null || client.getAccountHash() == -1L)
+		{
+			return;
+		}
+
+		try
+		{
+			String json = configManager.getRSProfileConfiguration(OSPulseConfig.GROUP, GE_LEDGER_KEY);
+			if (json == null || json.isEmpty())
+			{
+				return;
+			}
+
+			Type type = new TypeToken<Map<Integer, GeReconciler.CostBasisSnapshot>>()
+			{
+			}.getType();
+			Map<Integer, GeReconciler.CostBasisSnapshot> snapshot = gson.fromJson(json, type);
+			geReconciler.importCostBasis(snapshot);
+		}
+		catch (Exception ex)
+		{
+			// Corrupt/incompatible ledger — treat as empty (no restored cost basis)
+			// rather than failing session bootstrap; the reconciler was just reset
+			// so this is a no-op, not a data loss beyond what a fresh session has.
+			log.debug("Failed to load OSPulse GE cost-basis ledger; ignoring", ex);
+		}
+	}
+
+	/**
+	 * Persists the reconciler's current GE cost-basis buy ledger to the
+	 * logged-in account's RS profile, mirroring {@link #saveBankCache()}. Not
+	 * gated on the ledger being non-empty (unlike the bank cache): a ledger
+	 * that has genuinely gone to zero (every open position sold) is a real
+	 * state and must overwrite a stale non-empty cache.
+	 */
+	private void saveGeLedger()
+	{
+		if (configManager == null || gson == null || client.getAccountHash() == -1L)
+		{
+			return;
+		}
+
+		try
+		{
+			Map<Integer, GeReconciler.CostBasisSnapshot> snapshot = geReconciler.exportCostBasis();
+			configManager.setRSProfileConfiguration(OSPulseConfig.GROUP, GE_LEDGER_KEY, gson.toJson(snapshot));
+		}
+		catch (Exception ex)
+		{
+			log.debug("Failed to save OSPulse GE cost-basis ledger", ex);
 		}
 	}
 }
