@@ -380,9 +380,9 @@ public final class GearSection extends CollapsibleSection
 	private final JToggleButton budgetMToggle;
 	/** Gold-pile badge showing the resolved budget (e.g. "50M") magnitude-coloured over its top-left — see {@link #updateBudgetDisplay}. */
 	private CoinPileBadge budgetBadge;
-	/** "Expensive items to allow" count (wilderness/PvP) — plumbed into {@link GearOptimizer.Request#expensiveItemCount()} and enforced by the search (caps items worth >= the threshold). */
+	/** "Expensive items to allow" count (wilderness/PvP) — plumbed into {@link GearOptimizer.Request#expensiveItemCount()} and enforced by the search (caps items worth strictly more than the threshold). */
 	private final javax.swing.JTextField expensiveCountField;
-	/** GP value at/above which an item counts as "expensive" — see {@link #expensiveCountField}. */
+	/** GP value strictly above which an item counts as "expensive" (a price exactly at this value is within the ceiling) — see {@link #expensiveCountField}. */
 	private final javax.swing.JTextField expensiveThresholdField;
 	private final JToggleButton expensiveThresholdKToggle;
 	private final JToggleButton expensiveThresholdMToggle;
@@ -1008,12 +1008,15 @@ public final class GearSection extends CollapsibleSection
 		countRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
 		// (4) threshold — coins icon + 4-digit field + "K" (K-only; M kept for tests).
-		// Defaults to 1000 (K) = 1m so that simply lowering the expensive-item COUNT
+		// Defaults to 100 (K) = 100k so that simply lowering the expensive-item COUNT
 		// below the slot total actually caps risky gear, instead of the old "0"
 		// default silently disabling the cap (expensiveCapActive needs threshold > 0).
 		// Still off by default overall: the count defaults to 11 (== slot count);
-		// setting the threshold back to 0 disables the cap outright.
-		expensiveThresholdField = new javax.swing.JTextField("1000", 4);
+		// setting the threshold back to 0 disables the cap outright. Both this field
+		// and the count field are intentionally NOT persisted across restarts (see
+		// loadOptimizerPrefs/saveOptimizerPrefs) — they always reset to these
+		// defaults on load, unlike the budget amount/unit which do persist.
+		expensiveThresholdField = new javax.swing.JTextField("100", 4);
 		expensiveThresholdField.setToolTipText(EXPENSIVE_THRESHOLD_TOOLTIP);
 		expensiveThresholdField.setFont(FontManager.getRunescapeSmallFont());
 		expensiveThresholdField.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -1058,8 +1061,6 @@ public final class GearSection extends CollapsibleSection
 		loadExcludedItemsPref();
 		java.awt.event.ActionListener persistOptimizerPrefs = e -> saveOptimizerPrefs();
 		budgetField.addActionListener(persistOptimizerPrefs);
-		expensiveCountField.addActionListener(persistOptimizerPrefs);
-		expensiveThresholdField.addActionListener(persistOptimizerPrefs);
 		budgetKToggle.addActionListener(e -> saveOptimizerPrefs());
 		budgetMToggle.addActionListener(e -> saveOptimizerPrefs());
 		// Update the large budget echo ("10M") + its magnitude colour live, as the
@@ -3516,15 +3517,27 @@ public final class GearSection extends CollapsibleSection
 
 	private static final String CONFIG_KEY_BUDGET_AMOUNT = "optimizerBudgetAmount";
 	private static final String CONFIG_KEY_BUDGET_UNIT_MILLIONS = "optimizerBudgetUnitMillions";
+	// Legacy keys — no longer read or written (see loadOptimizerPrefs/saveOptimizerPrefs
+	// javadoc): the expensive-item count/threshold are foot-gun settings that must always
+	// reset to their code defaults on load, never persist across a restart. Kept only so
+	// any already-persisted values under these keys are harmlessly ignored rather than
+	// referencing a removed constant elsewhere.
 	private static final String CONFIG_KEY_EXPENSIVE_COUNT = "optimizerExpensiveCount";
 	private static final String CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT = "optimizerExpensiveThresholdAmount";
 
 	/**
-	 * Restores the budget amount/unit + expensive-items count/threshold from
-	 * config (see {@link #saveOptimizerPrefs}) so they survive a client
-	 * restart, mirroring {@link #loadPotionVariantPrefs}'s pattern. No-op
-	 * without a {@link ConfigManager} (headless tests / the no-config-manager
-	 * constructors).
+	 * Restores the budget amount/unit from config (see {@link #saveOptimizerPrefs})
+	 * so it survives a client restart, mirroring {@link #loadPotionVariantPrefs}'s
+	 * pattern. No-op without a {@link ConfigManager} (headless tests / the
+	 * no-config-manager constructors).
+	 *
+	 * <p>The expensive-items count/threshold are deliberately NOT restored here —
+	 * they are foot-gun settings that must always reset to their code defaults
+	 * ("11" / "100" K) on every load rather than silently carrying forward a
+	 * stale risk-cap value from a previous session (see
+	 * {@link #CONFIG_KEY_EXPENSIVE_COUNT}/{@link #CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT}
+	 * javadoc). They are still initialised at construction time and read live off
+	 * the fields by {@link #resolvedExpensiveCount}/{@link #resolvedExpensiveThreshold}.
 	 */
 	private void loadOptimizerPrefs()
 	{
@@ -3543,21 +3556,13 @@ public final class GearSection extends CollapsibleSection
 			budgetMToggle.setSelected(Boolean.parseBoolean(budgetUnit));
 			budgetKToggle.setSelected(!Boolean.parseBoolean(budgetUnit));
 		}
-		String expensiveCount = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_COUNT);
-		if (expensiveCount != null && !expensiveCount.isEmpty())
-		{
-			expensiveCountField.setText(expensiveCount);
-		}
-		String thresholdAmount = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT);
-		if (thresholdAmount != null && !thresholdAmount.isEmpty())
-		{
-			expensiveThresholdField.setText(thresholdAmount);
-		}
-		// Threshold is K-only in the UI now, so its unit is never restored — K
-		// stays selected (set at construction) so the value reads as thousands.
 	}
 
-	/** Persists the budget amount/unit + expensive-items count/threshold to config — see {@link #loadOptimizerPrefs}. */
+	/**
+	 * Persists the budget amount/unit to config — see {@link #loadOptimizerPrefs}.
+	 * The expensive-items count/threshold are intentionally never persisted (see
+	 * that method's javadoc), so they are not written here either.
+	 */
 	private void saveOptimizerPrefs()
 	{
 		if (configManager == null)
@@ -3567,9 +3572,6 @@ public final class GearSection extends CollapsibleSection
 		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_BUDGET_AMOUNT, budgetField.getText());
 		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_BUDGET_UNIT_MILLIONS,
 			String.valueOf(budgetMToggle.isSelected()));
-		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_COUNT, expensiveCountField.getText());
-		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT,
-			expensiveThresholdField.getText());
 	}
 
 	private static final String CONFIG_KEY_EXCLUDED_ITEM_IDS = "optimizerExcludedItemIds";

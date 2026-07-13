@@ -339,6 +339,299 @@ public class GearOptimizerTest {
                 ABYSSAL_WHIP, weaponIdIn(result));
     }
 
+    // ------------------------ expensive-item cap: candidate-pruning fix (starved sub-ceiling slots)
+
+    // Real boots-slot (10) fixtures, ranked by the unconstrained proxyOffensiveScore
+    // (sum of every offensive bonus) per equipment_stats.min.json:
+    private static final int AVERNIC_TREADS = 31088;              // score 57 — best-stat, "expensive"
+    private static final int ETERNAL_BOOTS = 13235;                // score 18 — good sub-ceiling alternative
+    private static final int IRON_BOOTS = 4121;                    // score -4 — weak/cheap junk
+    private static final int BOOTS_SLOT = 10;
+
+    // Real head-slot (0) fixtures:
+    private static final int CORRUPTED_HELM_PERFECTED = 23842;     // score 43 — "expensive", highest-scoring
+    private static final int CORRUPTED_HELM_ATTUNED = 23841;       // score 26 — sub-ceiling alternative
+    private static final int HEAD_SLOT = 0;
+
+    // Real legs-slot (7) fixtures:
+    private static final int CORRUPTED_LEGS_PERFECTED = 23848;     // score 60 — "expensive"
+    private static final int CORRUPTED_LEGS_ATTUNED = 23847;       // score 43 — sub-ceiling alternative
+    private static final int LEGS_SLOT = 7;
+
+    /** Every item free-priced except the fixed map — isolates a scenario to just those fixtures. */
+    private static GearOptimizer.PriceSource fixedPricesElseUnaffordable(java.util.Map<Integer, Long> fixed) {
+        return id -> fixed.containsKey(id) ? fixed.get(id) : 100_000_000L;
+    }
+
+    /**
+     * Root-cause regression: {@code buildCandidatesForSlot} used to prune each
+     * slot to the top-N by raw stat BEFORE the expensive-item cap was applied,
+     * so a good AT/BELOW-ceiling item could be pruned away entirely, leaving
+     * the search only the over-ceiling owned item or cheap junk to choose
+     * from. {@code candidatesPerSlot(1)} isolates the bug to just these 3
+     * boots fixtures (mirrors {@link #everyWeaponExpensiveExcept}'s pattern):
+     * the owned Avernic treads out-score the other two, so pre-fix pruning
+     * keeps ONLY the owned item — the good, affordable Eternal boots (and the
+     * junk Iron boots) are discarded before the cap ever gets a say.
+     */
+    @Test
+    public void expensiveCap_subCeilingQualitySurvivesPruning_notOwnedExpensiveNorJunk() {
+        int[] live = emptyLoadout();
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(AVERNIC_TREADS));
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(AVERNIC_TREADS, 9_000_000L);  // (a) owned, above the ceiling
+        fixed.put(ETERNAL_BOOTS, 80_000L);      // (b) non-owned, good stats, at/below the ceiling
+        fixed.put(IRON_BOOTS, 500L);            // (c) non-owned, weak/cheap junk
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(200_000L)
+                .owned(owned)
+                .priceSource(fixedPricesElseUnaffordable(fixed))
+                .candidatesPerSlot(1)
+                .expensiveItemThreshold(100_000L)
+                .expensiveItemCount(0)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("the best sub-ceiling boots must survive pruning and be picked over both the "
+                        + "over-ceiling owned item and cheap junk",
+                ETERNAL_BOOTS, itemIdInSlot(result, BOOTS_SLOT));
+    }
+
+    /**
+     * A non-premium slot seeded with an owned over-ceiling item must be
+     * de-risked to the best AT/BELOW-ceiling alternative once the fix makes
+     * that alternative a real candidate (there's no junk distractor here —
+     * this isolates the de-risk itself from the "beats junk too" check above).
+     */
+    @Test
+    public void expensiveCap_ownedOverCeilingSlot_deRisksToSubCeilingAlternative() {
+        int[] live = emptyLoadout();
+        live[BOOTS_SLOT] = AVERNIC_TREADS; // worn, over-ceiling
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(AVERNIC_TREADS));
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(AVERNIC_TREADS, 9_000_000L);
+        fixed.put(ETERNAL_BOOTS, 80_000L);
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(200_000L)
+                .owned(owned)
+                .priceSource(fixedPricesElseUnaffordable(fixed))
+                .candidatesPerSlot(1)
+                .expensiveItemThreshold(100_000L)
+                .expensiveItemCount(0)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("a non-premium slot seeded with an owned over-ceiling item must be swapped to "
+                        + "the best <=ceiling alternative, not left over-cap",
+                ETERNAL_BOOTS, itemIdInSlot(result, BOOTS_SLOT));
+    }
+
+    /**
+     * General coverage across multiple slots: with only ONE premium slot
+     * allowed but two owned over-ceiling candidates competing (boots + head),
+     * the final result must never hold more than the allowed count of
+     * over-ceiling items — pre-fix, neither slot has anywhere to de-risk TO,
+     * so both stay over-ceiling and the allowance is violated.
+     */
+    @Test
+    public void expensiveCap_countRespected_acrossMultipleSlots() {
+        int[] live = emptyLoadout();
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(AVERNIC_TREADS, CORRUPTED_HELM_PERFECTED));
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(AVERNIC_TREADS, 9_000_000L);
+        fixed.put(ETERNAL_BOOTS, 80_000L);
+        fixed.put(CORRUPTED_HELM_PERFECTED, 9_500_000L);
+        fixed.put(CORRUPTED_HELM_ATTUNED, 85_000L);
+        long threshold = 100_000L;
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(300_000L)
+                .owned(owned)
+                .priceSource(fixedPricesElseUnaffordable(fixed))
+                .candidatesPerSlot(1)
+                .expensiveItemThreshold(threshold)
+                .expensiveItemCount(1) // exactly one premium slot allowed
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        int overCount = 0;
+        for (GearOptimizer.SlotChoice choice : result.loadout()) {
+            if (choice.itemId() > 0 && fixed.getOrDefault(choice.itemId(), 100_000_000L) > threshold) {
+                overCount++;
+            }
+        }
+        assertTrue("no more than the allowed number of premium (>ceiling) slots may appear in the result "
+                        + "(was " + overCount + ")",
+                overCount <= 1);
+    }
+
+    /**
+     * With count=2 across three competing owned over-ceiling slots (boots,
+     * head, legs), up to 2 may stay premium (whichever the search judges
+     * worth keeping) but every slot must still be FILLED — the fix must
+     * supply a real sub-ceiling alternative for whichever slot(s) get
+     * de-risked, not leave them empty for lack of a candidate.
+     */
+    @Test
+    public void expensiveCap_premiumSlotsMaySplurge_othersStayWithinCeilingAndFilled() {
+        int[] live = emptyLoadout();
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(AVERNIC_TREADS, CORRUPTED_HELM_PERFECTED, CORRUPTED_LEGS_PERFECTED));
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(AVERNIC_TREADS, 9_000_000L);
+        fixed.put(ETERNAL_BOOTS, 80_000L);
+        fixed.put(CORRUPTED_HELM_PERFECTED, 9_500_000L);
+        fixed.put(CORRUPTED_HELM_ATTUNED, 85_000L);
+        fixed.put(CORRUPTED_LEGS_PERFECTED, 9_200_000L);
+        fixed.put(CORRUPTED_LEGS_ATTUNED, 90_000L);
+        long threshold = 100_000L;
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(500_000L)
+                .owned(owned)
+                .priceSource(fixedPricesElseUnaffordable(fixed))
+                .candidatesPerSlot(1)
+                .expensiveItemThreshold(threshold)
+                .expensiveItemCount(2)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        int overCount = 0;
+        for (int slot : new int[] {BOOTS_SLOT, HEAD_SLOT, LEGS_SLOT}) {
+            int itemId = itemIdInSlot(result, slot);
+            assertTrue("every tested slot must be filled — the fix must supply a usable sub-ceiling "
+                    + "alternative for a de-risked slot, not leave it empty (slot " + slot + ")", itemId > 0);
+            if (fixed.getOrDefault(itemId, 100_000_000L) > threshold) {
+                overCount++;
+            }
+        }
+        assertTrue("no more than the 2 allowed slots may exceed the ceiling (was " + overCount + ")",
+                overCount <= 2);
+    }
+
+    /**
+     * Cap-inactive regression: at {@code expensiveItemCount >=} the number of
+     * searchable slots, {@link GearOptimizer}'s own javadoc says the cap can
+     * never bind — the sub-ceiling retention added by this fix must stay
+     * gated behind that same inactivity check, so an inactive cap's candidate
+     * list (and therefore its result) is byte-for-byte the same as before the
+     * fix: with only 1 candidate slot and an owned item that out-scores the
+     * only other fixture, the owned item is picked and nothing is available
+     * to swap it for, cap or no cap.
+     */
+    @Test
+    public void expensiveCap_inactiveAtCountAtOrAboveSlotCount_behavesLikeUnfixedPruning() {
+        int[] live = emptyLoadout();
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(AVERNIC_TREADS));
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(AVERNIC_TREADS, 9_000_000L);
+        fixed.put(ETERNAL_BOOTS, 80_000L);
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(200_000L)
+                .owned(owned)
+                .priceSource(fixedPricesElseUnaffordable(fixed))
+                .candidatesPerSlot(1)
+                .expensiveItemThreshold(100_000L)
+                .expensiveItemCount(GearOptimizer.SEARCHABLE_SLOTS.length) // >= slot count => cap inactive
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("with the cap inactive the sub-ceiling retention must never kick in — the owned "
+                        + "item is picked exactly as an unconstrained search would pick it",
+                AVERNIC_TREADS, itemIdInSlot(result, BOOTS_SLOT));
+    }
+
+    /**
+     * Boundary: a price EXACTLY at the threshold must be treated as WITHIN
+     * the ceiling ("spend up to X"), not as exceeding it. This exercises both
+     * halves of the fix together — Eternal boots must first survive pruning
+     * (the retention fix) and then, when swapped in, must NOT still count as
+     * "expensive" under a zero-premium-allowance cap (the {@code >} vs
+     * {@code >=} boundary fix) — otherwise the swap doesn't reduce the
+     * overflow and a same-DPS-tier comparison keeps the (better-stat) owned
+     * item instead.
+     */
+    @Test
+    public void expensiveCap_priceExactlyAtThreshold_isTreatedAsWithinCeiling() {
+        int[] live = emptyLoadout();
+        long threshold = 100_000L;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(AVERNIC_TREADS));
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(AVERNIC_TREADS, 9_000_000L);
+        fixed.put(ETERNAL_BOOTS, threshold); // exactly AT the ceiling
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(200_000L)
+                .owned(owned)
+                .priceSource(fixedPricesElseUnaffordable(fixed))
+                .candidatesPerSlot(1)
+                .expensiveItemThreshold(threshold)
+                .expensiveItemCount(0) // zero premium (over-ceiling) slots allowed
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("an item priced exactly at the threshold must be treated as within the ceiling, "
+                        + "not as exceeding it",
+                ETERNAL_BOOTS, itemIdInSlot(result, BOOTS_SLOT));
+    }
+
+    /**
+     * The weapon slot's candidate pruning is a SEPARATE code path
+     * ({@code pruneWeaponCandidatesByDps}, ranked by real evaluated DPS
+     * rather than the raw-stat proxy) and must get the same fix: with
+     * {@code candidatesPerSlot(1)}, pre-fix pruning keeps only the owned
+     * over-ceiling whip — the affordable, still-solid scimitar is discarded
+     * before the cap can place it, leaving nothing to de-risk into but junk.
+     */
+    @Test
+    public void expensiveCap_weaponSlot_subCeilingAlternativeSurvivesDpsPruning() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = ABYSSAL_WHIP;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(ABYSSAL_WHIP));
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(ABYSSAL_WHIP, 100_000_000L);   // owned, way above the ceiling
+        fixed.put(DRAGON_SCIMITAR, 1_000_000L);  // buyable, at/below the ceiling, still solid
+        fixed.put(BRONZE_SWORD, 100L);           // buyable, cheap junk
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(2_000_000L)
+                .owned(owned)
+                .priceSource(everyWeaponExpensiveExcept(fixed))
+                .candidatesPerSlot(1)
+                .expensiveItemThreshold(2_000_000L)
+                .expensiveItemCount(0)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("the weapon slot's real-DPS pruning must also retain the best <=ceiling weapon, "
+                        + "not collapse to junk (or stay stuck on the owned over-ceiling weapon) once "
+                        + "it's de-risked",
+                DRAGON_SCIMITAR, weaponIdIn(result));
+    }
+
     // -------------------------------------------------- exclude / include
 
     @Test

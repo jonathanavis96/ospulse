@@ -380,7 +380,7 @@ public final class GearOptimizer {
          * The number of "expensive" items (see {@link #expensiveItemThreshold()})
          * the caller wants allowed in the result (e.g. for wilderness/PvP risk
          * budgeting). Enforced by {@link GearOptimizer#optimize}: the returned
-         * loadout holds no more than this many items at/above the threshold
+         * loadout holds no more than this many items priced ABOVE the threshold
          * whenever that's achievable from the candidate pool — the local search
          * de-risks even a live loadout that starts over the cap. Counts owned
          * items too (an owned high-value item is still riskable). Inert unless
@@ -392,10 +392,11 @@ public final class GearOptimizer {
         }
 
         /**
-         * The gp value at/above which an item is considered "expensive" for
-         * {@link #expensiveItemCount()}. A threshold of 0 (the default) means
-         * "no item is expensive" and disables the cap in
-         * {@link GearOptimizer#optimize}.
+         * The gp value STRICTLY ABOVE which an item is considered "expensive"
+         * for {@link #expensiveItemCount()} — a price exactly equal to this
+         * threshold is "spend up to X", i.e. within the ceiling. A threshold
+         * of 0 (the default) means "no item is expensive" and disables the
+         * cap in {@link GearOptimizer#optimize}.
          */
         public long expensiveItemThreshold() {
             return expensiveItemThreshold;
@@ -722,7 +723,9 @@ public final class GearOptimizer {
 
     /**
      * Count of non-empty slots in {@code itemIds} holding an "expensive" item —
-     * GE value at/above {@link Request#expensiveItemThreshold()}. Unlike
+     * GE value STRICTLY ABOVE {@link Request#expensiveItemThreshold()} (an
+     * item priced exactly at the threshold is "spend up to X", i.e. within
+     * the ceiling, not exceeding it). Unlike
      * {@link #totalSpendOf} this counts OWNED items too: an owned high-value
      * item is still riskable gear in the wilderness/PvP, which is exactly what
      * the expensive-item cap protects against, so ownership (= free to equip)
@@ -751,7 +754,7 @@ public final class GearOptimizer {
             }
             Long ownedPrice = request.owned.contains(itemId) ? request.ownedItemPrices().get(itemId) : null;
             long price = ownedPrice != null ? ownedPrice : priceOf(itemId, request);
-            if (price >= threshold) {
+            if (price > threshold) {
                 count++;
             }
         }
@@ -996,13 +999,55 @@ public final class GearOptimizer {
         // from pruning as always.
         affordable.sort(Comparator.comparingInt((Candidate c) -> -proxyOffensiveScore(c.itemId(), request.style)));
         List<Candidate> pruned = new ArrayList<>();
+        Set<Integer> keptIds = new HashSet<>();
         for (Candidate c : affordable) {
             boolean mandatory = c.owned() || request.include.contains(c.itemId());
             if (mandatory || pruned.size() < request.candidatesPerSlot) {
                 pruned.add(c);
+                keptIds.add(c.itemId());
             }
         }
+        retainSubCeilingCandidates(affordable, pruned, keptIds, request);
         return pruned;
+    }
+
+    /**
+     * When the expensive-item cap ({@link #expensiveCapActive}) is active,
+     * the top-N-by-stat/DPS pruning above can starve a slot of every
+     * AT/BELOW-ceiling item: the highest scorers are exactly the "expensive"
+     * ones a capped, non-premium slot must avoid, so a genuinely good cheap
+     * item can be pruned away entirely — leaving the local search a choice
+     * only between an over-ceiling item and whatever junk happened to
+     * survive, unable to actually de-risk into anything good. This appends
+     * up to {@code request.candidatesPerSlot} MORE items (not already in
+     * {@code keptIds}) priced AT/BELOW the threshold, walking {@code
+     * sortedBest} in the order the caller already ranked it (proxy stat for
+     * non-weapon slots, real evaluated DPS for the weapon slot), so the
+     * search always has a genuine sub-ceiling option to fall back to.
+     *
+     * <p>A no-op when the cap is inactive, so an inactive cap's candidate
+     * list — and therefore its result — is unchanged from before this fix.
+     */
+    private static void retainSubCeilingCandidates(List<Candidate> sortedBest, List<Candidate> pruned,
+                                                    Set<Integer> keptIds, Request request) {
+        if (!expensiveCapActive(request)) {
+            return;
+        }
+        long threshold = request.expensiveItemThreshold();
+        int kept = 0;
+        for (Candidate c : sortedBest) {
+            if (kept >= request.candidatesPerSlot) {
+                break;
+            }
+            if (keptIds.contains(c.itemId())) {
+                continue;
+            }
+            if (c.price() <= threshold) {
+                pruned.add(c);
+                keptIds.add(c.itemId());
+                kept++;
+            }
+        }
     }
 
     /**
@@ -1045,12 +1090,22 @@ public final class GearOptimizer {
         }
         scored.sort((a, b) -> Double.compare(b.dps, a.dps));
         List<Candidate> pruned = new ArrayList<>();
+        Set<Integer> keptIds = new HashSet<>();
+        List<Candidate> viableByDps = new ArrayList<>(scored.size());
         for (Scored s : scored) {
             boolean mandatory = s.candidate.owned() || request.include.contains(s.candidate.itemId());
             if (mandatory || (pruned.size() < request.candidatesPerSlot && s.dps != Double.NEGATIVE_INFINITY)) {
                 pruned.add(s.candidate);
+                keptIds.add(s.candidate.itemId());
+            }
+            if (s.dps != Double.NEGATIVE_INFINITY) {
+                // Already DPS-sorted; weapons that can't attack under the
+                // style/spellbook constraint are excluded so the expensive-
+                // item retention below never resurrects an unusable weapon.
+                viableByDps.add(s.candidate);
             }
         }
+        retainSubCeilingCandidates(viableByDps, pruned, keptIds, request);
         return pruned;
     }
 
