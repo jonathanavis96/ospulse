@@ -4134,6 +4134,15 @@ public final class GearSection extends CollapsibleSection
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Set<Integer> candidateIds = new java.util.HashSet<>(index.allItemIds());
 		candidateIds.addAll(ownedPrices.keySet());
+		// Craft-ingredient ids (e.g. the Scorching bow's Tormented synapse)
+		// must be priced too: resolveOptimizerPriceSource's craft-ingredient
+		// branch reads the ingredient's price from lookup.prices(), which is
+		// only populated for ids in this set — an ingredient absent here
+		// (not itself equipment, not owned) resolves to 0 there and the
+		// exception falls through to unaffordable. Mirrors
+		// runOptimizerSyncForTest/runOptimizerAndRankStylesSyncForTest,
+		// which already did this for the test-seam paths.
+		candidateIds.addAll(UNTRADEABLE_CRAFT_INGREDIENT.values());
 
 		priceResolver.resolve(candidateIds, lookup ->
 		{

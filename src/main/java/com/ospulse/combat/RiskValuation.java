@@ -44,6 +44,12 @@ import java.util.function.IntToLongFunction;
  *       cloak, Rada's blessing) are exempted from this fallback entirely.
  *       The back-compat {@link #riskValue} entry point does not use this
  *       fallback (unmapped/no curated entry still risks at 0 there).</li>
+ *   <li>Within that parchment fallback, a small curated {@link
+ *       #UNTRADEABLE_RECLAIM_COST} table caps the value at the item's real
+ *       gp reclaim/purchase cost (via {@code Math.min}) for the handful of
+ *       CHEAP untradeables the parchment price would otherwise wildly
+ *       over-value — e.g. Barrows gloves, a ~130k item, would otherwise risk
+ *       at the ~575k parchment price it happens to also fall back to.</li>
  * </ul>
  *
  * <p><b>No client-thread dependency:</b> {@link ItemMapping#map(int)} is a
@@ -86,6 +92,43 @@ public final class RiskValuation
 	{
 		Map<Integer, int[]> m = new HashMap<>();
 		CREATED_ITEM_COMPONENTS = Collections.unmodifiableMap(m);
+	}
+
+	/**
+	 * Curated reclaim/purchase costs (flat, non-fluctuating game constants —
+	 * NOT GE prices) for a handful of clearly-CHEAP untradeables that would
+	 * otherwise fall to the Trouver parchment fallback in {@link #classify}
+	 * and risk at a wildly inflated value (the parchment itself is a
+	 * mid-value GE item, currently priced far above many of these items'
+	 * real worth). Used only via {@code Math.min(parchmentPrice,
+	 * reclaimCost)} — never on its own — so an entry here can only ever
+	 * LOWER an item's risk value versus the plain parchment fallback, never
+	 * raise it.
+	 *
+	 * <p>Add an entry only for an item whose id is confirmed against this
+	 * project's own {@code equipment_index.min.json} (id -&gt; name -&gt;
+	 * tradeable flag) AND whose reclaim cost is a single unambiguous flat gp
+	 * figure with no diary/minigame-point/quest-state dependency — anything
+	 * uncertain is deliberately left at the plain parchment price instead
+	 * (see the field's per-entry comment for the verification done).
+	 */
+	private static final Map<Integer, Long> UNTRADEABLE_RECLAIM_COST;
+
+	static
+	{
+		Map<Integer, Long> m = new HashMap<>();
+		// 7462 = Barrows gloves. Verified against this project's own
+		// src/main/resources/com/ospulse/combat/equipment_index.min.json
+		// ("7462": ["Barrows gloves", 9, false] — slot 9 = hands,
+		// tradeable = false), cross-checked against the OSRS Wiki
+		// (oldschool.runescape.wiki/w/Barrows_gloves, fetched 2026-07-14).
+		// Bought from the Culinaromancer's Chest (Lumbridge Castle cellar,
+		// after completing Recipe for Disaster) for a flat 130,000gp.
+		// Deliberately the FULL price, not the Elite Lumbridge & Draynor
+		// Diary-discounted 104,000gp — that discount is player-state
+		// dependent, so 130,000 is the one figure correct for every player.
+		m.put(7462, 130_000L);
+		UNTRADEABLE_RECLAIM_COST = Collections.unmodifiableMap(m);
 	}
 
 	/**
@@ -169,7 +212,11 @@ public final class RiskValuation
 	 * death" ({@link Source#PARCHMENT}) — but only when {@code
 	 * isFreeReobtainable} is false (a free-to-reclaim item, e.g. Ardougne
 	 * cloak or Rada's blessing, carries no death risk at all and must never
-	 * be priced) and {@code parchmentPrice > 0}. A TRADEABLE item is always
+	 * be priced) and {@code parchmentPrice > 0}. That parchment value is
+	 * itself capped at {@code Math.min(parchmentPrice, reclaimCost)} for the
+	 * curated {@link #UNTRADEABLE_RECLAIM_COST} entries (e.g. Barrows
+	 * gloves, ~130k, never risks at the ~575k parchment price), still
+	 * reported as {@link Source#PARCHMENT}. A TRADEABLE item is always
 	 * just its own GE price ({@link Source#TRADEABLE}), regardless of
 	 * free-reobtainable status.
 	 *
@@ -233,7 +280,9 @@ public final class RiskValuation
 		long parchment = Math.max(0L, parchmentPrice);
 		if (parchment > 0L)
 		{
-			return new Risk(parchment, Source.PARCHMENT);
+			Long reclaimCost = UNTRADEABLE_RECLAIM_COST.get(itemId);
+			long value = reclaimCost != null ? Math.min(parchment, reclaimCost) : parchment;
+			return new Risk(value, Source.PARCHMENT);
 		}
 
 		return new Risk(0L, Source.NONE);
