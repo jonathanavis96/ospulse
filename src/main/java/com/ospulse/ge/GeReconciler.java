@@ -108,6 +108,25 @@ public final class GeReconciler implements GeAttributions
 	}
 
 	/**
+	 * Plain, serializable snapshot of one item's cost-basis ledger entry —
+	 * returned by {@link #exportCostBasis()} and accepted by {@link
+	 * #importCostBasis(Map)} so a caller (e.g. {@code SessionTracker}) can
+	 * persist the buy ledger (JSON via Gson) across a relog without this class
+	 * needing to know anything about {@code ConfigManager}/{@code Client}.
+	 */
+	public static final class CostBasisSnapshot
+	{
+		public final long qty;
+		public final long avgUnitCost;
+
+		public CostBasisSnapshot(long qty, long avgUnitCost)
+		{
+			this.qty = qty;
+			this.avgUnitCost = avgUnitCost;
+		}
+	}
+
+	/**
 	 * Per-item Grand Exchange sales tax, matching the live game: 2% of the sale
 	 * price per item (raised from 1% on 29 May 2025), rounded down, capped at
 	 * {@link #GE_TAX_CAP_PER_ITEM} gp per item. Because it rounds down, any item
@@ -500,6 +519,65 @@ public final class GeReconciler implements GeAttributions
 		expectedRemovals.clear();
 		realizedPnl = 0L;
 		lootSales.clear();
+	}
+
+	/**
+	 * Exports a plain, serializable snapshot of the cost-basis buy ledger only —
+	 * itemId -&gt; {@link CostBasisSnapshot} for every item still holding an open
+	 * (unsold) GE-bought quantity. Deliberately excludes {@link #realizedPnl}
+	 * (must stay per-session — see {@link #reset()}) and the transient GE slot /
+	 * expectation state ({@code slots}, {@code expectedArrivals},
+	 * {@code expectedRemovals}, {@code lootSales} — re-primed from live offers
+	 * each session via {@link #primeSlot}/{@link #primeCollectable}).
+	 *
+	 * <p>Intended to be persisted (e.g. as JSON by the caller) and fed back into
+	 * a fresh instance via {@link #importCostBasis(Map)} after a relog, so a
+	 * buy made in an earlier session still has its cost basis when sold later —
+	 * crediting the flip P&amp;L to whichever session the sell happens in.
+	 */
+	public Map<Integer, CostBasisSnapshot> exportCostBasis()
+	{
+		Map<Integer, CostBasisSnapshot> out = new HashMap<>();
+		for (Map.Entry<Integer, CostBasis> e : costBasis.entrySet())
+		{
+			CostBasis basis = e.getValue();
+			if (basis.qty > 0)
+			{
+				out.put(e.getKey(), new CostBasisSnapshot(basis.qty, basis.avgUnitCost));
+			}
+		}
+		return out;
+	}
+
+	/**
+	 * Restores the cost-basis ledger from a snapshot previously produced by
+	 * {@link #exportCostBasis()} (typically loaded from persisted per-account
+	 * config after a relog). Replaces whatever is currently in the ledger —
+	 * call right after {@link #reset()}, before any live offer events are fed
+	 * in, so the restore isn't immediately wiped. Entries that are {@code null}
+	 * or non-positive quantity are ignored. Touches ONLY {@code costBasis}:
+	 * {@link #realizedPnl} and all transient slot/expectation state are left
+	 * alone (per-session, re-primed separately).
+	 */
+	public void importCostBasis(Map<Integer, CostBasisSnapshot> snapshot)
+	{
+		costBasis.clear();
+		if (snapshot == null)
+		{
+			return;
+		}
+		for (Map.Entry<Integer, CostBasisSnapshot> e : snapshot.entrySet())
+		{
+			CostBasisSnapshot s = e.getValue();
+			if (s == null || s.qty <= 0)
+			{
+				continue;
+			}
+			CostBasis basis = new CostBasis();
+			basis.qty = s.qty;
+			basis.avgUnitCost = s.avgUnitCost;
+			costBasis.put(e.getKey(), basis);
+		}
 	}
 
 	/**

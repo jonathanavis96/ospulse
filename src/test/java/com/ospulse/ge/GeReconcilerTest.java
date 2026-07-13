@@ -3,6 +3,8 @@ package com.ospulse.ge;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.Map;
+
 import static org.junit.Assert.assertEquals;
 
 public class GeReconcilerTest
@@ -436,5 +438,88 @@ public class GeReconcilerTest
 		assertEquals(0L, reconciler.realizedPnl());
 		assertEquals("collected pre-session bought items are excluded from loot",
 			5L, reconciler.attributeArrival(WHIP, 5L));
+	}
+
+	// ----------------------------------------------- cost-basis export/import (relog persistence)
+
+	@Test
+	public void exportImportRoundTripPreservesCostBasisAcrossRelog()
+	{
+		// Session 1 (weeks ago, in GE terms): buy 10 whips, never sold this session.
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+
+		Map<Integer, GeReconciler.CostBasisSnapshot> exported = reconciler.exportCostBasis();
+
+		// Relog: a fresh reconciler (as the reset session bootstrap produces)
+		// restores the ledger from the exported snapshot.
+		GeReconciler restored = new GeReconciler();
+		restored.importCostBasis(exported);
+
+		// Selling the weeks-old buy in the NEW session credits the full flip P&L
+		// (sale - basis - tax), exactly as if it had never left memory.
+		restored.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 2000L);
+		assertEquals(1_760_000L, restored.realizedPnl());
+	}
+
+	@Test
+	public void importCarriesOpenCostBasisButNotRealizedPnl()
+	{
+		// Session 1: buy+sell whips (realises P&L this session), then separately
+		// buy darts that stay open (still-unsold cost basis) at export time.
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 2000L);
+		assertEquals(1_760_000L, reconciler.realizedPnl());
+
+		int dartId = 811;
+		reconciler.onOfferUpdate(2, GeOfferState.BOUGHT, dartId, "Rune dart",
+			100L, 100L, 100_000L, 1_000L, 3000L);
+
+		Map<Integer, GeReconciler.CostBasisSnapshot> exported = reconciler.exportCostBasis();
+
+		GeReconciler restored = new GeReconciler();
+		restored.importCostBasis(exported);
+
+		// realizedPnl is per-session: NOT carried by import even though the
+		// original instance had realised a gain.
+		assertEquals("realizedPnl must not be carried across a relog restore",
+			0L, restored.realizedPnl());
+
+		// But the still-open dart cost basis WAS carried: selling it now in the
+		// "new session" realises the correct flip P&L from the old basis.
+		restored.onOfferUpdate(3, GeOfferState.SOLD, dartId, "Rune dart",
+			100L, 100L, 200_000L, 2_000L, 4000L);
+		// Net proceeds/item = 2,000 - 40 (2% tax) = 1,960; profit = (1,960 - 1,000) * 100.
+		assertEquals(96_000L, restored.realizedPnl());
+	}
+
+	@Test
+	public void relogWithoutRestoreLosesBasisButRestoreRecoversFullFlipCredit()
+	{
+		// Session 1 (weeks ago): buy 10 whips, never sold.
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+		Map<Integer, GeReconciler.CostBasisSnapshot> exported = reconciler.exportCostBasis();
+
+		// Relog WITHOUT restoring the ledger: reset() alone wipes the basis
+		// (today's bug), so selling the weeks-old buy afterwards realises nothing.
+		reconciler.reset();
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 2000L);
+		assertEquals("without restore the weeks-old buy's basis is lost -> zero flip credit",
+			0L, reconciler.realizedPnl());
+
+		// Relog WITH restore (the fix): reset() a fresh reconciler, then import
+		// the exported ledger right after — the weeks-old buy survives the relog.
+		GeReconciler restoredSession = new GeReconciler();
+		restoredSession.reset();
+		restoredSession.importCostBasis(exported);
+		restoredSession.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 2000L);
+		assertEquals("with restore the weeks-old buy credits its full flip P&L in the new session",
+			1_760_000L, restoredSession.realizedPnl());
 	}
 }
