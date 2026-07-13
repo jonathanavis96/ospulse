@@ -197,6 +197,33 @@ public final class SessionEngine
 	private long startNetWorth;
 	private boolean startBankKnown;
 	/**
+	 * GE position pool value ({@code geInFlight + geCollectable}) captured at
+	 * {@link #startSession} — the reference point the "GE positions" component
+	 * grows from, purely for inspection/diagnostics (the component itself is
+	 * {@code pool - geCostBasis}, which already starts at zero by construction
+	 * since {@link #geCostBasis} is seeded to the same value).
+	 */
+	private long geAnchor;
+	/**
+	 * Running cost basis of the GE position pool (open/collectable GE offers)
+	 * for the "GE positions" session-panel component:
+	 * {@code GE positions = (geInFlight + geCollectable) - geCostBasis}. Kept in
+	 * lockstep by {@link #syncGeCostBasis}: an ENTRY (coins escrowed for a buy,
+	 * an item listed for a sell — value leaving the rest of tracked wealth into
+	 * the pool) adds at the live value that left, so a pure transfer never
+	 * creates a spread ("moving your own coins into an offer must not inflate
+	 * it"); an EXIT (a collection landing in the inventory, or straight into the
+	 * bank — see {@link #holdGeCollectableDeposit}) prorates it down
+	 * average-cost style. Internal pool REVALUATION (a favourable/unfavourable
+	 * fill, a sell offer's unsold remainder repricing) touches neither side,
+	 * which is exactly what shows through as the unrealised figure.
+	 */
+	private long geCostBasis;
+	/** Last observed GE pool value ({@code geInFlight + geCollectable}) — see {@link #syncGeCostBasis}. */
+	private long gePoolLastObserved;
+	/** Last observed non-pool tracked wealth ({@code tracked() - pool}) — see {@link #syncGeCostBasis}. */
+	private long geNonPoolLastObserved;
+	/**
 	 * itemId -&gt; session cost basis for every currently-held tracked item
 	 * (quantity + total acquisition cost in gp). Kept in lockstep with the
 	 * latest snapshot's tracked items by {@link #syncCostBasis}.
@@ -701,6 +728,11 @@ public final class SessionEngine
 		this.visitSawBank = false;
 		this.bankAnchorKnown = initial.isBankKnown();
 		this.bankAnchor = initial.isBankKnown() ? initial.getBankValue() : 0L;
+		long initialGePool = initial.getGeInFlightValue() + initial.getGeCollectableValue();
+		this.geAnchor = initialGePool;
+		this.geCostBasis = initialGePool;
+		this.gePoolLastObserved = initialGePool;
+		this.geNonPoolLastObserved = initial.tracked() - initialGePool;
 		this.pendingBankSettles.clear();
 		this.lastTransferFoldKnown = false;
 		this.revertSuspectAmount = 0L;
@@ -739,7 +771,17 @@ public final class SessionEngine
 	 */
 	public void setBankOpen(boolean open, WealthSnapshot current, long tsMs)
 	{
+		// Fold a newly-known bank in BEFORE reconciling this observation's own
+		// movement, so startNetWorth captures the bank as it stood the instant
+		// it became visible — not a later, already-mutated reading. Relying
+		// solely on snapshot()'s lazy fold (still done there too, for a
+		// caller that never calls setBankOpen/update between sightings) can
+		// otherwise fold in a POST-transfer bank value if activity happens
+		// before the next snapshot() call, corrupting the raw net-worth delta
+		// (and hence the session panel's Bank residual) by the transfer amount.
+		foldNewlyKnownBankIntoStart(current);
 		syncCostBasis(current);
+		syncGeCostBasis(current);
 		// Whether the bank had been visible during the visit BEFORE this
 		// transition's own observation (the pre-rewrite semantics: a bank
 		// value first revealed by the close snapshot itself never yielded a
@@ -835,15 +877,21 @@ public final class SessionEngine
 	 *   <li><b>Otherwise a passive revaluation</b> — the bank is valued at
 	 *       live prices, so a GE price reload can move a large closed bank by
 	 *       millions with no transfer at all (observed: +4.09M on a ~1.1B
-	 *       bank). That paper drift is folded into {@link #startNetWorth}
-	 *       (mirroring {@link #foldNewlyKnownBankIntoStart}), so the "Net
-	 *       worth Δ" reflects session activity rather than price drift on
-	 *       cold storage, and the accounting identity
-	 *       {@code netWorthDelta == profit - suppliesUsed + unrealizedPnl}
-	 *       survives the reload. An out-of-band deposit this engine doesn't
-	 *       model (e.g. GE collect-to-bank) is also folded here — the
-	 *       matching tracked-wealth movement books to profit/supplies, so the
-	 *       identity still holds; only the transfer's label is lost.</li>
+	 *       bank). Earlier revisions folded this into {@link #startNetWorth}
+	 *       (mirroring {@link #foldNewlyKnownBankIntoStart}) to keep it out of
+	 *       "Net worth Δ" — but that neutralisation is exactly the root cause
+	 *       of a since-fixed −3.9M phantom loss: a deposit whose settle window
+	 *       AND close-grace window both lapsed before its lagged bank-side rise
+	 *       landed got misclassified as revaluation and folded into {@code
+	 *       startNetWorth}, permanently double-discounting a transfer whose
+	 *       tracked-side drop had already (correctly) become a real loss on
+	 *       expiry. Deliberately left UNFOLDED now: the drift flows straight
+	 *       into the raw net-worth delta, where the locked session model's
+	 *       "Bank" component picks it up as a residual (see {@link
+	 *       #snapshot}) — the same channel a late-settling deposit's revaluation
+	 *       self-corrects through, and the locked model's rule that price
+	 *       wobble on tracked (unbanked) holdings is zeroed but bank contents
+	 *       revalue live.</li>
 	 * </ul>
 	 * One shape is deliberately second-guessed: around a rapid bank
 	 * close/reopen RuneLite can re-serve a STALE snapshot of both containers,
@@ -923,7 +971,7 @@ public final class SessionEngine
 			// Exact first: a signalled barrel empty parked its precise contents in
 			// the materialising buffer, so draw those (id + qty) before the id-blind
 			// ledger fallback. Any bank-vs-booked price delta on the drawn portion
-			// stays in `revaluation` below and folds into startNetWorth.
+			// stays in `revaluation` below and shows through as a Bank residual.
 			long materialisedDraw = revaluation > 0 ? drawStorageMaterialising(revaluation) : 0L;
 			revaluation -= materialisedDraw;
 			long storedDraw = revaluation > 0 ? Math.min(revaluation, storedLootValue()) : 0L;
@@ -933,7 +981,6 @@ public final class SessionEngine
 				revaluation -= storedDraw;
 			}
 			this.baseline -= transfer + materialisedDraw + storedDraw;
-			this.startNetWorth += revaluation;
 			if (transfer != 0)
 			{
 				suspectArmed = maybeSuspectStaleReread(current, delta, tsMs);
@@ -965,12 +1012,15 @@ public final class SessionEngine
 			}
 			else if (remaining != 0)
 			{
-				long oldStart = this.startNetWorth;
-				this.startNetWorth += remaining;
+				// Passive closed-bank revaluation (a price drop with no
+				// correlated transfer): deliberately NOT folded into
+				// startNetWorth (the root-cause fix — see the class-level
+				// docs on reconcileBankMovement), so it flows into the raw
+				// net-worth delta and shows through as a Bank residual.
 				if (diagEnabled())
 				{
-					logDiag("[reanchor] closed-bank revaluation {} (staleSwallowed={}): startNetWorth {} -> {}",
-						remaining, swallowed, oldStart, this.startNetWorth);
+					logDiag("[reanchor] closed-bank revaluation {} (staleSwallowed={}): flows to Bank residual",
+						remaining, swallowed);
 				}
 			}
 			else if (diagEnabled())
@@ -1176,6 +1226,14 @@ public final class SessionEngine
 		if (deposit > 0)
 		{
 			pendingBankSettles.add(new PendingBankSettle(deposit, tsMs));
+			// The GE pool observation itself is never lagged (RuneLite reports
+			// the collection box instantly); only the BANK's confirmation of
+			// receiving it lags. So the GE-positions ledger can treat this as a
+			// confirmed pool exit right now, without waiting on
+			// reconcileBankMovement's later settle — see syncGeCostBasis, whose
+			// own nonPool-based matching cannot see this exit (the value went
+			// straight to the bank, never touching non-GE tracked wealth).
+			reduceGeCostBasis(deposit);
 			if (diagEnabled())
 			{
 				logDiag("[reanchor] GE collect-to-bank deposit hold {} (collectableDrop={} trackedDrop={} pendingSettle total {})",
@@ -1413,6 +1471,9 @@ public final class SessionEngine
 	 */
 	public void update(WealthSnapshot current, GeAttributions ge, MovementSignals signals, long tsMs)
 	{
+		// Fold a newly-known bank in as soon as it's observed — see the
+		// matching comment in setBankOpen.
+		foldNewlyKnownBankIntoStart(current);
 		if (ge != null)
 		{
 			for (com.ospulse.ge.LootSale sale : ge.drainLootSales())
@@ -1433,6 +1494,7 @@ public final class SessionEngine
 		if (bankOpen)
 		{
 			syncCostBasis(current);
+			syncGeCostBasis(current);
 			long bankDelta = reconcileBankMovement(current, tsMs);
 			if (bankDelta > 0)
 			{
@@ -1520,6 +1582,7 @@ public final class SessionEngine
 		{
 			logUpdateBreakdown(current, 0L, 0L, 0L, 0L, 0L, 0L);
 			syncCostBasis(current);
+			syncGeCostBasis(current);
 			this.previous = current;
 			return;
 		}
@@ -1631,7 +1694,17 @@ public final class SessionEngine
 		// ---- 2. Same-interval transfer pairing (equip id-swap): a whole stack
 		// of id A gone and a whole stack of id B — equal quantity, equal unit
 		// value — new in the SAME interval is the same item changing id, not
-		// consumption + loot. Neither side is classified; the basis migrates.
+		// consumption + loot. Neither side is classified; the basis migrates
+		// (see applyBasisCarry, called after syncCostBasis below). The
+		// destination id is NOT required to be previously unheld: id B may
+		// already carry its own holding (e.g. equipping a second copy of an
+		// item you're already wearing one of, or a GE buy fill landing on a
+		// partially-held item) — the exact quantity+value match on a whole
+		// vanished stack is signature enough. Gating this on "id B was
+		// previously empty" (as an earlier revision did) silently dropped the
+		// swapped-in portion's accrued unrealised P/L whenever the
+		// destination already held anything, since the carry could never even
+		// be attempted.
 		List<BasisCarry> basisCarries = new ArrayList<>();
 		long transferPaired = 0L;
 		for (Swing v : vanished)
@@ -1642,7 +1715,7 @@ public final class SessionEngine
 			}
 			for (Swing a : appeared)
 			{
-				if (a.quantity == 0 || !a.fullSwing || a.itemId == v.itemId
+				if (a.quantity == 0 || a.itemId == v.itemId
 					|| a.quantity != v.quantity || a.unitValue != v.unitValue)
 				{
 					continue;
@@ -2186,12 +2259,9 @@ public final class SessionEngine
 		syncCostBasis(current);
 		for (BasisCarry carry : basisCarries)
 		{
-			Basis basis = costBasis.get(carry.itemId);
-			if (basis != null && basis.quantity == carry.expectedQuantity)
-			{
-				basis.totalCost = carry.totalCost;
-			}
+			applyBasisCarry(current, carry);
 		}
+		syncGeCostBasis(current);
 
 		long trackedDelta = current.tracked() - trackedBefore;
 		long baselineDelta = baseline - baselineBefore;
@@ -2329,6 +2399,110 @@ public final class SessionEngine
 	}
 
 	/**
+	 * Applies one deferred {@link BasisCarry} — a holding's session cost basis
+	 * carried across an id swap or an equip transient — AFTER {@link
+	 * #syncCostBasis} has already run for the update.
+	 *
+	 * <p>{@code syncCostBasis} cannot distinguish "these units just transferred
+	 * in from another id" from "these units were freshly bought/looted": it
+	 * always prices newly-appeared quantity at the live rate. For a plain
+	 * transfer into a previously-EMPTY id that is exactly correct once
+	 * overwritten by the carry (the old fix, guarded on {@code basis.quantity
+	 * == carry.expectedQuantity}). But the moment the destination id ALREADY
+	 * holds some quantity — e.g. equipping a second copy of an item you're
+	 * already wearing one of, or a GE buy fill landing on a partially-held item
+	 * — {@code basis.quantity} is the COMBINED total (pre-existing + carried),
+	 * never equal to {@code carry.expectedQuantity} alone, so the old guard
+	 * silently dropped the carry and, with it, the whole swapped-in portion's
+	 * accrued unrealised P/L (written off as if it had just been bought at the
+	 * live price). Fixed by undoing exactly the live-priced addition {@code
+	 * syncCostBasis} just made for the carried quantity and substituting the
+	 * carried (correct) cost instead — this reduces to the old overwrite when
+	 * there was no pre-existing holding, and additionally handles the
+	 * already-held case correctly.
+	 */
+	private void applyBasisCarry(WealthSnapshot current, BasisCarry carry)
+	{
+		Basis basis = costBasis.get(carry.itemId);
+		ItemStack stack = current.getTrackedItems().get(carry.itemId);
+		if (basis == null || stack == null || basis.quantity < carry.expectedQuantity)
+		{
+			return;
+		}
+		long wronglyPricedAtLive = carry.expectedQuantity * stack.getUnitValue();
+		basis.totalCost = basis.totalCost - wronglyPricedAtLive + carry.totalCost;
+	}
+
+	/**
+	 * Brings {@link #geCostBasis} into lockstep with the GE position pool
+	 * ({@code current.getGeInFlightValue() + current.getGeCollectableValue()})
+	 * by comparing it against the last observation ({@link #gePoolLastObserved}
+	 * / {@link #geNonPoolLastObserved}). A pool RISE is split into an ENTRY —
+	 * the portion matched by a same-observation drop elsewhere in tracked
+	 * wealth (coins escrowed for a buy, an item listed for a sell) — added to
+	 * {@link #geCostBasis} at that same live value, and a REVALUATION — the
+	 * unmatched remainder (a favourable fill converting escrow to
+	 * market-priced collectable) — which leaves {@link #geCostBasis} untouched
+	 * so it shows through as unrealised. A pool DROP is symmetric: the portion
+	 * matched by a same-observation rise elsewhere in tracked wealth (a
+	 * collection landing in the inventory) is an EXIT, prorated out of {@link
+	 * #geCostBasis} average-cost style via {@link #reduceGeCostBasis}; the
+	 * unmatched remainder (an unfavourable reprice on a sell offer's unsold
+	 * remainder) is revaluation and leaves the cost basis alone. A collection
+	 * landing straight in the BANK (bypassing tracked wealth entirely) is
+	 * handled separately and immediately by {@link #holdGeCollectableDeposit},
+	 * since this nonPool-based matching cannot see a movement that never
+	 * touches non-GE tracked wealth; this method's own matching correctly finds
+	 * nothing left to attribute for that portion (nonPool never rose).
+	 *
+	 * <p>Idempotent for an unchanged snapshot. Must be called every time the
+	 * engine observes a new {@code current} (mirroring {@link #syncCostBasis}),
+	 * so {@link #gePoolLastObserved}/{@link #geNonPoolLastObserved} never go
+	 * stale and mis-attribute a later movement.
+	 */
+	private void syncGeCostBasis(WealthSnapshot current)
+	{
+		long pool = current.getGeInFlightValue() + current.getGeCollectableValue();
+		long nonPool = current.tracked() - pool;
+		long poolDelta = pool - gePoolLastObserved;
+		long nonPoolDelta = nonPool - geNonPoolLastObserved;
+		if (poolDelta > 0)
+		{
+			long entry = Math.min(poolDelta, Math.max(0L, -nonPoolDelta));
+			this.geCostBasis += entry;
+		}
+		else if (poolDelta < 0)
+		{
+			long exit = Math.min(-poolDelta, Math.max(0L, nonPoolDelta));
+			reduceGeCostBasis(exit);
+		}
+		this.gePoolLastObserved = pool;
+		this.geNonPoolLastObserved = nonPool;
+	}
+
+	/**
+	 * Prorates {@link #geCostBasis} down average-cost style for a confirmed GE
+	 * position pool exit of {@code exitValue} gp (a collection landing in the
+	 * inventory, or straight in the bank — see {@link #syncGeCostBasis} and
+	 * {@link #holdGeCollectableDeposit}). No-op if there is nothing to prorate
+	 * against. Floored at zero so rounding/overlap between the two exit paths
+	 * can never drive it negative.
+	 */
+	private void reduceGeCostBasis(long exitValue)
+	{
+		if (exitValue <= 0 || gePoolLastObserved <= 0)
+		{
+			return;
+		}
+		long share = Math.min(exitValue, gePoolLastObserved);
+		this.geCostBasis -= Math.round((double) geCostBasis * share / gePoolLastObserved);
+		if (this.geCostBasis < 0)
+		{
+			this.geCostBasis = 0L;
+		}
+	}
+
+	/**
 	 * Per-holding unrealized P/L rows for {@code current}'s tracked items
 	 * (live value minus session cost basis), ordered by absolute unrealized
 	 * amount descending. Must be called after {@link #syncCostBasis} so every
@@ -2420,9 +2594,10 @@ public final class SessionEngine
 	 *
 	 * <p>Review finding 5: {@code commit} gates every state MUTATION this
 	 * method makes ({@link #foldNewlyKnownBankIntoStart}, {@link
-	 * #reconcileBankMovement}, {@link #syncCostBasis}, and the diagnostic
-	 * {@link #lastLoggedFigures} bookkeeping) — {@code startNetWorth},
-	 * {@code baseline}, {@code pendingStaleBankDrop}, and {@code
+	 * #reconcileBankMovement}, {@link #syncCostBasis}, {@link
+	 * #syncGeCostBasis}, and the diagnostic {@link #lastLoggedFigures}
+	 * bookkeeping) — {@code startNetWorth}, {@code baseline}, {@code
+	 * geCostBasis}, {@code pendingStaleBankDrop}, and {@code
 	 * lastLoggedFigures} only ever change when {@code commit} is {@code
 	 * true}. {@code false} (an eager, non-committing PREVIEW — e.g. {@code
 	 * SessionTracker#previewRefresh}) still computes and returns a snapshot
@@ -2450,6 +2625,7 @@ public final class SessionEngine
 			foldNewlyKnownBankIntoStart(current);
 			reconcileBankMovement(current, tsMs);
 			syncCostBasis(current);
+			syncGeCostBasis(current);
 		}
 
 		// In-flight deposits (tracked drop observed, lagged bank rise not
@@ -2486,14 +2662,39 @@ public final class SessionEngine
 		// supplies must read negative. (Matches SessionSnapshot#getNetProfit.)
 		long netProfit = loot - suppliesUsed;
 		long profitPerHour = elapsedMs > 0 ? netProfit * 3600000L / elapsedMs : 0L;
-		// In-flight deposits count as owned net worth too — the observed bank
-		// value simply hasn't caught up — keeping the accounting identity
-		// (netWorthDelta == profit - suppliesUsed + unrealizedPnl) intact
-		// during the lag window. A confirmed stale re-read overstates the
-		// bank reading the opposite way, so the correction it still owes is
-		// subtracted for the same reason.
-		long netWorthDelta = current.netWorth() + pendingSettle + deployedHeld + deathHeld + storedHeld
+
+		// ---- Session panel's "Net worth change" — LOCKED model: a pure SUM of
+		// four independent components:
+		//   Profit       = netProfit (bottom-up, LootLedger-based, unchanged above)
+		//   GE flip      = geRealizedPnl (realised GE flip P&L, passed in)
+		//   GE positions = unrealised mark-to-market on open/collectable GE offers
+		//   Bank         = everything else — see below
+		// The RAW net-worth delta below is the battle-tested figure this engine
+		// has always computed (current net worth, with owned-but-parked value —
+		// in-flight deposits, deployed cannon parts, items at Death, stored loot —
+		// added back so nothing dips during a lag/abeyance window, minus whatever
+		// a confirmed stale bank re-read still overstates, minus the session's
+		// starting net worth). It already correctly nets every bank
+		// deposit/withdrawal to zero, keeps a genuine gain/loss observed while
+		// banking live, and self-corrects a late-settling deposit's lagged bank
+		// reading — all via reconcileBankMovement/pendingBankSettles/the
+		// stale-re-read machinery, none of which this rewrite touches beyond
+		// removing the one fold that caused the −3.9M phantom (see
+		// reconcileBankMovement's docs). "Bank" is then defined as whatever of
+		// that raw delta ISN'T already explained by Profit, GE flip or GE
+		// positions — which is exactly deposits/withdrawals (net zero),
+		// bank-content revaluation while closed, and any other tracked-wealth
+		// movement the bank-visit machinery neutralises or lets through. Held
+		// holdings' own price drift (unrealizedPnl) is explicitly subtracted
+		// back out of this residual too, so it stays zero while the item is
+		// merely held and only surfaces here the instant it transacts (sold,
+		// banked, or consumed) — "price wobble only counts once banked".
+		long rawNetWorthDelta = current.netWorth() + pendingSettle + deployedHeld + deathHeld + storedHeld
 			- pendingStaleBankDrop - startNetWorth;
+		long gePool = current.getGeInFlightValue() + current.getGeCollectableValue();
+		long gePositions = gePool - geCostBasis;
+		long bankDelta = rawNetWorthDelta - netProfit - geRealizedPnl - gePositions - unrealizedPnl;
+		long netWorthDelta = netProfit + geRealizedPnl + gePositions + bankDelta;
 
 		if (diagEnabled())
 		{
@@ -2506,12 +2707,14 @@ public final class SessionEngine
 			long unrealizedDelta = prev == null ? 0L : unrealizedPnl - prev.unrealizedPnl;
 			long netWorthDeltaDelta = prev == null ? 0L : netWorthDelta - prev.netWorthDelta;
 			logDiag("wealth: tracked={} (inv={} equip={} ge={} pouch={}) bank={}/known={} "
-					+ "bankOpen={} pendingSettle={} staleDropOwed={} baseline={} m2m={} realised={} unrealized={} netWorthDelta={} "
+					+ "bankOpen={} pendingSettle={} staleDropOwed={} baseline={} m2m={} realised={} unrealized={} "
+					+ "gePositions={} bankDelta={} netWorthDelta={} "
 					+ "| Δrealised={} Δunrealized={} ΔnetWorthDelta={}",
 				current.tracked(), current.getInventoryValue(), current.getEquipmentValue(),
 				current.getGeInFlightValue(), current.getPouchValue(),
 				current.getBankValue(), current.isBankKnown(),
-				bankOpen, pendingSettle, pendingStaleBankDrop, baseline, markToMarket, profit, unrealizedPnl, netWorthDelta,
+				bankOpen, pendingSettle, pendingStaleBankDrop, baseline, markToMarket, profit, unrealizedPnl,
+				gePositions, bankDelta, netWorthDelta,
 				profitDelta, unrealizedDelta, netWorthDeltaDelta);
 			if (commit)
 			{
@@ -2541,16 +2744,20 @@ public final class SessionEngine
 			null,
 			unrealizedPnl,
 			holdingPnls,
-			suppliesUsed);
+			suppliesUsed,
+			gePositions,
+			bankDelta);
 	}
 
 	/**
 	 * The bank value is unknown until the bank is first opened this session, so
 	 * the session's starting net worth was captured tracked-only. The instant
 	 * the bank becomes known we retroactively fold its value into the starting
-	 * net worth, so the "Net worth Δ" reflects the newly-visible bank as having
-	 * been there all along rather than jumping by the whole bank balance (which
-	 * looked like a huge phantom gain the first time the bank was opened).
+	 * net worth, so the raw net-worth delta (see {@link #snapshot}) reflects
+	 * the newly-visible bank as having been there all along rather than jumping
+	 * by the whole bank balance (which looked like a huge phantom gain the
+	 * first time the bank was opened) — that jump would otherwise land
+	 * entirely on the session panel's "Bank" residual.
 	 */
 	private void foldNewlyKnownBankIntoStart(WealthSnapshot current)
 	{

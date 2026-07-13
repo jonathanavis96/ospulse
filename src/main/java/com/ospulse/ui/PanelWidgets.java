@@ -6,6 +6,7 @@ import net.runelite.client.ui.FontManager;
 
 import javax.swing.Box;
 import javax.swing.ImageIcon;
+import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
@@ -67,6 +68,54 @@ public final class PanelWidgets
 		}
 		container.add(row);
 		return value;
+	}
+
+	/**
+	 * A row pairing a {@link #statRow(JPanel, String)}-styled "label ........
+	 * value" row with a leading {@link JCheckBox} the caller can read/set to
+	 * include or exclude the row from a computed total — e.g. the session
+	 * panel's "GE positions"/"Bank" include/exclude toggles. Bundled together
+	 * so callers get both live components from one call.
+	 */
+	public static final class ToggleRow
+	{
+		public final JCheckBox checkbox;
+		public final JLabel value;
+
+		ToggleRow(JCheckBox checkbox, JLabel value)
+		{
+			this.checkbox = checkbox;
+			this.value = value;
+		}
+	}
+
+	/**
+	 * Adds a "[x] label ........ value" row to {@code container}, checked by
+	 * default, and returns the checkbox + value label so the caller can read
+	 * the toggle state and mutate the value on each update.
+	 */
+	public static ToggleRow toggleStatRow(JPanel container, String labelText)
+	{
+		JPanel row = new JPanel(new BorderLayout(4, 0));
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setBorder(new EmptyBorder(1, 0, 1, 0));
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		JCheckBox checkbox = new JCheckBox(labelText, true);
+		checkbox.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		checkbox.setFont(FontManager.getRunescapeSmallFont());
+		checkbox.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		checkbox.setFocusPainted(false);
+		row.add(checkbox, BorderLayout.WEST);
+
+		JLabel value = new JLabel("-");
+		value.setForeground(Color.WHITE);
+		value.setFont(FontManager.getRunescapeSmallFont());
+		value.setHorizontalAlignment(SwingConstants.RIGHT);
+		row.add(value, BorderLayout.EAST);
+
+		container.add(row);
+		return new ToggleRow(checkbox, value);
 	}
 
 	/** A "left ........ right" row (no icon), pinned right. */
