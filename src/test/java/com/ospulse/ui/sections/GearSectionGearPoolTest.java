@@ -5,6 +5,7 @@ import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.optimizer.GearOptimizer;
 import com.ospulse.combat.optimizer.LoadoutOverride;
 import com.ospulse.combat.optimizer.WhatIfLoadout;
+import com.ospulse.model.ItemStack;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
@@ -89,8 +90,12 @@ public class GearSectionGearPoolTest
 	};
 
 	private static final int BRONZE_SWORD = 1277;
+	private static final int ABYSSAL_WHIP = 4151;
+	private static final int DRAGON_SCIMITAR = 4587;
 
 	// -------------------------------------------------------- confirmed ids
+	private static final int MASORI_MASK_F = 27235; // HEAD slot (ordinal 0)
+	private static final int MASORI_MASK = 27226;   // HEAD slot (ordinal 0)
 	private static final int MASORI_BODY_F = 27238;
 	private static final int MASORI_BODY = 27229;
 	private static final int MASORI_CHAPS_F = 27241;
@@ -226,6 +231,108 @@ public class GearSectionGearPoolTest
 			GearOptimizer.Result result = section.lastOptimizerResultForTest();
 			assertEquals("no GP should be spent buying the already-effectively-owned plain ring",
 				0L, result.totalSpend());
+		});
+	}
+
+	/**
+	 * The exploit this whole risk-value fix targets — the exact example from
+	 * the bug report ("a 21m Masori counts as 0 risk"): owning a fortified
+	 * variant marks the PLAIN base id owned at a synthetic price-0 placeholder
+	 * (see {@code addVariantPlainForm}) — that 0 used to feed the
+	 * expensive-item RISK cap directly (via {@code ownedItemPrices}), so the
+	 * cap's overflow-first local search could freely SWAP to the "free"
+	 * plain duplicate to defeat the cap without spending any of the
+	 * allowance, leaving room for a SEPARATE genuinely-expensive item
+	 * elsewhere to escape de-risking too.
+	 *
+	 * <p>Two subtleties this test controls for:
+	 * <ul>
+	 *   <li>Armour contributes ZERO attack/strength bonus in OSRS (confirmed
+	 *       against {@code equipment_stats.min.json}: Masori mask (f) and the
+	 *       plain Masori mask are astab/aslash/acrush/strength-IDENTICAL,
+	 *       differing only in defensive bonuses), so the escaping item's own
+	 *       slot can't demonstrate the bug via "which item ends up worn" — a
+	 *       DPS tie-break unrelated to this fix could land on either
+	 *       candidate. The observable, DPS-relevant proof instead uses the
+	 *       WEAPON slot (mirroring {@code
+	 *       GearSectionOptimizerTest#expensiveCap_deRisksWornExpensiveWeaponThroughGearSectionWiring}):
+	 *       a worn expensive whip PLUS a worn Masori mask (f).
+	 *   <li>The local search evaluates {@code GearOptimizer.SEARCHABLE_SLOTS}
+	 *       in a fixed order ({@code {0,1,2,3(weapon),4,...}}) and takes the
+	 *       FIRST improving move per pass — so the escaping slot must be
+	 *       evaluated BEFORE the weapon (ordinal 3) for the bug to actually
+	 *       manifest as "the weapon survives unrisked" (an escape slot
+	 *       evaluated AFTER the weapon can't retroactively spare it). The
+	 *       Masori MASK (head, ordinal 0) is evaluated first, unlike the
+	 *       Masori BODY (ordinal 4, after the weapon) — this is why the mask
+	 *       is used here, not the body.
+	 * </ul>
+	 *
+	 * <p>Cap allowance is exactly 1. Before the fix, the mask's free-duplicate
+	 * escape lets it count as 0 risk, leaving the whole allowance for the
+	 * whip — so the whip survives. With the fix, the mask counts as genuinely
+	 * expensive no matter which Masori form is worn, consuming the allowance
+	 * itself and forcing the whip to be de-risked to the cheap owned scimitar
+	 * instead.
+	 */
+	@Test
+	public void expensiveCap_freeRiskDuplicateSwapNoLongerDefeatsTheCap()
+	{
+		onEdt(() ->
+		{
+			final int whip = ABYSSAL_WHIP;
+			final int scimitar = DRAGON_SCIMITAR;
+
+			int[] ids = loadout(whip);
+			ids[0] = MASORI_MASK_F; // HEAD slot ordinal 0 — worn, evaluated before the weapon (ordinal 3)
+
+			// The player also owns a cheap, legitimately-affordable alternative
+			// weapon — the only real (non-exploited) de-risk target once the
+			// mask's free-duplicate escape is closed. The plain Masori mask
+			// deliberately gets NO wealth stack of its own — it is owned ONLY
+			// via the addVariantPlainForm synthetic marker, exactly the
+			// production shape of the bug.
+			java.util.Map<Integer, ItemStack> all = new java.util.LinkedHashMap<>();
+			all.put(whip, new ItemStack(whip, "Abyssal whip", 1, 5_000_000L));
+			all.put(scimitar, new ItemStack(scimitar, "Dragon scimitar", 1, 30_000L));
+			all.put(MASORI_MASK_F, new ItemStack(MASORI_MASK_F, "Masori mask (f)", 1, 21_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().allHoldings(all).build();
+
+			// The fake resolver independently supplies REAL risk values for
+			// EVERY id — mirroring RiskValuation's production behaviour of
+			// pricing a TRADEABLE item at its own GE price regardless of
+			// ownership. Crucially, the plain Masori mask (19m) is priced too,
+			// above the threshold below — closing the old "swap to the plain
+			// form's synthetic 0" escape.
+			java.util.Map<Integer, Long> riskValues = new java.util.HashMap<>();
+			riskValues.put(whip, 5_000_000L);
+			riskValues.put(scimitar, 30_000L);
+			riskValues.put(MASORI_MASK_F, 21_000_000L);
+			riskValues.put(MASORI_MASK, 19_000_000L);
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null,
+				fakeResolverWithRiskValues(java.util.Collections.emptyMap(), java.util.Set.of(), riskValues));
+			section.apply(snapshotWith(gearFor(ids), wealth));
+			pickCerberus(section);
+
+			section.setBudgetTextForTest("0");               // owned-only: no purchases, only de-risk swaps
+			section.setExpensiveCountTextForTest("1");        // exactly one expensive item allowed
+			section.setExpensiveThresholdTextForTest("1m");   // whip/both Masori forms exceed this; the scimitar doesn't
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			int weaponChoice = -1;
+			for (GearOptimizer.SlotChoice choice : result.loadout())
+			{
+				if (choice.slotOrdinal() == WhatIfLoadout.WEAPON_SLOT)
+				{
+					weaponChoice = choice.itemId();
+				}
+			}
+			assertEquals("with the body's free-duplicate escape closed, the body alone already uses the "
+					+ "one-item allowance, so the whip must still be de-risked to the cheap owned scimitar — "
+					+ "before this fix the body's synthetic 0 left room for the whip to survive unrisked",
+				scimitar, weaponChoice);
 		});
 	}
 
@@ -544,6 +651,19 @@ public class GearSectionGearPoolTest
 		java.util.Set<Integer> untradeableIds)
 	{
 		return (ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(prices, untradeableIds));
+	}
+
+	/**
+	 * As above, but also supplies a risk-value map — mirrors what the real
+	 * client-thread resolver in {@code OSPulsePlugin} computes via {@code
+	 * RiskValuation} (see {@link GearSection.PriceLookup#riskValues()}), so a
+	 * test can exercise {@code GearOptimizer.Request.Builder#riskValueSource}
+	 * end-to-end through the real {@code GearSection} wiring.
+	 */
+	private static GearSection.OptimizerPriceResolver fakeResolverWithRiskValues(java.util.Map<Integer, Long> prices,
+		java.util.Set<Integer> untradeableIds, java.util.Map<Integer, Long> riskValues)
+	{
+		return (ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(prices, untradeableIds, riskValues));
 	}
 
 	private static void pickCerberus(GearSection section)

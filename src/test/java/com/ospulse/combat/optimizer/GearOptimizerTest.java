@@ -296,47 +296,132 @@ public class GearOptimizerTest {
     }
 
     /**
-     * Review finding 2 regression: {@code GearSection}'s real price source
-     * (see {@code resolveOptimizerPriceSource}) never resolves OWNED item
-     * ids at all — they're deliberately excluded from the async GE lookup —
-     * so an unresolved id there is wrapped as {@link Long#MAX_VALUE}
-     * ("unpriced = unaffordable"). Routing the owned/equipped whip through
-     * that price source for the expensive-item risk count would therefore
-     * always read it as maximally expensive, forcing a de-risk to the
-     * scimitar even though the whip is cheap and well within the allowance.
-     * {@link GearOptimizer.Request.Builder#ownedItemPrices} must take
-     * priority over such a price source for owned ids so the whip's real
-     * (cheap) value is used instead.
+     * Review finding 2 regression, UPDATED for the risk/budget decoupling fix
+     * (item #3 in the current bug report): {@code GearSection}'s real price
+     * source (see {@code resolveOptimizerPriceSource}) never resolves OWNED
+     * item ids at all — they're deliberately excluded from the async GE
+     * lookup — so an unresolved id there is wrapped as {@link Long#MAX_VALUE}
+     * ("unpriced = unaffordable"). That BUDGET price source must never drive
+     * the expensive-item RISK count for an owned id — {@link
+     * GearOptimizer.Request.Builder#riskValueSource} is a wholly separate
+     * source (backed by real GE/bank values, see {@code
+     * com.ospulse.combat.RiskValuation} in production) that the cap now uses
+     * exclusively, so the whip's real (cheap) risk value is used instead of
+     * the budget source's {@code Long.MAX_VALUE} placeholder.
+     *
+     * <p>(Previously this test asserted the same outcome via {@code
+     * ownedItemPrices} taking priority over {@code priceSource} — that
+     * mechanism is no longer consulted by the risk cap at all, see {@link
+     * GearOptimizer#expensiveItemCountOf}'s updated javadoc, so this test was
+     * rewritten to exercise the mechanism that actually governs the cap now.)
      */
     @Test
-    public void expensiveCap_usesOwnedItemPrices_notThePriceSourcesMaxValueForUnresolvedOwnedIds() {
+    public void expensiveCap_usesRiskValueSource_notThePriceSourcesMaxValueForUnresolvedOwnedIds() {
         int[] live = emptyLoadout();
         live[WhatIfLoadout.WEAPON_SLOT] = ABYSSAL_WHIP;
 
         Set<Integer> owned = new HashSet<>(Arrays.asList(ABYSSAL_WHIP, DRAGON_SCIMITAR));
         // Mirrors GearSection#resolveOptimizerPriceSource: any id the async
         // lookup never resolved (which for a real caller is every owned id)
-        // reads back as "unpriced = unaffordable".
+        // reads back as "unpriced = unaffordable" for BUDGET purposes.
         GearOptimizer.PriceSource unresolvedOwnedIdsAreMaxValue = itemId -> Long.MAX_VALUE;
-
-        java.util.Map<Integer, Long> ownedItemPrices = new java.util.HashMap<>();
-        ownedItemPrices.put(ABYSSAL_WHIP, 100_000L); // cheap — well under the threshold below
+        // The SEPARATE risk source knows the whip's real (cheap) value.
+        GearOptimizer.PriceSource riskValues = itemId -> itemId == ABYSSAL_WHIP ? 100_000L : 0L;
 
         GearOptimizer.Request request = GearOptimizer.Request
                 .builder(live, cerberus(), maxedPlayerTemplate())
                 .budget(0L)
                 .owned(owned)
                 .priceSource(unresolvedOwnedIdsAreMaxValue)
-                .ownedItemPrices(ownedItemPrices)
+                .riskValueSource(riskValues)
                 .expensiveItemThreshold(50_000_000L)
                 .expensiveItemCount(0) // zero expensive items allowed
                 .build();
 
         GearOptimizer.Result result = GearOptimizer.optimize(request);
 
-        assertEquals("the owned whip's real (cheap) value must be used, not the price source's "
+        assertEquals("the owned whip's real (cheap) RISK value must be used, not the BUDGET price source's "
                         + "Long.MAX_VALUE for an unresolved owned id — the whip must be kept, not de-risked away",
                 ABYSSAL_WHIP, weaponIdIn(result));
+    }
+
+    /**
+     * The under-counting bug this whole fix targets (bug 1 in the report):
+     * {@code GearSection}'s old {@code ownedPriceMap()} marked an owned
+     * variant's plain form (and, in the buggy pre-fix build, could similarly
+     * leave a genuinely-owned expensive item at a stale/placeholder 0 in
+     * {@code ownedItemPrices}) — the risk cap must NEVER read that map
+     * anymore. Simulates the exact bug shape at the {@code GearOptimizer}
+     * level: {@code ownedItemPrices} (the old, now-bypassed source) marks the
+     * owned whip FREE (0), while the dedicated {@code riskValueSource} (what
+     * production now wires from real GE values) correctly reports it as
+     * worth 100m. The cap must still de-risk it — proving {@code
+     * ownedItemPrices} no longer masks a real value for the cap.
+     */
+    @Test
+    public void expensiveCap_ownedItemWithRealRiskValue_countsEvenWhenOwnedItemPricesMarksItFree() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = ABYSSAL_WHIP;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(ABYSSAL_WHIP, DRAGON_SCIMITAR));
+
+        // Simulates the bug: the (now-bypassed) ownedItemPrices map marks the
+        // owned whip at 0 "risk" — exactly what GearSection#ownedPriceMap /
+        // addVariantPlainForm used to do for an owned variant's plain form.
+        java.util.Map<Integer, Long> staleOwnedPrices = new java.util.HashMap<>();
+        staleOwnedPrices.put(ABYSSAL_WHIP, 0L);
+        staleOwnedPrices.put(DRAGON_SCIMITAR, 0L);
+
+        // The real risk-value source (RiskValuation-backed in production)
+        // knows the whip is genuinely worth 100m and the scimitar only 1m.
+        GearOptimizer.PriceSource riskValues = whipVsScimPrices();
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .owned(owned)
+                .priceSource(id -> 0L) // irrelevant to the cap now — budget-only
+                .ownedItemPrices(staleOwnedPrices)
+                .riskValueSource(riskValues)
+                .expensiveItemThreshold(50_000_000L)
+                .expensiveItemCount(0) // zero expensive items allowed
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("riskValueSource must drive the cap even when the stale ownedItemPrices map "
+                        + "(the old, now-bypassed source) marks the item free — the genuinely expensive "
+                        + "whip must still be de-risked to the cheap scimitar",
+                DRAGON_SCIMITAR, weaponIdIn(result));
+    }
+
+    /**
+     * Backward-compatibility guarantee: a caller that never sets {@code
+     * riskValueSource} (every pre-existing test/caller in this suite) gets
+     * the historical behaviour — the cap falls back to {@code priceSource}
+     * unchanged.
+     */
+    @Test
+    public void expensiveCap_riskValueSourceDefaultsToPriceSource_whenNotSet() {
+        int[] live = emptyLoadout();
+        live[WhatIfLoadout.WEAPON_SLOT] = ABYSSAL_WHIP;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(ABYSSAL_WHIP, DRAGON_SCIMITAR));
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .owned(owned)
+                .priceSource(whipVsScimPrices()) // no riskValueSource set
+                .expensiveItemThreshold(50_000_000L)
+                .expensiveItemCount(0)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("with no dedicated riskValueSource, the cap must fall back to priceSource, "
+                        + "de-risking exactly as before this change",
+                DRAGON_SCIMITAR, weaponIdIn(result));
     }
 
     // ------------------------ expensive-item cap: candidate-pruning fix (starved sub-ceiling slots)
