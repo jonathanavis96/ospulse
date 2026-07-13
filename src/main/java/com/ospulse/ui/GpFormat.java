@@ -55,4 +55,34 @@ public final class GpFormat
 
 		return sign + numberPart + SUFFIXES[magnitude];
 	}
+
+	// Colour of the de-emphasised fractional/suffix part of a "scent" number
+	// (see GearSection.dpsFragment's DPS_DECIMAL_COLOR — kept in sync).
+	private static final String DECIMAL_COLOR = "#8C8C8C";
+
+	/**
+	 * Renders a gp amount using the "scent" number styling: bold whole-number
+	 * part, with the decimal point, fractional digits and k/m/b suffix (if
+	 * any) dimmed grey. Mirrors {@code GearSection.dpsFragment} so
+	 * wealth-panel rows can reuse the same misread-resistant treatment for gp
+	 * values. Built on top of {@link #format(long)} — the sign stays with the
+	 * bold integer part.
+	 */
+	public static String scentFragment(long gp)
+	{
+		String s = format(gp);
+		int dot = s.indexOf('.');
+		if (dot < 0)
+		{
+			return "<b>" + s + "</b>";
+		}
+		return "<b>" + s.substring(0, dot) + "</b>"
+			+ "<font color='" + DECIMAL_COLOR + "'>" + s.substring(dot) + "</font>";
+	}
+
+	/** {@link #scentFragment} as a standalone HTML label string. */
+	public static String scentHtml(long gp)
+	{
+		return "<html>" + scentFragment(gp) + "</html>";
+	}
 }
