@@ -632,6 +632,129 @@ public class GearOptimizerTest {
                 DRAGON_SCIMITAR, weaponIdIn(result));
     }
 
+    // ---------------- expensive-item cap: FREE_REOBTAINABLE exemption (GearOptimizer item #3)
+
+    // Cape slot (1) — Ardougne diary cloak tier 4, one of the FREE_REOBTAINABLE ids (see
+    // GearOptimizer.FREE_REOBTAINABLE javadoc). Real id verified against the decompiled
+    // net.runelite.api.gameval.ItemID.ARDY_CAPE_ELITE constant in the runelite-api jar
+    // resolved on this project's classpath.
+    private static final int ARDY_CLOAK_4 = 13124; // ItemID.ARDY_CAPE_ELITE
+    private static final int CAPE_SLOT = 1;
+
+    // A genuinely expensive, NOT-free-reobtainable cape-slot control fixture (Agility's
+    // graceful cape) plus a cheap non-owned alternative for the same slot.
+    private static final int GRACEFUL_CAPE = 11852;
+    private static final int RED_CAPE = 1007;
+
+    // Shared fixture for both tests below: naively priced, ARDY_CLOAK_4 would read as
+    // WAY over a 1m ceiling, while RED_CAPE is a cheap, affordable, within-ceiling
+    // alternative — the exact same "owned over-ceiling item vs. buyable sub-ceiling
+    // alternative" shape as expensiveCap_ownedOverCeilingSlot_deRisksToSubCeilingAlternative
+    // (boots slot), which DOES de-rerisk away from the over-ceiling owned item when it
+    // isn't exempt. That's the behaviour these tests prove does NOT happen here.
+    private static java.util.Map<Integer, Long> ardougneCloakVsRedCapePrices() {
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(ARDY_CLOAK_4, 9_000_000L); // owned, way over the ceiling if it were priced
+        fixed.put(RED_CAPE, 500L);           // buyable, at/below the ceiling
+        return fixed;
+    }
+
+    /**
+     * Core exemption case: the live loadout already wears an owned Ardougne cloak 4, and a
+     * cheap, affordable, within-ceiling RED_CAPE alternative is available to de-risk into —
+     * exactly the shape that forces a de-risk swap for a non-exempt item (see
+     * {@link #expensiveCap_nonExemptCapeItem_stillCountsAndGetsDeRisked} below, same fixture
+     * pair). Because Ardougne cloak 4 is in {@code FREE_REOBTAINABLE} it must never be priced
+     * or counted for the cap, so there is no feasibility pressure to swap it away — it stays.
+     */
+    @Test
+    public void expensiveCap_freeReobtainable_wornArdougneCloakIsNeverDeRisked() {
+        int[] live = emptyLoadout();
+        live[CAPE_SLOT] = ARDY_CLOAK_4;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(ARDY_CLOAK_4));
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(10_000L)
+                .owned(owned)
+                .priceSource(fixedPricesElseUnaffordable(ardougneCloakVsRedCapePrices()))
+                .candidatesPerSlot(1)
+                .expensiveItemThreshold(1_000_000L)
+                .expensiveItemCount(0) // zero premium slots allowed
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("an owned, worn Ardougne cloak 4 must never be de-risked away by the expensive-item "
+                        + "cap — it carries no death risk and must never be priced/counted for the cap at all",
+                ARDY_CLOAK_4, itemIdInSlot(result, CAPE_SLOT));
+    }
+
+    /**
+     * The optimizer must feel free to RECOMMEND a free-reobtainable into an empty slot, not
+     * just tolerate one already worn: the cape slot starts EMPTY, with the same naive-over-
+     * ceiling price on the owned cloak. Pre-fix, the cloak's (bogus) over-ceiling status would
+     * make it infeasible under the cap and lose to the feasible RED_CAPE despite RED_CAPE's
+     * worse stats; post-fix the cloak is exempt, ties feasibility with RED_CAPE, and wins on
+     * stats (a real Ardougne cloak carries positive bonuses; RED_CAPE is a plain cosmetic cape).
+     */
+    @Test
+    public void expensiveCap_freeReobtainable_ardougneCloakOwnedButNotWornGetsRecommended() {
+        int[] live = emptyLoadout(); // cape slot empty
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(ARDY_CLOAK_4));
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(10_000L)
+                .owned(owned)
+                .priceSource(fixedPricesElseUnaffordable(ardougneCloakVsRedCapePrices()))
+                .candidatesPerSlot(1)
+                .expensiveItemThreshold(1_000_000L)
+                .expensiveItemCount(0)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("an owned Ardougne cloak 4 must be recommended into an empty cape slot over a "
+                        + "cheaper, worse-stat, non-exempt alternative, since it never counts against the cap",
+                ARDY_CLOAK_4, itemIdInSlot(result, CAPE_SLOT));
+    }
+
+    /**
+     * Control: a genuinely expensive, non-exempt cape-slot item must still count against the
+     * cap and still get de-risked to a cheaper alternative — proving the two tests above pass
+     * because of the FREE_REOBTAINABLE exemption specifically, not because the cape slot (or
+     * the cap enforcement machinery) is somehow exempt in general.
+     */
+    @Test
+    public void expensiveCap_nonExemptCapeItem_stillCountsAndGetsDeRisked() {
+        int[] live = emptyLoadout();
+        live[CAPE_SLOT] = GRACEFUL_CAPE;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(GRACEFUL_CAPE));
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(GRACEFUL_CAPE, 9_000_000L); // owned, over the ceiling
+        fixed.put(RED_CAPE, 500L);            // buyable, at/below the ceiling
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(10_000L)
+                .owned(owned)
+                .priceSource(fixedPricesElseUnaffordable(fixed))
+                .candidatesPerSlot(1)
+                .expensiveItemThreshold(1_000_000L)
+                .expensiveItemCount(0) // zero premium slots allowed
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("a genuinely expensive, non-exempt cape item must still be de-risked to a cheaper "
+                        + "alternative under a zero-premium-slot cap",
+                RED_CAPE, itemIdInSlot(result, CAPE_SLOT));
+    }
+
     // -------------------------------------------------- exclude / include
 
     @Test

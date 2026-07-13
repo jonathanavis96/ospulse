@@ -15,6 +15,8 @@ import com.ospulse.combat.WeaponCategoryRepository;
 import com.ospulse.combat.WeaponStyle;
 import com.ospulse.session.GearMapper;
 
+import net.runelite.api.gameval.ItemID;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -722,6 +724,36 @@ public final class GearOptimizer {
     }
 
     /**
+     * Untradeable items that are FREE to reclaim if lost (diary/quest re-obtainables),
+     * so they carry no death risk and must never count against the expensive-item
+     * ceiling ({@link #expensiveItemCountOf}). Extend as more are identified.
+     *
+     * <p>Ids verified against the decompiled {@code net.runelite.api.gameval.ItemID}
+     * constants shipped in the {@code net.runelite:runelite-api} jar resolved on this
+     * project's classpath (checked both {@code 1.12.31.1} and {@code 1.12.32} from the
+     * local Gradle cache — identical in both). The RuneLite-generated constant names
+     * don't match the in-game item names exactly: the Ardougne diary cloak is named
+     * {@code ARDY_CAPE_*} (not {@code ARDY_CLOAK_*}), and Rada's blessing is named
+     * {@code ZEAH_BLESSING_*} (Rada's blessing is the Kourend/Zeah region's diary
+     * reward; {@code EASY/MEDIUM/HARD/ELITE} map to blessing tiers 1-4).
+     *
+     * <p><b>Rada's blessing is currently inert here:</b> it occupies the OSRS
+     * "pocket" equipment slot, which post-dates and isn't modelled by
+     * {@link net.runelite.api.EquipmentInventorySlot} (14 slots, no pocket entry) or
+     * this optimizer's {@code itemIds[]} arrays ({@code GearSnapshot.EQUIPMENT_SLOT_COUNT
+     * == 14}, {@link #SEARCHABLE_SLOTS} spans only those 14 indices). A pocket-slot item
+     * can never appear in {@code itemIds[]}, so these 4 entries can never match in
+     * {@link #expensiveItemCountOf}'s loop today — kept for correctness/documentation
+     * and to future-proof this set if pocket-slot support is ever added to the
+     * optimizer's equipment model. Ardougne cloak tiers (cape slot, index 1, which IS
+     * searchable) are fully active.
+     */
+    private static final Set<Integer> FREE_REOBTAINABLE = Set.of(
+            ItemID.ARDY_CAPE_EASY, ItemID.ARDY_CAPE_MEDIUM, ItemID.ARDY_CAPE_HARD, ItemID.ARDY_CAPE_ELITE,
+            ItemID.ZEAH_BLESSING_EASY, ItemID.ZEAH_BLESSING_MEDIUM, ItemID.ZEAH_BLESSING_HARD, ItemID.ZEAH_BLESSING_ELITE
+    );
+
+    /**
      * Count of non-empty slots in {@code itemIds} holding an "expensive" item —
      * GE value STRICTLY ABOVE {@link Request#expensiveItemThreshold()} (an
      * item priced exactly at the threshold is "spend up to X", i.e. within
@@ -729,7 +761,9 @@ public final class GearOptimizer {
      * {@link #totalSpendOf} this counts OWNED items too: an owned high-value
      * item is still riskable gear in the wilderness/PvP, which is exactly what
      * the expensive-item cap protects against, so ownership (= free to equip)
-     * must not exempt it from the risk count.
+     * must not exempt it from the risk count. The one exception is
+     * {@link #FREE_REOBTAINABLE}: those ids are skipped (and never priced)
+     * before this rule applies, since they carry no death risk at all.
      *
      * <p>An owned item prefers {@link Request#ownedItemPrices()} over
      * {@link Request#priceSource()}: the caller's async price source
@@ -750,6 +784,10 @@ public final class GearOptimizer {
         for (int slot : SEARCHABLE_SLOTS) {
             int itemId = slot < itemIds.length ? itemIds[slot] : -1;
             if (itemId <= 0) {
+                continue;
+            }
+            if (FREE_REOBTAINABLE.contains(itemId)) {
+                // No death risk (free to reclaim), so it's never priced for the cap either.
                 continue;
             }
             Long ownedPrice = request.owned.contains(itemId) ? request.ownedItemPrices().get(itemId) : null;
