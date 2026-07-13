@@ -565,12 +565,12 @@ public class GearSectionOptimizerTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 
 			assertEquals("default count is 11", 11, section.resolvedExpensiveCountForTest());
-			// Foot-gun fix: the threshold now defaults to a sensible 1m (not 0), so
+			// Foot-gun fix: the threshold now defaults to a sensible 100k (not 0), so
 			// simply lowering the count below the slot total actually caps expensive
 			// gear instead of silently doing nothing. The cap is still OFF by default
 			// because the count defaults to 11 (== SEARCHABLE_SLOTS.length); a user
 			// can still set the threshold to 0 to disable it outright.
-			assertEquals("default threshold is now 1m", 1_000_000L, section.resolvedExpensiveThresholdForTest());
+			assertEquals("default threshold is now 100k", 100_000L, section.resolvedExpensiveThresholdForTest());
 
 			section.setExpensiveCountTextForTest("3");
 			assertEquals(3, section.resolvedExpensiveCountForTest());
@@ -580,6 +580,41 @@ public class GearSectionOptimizerTest
 
 			section.setExpensiveCountTextForTest("not a number");
 			assertEquals("unparseable count falls back to 0, not a crash", 0, section.resolvedExpensiveCountForTest());
+		});
+	}
+
+	/**
+	 * Foot-gun fix, persistence half: unlike the budget amount/unit (which DO
+	 * survive a client restart via {@code ConfigManager} — see
+	 * {@code GearSection#loadOptimizerPrefs}), the expensive-item count and
+	 * threshold must NEVER be restored from a previously-saved config value.
+	 * Seeds a mocked {@link net.runelite.client.config.ConfigManager} with
+	 * stale saved values under the (now legacy, write-only-historically) keys
+	 * {@code optimizerExpensiveCount}/{@code optimizerExpensiveThresholdAmount}
+	 * and asserts a freshly-constructed section ignores them entirely,
+	 * settling on the code defaults (count 11, threshold 100K = 100,000) every
+	 * time — exactly as if the plugin had just been loaded fresh.
+	 */
+	@Test
+	public void expensiveItemFields_ignoreStalePersistedConfig_alwaysResetToCodeDefaults()
+	{
+		onEdt(() ->
+		{
+			net.runelite.client.config.ConfigManager configManager =
+				org.mockito.Mockito.mock(net.runelite.client.config.ConfigManager.class);
+			org.mockito.Mockito.when(configManager.getConfiguration(
+					com.ospulse.OSPulseConfig.GROUP, "optimizerExpensiveCount"))
+				.thenReturn("3");
+			org.mockito.Mockito.when(configManager.getConfiguration(
+					com.ospulse.OSPulseConfig.GROUP, "optimizerExpensiveThresholdAmount"))
+				.thenReturn("300");
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
+
+			assertEquals("a stale persisted count must be ignored — always resets to the code default",
+				11, section.resolvedExpensiveCountForTest());
+			assertEquals("a stale persisted threshold must be ignored — always resets to the code default (100K)",
+				100_000L, section.resolvedExpensiveThresholdForTest());
 		});
 	}
 
