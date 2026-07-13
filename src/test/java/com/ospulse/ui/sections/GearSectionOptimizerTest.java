@@ -466,6 +466,50 @@ public class GearSectionOptimizerTest
 		});
 	}
 
+	/** 29580 = Tormented synapse, the Scorching bow's craft-ingredient (see {@code UNTRADEABLE_CRAFT_INGREDIENT}). */
+	private static final int TORMENTED_SYNAPSE = 29580;
+
+	/**
+	 * PR-review finding (bug D follow-up): {@code withResolvedPrices} — the
+	 * REAL production scaffolding behind {@code runOptimizer}/{@code
+	 * runOptimizerAndRankStyles}, reached here via the real {@code
+	 * findBestSetupButton} click rather than a *SyncForTest seam — must send
+	 * every {@code UNTRADEABLE_CRAFT_INGREDIENT} value (e.g. the Scorching
+	 * bow's Tormented synapse) to the price resolver alongside the equipment
+	 * index, exactly like the {@code *SyncForTest} methods already did.
+	 * Without it, {@code resolveOptimizerPriceSource}'s craft-ingredient
+	 * exception reads an unpriced ingredient as 0 and the Scorching bow falls
+	 * through to unaffordable even when the synapse is dirt cheap. Captures
+	 * the {@code ids} a fake resolver receives (called synchronously inline,
+	 * same as {@link #fakeResolver}) — this only needs the candidate SET the
+	 * resolver was asked to price, not the async {@code SwingWorker} result,
+	 * so no result-awaiting seam is needed.
+	 */
+	@Test
+	public void withResolvedPrices_includesUntradeableCraftIngredientIdsInCandidateSet()
+	{
+		onEdt(() ->
+		{
+			java.util.Set<Integer> capturedIds = new java.util.HashSet<>();
+			GearSection.OptimizerPriceResolver capturingResolver = (ids, onResolved) ->
+			{
+				capturedIds.addAll(ids);
+				onResolved.accept(new GearSection.PriceLookup(java.util.Map.of(), java.util.Set.of()));
+			};
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null, capturingResolver);
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(section);
+			section.setBudgetTextForTest("100k");
+
+			section.findBestSetupButtonForTest().doClick();
+
+			assertTrue("the Scorching bow's craft-ingredient id must be in the resolver's candidate "
+					+ "set so its GE price is available for the craft-ingredient budget exception",
+				capturedIds.contains(TORMENTED_SYNAPSE));
+		});
+	}
+
 	private static int weaponIdInResult(GearOptimizer.Result result)
 	{
 		for (GearOptimizer.SlotChoice choice : result.loadout())

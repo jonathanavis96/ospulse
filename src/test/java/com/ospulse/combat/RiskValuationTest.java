@@ -146,4 +146,58 @@ public class RiskValuationTest
 		assertEquals(21_000_000L, risk.value);
 		assertEquals(RiskValuation.Source.TRADEABLE, risk.source);
 	}
+
+	// ------------------------------------------- reclaim-cost min() tests
+
+	/**
+	 * 7462 = Barrows gloves — curated in {@link RiskValuation}'s internal
+	 * reclaim-cost table at 130,000gp (Culinaromancer's Chest).
+	 */
+	private static final int BARROWS_GLOVES_UNTRADEABLE = 7462;
+
+	/** A real Trouver parchment GE price, well above the Barrows gloves reclaim cost. */
+	private static final long HIGH_PARCHMENT_PRICE = 575_000L;
+
+	@Test
+	public void classify_cheapUntradeableWithCuratedReclaimCost_usesReclaimCostNotParchment()
+	{
+		RiskValuation.Risk risk = RiskValuation.classify(BARROWS_GLOVES_UNTRADEABLE,
+			id -> id == TROUVER_PARCHMENT,
+			id -> id == TROUVER_PARCHMENT ? HIGH_PARCHMENT_PRICE : 0L,
+			HIGH_PARCHMENT_PRICE,
+			id -> false);
+		assertEquals(130_000L, risk.value);
+		assertEquals(RiskValuation.Source.PARCHMENT, risk.source);
+	}
+
+	@Test
+	public void classify_untradeableWithNoCuratedReclaimCost_fallsBackToPlainParchmentPrice()
+	{
+		// Fire cape has no UNTRADEABLE_RECLAIM_COST entry, so it must still
+		// resolve to the raw parchment price — the min() must never invent a
+		// cap for an item this project has no confident reclaim cost for.
+		RiskValuation.Risk risk = RiskValuation.classify(FIRE_CAPE,
+			id -> id == TROUVER_PARCHMENT,
+			id -> id == TROUVER_PARCHMENT ? HIGH_PARCHMENT_PRICE : 0L,
+			HIGH_PARCHMENT_PRICE,
+			id -> false);
+		assertEquals(HIGH_PARCHMENT_PRICE, risk.value);
+		assertEquals(RiskValuation.Source.PARCHMENT, risk.source);
+	}
+
+	@Test
+	public void classify_cheapUntradeable_minPicksTheLowerOfParchmentAndReclaimCost()
+	{
+		// Here the (hypothetical) parchment price is BELOW the curated
+		// 130,000gp reclaim cost, proving Math.min genuinely picks the
+		// lower of the two rather than always preferring the curated value.
+		long lowParchmentPrice = 50_000L;
+		RiskValuation.Risk risk = RiskValuation.classify(BARROWS_GLOVES_UNTRADEABLE,
+			id -> id == TROUVER_PARCHMENT,
+			id -> id == TROUVER_PARCHMENT ? lowParchmentPrice : 0L,
+			lowParchmentPrice,
+			id -> false);
+		assertEquals(lowParchmentPrice, risk.value);
+		assertEquals(RiskValuation.Source.PARCHMENT, risk.source);
+	}
 }
