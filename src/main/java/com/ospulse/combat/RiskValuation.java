@@ -26,14 +26,24 @@ import java.util.function.IntToLongFunction;
  *       Barrows pieces (degraded/undamaged tiers, echo variants), imbued
  *       rings, and other GE-restricted-but-valuable items automatically, at
  *       any scale, with no per-item hand-listing required.</li>
+ *   <li>An "assembled" best-in-slot item (e.g. an Avernic defender, made
+ *       from a tradeable hilt on a defender the player already owns) is
+ *       valued at its curated {@link AssembledItemComponents} tradeable
+ *       component's GE price when {@link ItemMapping} doesn't cover it.</li>
  *   <li>A small curated fallback ({@link #CREATED_ITEM_COMPONENTS}) covers
  *       created/untradeable items {@link ItemMapping} does not (yet) map.
  *       Add entries only once the exact tradeable component ids are verified
  *       against a concrete source (RuneLite's generated {@code ItemID}
  *       constants, or the OSRS wiki) — see the field's javadoc.</li>
- *   <li>Anything else (unmapped, no curated entry) risks at 0 — unknown
- *       value can't be judged "expensive", so it never wrongly counts
- *       against the cap.</li>
+ *   <li>{@link #classify} additionally supports a last-resort Trouver
+ *       parchment fallback for rare untradeables with no tradeable
+ *       equivalent anywhere above (Fire cape, Fighter torso, imbued capes,
+ *       etc.) — the parchment is the real gp cost to protect one on death,
+ *       so it stands in as the item's risk value rather than letting it
+ *       silently escape the cap at 0. Free-to-reclaim items (Ardougne
+ *       cloak, Rada's blessing) are exempted from this fallback entirely.
+ *       The back-compat {@link #riskValue} entry point does not use this
+ *       fallback (unmapped/no curated entry still risks at 0 there).</li>
  * </ul>
  *
  * <p><b>No client-thread dependency:</b> {@link ItemMapping#map(int)} is a
@@ -79,19 +89,109 @@ public final class RiskValuation
 	}
 
 	/**
-	 * The real gp "risk value" of {@code itemId} for the expensive-item cap.
-	 * NEVER used for budget/affordability — see class javadoc.
-	 *
-	 * @param itemId      the equipment item id to value
-	 * @param isTradeable whether {@code itemId} itself can be bought/sold on
-	 *                    the GE
-	 * @param gePrice     GE unit price for a (tradeable) item id; 0 if none
+	 * Which rule produced a {@link Risk}'s value — surfaced so callers (the
+	 * optimizer price resolver, and eventually the UI/exclude wave) can tell a
+	 * genuinely-priced item apart from one that only "counts" because of the
+	 * {@link #classify parchment fallback}.
 	 */
-	public static long riskValue(int itemId, IntPredicate isTradeable, IntToLongFunction gePrice)
+	public enum Source
 	{
+		/** The item is itself tradeable; valued at its own GE price. */
+		TRADEABLE,
+		/** Untradeable; valued via a real {@link ItemMapping} entry. */
+		MAPPING,
+		/** Untradeable; valued via {@link AssembledItemComponents#priceSourceComponent(int)}. */
+		ASSEMBLED,
+		/** Untradeable; valued via the curated {@link #CREATED_ITEM_COMPONENTS} fallback. */
+		CURATED,
+		/**
+		 * Untradeable with no real value found anywhere above; stood in for by
+		 * the Trouver parchment price (the cost to protect it on death) so it
+		 * still counts as "expensive" for the risk cap.
+		 */
+		PARCHMENT,
+		/** No value could be determined (and it isn't free-reobtainable either) — 0. */
+		NONE
+	}
+
+	/** A risk value paired with which rule ({@link Source}) produced it. */
+	public static final class Risk
+	{
+		public final long value;
+		public final Source source;
+
+		public Risk(long value, Source source)
+		{
+			this.value = value;
+			this.source = source;
+		}
+
+		@Override
+		public boolean equals(Object o)
+		{
+			if (this == o)
+			{
+				return true;
+			}
+			if (!(o instanceof Risk))
+			{
+				return false;
+			}
+			Risk other = (Risk) o;
+			return value == other.value && source == other.source;
+		}
+
+		@Override
+		public int hashCode()
+		{
+			return java.util.Objects.hash(value, source);
+		}
+
+		@Override
+		public String toString()
+		{
+			return "Risk{value=" + value + ", source=" + source + '}';
+		}
+	}
+
+	/**
+	 * The real gp "risk value" of {@code itemId} for the expensive-item cap,
+	 * plus which rule produced it — see {@link Source}. NEVER used for
+	 * budget/affordability — see class javadoc.
+	 *
+	 * <p>Order of resolution for an UNTRADEABLE item: (1) a real {@link
+	 * ItemMapping} entry ({@link Source#MAPPING}); (2) {@link
+	 * AssembledItemComponents#priceSourceComponent(int)}, for best-in-slot
+	 * items assembled from a tradeable part ({@link Source#ASSEMBLED} — fixes
+	 * the Avernic defender reading 0); (3) the curated {@link
+	 * #CREATED_ITEM_COMPONENTS} fallback ({@link Source#CURATED}); (4) the
+	 * Trouver parchment price, standing in for "cost to protect this on
+	 * death" ({@link Source#PARCHMENT}) — but only when {@code
+	 * isFreeReobtainable} is false (a free-to-reclaim item, e.g. Ardougne
+	 * cloak or Rada's blessing, carries no death risk at all and must never
+	 * be priced) and {@code parchmentPrice > 0}. A TRADEABLE item is always
+	 * just its own GE price ({@link Source#TRADEABLE}), regardless of
+	 * free-reobtainable status.
+	 *
+	 * @param itemId              the equipment item id to value
+	 * @param isTradeable         whether {@code itemId} itself can be bought/sold on the GE
+	 * @param gePrice             GE unit price for a (tradeable) item id; 0 if none
+	 * @param parchmentPrice      the Trouver parchment's own GE price (0 if unknown/untradeable
+	 *                            right now), used only as the last-resort fallback
+	 * @param isFreeReobtainable  whether {@code itemId} is free to reclaim if lost (no death
+	 *                            risk); checked first, before any other rule
+	 */
+	public static Risk classify(int itemId, IntPredicate isTradeable, IntToLongFunction gePrice,
+		long parchmentPrice, IntPredicate isFreeReobtainable)
+	{
+		if (isFreeReobtainable.test(itemId))
+		{
+			return new Risk(0L, Source.NONE);
+		}
+
 		if (isTradeable.test(itemId))
 		{
-			return Math.max(0L, gePrice.applyAsLong(itemId));
+			return new Risk(Math.max(0L, gePrice.applyAsLong(itemId)), Source.TRADEABLE);
 		}
 
 		Collection<ItemMapping> mappings = ItemMapping.map(itemId);
@@ -105,7 +205,17 @@ public final class RiskValuation
 			}
 			if (sum > 0L)
 			{
-				return sum;
+				return new Risk(sum, Source.MAPPING);
+			}
+		}
+
+		Integer assembledComponent = AssembledItemComponents.priceSourceComponent(itemId);
+		if (assembledComponent != null)
+		{
+			long componentPrice = Math.max(0L, gePrice.applyAsLong(assembledComponent));
+			if (componentPrice > 0L)
+			{
+				return new Risk(componentPrice, Source.ASSEMBLED);
 			}
 		}
 
@@ -117,9 +227,33 @@ public final class RiskValuation
 			{
 				sum += Math.max(0L, gePrice.applyAsLong(componentId));
 			}
-			return sum;
+			return new Risk(sum, Source.CURATED);
 		}
 
-		return 0L;
+		long parchment = Math.max(0L, parchmentPrice);
+		if (parchment > 0L)
+		{
+			return new Risk(parchment, Source.PARCHMENT);
+		}
+
+		return new Risk(0L, Source.NONE);
+	}
+
+	/**
+	 * Backward-compatible entry point: delegates to {@link #classify} with no
+	 * parchment fallback ({@code parchmentPrice = 0}) and no free-reobtainable
+	 * exemption (always {@code false}), so existing callers/tests keep their
+	 * prior behaviour unchanged — untradeable items with no {@link
+	 * ItemMapping}/{@link AssembledItemComponents}/{@link
+	 * #CREATED_ITEM_COMPONENTS} value still resolve to 0.
+	 *
+	 * @param itemId      the equipment item id to value
+	 * @param isTradeable whether {@code itemId} itself can be bought/sold on
+	 *                    the GE
+	 * @param gePrice     GE unit price for a (tradeable) item id; 0 if none
+	 */
+	public static long riskValue(int itemId, IntPredicate isTradeable, IntToLongFunction gePrice)
+	{
+		return classify(itemId, isTradeable, gePrice, 0L, id -> false).value;
 	}
 }

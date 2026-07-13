@@ -492,6 +492,7 @@ public final class GearSection extends CollapsibleSection
 		private final java.util.Map<Integer, Long> prices;
 		private final java.util.Set<Integer> untradeableIds;
 		private final java.util.Map<Integer, Long> riskValues;
+		private final java.util.Set<Integer> needsProtection;
 
 		public PriceLookup(java.util.Map<Integer, Long> prices, java.util.Set<Integer> untradeableIds)
 		{
@@ -512,6 +513,23 @@ public final class GearSection extends CollapsibleSection
 		public PriceLookup(java.util.Map<Integer, Long> prices, java.util.Set<Integer> untradeableIds,
 			java.util.Map<Integer, Long> riskValues)
 		{
+			this(prices, untradeableIds, riskValues, null);
+		}
+
+		/**
+		 * @param needsProtection ids whose {@code riskValues} entry fell back to the
+		 *                        Trouver parchment price ({@code
+		 *                        com.ospulse.combat.RiskValuation.Source#PARCHMENT}) —
+		 *                        rare untradeables with no tradeable equivalent
+		 *                        anywhere else, valued at "cost to protect on death"
+		 *                        so they still count against the expensive-item cap.
+		 *                        {@code null}/empty (the default via the 3-arg
+		 *                        constructor) means no caller has classified any ids
+		 *                        this way, preserving prior behaviour.
+		 */
+		public PriceLookup(java.util.Map<Integer, Long> prices, java.util.Set<Integer> untradeableIds,
+			java.util.Map<Integer, Long> riskValues, java.util.Set<Integer> needsProtection)
+		{
 			this.prices = prices == null
 				? java.util.Collections.emptyMap()
 				: java.util.Collections.unmodifiableMap(new HashMap<>(prices));
@@ -521,6 +539,9 @@ public final class GearSection extends CollapsibleSection
 			this.riskValues = riskValues == null
 				? java.util.Collections.emptyMap()
 				: java.util.Collections.unmodifiableMap(new HashMap<>(riskValues));
+			this.needsProtection = needsProtection == null
+				? java.util.Collections.emptySet()
+				: java.util.Collections.unmodifiableSet(new java.util.HashSet<>(needsProtection));
 		}
 
 		public java.util.Map<Integer, Long> prices()
@@ -536,6 +557,11 @@ public final class GearSection extends CollapsibleSection
 		public java.util.Map<Integer, Long> riskValues()
 		{
 			return riskValues;
+		}
+
+		public java.util.Set<Integer> needsProtection()
+		{
+			return needsProtection;
 		}
 	}
 
@@ -3602,6 +3628,26 @@ public final class GearSection extends CollapsibleSection
 
 	private static final String CONFIG_KEY_EXCLUDED_ITEM_IDS = "optimizerExcludedItemIds";
 
+	/**
+	 * Live read of {@link OSPulseConfig#hideUnprotectableItems()} — GearSection has
+	 * no injected {@code OSPulseConfig} instance (only a raw {@link ConfigManager}),
+	 * so, mirroring every other config read in this class (e.g. {@link
+	 * #loadOptimizerPrefs}'s {@code budgetUnitMillions} boolean), it goes straight
+	 * through {@code configManager.getConfiguration(...)} + {@link
+	 * Boolean#parseBoolean}, which already defaults to {@code false} for a
+	 * null/unset value — matching the {@code @ConfigItem}'s own default. No-op
+	 * (returns {@code false}) without a {@link ConfigManager}.
+	 */
+	private boolean hideUnprotectableItemsPref()
+	{
+		if (configManager == null)
+		{
+			return false;
+		}
+		return Boolean.parseBoolean(
+			configManager.getConfiguration(OSPulseConfig.GROUP, "hideUnprotectableItems"));
+	}
+
 	/** Restores {@link #excludedItemIds} from a comma-separated config value. No-op without a {@link ConfigManager}. */
 	private void loadExcludedItemsPref()
 	{
@@ -4020,12 +4066,12 @@ public final class GearSection extends CollapsibleSection
 		}
 	}
 
-	/** Callback invoked once a budget/owned-prices/price-source/risk-values quadruple is ready — see {@link #withResolvedPrices}. */
+	/** Callback invoked once a budget/owned-prices/price-source/risk-values/needs-protection set is ready — see {@link #withResolvedPrices}. */
 	@FunctionalInterface
 	private interface PriceReady
 	{
 		void run(long budget, java.util.Map<Integer, Long> ownedPrices, GearOptimizer.PriceSource priceSource,
-			java.util.Map<Integer, Long> riskValues);
+			java.util.Map<Integer, Long> riskValues, java.util.Set<Integer> needsProtection);
 	}
 
 	/**
@@ -4081,7 +4127,7 @@ public final class GearSection extends CollapsibleSection
 			// GearOptimizer.Request.Builder#riskValueSource).
 			consumer.run(budget, ownedPrices,
 				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()),
-				java.util.Collections.emptyMap());
+				java.util.Collections.emptyMap(), java.util.Collections.emptySet());
 			return;
 		}
 
@@ -4097,15 +4143,16 @@ public final class GearSection extends CollapsibleSection
 			// unaffordable — see resolveOptimizerPriceSource (bug D).
 			consumer.run(budget, ownedPrices,
 				resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()),
-				lookup.riskValues());
+				lookup.riskValues(), lookup.needsProtection());
 		});
 	}
 
 	/** Runs {@link GearOptimizer} off the EDT for the currently selected style and publishes the result back via {@link #onOptimizerResult}. */
 	private void runOptimizer()
 	{
-		withResolvedPrices((budget, ownedPrices, priceSource, riskValues) ->
-			runOptimizerSearch(buildOptimizerRequest(budget, ownedPrices, priceSource, riskValues, optimizerConstraint())));
+		withResolvedPrices((budget, ownedPrices, priceSource, riskValues, needsProtection) ->
+			runOptimizerSearch(buildOptimizerRequest(budget, ownedPrices, priceSource, riskValues, needsProtection,
+				optimizerConstraint())));
 	}
 
 	/**
@@ -4121,13 +4168,14 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private void runOptimizerAndRankStyles()
 	{
-		withResolvedPrices((budget, ownedPrices, priceSource, riskValues) ->
+		withResolvedPrices((budget, ownedPrices, priceSource, riskValues, needsProtection) ->
 		{
 			CombatStyle selected = optimizerConstraint();
 			java.util.Map<CombatStyle, GearOptimizer.Request> requests = new java.util.LinkedHashMap<>();
 			for (CombatStyle style : OPTIMIZER_STYLE_ORDER)
 			{
-				requests.put(style, buildOptimizerRequest(budget, ownedPrices, priceSource, riskValues, style));
+				requests.put(style, buildOptimizerRequest(budget, ownedPrices, priceSource, riskValues,
+					needsProtection, style));
 			}
 
 			new javax.swing.SwingWorker<java.util.Map<CombatStyle, GearOptimizer.Result>, Void>()
@@ -4453,9 +4501,17 @@ public final class GearSection extends CollapsibleSection
 	 *                   GearOptimizer.Request.Builder#riskValueSource} — empty
 	 *                   (the no-resolver path) leaves the cap falling back to
 	 *                   {@code priceSource} unchanged.
+	 * @param needsProtection ids priced only via the Trouver-parchment fallback
+	 *                        (see {@link PriceLookup#needsProtection()} / {@code
+	 *                        com.ospulse.combat.RiskValuation.Source#PARCHMENT}) —
+	 *                        rare untradeables with no real tradeable equivalent.
+	 *                        Added to the optimizer's exclude set when the
+	 *                        "Hide unprotectable items" config setting is on;
+	 *                        otherwise left alone (still valued, still allowed).
 	 */
 	private GearOptimizer.Request buildOptimizerRequest(long budget, java.util.Map<Integer, Long> ownedPrices,
-		GearOptimizer.PriceSource priceSource, java.util.Map<Integer, Long> riskValues, CombatStyle styleConstraint)
+		GearOptimizer.PriceSource priceSource, java.util.Map<Integer, Long> riskValues,
+		java.util.Set<Integer> needsProtection, CombatStyle styleConstraint)
 	{
 		int[] liveIds = lastGear.equippedItemIds();
 		Monster target = selectedMonster;
@@ -4475,6 +4531,16 @@ public final class GearSection extends CollapsibleSection
 
 		java.util.Set<Integer> exclusions = new java.util.LinkedHashSet<>(excludedItemIds);
 		exclusions.addAll(restrictedItemIds());
+		if (hideUnprotectableItemsPref())
+		{
+			// "Hide unprotectable items": rare untradeables with no real tradeable
+			// equivalent (only priced via the Trouver-parchment fallback — see
+			// com.ospulse.combat.RiskValuation.Source#PARCHMENT) are still valued
+			// (they count against the expensive-item cap either way), but with
+			// this setting on they're also excluded outright rather than ever
+			// recommended, since the player can't actually protect them on death.
+			exclusions.addAll(needsProtection);
+		}
 
 		// B9-5: the player's BASE levels drive the equip-requirement gate so the
 		// optimiser never recommends gear they can't wield at their current
@@ -5518,7 +5584,7 @@ public final class GearSection extends CollapsibleSection
 		{
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
 				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()),
-				java.util.Collections.emptyMap(), optimizerConstraint());
+				java.util.Collections.emptyMap(), java.util.Collections.emptySet(), optimizerConstraint());
 			onOptimizerResult(GearOptimizer.optimize(request));
 			return;
 		}
@@ -5533,7 +5599,7 @@ public final class GearSection extends CollapsibleSection
 		{
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
 				resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()),
-				lookup.riskValues(), optimizerConstraint());
+				lookup.riskValues(), lookup.needsProtection(), optimizerConstraint());
 			onOptimizerResult(GearOptimizer.optimize(request));
 		});
 	}
@@ -5556,7 +5622,9 @@ public final class GearSection extends CollapsibleSection
 			GearOptimizer.PriceSource priceSource = resolveOptimizerPriceSource(
 				id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet());
 			applyRankedStyleResults(
-				optimizeAllStyles(budget, ownedPrices, priceSource, java.util.Collections.emptyMap()), selected);
+				optimizeAllStyles(budget, ownedPrices, priceSource, java.util.Collections.emptyMap(),
+					java.util.Collections.emptySet()),
+				selected);
 			return;
 		}
 
@@ -5569,20 +5637,23 @@ public final class GearSection extends CollapsibleSection
 		{
 			GearOptimizer.PriceSource priceSource = resolveOptimizerPriceSource(
 				id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds());
-			applyRankedStyleResults(optimizeAllStyles(budget, ownedPrices, priceSource, lookup.riskValues()), selected);
+			applyRankedStyleResults(
+				optimizeAllStyles(budget, ownedPrices, priceSource, lookup.riskValues(), lookup.needsProtection()),
+				selected);
 		});
 	}
 
 	/** Optimises every {@link #OPTIMIZER_STYLE_ORDER} style with one resolved price/risk-value pair (test seam helper). */
 	private java.util.Map<CombatStyle, GearOptimizer.Result> optimizeAllStyles(
 		long budget, java.util.Map<Integer, Long> ownedPrices, GearOptimizer.PriceSource priceSource,
-		java.util.Map<Integer, Long> riskValues)
+		java.util.Map<Integer, Long> riskValues, java.util.Set<Integer> needsProtection)
 	{
 		java.util.Map<CombatStyle, GearOptimizer.Result> results = new java.util.LinkedHashMap<>();
 		for (CombatStyle style : OPTIMIZER_STYLE_ORDER)
 		{
 			results.put(style,
-				GearOptimizer.optimize(buildOptimizerRequest(budget, ownedPrices, priceSource, riskValues, style)));
+				GearOptimizer.optimize(buildOptimizerRequest(budget, ownedPrices, priceSource, riskValues,
+					needsProtection, style)));
 		}
 		return results;
 	}

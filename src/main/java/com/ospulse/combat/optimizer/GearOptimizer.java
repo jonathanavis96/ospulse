@@ -836,6 +836,19 @@ public final class GearOptimizer {
     );
 
     /**
+     * Public read-only view of {@link #FREE_REOBTAINABLE}, for callers outside this
+     * class that need the same "free to reclaim, no death risk" exemption — currently
+     * {@code com.ospulse.combat.RiskValuation#classify}, wired via {@code
+     * GearSection}'s {@code OptimizerPriceResolver} so a free-reobtainable untradeable
+     * (e.g. Ardougne cloak, Rada's blessing) never falls through to the Trouver
+     * parchment fallback even though it has no {@code ItemMapping}/assembled/curated
+     * value either.
+     */
+    public static boolean isFreeReobtainable(int itemId) {
+        return FREE_REOBTAINABLE.contains(itemId);
+    }
+
+    /**
      * Count of non-empty slots in {@code itemIds} holding an "expensive" item —
      * GE value STRICTLY ABOVE {@link Request#expensiveItemThreshold()} (an
      * item priced exactly at the threshold is "spend up to X", i.e. within

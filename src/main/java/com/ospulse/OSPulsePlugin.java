@@ -184,20 +184,37 @@ public class OSPulsePlugin extends Plugin
 			// tradeable item's risk value is its own GE price; an untradeable
 			// item's risk value is the summed GE price of the tradeable
 			// component(s) it represents (Barrows pieces, imbued rings, Doom-
-			// of-Mokhaiotl weapons, etc. — see RiskValuation), resolved for
-			// EVERY id here (owned ids included, since the caller no longer
-			// excludes them — see GearSection#withResolvedPrices), so an owned
-			// or untradeable expensive item can no longer dodge the cap.
+			// of-Mokhaiotl weapons, etc.), an AssembledItemComponents component
+			// price (e.g. Avernic defender), or — as a last resort, for rare
+			// untradeables with no tradeable equivalent anywhere else, and never
+			// for a free-reobtainable id — the Trouver parchment price (see
+			// RiskValuation#classify), resolved for EVERY id here (owned ids
+			// included, since the caller no longer excludes them — see
+			// GearSection#withResolvedPrices), so an owned or untradeable
+			// expensive item can no longer dodge the cap.
+			//
+			// 24187 = ItemID.TROUVER_PARCHMENT, fetched once per resolve rather
+			// than per item (verified via javap against the pinned
+			// net.runelite:client/runelite-api 1.12.32 jars on this project's
+			// classpath).
+			long parchmentPrice = Math.max(0L, valuation.unitValue(24187));
 			java.util.Map<Integer, Long> riskValues = new java.util.HashMap<>();
+			java.util.Set<Integer> needsProtection = new java.util.HashSet<>();
 			for (int id : ids)
 			{
-				long risk = com.ospulse.combat.RiskValuation.riskValue(id, valuation::isTradeable, valuation::unitValue);
-				if (risk > 0)
+				com.ospulse.combat.RiskValuation.Risk risk = com.ospulse.combat.RiskValuation.classify(
+					id, valuation::isTradeable, valuation::unitValue, parchmentPrice,
+					com.ospulse.combat.optimizer.GearOptimizer::isFreeReobtainable);
+				if (risk.value > 0)
 				{
-					riskValues.put(id, risk);
+					riskValues.put(id, risk.value);
+				}
+				if (risk.source == com.ospulse.combat.RiskValuation.Source.PARCHMENT)
+				{
+					needsProtection.add(id);
 				}
 			}
-			GearSection.PriceLookup lookup = new GearSection.PriceLookup(m, untradeable, riskValues);
+			GearSection.PriceLookup lookup = new GearSection.PriceLookup(m, untradeable, riskValues, needsProtection);
 			javax.swing.SwingUtilities.invokeLater(() -> cb.accept(lookup));
 		});
 
