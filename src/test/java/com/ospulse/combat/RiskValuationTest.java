@@ -167,7 +167,9 @@ public class RiskValuationTest
 			HIGH_PARCHMENT_PRICE,
 			id -> false);
 		assertEquals(130_000L, risk.value);
-		assertEquals(RiskValuation.Source.PARCHMENT, risk.source);
+		// RECLAIM, not PARCHMENT: a cheap reclaimable must NOT land in
+		// needsProtection / be flagged "must be protected (Trouver parchment)".
+		assertEquals(RiskValuation.Source.RECLAIM, risk.source);
 	}
 
 	@Test
@@ -198,6 +200,8 @@ public class RiskValuationTest
 			lowParchmentPrice,
 			id -> false);
 		assertEquals(lowParchmentPrice, risk.value);
-		assertEquals(RiskValuation.Source.PARCHMENT, risk.source);
+		// still a curated reclaim entry, so the source is RECLAIM even when the
+		// parchment price happened to be the lower (chosen) value.
+		assertEquals(RiskValuation.Source.RECLAIM, risk.source);
 	}
 }

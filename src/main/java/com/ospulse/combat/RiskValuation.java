@@ -153,6 +153,16 @@ public final class RiskValuation
 		 * still counts as "expensive" for the risk cap.
 		 */
 		PARCHMENT,
+		/**
+		 * Untradeable but re-obtainable at a known flat reclaim/purchase cost
+		 * (curated {@link #UNTRADEABLE_RECLAIM_COST}). Valued at that cost, capped
+		 * at the parchment price. DELIBERATELY distinct from {@link #PARCHMENT} so a
+		 * cheap reclaimable item (e.g. Barrows gloves) is NOT flagged as a rare
+		 * parchment-only unprotectable — needsProtection, the "must be protected
+		 * (Trouver parchment)" UI, and the hide-unprotectable exclusion all key off
+		 * {@link #PARCHMENT}, not this.
+		 */
+		RECLAIM,
 		/** No value could be determined (and it isn't free-reobtainable either) — 0. */
 		NONE
 	}
@@ -216,7 +226,7 @@ public final class RiskValuation
 	 * itself capped at {@code Math.min(parchmentPrice, reclaimCost)} for the
 	 * curated {@link #UNTRADEABLE_RECLAIM_COST} entries (e.g. Barrows
 	 * gloves, ~130k, never risks at the ~575k parchment price), still
-	 * reported as {@link Source#PARCHMENT}. A TRADEABLE item is always
+	 * reported as {@link Source#RECLAIM} (not {@link Source#PARCHMENT}) so cheap reclaimables are not flagged as parchment-only unprotectables. A TRADEABLE item is always
 	 * just its own GE price ({@link Source#TRADEABLE}), regardless of
 	 * free-reobtainable status.
 	 *
@@ -281,8 +291,14 @@ public final class RiskValuation
 		if (parchment > 0L)
 		{
 			Long reclaimCost = UNTRADEABLE_RECLAIM_COST.get(itemId);
-			long value = reclaimCost != null ? Math.min(parchment, reclaimCost) : parchment;
-			return new Risk(value, Source.PARCHMENT);
+			if (reclaimCost != null)
+			{
+				// Re-obtainable at a known flat cost: value at min(cost, parchment)
+				// and mark RECLAIM (not PARCHMENT) so it is NOT added to
+				// needsProtection / flagged "must be protected (Trouver parchment)".
+				return new Risk(Math.min(parchment, reclaimCost), Source.RECLAIM);
+			}
+			return new Risk(parchment, Source.PARCHMENT);
 		}
 
 		return new Risk(0L, Source.NONE);
