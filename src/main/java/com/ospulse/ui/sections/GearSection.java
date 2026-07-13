@@ -1007,8 +1007,13 @@ public final class GearSection extends CollapsibleSection
 		countRow.add(expensiveCountField);
 		countRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		// (4) threshold — coins icon + 4-digit field + "K" (K-only; M kept for tests)
-		expensiveThresholdField = new javax.swing.JTextField("0", 4);
+		// (4) threshold — coins icon + 4-digit field + "K" (K-only; M kept for tests).
+		// Defaults to 1000 (K) = 1m so that simply lowering the expensive-item COUNT
+		// below the slot total actually caps risky gear, instead of the old "0"
+		// default silently disabling the cap (expensiveCapActive needs threshold > 0).
+		// Still off by default overall: the count defaults to 11 (== slot count);
+		// setting the threshold back to 0 disables the cap outright.
+		expensiveThresholdField = new javax.swing.JTextField("1000", 4);
 		expensiveThresholdField.setToolTipText(EXPENSIVE_THRESHOLD_TOOLTIP);
 		expensiveThresholdField.setFont(FontManager.getRunescapeSmallFont());
 		expensiveThresholdField.setBackground(ColorScheme.DARK_GRAY_COLOR);

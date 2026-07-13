@@ -565,7 +565,12 @@ public class GearSectionOptimizerTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 
 			assertEquals("default count is 11", 11, section.resolvedExpensiveCountForTest());
-			assertEquals("blank/default threshold is 0", 0L, section.resolvedExpensiveThresholdForTest());
+			// Foot-gun fix: the threshold now defaults to a sensible 1m (not 0), so
+			// simply lowering the count below the slot total actually caps expensive
+			// gear instead of silently doing nothing. The cap is still OFF by default
+			// because the count defaults to 11 (== SEARCHABLE_SLOTS.length); a user
+			// can still set the threshold to 0 to disable it outright.
+			assertEquals("default threshold is now 1m", 1_000_000L, section.resolvedExpensiveThresholdForTest());
 
 			section.setExpensiveCountTextForTest("3");
 			assertEquals(3, section.resolvedExpensiveCountForTest());
