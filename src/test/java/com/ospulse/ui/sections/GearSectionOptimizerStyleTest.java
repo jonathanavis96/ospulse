@@ -86,6 +86,7 @@ public class GearSectionOptimizerStyleTest
 	private static final int ABYSSAL_WHIP = 4151;
 	private static final int ABYSSAL_BLUDGEON = 13263;
 	private static final int MAGIC_SHORTBOW = 861;
+	private static final int RADAS_BLESSING_4 = 22947; // ammo slot, no ranged strength but +2 prayer
 
 	private static int[] loadout(int weaponId)
 	{
@@ -331,6 +332,34 @@ public class GearSectionOptimizerStyleTest
 			// Clearing the preview restores the live wording.
 			section.clickResetAllForTest();
 			assertTrue(section.slotTooltipForTest(WhatIfLoadout.WEAPON_SLOT).contains("Weapon slot (live)"));
+		});
+	}
+
+	// ------------------------------------------------ #8: ammo slot names the item, not a placeholder
+
+	/**
+	 * Item #8: the worn-gear grid's AMMO cell must name the actually-equipped
+	 * ammo item in its live tooltip, unlike the other slots' generic "<Slot>
+	 * slot (live)" wording (see {@link #gridTooltip_saysLiveNormally_andPreviewNotOwnedWhilePreviewingAPurchase}
+	 * above) — ammo icons are often too similar to tell apart at a glance
+	 * (many arrows/bolts/blessing charges share a near-identical sprite).
+	 */
+	@Test
+	public void ammoSlotLiveTooltip_namesTheEquippedItem_notAGenericPlaceholder()
+	{
+		onEdt(() ->
+		{
+			int[] ids = loadout(MAGIC_SHORTBOW);
+			ids[WhatIfLoadout.AMMO_SLOT] = RADAS_BLESSING_4;
+
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(ids), null));
+
+			String ammoTooltip = section.slotTooltipForTest(WhatIfLoadout.AMMO_SLOT);
+			assertTrue("ammo slot tooltip must name the equipped item: " + ammoTooltip,
+				ammoTooltip.contains("Rada's blessing 4"));
+			assertFalse("must not be the generic slot-name placeholder",
+				ammoTooltip.startsWith("Ammo slot (live)"));
 		});
 	}
 

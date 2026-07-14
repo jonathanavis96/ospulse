@@ -1652,6 +1652,18 @@ public final class GearSection extends CollapsibleSection
 				cell.setToolTipText(itemDisplayName(index, id) + " — " + SLOT_NAMES[slot] + " slot (preview"
 					+ (ownedItem ? "" : ", not owned") + ") — click to try a different item");
 			}
+			else if (slot == WhatIfLoadout.AMMO_SLOT && id > 0)
+			{
+				// The ammo slot's icon alone often can't be told apart at a glance
+				// (many arrows/bolts/blessing charges share a near-identical
+				// sprite), so — unlike the other slots' generic "<Slot> slot
+				// (live)" wording — this one names the actual worn item. index
+				// is only built above when an override exists, so fetch it here
+				// too (a cheap lazily-cached singleton — see
+				// EquipmentIndexRepository#getInstance).
+				EquipmentIndexRepository liveIndex = index != null ? index : EquipmentIndexRepository.getInstance();
+				cell.setToolTipText(itemDisplayName(liveIndex, id) + " — Ammo slot (live) — click to try a different item");
+			}
 			else
 			{
 				cell.setToolTipText(SLOT_NAMES[slot] + " slot (live) — click to try a different item");
