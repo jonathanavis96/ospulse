@@ -129,10 +129,26 @@ public class GearOptimizerChargeFamilyTest {
                 .exclude(new HashSet<>(Arrays.asList(GLORY_4, GLORY_3))).build())));
     }
 
-    // ---------------------------------------- (a') lowest-risk among owned charges
+    // ------------------------------- (a') cap inactive: risk values are irrelevant
 
     @Test
-    public void owningHighRiskAndLowRiskCharge_prefersLowRiskSameDpsMember() {
+    public void capInactive_differingChargeRiskValues_stillRecommendsHighestOwnedCharge() {
+        int[] live = emptyLoadout();
+        live[WEAPON_SLOT] = ABYSSAL_WHIP;
+
+        // Real per-charge GE prices genuinely differ — a glory (1) is cheaper
+        // than a (4). Without the cap those values must not demote the (4).
+        GearOptimizer.Result result = GearOptimizer.optimize(ownedOnly(live,
+                new HashSet<>(Arrays.asList(GLORY_1, GLORY_4)))
+                .riskValueSource(id -> id == GLORY_1 ? 900L : 13_000L)
+                .build());
+
+        assertEquals("owning glory (1) and (4) with differing risk values must still recommend the (4)",
+                GLORY_4, amuletIdIn(result));
+    }
+
+    @Test
+    public void capInactive_eternalGloryIsTheHighestOwnedCharge() {
         int[] live = emptyLoadout();
         live[WEAPON_SLOT] = ABYSSAL_WHIP;
         Set<Integer> owned = new HashSet<>(Arrays.asList(GLORY_ETERNAL, GLORY_4, ABYSSAL_WHIP));
@@ -141,27 +157,45 @@ public class GearOptimizerChargeFamilyTest {
                 .builder(live, cerberus(), maxedPlayerTemplate())
                 .budget(0L)
                 .priceSource(id -> owned.contains(id) ? 0L : 100_000_000L)
-                // Eternal glory carries a ~50m risk value; the normal glory ~15k.
                 .riskValueSource(id -> id == GLORY_ETERNAL ? 50_000_000L : 15_000L)
                 .owned(owned)
                 .build();
 
-        assertEquals("a 50m eternal glory must not be surfaced when an identical-DPS ~15k glory is owned",
-                GLORY_4, amuletIdIn(GearOptimizer.optimize(request)));
+        assertEquals("with no cap the ~50m risk value is irrelevant — the eternal glory is the best owned charge",
+                GLORY_ETERNAL, amuletIdIn(GearOptimizer.optimize(request)));
+    }
 
-        // The single collapsed candidate is the low-risk member.
-        List<Integer> glories = new java.util.ArrayList<>();
-        for (int id : GearOptimizer.candidateIdsForSlotForTest(AMULET_SLOT, request)) {
-            if (ChargeFamilies.isMember(id)) {
-                glories.add(id);
-            }
-        }
-        assertEquals(1, glories.size());
-        assertEquals(Integer.valueOf(GLORY_4), glories.get(0));
+    // -------------------- (a'') cap active, owned below-ceiling member → no purchase
+
+    @Test
+    public void capActive_ownedBelowCeilingCharge_deRisksWithinOwned_neverBuys() {
+        int[] live = emptyLoadout();
+        live[WEAPON_SLOT] = ABYSSAL_WHIP;
+        Set<Integer> owned = new HashSet<>(Arrays.asList(GLORY_ETERNAL, GLORY_4, ABYSSAL_WHIP));
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(20_000L) // a not-owned glory (3) is affordable — it must still not be bought
+                .priceSource(id -> owned.contains(id) ? 0L : id == GLORY_3 ? 15_000L : 100_000_000L)
+                // Eternal glory carries a ~50m risk value; every other glory ~15k.
+                .riskValueSource(id -> id == GLORY_ETERNAL ? 50_000_000L : 15_000L)
+                .expensiveItemThreshold(100_000L)
+                .expensiveItemCount(0)
+                .owned(owned)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+        assertEquals("the cap must de-risk to the OWNED below-ceiling (4), not surface the 50m eternal",
+                GLORY_4, amuletIdIn(result));
+        assertEquals("de-risking within owned charges must never spend", 0L, result.totalSpend());
+
+        assertEquals("an owned below-ceiling member collapses the family to ONE candidate — no purchase kept",
+                Arrays.asList(GLORY_4),
+                familyMembersIn(GearOptimizer.candidateIdsForSlotForTest(AMULET_SLOT, request)));
     }
 
     @Test
-    public void wearingHighRiskCharge_seedNormalisesToLowRiskOwnedMember() {
+    public void capActive_wearingOverCeilingCharge_seedNormalisesToOwnedBelowCeilingMember() {
         int[] live = emptyLoadout();
         live[WEAPON_SLOT] = ABYSSAL_WHIP;
         live[AMULET_SLOT] = GLORY_ETERNAL; // wearing the 50m eternal glory
@@ -174,14 +208,16 @@ public class GearOptimizerChargeFamilyTest {
                 .budget(0L)
                 .priceSource(id -> (id == ABYSSAL_WHIP || id == GLORY_ETERNAL || ownedAmulets.contains(id)) ? 0L : 100_000_000L)
                 .riskValueSource(id -> id == GLORY_ETERNAL ? 50_000_000L : 15_000L)
+                .expensiveItemThreshold(100_000L)
+                .expensiveItemCount(0)
                 .owned(owned)
                 .build();
 
-        assertEquals("the worn 50m eternal glory must be seeded down to the identical-DPS ~15k owned glory",
+        assertEquals("under the cap the worn 50m eternal glory must yield to the identical-DPS ~15k owned glory",
                 GLORY_4, amuletIdIn(GearOptimizer.optimize(request)));
     }
 
-    // ----------------- (a'') cap active, own ONLY the pricey member → can BUY cheap
+    // ---------------- (a''') cap active, own ONLY the pricey member → can BUY cheap
 
     /**
      * Owns ONLY the ~50m eternal glory (worn); a ~15k glory (4) is purchasable
