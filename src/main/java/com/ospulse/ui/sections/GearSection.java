@@ -1380,15 +1380,25 @@ public final class GearSection extends CollapsibleSection
 	 * what-if readout, target change) so the highlight never outlives the
 	 * result it was generated from.
 	 */
-	/** The optimiser result's loadout as an equipment-slot-ordinal -> item-id map (for the bank layout). */
-	private static java.util.Map<Integer, Integer> optimizerLoadoutSlotMap(GearOptimizer.Result result)
+	/**
+	 * The optimiser result's loadout as an equipment-slot-ordinal -> item-id
+	 * map (for the bank layout). Each id is resolved via {@link
+	 * #resolvedChoiceItemId} (Codex review finding #1, PR #5) so the bank
+	 * highlight points at the exact item the suggested-swaps row/applied
+	 * preview shows — an owned fortified/imbued item whose plain base id got
+	 * the ownership-map treatment highlights the OWNED variant in the bank,
+	 * not the plain form the player doesn't have.
+	 */
+	private java.util.Map<Integer, Integer> optimizerLoadoutSlotMap(GearOptimizer.Result result)
 	{
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
 		java.util.Map<Integer, Integer> map = new java.util.LinkedHashMap<>();
 		for (GearOptimizer.SlotChoice choice : result.loadout())
 		{
 			if (choice.itemId() > 0)
 			{
-				map.put(choice.slotOrdinal(), choice.itemId());
+				map.put(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds));
 			}
 		}
 		return map;
@@ -4835,7 +4845,8 @@ public final class GearSection extends CollapsibleSection
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		// Item #9: an owned recommendation whose id is the optimiser's
 		// variant-aware plain base form (see OwnedVariantResolver/
-		// addVariantPlainForm) must still be SHOWN as the actual owned
+		// addVariantPlainForm) must still be SHOWN (and, via
+		// resolvedChoiceItemId, actually APPLIED) as the actual owned
 		// variant (e.g. "Masori mask (f)"), not the plain name — buildSwapRow
 		// needs the owned-item pool to make that reverse lookup.
 		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
@@ -4848,7 +4859,8 @@ public final class GearSection extends CollapsibleSection
 				continue; // unchanged — nothing to report for this slot
 			}
 			anyRow = true;
-			optimizerSwapList.add(buildSwapRow(index, choice.slotOrdinal(), liveId, choice.itemId(), choice, ownedIds));
+			optimizerSwapList.add(buildSwapRow(index, choice.slotOrdinal(), liveId,
+				resolvedChoiceItemId(index, choice, ownedIds), choice));
 			optimizerSwapList.add(Box.createRigidArea(new Dimension(0, 2)));
 		}
 		if (!anyRow)
@@ -4857,6 +4869,29 @@ public final class GearSection extends CollapsibleSection
 			none.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
 			optimizerSwapList.add(none);
 		}
+	}
+
+	/**
+	 * Codex review finding #1 (P2, PR #5): the item id that must be used
+	 * EVERYWHERE a {@link GearOptimizer.SlotChoice} reaches the user or
+	 * drives further logic — the suggested-swap row's icon/name/exclude
+	 * action, the applied what-if preview's gear-grid icon and DPS, and the
+	 * bank highlight — so none of those can ever drift from each other. A
+	 * not-owned choice (a genuine purchase) is never remapped: {@link
+	 * #addVariantPlainForm} only ever marks the PLAIN id owned at price 0, so
+	 * a not-owned suggestion is always exactly what the optimiser means to
+	 * buy. An owned choice is resolved through {@link
+	 * OwnedVariantResolver#preferOwnedVariant}, which also respects {@link
+	 * #excludedItemIds} (Codex finding #2): if the player excluded their own
+	 * owned variant, the plain id is shown/applied as-is rather than
+	 * resurrecting the excluded item under a different row.
+	 */
+	private int resolvedChoiceItemId(EquipmentIndexRepository index, GearOptimizer.SlotChoice choice,
+		java.util.Map<Integer, Long> ownedIds)
+	{
+		return choice.owned()
+			? OwnedVariantResolver.preferOwnedVariant(index, choice.itemId(), ownedIds, excludedItemIds)
+			: choice.itemId();
 	}
 
 	/**
@@ -4873,21 +4908,23 @@ public final class GearSection extends CollapsibleSection
 		optimizerSwapList.removeAll();
 	}
 
-	/** One "current icon -&gt; suggested icon (spend)" swap row — see {@link #renderOptimizerSwapList}. */
+	/**
+	 * One "current icon -&gt; suggested icon (spend)" swap row — see
+	 * {@link #renderOptimizerSwapList}. {@code suggestedItemId} is already
+	 * fully resolved by the caller (via {@link #resolvedChoiceItemId}) —
+	 * this method renders it as-is rather than re-deriving it, so the icon,
+	 * name, tooltip, and the right-click "Exclude from suggestions"/needs-
+	 * protection actions all agree with each other and with whatever
+	 * {@link #applyOptimizerResultToOverride} actually applies for this slot
+	 * (Codex review finding #1, PR #5): there is exactly one id in play.
+	 */
 	private JPanel buildSwapRow(EquipmentIndexRepository index, int slotOrdinal, int currentItemId,
-		int suggestedItemId, GearOptimizer.SlotChoice choice, java.util.Map<Integer, Long> ownedIds)
+		int suggestedItemId, GearOptimizer.SlotChoice choice)
 	{
 		String slotName = slotOrdinal >= 0 && slotOrdinal < SLOT_NAMES.length && !SLOT_NAMES[slotOrdinal].isEmpty()
 			? SLOT_NAMES[slotOrdinal] : ("Slot " + slotOrdinal);
 		String currentName = itemDisplayName(index, currentItemId);
-		// Item #9: only an OWNED suggestion can be the variant-aware plain
-		// form in the first place (addVariantPlainForm only ever marks the
-		// plain id owned, never priced) — a not-owned suggestion is always
-		// exactly what the optimiser means to buy, so it's left alone.
-		int displayItemId = choice.owned()
-			? OwnedVariantResolver.preferOwnedVariant(index, suggestedItemId, ownedIds)
-			: suggestedItemId;
-		String suggestedName = itemDisplayName(index, displayItemId);
+		String suggestedName = itemDisplayName(index, suggestedItemId);
 		String spend = choice.owned() ? "owned" : (formatGp(choice.price()) + " — not owned");
 
 		JPanel row = new JPanel(new BorderLayout(4, 0));
@@ -4902,7 +4939,7 @@ public final class GearSection extends CollapsibleSection
 		arrow.setFont(FontManager.getRunescapeSmallFont());
 		arrow.setVerticalAlignment(SwingConstants.CENTER);
 		iconsPanel.add(arrow);
-		JLabel suggestedIcon = swapItemIcon(displayItemId, suggestedName + " (" + spend + ")");
+		JLabel suggestedIcon = swapItemIcon(suggestedItemId, suggestedName + " (" + spend + ")");
 		suggestedIcon.setComponentPopupMenu(buildExcludeItemPopup(suggestedItemId, suggestedName, -1));
 		if (lastOptimizerNeedsProtection.contains(suggestedItemId))
 		{
@@ -5093,6 +5130,12 @@ public final class GearSection extends CollapsibleSection
 		// these swaps" must only highlight genuinely-changed slots (mirrors the
 		// guard in renderOptimizerSwapList / hasAnySlotChange).
 		int[] liveIds = lastGear == null ? new int[GearSnapshot.EQUIPMENT_SLOT_COUNT] : lastGear.equippedItemIds();
+		// Codex review finding #1 (PR #5): every slot goes through the SAME
+		// resolvedChoiceItemId as the suggested-swaps row, so the preview
+		// grid/DPS/bank-highlight this produces can never show a different
+		// item than the row the user actually clicked "Apply" on.
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
 		LoadoutOverride next = LoadoutOverride.empty();
 		for (GearOptimizer.SlotChoice choice : lastOptimizerResult.loadout())
 		{
@@ -5101,7 +5144,7 @@ public final class GearSection extends CollapsibleSection
 			{
 				continue; // unchanged — nothing to preview for this slot
 			}
-			next = next.withSlot(choice.slotOrdinal(), choice.itemId());
+			next = next.withSlot(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds));
 		}
 		// B9-3: a two-handed weapon frees the shield slot. The optimiser empties
 		// the shield internally, but empty slots aren't listed in loadout(), so

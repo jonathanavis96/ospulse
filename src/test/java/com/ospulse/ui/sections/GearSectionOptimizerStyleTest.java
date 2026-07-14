@@ -367,23 +367,86 @@ public class GearSectionOptimizerStyleTest
 
 	// ------------------------------------------------ #9: recommendation shows the OWNED variant's name
 
+	/** First swap-row tooltip that starts with {@code prefix}, skipping the non-row spacer components, or {@code null}. */
+	private static String findSwapTooltipStartingWith(GearSection section, String prefix)
+	{
+		for (int i = 0; i < section.optimizerSwapRowCountForTest(); i++)
+		{
+			String tooltip;
+			try
+			{
+				tooltip = section.suggestedIconTooltipForTest(i);
+			}
+			catch (IllegalArgumentException notARow)
+			{
+				continue; // a Box.createRigidArea spacer between rows, not a row
+			}
+			if (tooltip != null && tooltip.startsWith(prefix))
+			{
+				return tooltip;
+			}
+		}
+		return null;
+	}
+
 	/**
-	 * Item #9: when the optimiser's ownership map (see {@code
-	 * OwnedVariantResolver}/{@code GearSection#addVariantPlainForm}) marks a
-	 * plain base item owned because the player actually owns a fortified/
-	 * imbued VARIANT of it, the resulting recommendation must be displayed
-	 * under the variant's own name ("Masori mask (f)"), not the plain base
-	 * name the optimiser matched candidates against — the player doesn't own
-	 * a plain Masori mask, they own the fortified one.
-	 *
-	 * <p>The owned variant (Masori mask (f)) is excluded from suggestions so
-	 * the optimiser is forced to fall back to its plain-base-id ownership
-	 * mapping for the head slot instead of just picking the (objectively
-	 * better-stat) variant directly on its own merits — deterministically
-	 * reproducing the "resolved to the plain form" case this fix targets.
+	 * Item #9 / Codex review finding #1 (PR #5): when the optimiser's
+	 * ownership map (see {@code OwnedVariantResolver}/{@code
+	 * GearSection#addVariantPlainForm}) marks a plain base item owned
+	 * because the player actually owns a fortified/imbued VARIANT of it, the
+	 * resulting recommendation must be displayed under the variant's own
+	 * name ("Masori mask (f)") — AND, once "Apply to readout" is clicked,
+	 * the what-if preview must equip that SAME item, not the plain base the
+	 * row's name doesn't match. Finding #1 flagged the row and the applied
+	 * preview disagreeing; both now go through the same {@code
+	 * GearSection#resolvedChoiceItemId} choke point, so this asserts they
+	 * agree by construction.
 	 */
 	@Test
-	public void ownedRecommendation_showsTheOwnedVariantName_notThePlainBaseName()
+	public void ownedRecommendation_showsTheOwnedVariantName_andAppliesTheSameItem()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(MAGIC_SHORTBOW)), wealthWith(MASORI_MASK_F)));
+			pickCerberus(section);
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			int headChoiceId = -1;
+			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
+			{
+				if (choice.slotOrdinal() == 0) // HEAD
+				{
+					headChoiceId = choice.itemId();
+				}
+			}
+			assertEquals("the unconstrained search picks the owned, stat-superior variant directly",
+				MASORI_MASK_F, headChoiceId);
+
+			String swapTooltip = findSwapTooltipStartingWith(section, "Masori");
+			assertTrue("the recommendation must name the OWNED variant, not the plain base item: " + swapTooltip,
+				swapTooltip != null && swapTooltip.contains("Masori mask (f)"));
+
+			section.clickApplyOptimizerResultForTest();
+			assertEquals("the applied what-if preview must equip the SAME item the row named",
+				MASORI_MASK_F, section.overrideForTest().itemIdFor(0)); // HEAD
+		});
+	}
+
+	/**
+	 * Codex review finding #2 (PR #5): if the player EXCLUDED their own
+	 * owned variant from suggestions, the optimiser correctly falls back to
+	 * recommending the plain base form via the ownership map — and the
+	 * display must NOT remap that back to the excluded variant, or the
+	 * excluded item would silently reappear under a different id's row. The
+	 * plain name is shown/applied instead, matching what the optimiser is
+	 * actually proposing (also exercises finding #1's consistency: whatever
+	 * the row shows is exactly what gets applied, even in this fallback
+	 * case).
+	 */
+	@Test
+	public void excludedOwnedVariant_doesNotReappearInSuggestions()
 	{
 		onEdt(() ->
 		{
@@ -404,29 +467,20 @@ public class GearSectionOptimizerStyleTest
 					headOwned = choice.owned();
 				}
 			}
-			assertEquals("the optimiser must match against the plain base id via the ownership map",
+			assertEquals("the optimiser must fall back to matching the plain base id via the ownership map",
 				MASORI_MASK, headChoiceId);
 			assertTrue("the plain base id must be free/owned (that's the whole point of the mapping)", headOwned);
 
-			String swapTooltip = null;
-			for (int i = 0; i < section.optimizerSwapRowCountForTest() && swapTooltip == null; i++)
-			{
-				String tooltip;
-				try
-				{
-					tooltip = section.suggestedIconTooltipForTest(i);
-				}
-				catch (IllegalArgumentException notARow)
-				{
-					continue; // a Box.createRigidArea spacer between rows, not a row
-				}
-				if (tooltip != null && tooltip.startsWith("Masori"))
-				{
-					swapTooltip = tooltip;
-				}
-			}
-			assertTrue("the recommendation must name the OWNED variant, not the plain base item: " + swapTooltip,
-				swapTooltip != null && swapTooltip.contains("Masori mask (f)"));
+			String swapTooltip = findSwapTooltipStartingWith(section, "Masori");
+			assertTrue("a swap row must exist for the head slot: " + swapTooltip, swapTooltip != null);
+			assertFalse("the excluded variant must NOT reappear — its name must not appear anywhere in the row: "
+				+ swapTooltip, swapTooltip.contains("Masori mask (f)"));
+			assertTrue("the plain item's name must be shown instead: " + swapTooltip,
+				swapTooltip.contains("Masori mask ("));
+
+			section.clickApplyOptimizerResultForTest();
+			assertEquals("the applied preview must match the (plain) row too, not resurrect the excluded variant",
+				MASORI_MASK, section.overrideForTest().itemIdFor(0)); // HEAD
 		});
 	}
 
