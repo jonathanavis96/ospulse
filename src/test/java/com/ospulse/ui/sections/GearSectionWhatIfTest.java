@@ -290,7 +290,7 @@ public class GearSectionWhatIfTest
 			String expectedDimDecimal = delta > 1e-9 ? com.ospulse.ui.ScentFormat.GREEN_DIM
 				: delta < -1e-9 ? com.ospulse.ui.ScentFormat.RED_DIM : com.ospulse.ui.ScentFormat.GREY;
 			assertTrue("delta decimals must use the colour-matched dim shade, got: " + deltaText,
-				deltaText.contains("size='2' color='" + expectedDimDecimal + "'"));
+				deltaText.contains("<font color='" + expectedDimDecimal + "'"));
 		});
 	}
 

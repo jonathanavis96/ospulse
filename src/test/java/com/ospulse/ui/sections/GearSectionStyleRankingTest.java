@@ -198,7 +198,7 @@ public class GearSectionStyleRankingTest
 			assertFalse("best row must not fall back to the default white integer, got: " + bestRaw,
 				bestRaw.contains("color='" + com.ospulse.ui.ScentFormat.WHITE + "'"));
 			assertTrue("best row's decimal must be dimmed to match the orange, got: " + bestRaw,
-				bestRaw.contains("size='2' color='" + dullOrange + "'"));
+				bestRaw.contains("<font color='" + dullOrange + "'"));
 
 			// A non-best row (still ranked, index > 0) keeps the plain default.
 			String otherRaw = section.styleRowDpsRawTextForTest(1);
@@ -502,11 +502,11 @@ public class GearSectionStyleRankingTest
 
 	/**
 	 * Item #10: accuracy, avg hit, TTK and overkill all get the same "scent"
-	 * number styling as DPS (unbolded white integer, dim half-size decimal +
-	 * suffix) — the raw label text carries the HTML markup, but the
-	 * plain-text accessors (used elsewhere to assert the displayed VALUE)
-	 * must still strip it back down to the same plain numbers the readout
-	 * always showed.
+	 * number styling as DPS (bright white integer and suffix, dim decimal
+	 * only, no size change) — the raw label text carries the HTML markup,
+	 * but the plain-text accessors (used elsewhere to assert the displayed
+	 * VALUE) must still strip it back down to the same plain numbers the
+	 * readout always showed.
 	 */
 	@Test
 	public void accuracyAvgHitAndTtkAreScentStyledAndStripCleanly()
@@ -520,7 +520,7 @@ public class GearSectionStyleRankingTest
 
 			String accuracyRaw = section.accuracyRawTextForTest();
 			assertTrue("accuracy must actually carry the scent HTML markup, got: " + accuracyRaw,
-				accuracyRaw.startsWith("<html>") && accuracyRaw.contains("size='2' color='#8C8C8C'"));
+				accuracyRaw.startsWith("<html>") && accuracyRaw.contains("<font color='#8C8C8C'>"));
 
 			String accuracy = section.accuracyTextForTest();
 			assertTrue("accuracy must be a plain N.N% once stripped, got: " + accuracy,
