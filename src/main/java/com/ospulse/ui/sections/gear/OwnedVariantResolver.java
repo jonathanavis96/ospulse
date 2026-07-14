@@ -3,6 +3,7 @@ package com.ospulse.ui.sections.gear;
 import com.ospulse.combat.EquipmentIndexRepository;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Fortified/imbued cosmetic-or-charged variant suffixes (e.g. Masori
@@ -55,16 +56,36 @@ public final class OwnedVariantResolver
 	}
 
 	/**
-	 * The item id that should actually be DISPLAYED for a recommendation that
-	 * resolved to {@code itemId}: if {@code itemId} is a plain base form and
-	 * {@code ownedIds} genuinely contains one of its variants' ids, returns
-	 * the owned variant's id instead — so a recommendation that's really "you
-	 * already own Masori mask (f)" shows that name/icon, not the plain
-	 * "Masori mask" the optimiser matched candidates against. Falls back to
-	 * {@code itemId} unchanged when no owned variant applies (including when
-	 * {@code itemId} is already a variant, or owns nothing extra).
+	 * The item id that should actually be DISPLAYED (and, by the caller's own
+	 * choice, applied) for a recommendation that resolved to {@code itemId}:
+	 * if {@code itemId} is a plain base form and {@code ownedIds} genuinely
+	 * contains one of its variants' ids, returns an owned, non-excluded
+	 * variant id instead — so a recommendation that's really "you already own
+	 * Masori mask (f)" shows that name/icon, not the plain "Masori mask" the
+	 * optimiser matched candidates against. Falls back to {@code itemId}
+	 * unchanged when no such owned variant applies (including when
+	 * {@code itemId} is already a variant, owns nothing extra, or the only
+	 * owned variant is in {@code excludedItemIds}).
+	 *
+	 * <p><b>Excluded variants are never returned</b> (a caller-supplied
+	 * {@code excludedItemIds}): if the player right-clicked "Exclude from
+	 * suggestions" on their own owned variant, the optimiser correctly falls
+	 * back to the plain form as its recommendation, and remapping the display
+	 * back to the excluded item would silently defeat that exclusion — the
+	 * excluded item would reappear under a different id's row. Showing the
+	 * plain name in that case is the honest answer: it really is what the
+	 * optimiser is proposing.
+	 *
+	 * <p><b>Name collisions:</b> {@link EquipmentIndexRepository#idForName}
+	 * keeps only one id per display name, but several variant names
+	 * genuinely have more than one backing id (e.g. an imbued ring or a
+	 * slayer helmet has one id per reward source/quest). This method checks
+	 * {@link EquipmentIndexRepository#idsForName} — every id sharing the
+	 * variant's name — not just the first, so owning a different reward-
+	 * source copy of the same-named variant still resolves correctly.
 	 */
-	public static int preferOwnedVariant(EquipmentIndexRepository index, int itemId, Map<Integer, Long> ownedIds)
+	public static int preferOwnedVariant(EquipmentIndexRepository index, int itemId, Map<Integer, Long> ownedIds,
+		Set<Integer> excludedItemIds)
 	{
 		if (ownedIds == null || ownedIds.isEmpty())
 		{
@@ -78,10 +99,13 @@ public final class OwnedVariantResolver
 		String name = entry.name();
 		for (String suffix : SUFFIXES)
 		{
-			Integer variantId = index.idForName(name + suffix);
-			if (variantId != null && ownedIds.containsKey(variantId))
+			for (Integer variantId : index.idsForName(name + suffix))
 			{
-				return variantId;
+				if (ownedIds.containsKey(variantId)
+					&& (excludedItemIds == null || !excludedItemIds.contains(variantId)))
+				{
+					return variantId;
+				}
 			}
 		}
 		return itemId;
