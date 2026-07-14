@@ -179,7 +179,8 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 - **Items priced through a crafting ingredient always read as unaffordable** — a Scorching bow (valued via a Tormented synapse) could never be recommended no matter your budget.
 - **Items sharing a name could read as not owned.** Imbued rings have a separate id per reward source, and the name lookup silently dropped all but one of them.
 - **Attack‑style DPS was cut in half by the panel edge.** The styles list could render past its own right‑hand edge, so a style's DPS showed as "5." with the rest hidden under the scroll bar — worst on the ranged, slash and crush lists. The list now always fits the panel width, so every DPS reads in full.
-- **Session toggles tidied up.** The tick boxes for "GE positions" and "Bank" now follow their names instead of leading them, so those names line up with "Profit" and "GE flip" above. The boxes are smaller, sit in one column, and the rows are evenly spaced with the rest of the breakdown.
+- **Attack‑style names are no longer cut short.** "Longrange", "Pummel" and "Pound" could render as "Longran…". Styles still pair into two compact columns wherever they fit, but a lone odd style now takes the full bottom row — so a bow reads Accurate and Rapid side by side with Longrange spanning beneath — and any weapon whose names genuinely can't fit two columns (chinchompas) gets a full‑width list instead. The best style no longer carries a ★, since its name and DPS are already orange and it starts selected.
+- **Session toggles tidied up.** The tick boxes for "GE positions", "Bank" and "Show breakdown" now follow their names instead of leading them, so every name lines up with "Profit" and "GE flip" above and all three boxes share one column. The boxes are smaller and the rows now sit exactly as tight as the rest of the breakdown.
 
 ### 0.2.0 — Smarter gear, per‑monster
 
