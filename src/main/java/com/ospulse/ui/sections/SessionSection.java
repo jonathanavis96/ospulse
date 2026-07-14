@@ -153,14 +153,19 @@ public final class SessionSection extends CollapsibleSection
 		// 4. GE flip (realised) — always included in the total, no toggle.
 		geRealizedPnlValue = PanelWidgets.statRow(breakdownPanel, "GE flip",
 			categorySupport.buildMenu(CAT_GE_PNL, null));
+		// Both toggle rows share ONE name-column width so their tick boxes line
+		// up with each other while their names stay flush-left with the plain
+		// stat rows above (Profit/GE flip). Measured from the real font, so
+		// renaming a label below re-sizes the column automatically.
+		int toggleNameColumn = PanelWidgets.toggleNameColumnWidth("GE positions", "Bank");
 		// 5. GE positions (unrealised mark-to-market on open/collectable GE
 		// offers) — include/exclude toggle, default ON.
-		PanelWidgets.ToggleRow geRow = PanelWidgets.toggleStatRow(breakdownPanel, "GE positions");
+		PanelWidgets.ToggleRow geRow = PanelWidgets.toggleStatRow(breakdownPanel, "GE positions", toggleNameColumn);
 		gePositionsToggle = geRow.checkbox;
 		gePositionsValue = geRow.value;
 		gePositionsToggle.addActionListener(e -> refreshNetWorthChange());
 		// 6. Bank (bankValue - bankLineAnchor) — include/exclude toggle, default ON.
-		PanelWidgets.ToggleRow bankRow = PanelWidgets.toggleStatRow(breakdownPanel, "Bank");
+		PanelWidgets.ToggleRow bankRow = PanelWidgets.toggleStatRow(breakdownPanel, "Bank", toggleNameColumn);
 		bankToggle = bankRow.checkbox;
 		bankValue = bankRow.value;
 		bankToggle.addActionListener(e -> refreshNetWorthChange());

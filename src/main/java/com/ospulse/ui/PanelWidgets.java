@@ -14,8 +14,13 @@ import javax.swing.border.EmptyBorder;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.FontMetrics;
 import java.awt.Image;
+import java.awt.Insets;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 
 /**
  * Shared, stateless builders for the small labelled rows used across every
@@ -89,24 +94,107 @@ public final class PanelWidgets
 		}
 	}
 
+	/** Gap in px between the end of a toggle row's name and its tick box. */
+	private static final int TOGGLE_NAME_BOX_GAP = 4;
+
 	/**
-	 * Adds a "[x] label ........ value" row to {@code container}, checked by
-	 * default, and returns the checkbox + value label so the caller can read
-	 * the toggle state and mutate the value on each update.
+	 * A bare, tightly-packed tick box (no text of its own — the name is a
+	 * separate {@link JLabel} so it can left-align with the plain
+	 * {@link #statRow} names). Margins/border are zeroed: the LAF's default
+	 * checkbox margin is what made the toggle rows sit noticeably further
+	 * apart than the surrounding stat rows.
 	 */
-	public static ToggleRow toggleStatRow(JPanel container, String labelText)
+	private static JCheckBox toggleCheckBox()
+	{
+		JCheckBox checkbox = new JCheckBox("", true);
+		checkbox.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		checkbox.setMargin(new Insets(0, 0, 0, 0));
+		checkbox.setBorder(new EmptyBorder(0, 0, 0, 0));
+		checkbox.setBorderPainted(false);
+		checkbox.setFocusPainted(false);
+		return checkbox;
+	}
+
+	/**
+	 * The width of the shared name column for a set of {@link #toggleStatRow}
+	 * rows: the widest name, plus the gap and the tick box itself.
+	 *
+	 * <p>Pass the SAME value to every {@code toggleStatRow} in one section so
+	 * the tick boxes all land on one x (right-aligned at the column's edge)
+	 * while the names stay flush-left with the section's plain stat rows.
+	 * Measured from the real font + a real checkbox rather than hard-coded, so
+	 * it cannot drift when a label is renamed or the LAF's box size changes.
+	 */
+	public static int toggleNameColumnWidth(String... labelTexts)
+	{
+		JLabel probe = new JLabel();
+		probe.setFont(FontManager.getRunescapeSmallFont());
+		FontMetrics metrics = probe.getFontMetrics(probe.getFont());
+		int widest = 0;
+		for (String text : labelTexts)
+		{
+			widest = Math.max(widest, metrics.stringWidth(text));
+		}
+		return widest + TOGGLE_NAME_BOX_GAP + toggleCheckBox().getPreferredSize().width;
+	}
+
+	/**
+	 * Adds a "label ... [x] ........ value" row to {@code container}, checked
+	 * by default, and returns the checkbox + value label so the caller can
+	 * read the toggle state and mutate the value on each update.
+	 *
+	 * <p>The name leads and the tick box FOLLOWS it, right-aligned inside a
+	 * fixed-width name column ({@code nameColumnWidth}, from
+	 * {@link #toggleNameColumnWidth}). That keeps this row's name flush-left
+	 * with the plain {@link #statRow} names above it — a leading checkbox used
+	 * to indent the name by the box's width, so toggle and non-toggle names
+	 * never lined up — while still aligning the boxes with each other.
+	 *
+	 * @param nameColumnWidth shared column width; pass the same value for
+	 *                        every toggle row in a section.
+	 */
+	public static ToggleRow toggleStatRow(JPanel container, String labelText, int nameColumnWidth)
 	{
 		JPanel row = new JPanel(new BorderLayout(4, 0));
 		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		row.setBorder(new EmptyBorder(1, 0, 1, 0));
 		row.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		JCheckBox checkbox = new JCheckBox(labelText, true);
-		checkbox.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		checkbox.setFont(FontManager.getRunescapeSmallFont());
-		checkbox.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		checkbox.setFocusPainted(false);
-		row.add(checkbox, BorderLayout.WEST);
+		JPanel namePanel = new JPanel(new BorderLayout(TOGGLE_NAME_BOX_GAP, 0));
+		namePanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+
+		JLabel label = new JLabel(labelText);
+		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		label.setFont(FontManager.getRunescapeSmallFont());
+		namePanel.add(label, BorderLayout.CENTER);
+
+		JCheckBox checkbox = toggleCheckBox();
+		checkbox.setToolTipText("Include " + labelText + " in the total");
+		namePanel.add(checkbox, BorderLayout.EAST);
+
+		// The box carries no text of its own any more, so without this the
+		// clickable area would have shrunk from "box + name" to just the box.
+		// Clicking the name (or the gap beside it) still toggles.
+		MouseAdapter toggleOnClick = new MouseAdapter()
+		{
+			@Override
+			public void mousePressed(MouseEvent e)
+			{
+				checkbox.doClick();
+			}
+		};
+		label.addMouseListener(toggleOnClick);
+		namePanel.addMouseListener(toggleOnClick);
+		label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		namePanel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+		// Pin the column so every row's box shares one x. Height stays the
+		// panel's natural height so the row never grows taller than a statRow.
+		Dimension column = new Dimension(nameColumnWidth, namePanel.getPreferredSize().height);
+		namePanel.setPreferredSize(column);
+		namePanel.setMinimumSize(column);
+		namePanel.setMaximumSize(column);
+		row.add(namePanel, BorderLayout.WEST);
 
 		JLabel value = new JLabel("-");
 		value.setForeground(Color.WHITE);
