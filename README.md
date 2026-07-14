@@ -75,6 +75,8 @@ It also **crosses out** styles and weapons that can't damage the target — an u
 
 **Steer the search:** right‑click any suggestion to exclude it and instantly re‑optimise. The excluded list is editable, so you can drop items you'll never buy and keep the recommendations realistic.
 
+**Wilderness & PvP risk cap:** say how many **expensive items** you're willing to take in and what counts as expensive (starts at 100k), and the optimiser builds the best setup that stays inside that limit — giving up whichever item costs you the least DPS rather than whichever happens to sit first in the slot order. Untradeables are counted at what it actually costs to keep them on death, so a fire cape or an Avernic defender can't slip through as free risk, while gear you can simply get again (an Ardougne cloak) doesn't burn one of your slots. Set **Hide unprotectable items** if you'd rather it never suggested parchment‑only gear at all.
+
 <br clear="all">
 
 ### 🏦 Highlights the upgrades in your bank
@@ -141,6 +143,7 @@ Full technical detail (the single class involved, threading, provenance and buil
 
 - **Min loot value** — hide loot‑feed items below this GE value.
 - **Include rune pouch / looting bag** — count pouch/bag contents in tracked wealth.
+- **Hide unprotectable items** — off by default; keeps rare untradeables that can't be protected on death (fire cape, fighter torso, imbued capes) out of **Find Best** recommendations. They count against the expensive‑item risk cap either way — this only decides whether the optimiser may recommend equipping one.
 - **Enable price trends** — off by default; the only setting that can cause a network call (see above).
 - **Trend window** / **Holdings page size** — trend look‑back and rows per Top Holdings page.
 - **Panel sections** — independently show/hide each of the seven sections (Session, Loot, XP, Gear, Grand Exchange, Wealth, Top Holdings), applied live without restarting.
@@ -159,9 +162,15 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 
 ## 📝 Changelog
 
-<!-- Unreleased: staged notes for the next Plugin Hub update. On release, rename this
-     heading to the new version (e.g. "### 0.2.1 — …") and bump the manifest PR. -->
-### Unreleased
+<!-- 0.2.1 is the version declared in build.gradle + runelite-plugin.properties and is
+     what master builds as. It is NOT yet the version served by the Plugin Hub: the
+     hub manifest pins a commit SHA, so going live still needs a PR against
+     runelite/plugin-hub bumping commit= to the master tip.
+     When work resumes after that release, add a fresh "### Unreleased" block ABOVE
+     this one and stage new user-facing lines there; on the next release, rename it to
+     its version, collapse the previous version into a <details> block as below, and
+     cut the manifest PR. -->
+### 0.2.1 — Truthful wealth, readable numbers
 
 **✨ New**
 
@@ -169,6 +178,10 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 - ⚖️ **The risk cap now sacrifices the right item.** When you limit how many expensive items to allow, the optimiser used to give up whichever item happened to sit earliest in the slot order — demoting a DPS‑carrying amulet while a DPS‑dead ring kept its expensive spot. It now gives up whatever costs you the least DPS, so your allowed expensive slots go to the gear that earns them.
 - 💍 **Charge variants grouped into one entry.** Amulet of glory (1)/(2)/(3)/(4)/eternal were listed as separate items, so you'd see eight near‑identical amulets and be told to "buy" a charge of one already in your bank. Now it's a single entry using your highest owned charge — and under an active risk cap it steps down to the best charge you're allowed to take. Same for glory (t).
 - 🛡️ **Protected items are flagged.** Rare untradeables you can only keep on death with a Trouver parchment are now tinted, with a "must be protected (Trouver parchment)" tooltip, so you can see what you're really risking.
+- 🙈 **Hide gear you can't protect.** New setting — **Hide unprotectable items** — leaves those parchment‑only untradeables out of recommendations entirely, so a wilderness setup only suggests gear you're actually willing to lose.
+- 🔥 **The risk cap now counts your untradeables.** A fire cape, fighter torso or imbued god cape has no GE price, so it used to count as *free* risk and slip past the cap. They're now valued at what it costs to keep one on death — a Trouver parchment, or the item's own reclaim cost where that's cheaper — and assembled items like an Avernic defender are valued through their hilt. Your "max N expensive items" finally reflects what you're really carrying.
+- 🪶 **Free‑to‑replace items don't burn an expensive slot.** An Ardougne cloak costs nothing to get again, so it no longer counts against your expensive‑item limit.
+- 🧯 **Every slot keeps a cheap fallback.** With a risk cap on, the optimiser now always keeps at least one affordable candidate per slot, so it can't end up with nothing to recommend there.
 - 🔢 **Clearer numbers everywhere.** DPS, Accuracy, Avg hit, TTK, Overkill and your gp figures all read the same way: the number and its unit (`k`/`m`/`b`/`%`) stay bright while the decimals dim back, so **1.98** can't be mistaken for *198* — all at normal text size.
 - 🏹 **The ammo slot names your ammo.** Reads "Rada's blessing 4 — Ammo slot (live)" instead of generic slot text, so similar‑looking ammo is no longer indistinguishable.
 - 🎭 **Recommendations name the variant you own.** Shows "Masori mask (f)" rather than the plain "Masori mask", with the icon, preview and bank highlight all agreeing.
@@ -178,11 +191,19 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 - **Cheap untradeables are no longer treated as 575k of risk.** Every rare untradeable was priced at the cost of a Trouver parchment, so Barrows gloves (~130k to reclaim) were risked at 575k. They're now valued at whichever is cheaper — parchment or real reclaim cost — and cheap‑reclaim items are no longer wrongly flagged "must be protected".
 - **Items priced through a crafting ingredient always read as unaffordable** — a Scorching bow (valued via a Tormented synapse) could never be recommended no matter your budget.
 - **Items sharing a name could read as not owned.** Imbued rings have a separate id per reward source, and the name lookup silently dropped all but one of them.
+- **The expensive‑item cap was silently doing nothing.** The "expensive" threshold started at 0, so no item ever counted as expensive and setting "max 1 expensive item" had no effect at all until you noticed and set a threshold yourself. It now starts at **100k**.
+- **Worn gear could read as free risk.** Some pieces you already owned — and some variants — weren't priced at their real value for the risk cap, so a loadout could be reported as under your limit when it wasn't.
+- **GE flip profit went missing after a relog.** Selling something you'd bought in an earlier session credited zero (or wrong) profit, because the cost basis of your open buys wasn't restored when you logged back in. It's now saved per account and restored on login.
+- **"Reset session" had the same effect on open GE buys** — it wiped their cost basis without reloading it, so a later sale credited nothing. Reset now restores it exactly the way a relog does.
+- **Unrealised P/L leaked between accounts.** The baseline was stored once for the whole client, so switching accounts carried a stale baseline over from the other one. It's now kept per account.
 - **Attack‑style DPS was cut in half by the panel edge.** The styles list could render past its own right‑hand edge, so a style's DPS showed as "5." with the rest hidden under the scroll bar — worst on the ranged, slash and crush lists. The list now always fits the panel width, so every DPS reads in full.
 - **Attack‑style names are no longer cut short.** "Longrange", "Pummel" and "Pound" could render as "Longran…". Styles still pair into two compact columns wherever they fit, but a lone odd style now takes the full bottom row — so a bow reads Accurate and Rapid side by side with Longrange spanning beneath — and any weapon whose names genuinely can't fit two columns (chinchompas) gets a full‑width list instead. The best style no longer carries a ★, since its name and DPS are already orange and it starts selected.
 - **Session toggles tidied up.** The tick boxes for "GE positions", "Bank" and "Show breakdown" now follow their names instead of leading them, so every name lines up with "Profit" and "GE flip" above and all three boxes share one column. The boxes are smaller and the rows now sit exactly as tight as the rest of the breakdown.
 
-### 0.2.0 — Smarter gear, per‑monster
+<details>
+<summary><b>0.2.0 — Smarter gear, per‑monster</b></summary>
+
+<br>
 
 **✨ New**
 
@@ -201,6 +222,8 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 - Only the weapon a monster can't be hurt by is crossed out now — not your whole setup.
 - Bank highlights no longer flicker or reappear when the OSPulse panel is closed.
 - Plays nicely with **Bank Tag Layouts**, and the suggested‑swap labels no longer clip on the right.
+
+</details>
 
 <details>
 <summary>Older versions</summary>
