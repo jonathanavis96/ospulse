@@ -15,45 +15,46 @@ public class ScentFormatTest
 	@Test
 	public void integerAndDecimalAreSplitOnFirstDot()
 	{
-		assertEquals("<font color='#FFFFFF'>1</font><font size='2' color='#8C8C8C'>.5</font>",
+		assertEquals("<font color='#FFFFFF'>1</font><font color='#8C8C8C'>.5</font>",
 			ScentFormat.fragment("1.5"));
 	}
 
 	@Test
-	public void suffixAfterDecimalStaysWithTheDecimalSpan()
+	public void suffixAfterDecimalRendersBrightAfterTheDimmedDecimal()
 	{
-		assertEquals("<font color='#FFFFFF'>1</font><font size='2' color='#8C8C8C'>.5m</font>",
+		assertEquals("<font color='#FFFFFF'>1</font><font color='#8C8C8C'>.5</font><font color='#FFFFFF'>m</font>",
 			ScentFormat.fragment("1.5m"));
 	}
 
 	@Test
-	public void percentSuffixStaysWithTheDecimalSpan()
+	public void percentSuffixRendersBrightAfterTheDimmedDecimal()
 	{
-		assertEquals("<font color='#FFFFFF'>62</font><font size='2' color='#8C8C8C'>.3%</font>",
+		assertEquals("<font color='#FFFFFF'>62</font><font color='#8C8C8C'>.3</font><font color='#FFFFFF'>%</font>",
 			ScentFormat.fragment("62.3%"));
 	}
 
 	@Test
-	public void roundThousandsSuffixIsDimmedEvenWithoutADecimal()
+	public void roundThousandsSuffixMergesIntoASingleBrightTag()
 	{
-		// GpFormat.format(100_000) -> "100k": the k must recede like a decimal would.
-		assertEquals("<font color='#FFFFFF'>100</font><font size='2' color='#8C8C8C'>k</font>",
+		// GpFormat.format(100_000) -> "100k": no decimal point at all, so the
+		// whole thing (including the k) stays bright as one merged <font> tag.
+		assertEquals("<font color='#FFFFFF'>100k</font>",
 			ScentFormat.fragment("100k"));
 	}
 
 	@Test
-	public void roundMillionsAndBillionsSuffixIsDimmed()
+	public void roundMillionsAndBillionsSuffixStaysBright()
 	{
-		assertEquals("<font color='#FFFFFF'>1</font><font size='2' color='#8C8C8C'>m</font>",
+		assertEquals("<font color='#FFFFFF'>1m</font>",
 			ScentFormat.fragment("1m"));
-		assertEquals("<font color='#FFFFFF'>2</font><font size='2' color='#8C8C8C'>b</font>",
+		assertEquals("<font color='#FFFFFF'>2b</font>",
 			ScentFormat.fragment("2b"));
 	}
 
 	@Test
-	public void negativeRoundSuffixKeepsSignWithTheIntegerAndDimsTheSuffix()
+	public void negativeRoundSuffixKeepsSignWithTheIntegerAndStaysBright()
 	{
-		assertEquals("<font color='#FFFFFF'>-3</font><font size='2' color='#8C8C8C'>m</font>",
+		assertEquals("<font color='#FFFFFF'>-3m</font>",
 			ScentFormat.fragment("-3m"));
 	}
 
@@ -64,23 +65,23 @@ public class ScentFormatTest
 	}
 
 	@Test
-	public void greenRoundSuffixDimsWithDullGreen()
+	public void greenRoundSuffixMergesIntoASingleBrightGreenTag()
 	{
-		assertEquals("<font color='#37F046'>5</font><font size='2' color='#1E8427'>m</font>",
+		assertEquals("<font color='#37F046'>5m</font>",
 			ScentFormat.greenFragment("5m"));
 	}
 
 	@Test
 	public void explicitColorPairingOverridesDefaults()
 	{
-		assertEquals("<font color='#111111'>1</font><font size='2' color='#222222'>.5</font>",
+		assertEquals("<font color='#111111'>1</font><font color='#222222'>.5</font>",
 			ScentFormat.fragment("1.5", "#111111", "#222222"));
 	}
 
 	@Test
 	public void greenFragmentUsesGreenAndDullGreen()
 	{
-		assertEquals("<font color='#37F046'>1</font><font size='2' color='#1E8427'>.5</font>",
+		assertEquals("<font color='#37F046'>1</font><font color='#1E8427'>.5</font>",
 			ScentFormat.greenFragment("1.5"));
 	}
 
@@ -93,7 +94,7 @@ public class ScentFormatTest
 	@Test
 	public void redFragmentUsesRedAndDullRed()
 	{
-		assertEquals("<font color='#E61E1E'>-1</font><font size='2' color='#7F1111'>.5</font>",
+		assertEquals("<font color='#E61E1E'>-1</font><font color='#7F1111'>.5</font>",
 			ScentFormat.redFragment("-1.5"));
 	}
 
@@ -106,14 +107,14 @@ public class ScentFormatTest
 	@Test
 	public void htmlWrapsDefaultFragmentInHtmlTags()
 	{
-		assertEquals("<html><font color='#FFFFFF'>1</font><font size='2' color='#8C8C8C'>.5</font></html>",
+		assertEquals("<html><font color='#FFFFFF'>1</font><font color='#8C8C8C'>.5</font></html>",
 			ScentFormat.html("1.5"));
 	}
 
 	@Test
 	public void htmlWithColorPairingWrapsInHtmlTags()
 	{
-		assertEquals("<html><font color='#37F046'>1</font><font size='2' color='#1E8427'>.5</font></html>",
+		assertEquals("<html><font color='#37F046'>1</font><font color='#1E8427'>.5</font></html>",
 			ScentFormat.html("1.5", ScentFormat.GREEN, ScentFormat.GREEN_DIM));
 	}
 
@@ -167,7 +168,7 @@ public class ScentFormatTest
 	public void twoArgFragmentDimsTheGivenColorForTheDecimal()
 	{
 		String orange = "#DC8A00";
-		assertEquals("<font color='#DC8A00'>1</font><font size='2' color='" + ScentFormat.dim(orange) + "'>.5</font>",
+		assertEquals("<font color='#DC8A00'>1</font><font color='" + ScentFormat.dim(orange) + "'>.5</font>",
 			ScentFormat.fragment("1.5", orange));
 	}
 

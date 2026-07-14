@@ -2,10 +2,11 @@ package com.ospulse.ui;
 
 /**
  * Pure, side-effect-free builder for the "scent" number styling used across
- * the panel: an unbolded integer part in a context colour, with the decimal
- * point, fractional digits and any suffix rendered smaller and in a duller
- * colour so they visually recede while the integer magnitude reads at a
- * glance (the "1.98 read as 198" misread this treatment exists to prevent).
+ * the panel: an integer part and any trailing suffix (k/m/b, %, s, ...)
+ * render bright in a context colour, while only the decimal point and its
+ * fractional digits are dimmed to a duller colour, so the integer magnitude
+ * reads at a glance (the "1.98 read as 198" misread this treatment exists to
+ * prevent) without shrinking anything to a harder-to-read size.
  *
  * <p>Shared by {@link GpFormat} (gp values in the wealth/session panels) and
  * {@code GearSection}'s DPS/Accuracy/Avg-hit/TTK/Overkill readouts so every
@@ -13,17 +14,9 @@ package com.ospulse.ui;
  * Kept dependency-free (no Swing/RuneLite imports) so it's trivially
  * unit-testable and easy to split into its own module later.
  *
- * <p>The smaller decimal size is done with the HTML legacy {@code size='2'}
- * attribute rather than a proportional scale: Swing's HTML renderer maps
- * {@code size} levels 1-7 to a fixed absolute point-size table, not to a
- * fraction of the surrounding label's actual font size. Verified against the
- * real, {@code GraphicsEnvironment}-registered "RuneScape Small" font (16pt)
- * used throughout the panel: an unwrapped/{@code size='3'} run stays at the
- * label's true configured size, while a {@code size='2'} run resolves to a
- * fixed 10pt of the SAME font family (no fallback to a mismatched
- * proportional font — RuneLite's {@code FontManager} registers these fonts
- * with the JRE, so family-by-name lookup succeeds) — a real, if not
- * precisely "half", size reduction.
+ * <p>No {@code size} attribute is emitted at all: every run renders at the
+ * label's normal font size, and only the {@code color} changes between the
+ * bright integer/suffix spans and the dim decimal span.
  */
 public final class ScentFormat
 {
@@ -33,7 +26,7 @@ public final class ScentFormat
 
 	/** Default context colour for the integer part — plain white. */
 	public static final String WHITE = "#FFFFFF";
-	/** Default de-emphasised colour for the fractional/suffix part — dim grey. */
+	/** Default de-emphasised colour for the fractional (decimal) part — dim grey. */
 	public static final String GREY = "#8C8C8C";
 
 	/**
@@ -83,34 +76,60 @@ public final class ScentFormat
 
 	/**
 	 * Splits {@code formatted} (e.g. {@code "1.5m"}, {@code "100k"},
-	 * {@code "1,234"}, a signed value, or a plain integer) at the end of its
-	 * whole-number part (see {@link #integerEnd}) and renders the integer part
-	 * unbolded in {@code intColor} and the remainder — a decimal point plus
-	 * fractional digits and/or a trailing suffix (k/m/b, %, s, ...) — at
-	 * half-size in {@code decimalColor}. Returns a bare fragment (no
-	 * surrounding {@code <html>} tags) so callers can compose it with other
-	 * fragments (e.g. a "before -&gt; after" comparison in one label).
+	 * {@code "1,234"}, a signed value, or a plain integer) into an integer
+	 * part (see {@link #integerEnd}), an optional decimal part (a
+	 * {@code .} plus its fractional digits, if present right after the
+	 * integer part), and a trailing suffix (k/m/b, %, s, ...). The integer
+	 * and suffix render in {@code intColor}; only the decimal part — if any —
+	 * renders dimmed in {@code decimalColor}. Nothing changes size. Returns a
+	 * bare fragment (no surrounding {@code <html>} tags) so callers can
+	 * compose it with other fragments (e.g. a "before -&gt; after" comparison
+	 * in one label).
 	 */
 	public static String fragment(String formatted, String intColor, String decimalColor)
 	{
-		int split = integerEnd(formatted);
-		if (split >= formatted.length())
+		int intEnd = integerEnd(formatted);
+		int decimalEnd = intEnd;
+		if (decimalEnd < formatted.length() && formatted.charAt(decimalEnd) == '.')
 		{
+			decimalEnd++;
+			while (decimalEnd < formatted.length() && Character.isDigit(formatted.charAt(decimalEnd)))
+			{
+				decimalEnd++;
+			}
+		}
+
+		if (decimalEnd == intEnd)
+		{
+			// No decimal part: integer and suffix are the same colour, so
+			// merge them into a single <font> tag instead of two adjacent
+			// identical ones.
 			return "<font color='" + intColor + "'>" + formatted + "</font>";
 		}
-		return "<font color='" + intColor + "'>" + formatted.substring(0, split) + "</font>"
-			+ "<font size='2' color='" + decimalColor + "'>" + formatted.substring(split) + "</font>";
+
+		String integerPart = formatted.substring(0, intEnd);
+		String decimalPart = formatted.substring(intEnd, decimalEnd);
+		String suffixPart = formatted.substring(decimalEnd);
+
+		StringBuilder result = new StringBuilder();
+		result.append("<font color='").append(intColor).append("'>").append(integerPart).append("</font>");
+		result.append("<font color='").append(decimalColor).append("'>").append(decimalPart).append("</font>");
+		if (!suffixPart.isEmpty())
+		{
+			result.append("<font color='").append(intColor).append("'>").append(suffixPart).append("</font>");
+		}
+		return result.toString();
 	}
 
 	/**
 	 * Index where the whole-number part of {@code formatted} ends: the first
 	 * character that isn't part of the integer magnitude reading (i.e. not a
-	 * digit, a leading sign, or a grouping comma). Everything from there on —
-	 * a decimal point and fractional digits, and/or a {@code k}/{@code m}/{@code b}
-	 * (or {@code %}/{@code s}/…) suffix — is the de-emphasised part. So a round
-	 * abbreviation like {@code "100k"} or {@code "2b"} dims its suffix too, not
-	 * only values that carry a decimal point. Equals the string length for a bare
-	 * integer such as {@code "1,234"} (nothing to dim).
+	 * digit, a leading sign, or a grouping comma). Everything from there on is
+	 * a decimal point and fractional digits (dimmed) and/or a trailing
+	 * {@code k}/{@code m}/{@code b} (or {@code %}/{@code s}/…) suffix (bright,
+	 * same colour as the integer). Equals the string length for a bare
+	 * integer such as {@code "1,234"} or a round abbreviation such as
+	 * {@code "100k"} (nothing to dim).
 	 */
 	private static int integerEnd(String formatted)
 	{
@@ -137,12 +156,12 @@ public final class ScentFormat
 	}
 
 	/**
-	 * {@link #fragment(String, String, String)} with the integer in {@code
-	 * color} and the decimal/suffix in {@link #dim(String) dim(color)} — for
-	 * a context colour that isn't one of the standing {@link #GREEN}/{@link
-	 * #RED} pairings (e.g. a highlighted/best row rendered in the panel's
-	 * brand accent colour, which must still dim its decimals rather than
-	 * hard-coding white).
+	 * {@link #fragment(String, String, String)} with the integer (and suffix)
+	 * in {@code color} and the decimal in {@link #dim(String) dim(color)} —
+	 * for a context colour that isn't one of the standing {@link #GREEN}/
+	 * {@link #RED} pairings (e.g. a highlighted/best row rendered in the
+	 * panel's brand accent colour, which must still dim its decimals rather
+	 * than hard-coding white).
 	 */
 	public static String fragment(String formatted, String color)
 	{
