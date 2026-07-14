@@ -78,6 +78,16 @@ public class GearOptimizerChargeFamilyTest {
         return -1;
     }
 
+    private static List<Integer> familyMembersIn(List<Integer> candidateIds) {
+        List<Integer> members = new java.util.ArrayList<>();
+        for (int id : candidateIds) {
+            if (ChargeFamilies.isMember(id)) {
+                members.add(id);
+            }
+        }
+        return members;
+    }
+
     // -------------------------------------------------- (a) highest owned charge
 
     @Test
@@ -169,6 +179,94 @@ public class GearOptimizerChargeFamilyTest {
 
         assertEquals("the worn 50m eternal glory must be seeded down to the identical-DPS ~15k owned glory",
                 GLORY_4, amuletIdIn(GearOptimizer.optimize(request)));
+    }
+
+    // ----------------- (a'') cap active, own ONLY the pricey member → can BUY cheap
+
+    /**
+     * Owns ONLY the ~50m eternal glory (worn); a ~15k glory (4) is purchasable
+     * when {@code budget} allows; the expensive-item cap is active with a 100k
+     * ceiling and the given allowance.
+     */
+    private static GearOptimizer.Request eternalOnlyCapRequest(long budget, int expensiveAllowance) {
+        int[] live = emptyLoadout();
+        live[WEAPON_SLOT] = ABYSSAL_WHIP;
+        live[AMULET_SLOT] = GLORY_ETERNAL;
+        return GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(budget)
+                .priceSource(id -> id == GLORY_4 ? 15_000L : 100_000_000L)
+                .riskValueSource(id -> id == GLORY_ETERNAL ? 50_000_000L : 15_000L)
+                .expensiveItemThreshold(100_000L)
+                .expensiveItemCount(expensiveAllowance)
+                .build();
+    }
+
+    @Test
+    public void owningOnlyHighRiskMember_retainsAffordableCheapMemberAsPurchaseCandidate() {
+        GearOptimizer.Request request = eternalOnlyCapRequest(20_000L, 0);
+
+        List<Integer> glories = familyMembersIn(GearOptimizer.candidateIdsForSlotForTest(AMULET_SLOT, request));
+        assertTrue("the owned representative must stay a candidate", glories.contains(GLORY_ETERNAL));
+        assertTrue("the affordable below-ceiling glory must survive the collapse so the cap can de-risk to it",
+                glories.contains(GLORY_4));
+        assertEquals("exactly the representative + ONE de-risk purchase — never the whole ladder",
+                2, glories.size());
+    }
+
+    @Test
+    public void owningOnlyHighRiskMember_capBuysTheCheapSameDpsMember() {
+        GearOptimizer.Result result = GearOptimizer.optimize(eternalOnlyCapRequest(20_000L, 0));
+
+        assertEquals("the cap must de-risk the worn 50m eternal glory by BUYING the identical-DPS ~15k glory",
+                GLORY_4, amuletIdIn(result));
+        assertEquals("the bought glory is the only spend", 15_000L, result.totalSpend());
+    }
+
+    @Test
+    public void capAllowanceCoversTheOwnedMember_noNeedlessPurchase() {
+        GearOptimizer.Result result = GearOptimizer.optimize(eternalOnlyCapRequest(20_000L, 1));
+
+        assertEquals("within the allowance the owned eternal glory stays — no needless purchase",
+                GLORY_ETERNAL, amuletIdIn(result));
+        assertEquals(0L, result.totalSpend());
+    }
+
+    @Test
+    public void owningOnlyHighRiskMember_nothingAffordable_staysCollapsedToOwned() {
+        GearOptimizer.Request request = eternalOnlyCapRequest(0L, 0);
+
+        assertEquals("no affordable member to de-risk to — the family stays a single owned candidate",
+                Arrays.asList(GLORY_ETERNAL),
+                familyMembersIn(GearOptimizer.candidateIdsForSlotForTest(AMULET_SLOT, request)));
+        assertEquals("the owned member is kept (over the cap, but nothing can fix that)",
+                GLORY_ETERNAL, amuletIdIn(GearOptimizer.optimize(request)));
+    }
+
+    @Test
+    public void capActive_equalRiskLadder_stillCollapsesToHighestOwnedCharge() {
+        int[] live = emptyLoadout();
+        live[WEAPON_SLOT] = ABYSSAL_WHIP;
+        Set<Integer> ladder = new HashSet<>(Arrays.asList(GLORY_UNCHARGED, GLORY_1, GLORY_2, GLORY_3, GLORY_4));
+        Set<Integer> owned = new HashSet<>(Arrays.asList(GLORY_1, GLORY_4, ABYSSAL_WHIP));
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(20_000L) // the rest of the ladder is affordable too
+                .priceSource(id -> owned.contains(id) ? 0L : ladder.contains(id) ? 15_000L : 100_000_000L)
+                .riskValueSource(id -> 15_000L) // every charge the same risk — the ordinary ladder
+                .expensiveItemThreshold(100_000L)
+                .expensiveItemCount(0)
+                .owned(owned)
+                .build();
+
+        assertEquals("representative within the ceiling — the family still collapses to ONE candidate, "
+                        + "the highest owned charge",
+                Arrays.asList(GLORY_4),
+                familyMembersIn(GearOptimizer.candidateIdsForSlotForTest(AMULET_SLOT, request)));
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+        assertEquals(GLORY_4, amuletIdIn(result));
+        assertEquals("no purchase — the owned charge already satisfies the cap", 0L, result.totalSpend());
     }
 
     // ------------------------------------------------ (b) collapses to one candidate

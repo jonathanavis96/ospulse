@@ -720,15 +720,10 @@ public final class GearOptimizer {
             for (int i = 0; i < slotForIndex.length; i++) {
                 int slot = slotForIndex[i];
                 int id = current[slot];
-                long capPrice;
                 boolean exempt = FREE_REOBTAINABLE.contains(id);
-                if (id <= 0 || exempt) {
-                    capPrice = 0L;
-                } else {
-                    // Mirror expensiveItemCountOf exactly (now riskValueSource-driven)
-                    // so the diagnostic shows the value the cap actually counts by.
-                    capPrice = Math.max(0L, request.riskValueSource().priceFor(id));
-                }
+                // Same pricing rule as expensiveItemCountOf (capRiskValueOf) so
+                // the diagnostic shows the value the cap actually counts by.
+                long capPrice = capRiskValueOf(id, request);
                 List<Candidate> cands = candidatesBySlot.get(i);
                 int subThr = 0;
                 for (Candidate c : cands) {
@@ -886,19 +881,28 @@ public final class GearOptimizer {
         int count = 0;
         for (int slot : SEARCHABLE_SLOTS) {
             int itemId = slot < itemIds.length ? itemIds[slot] : -1;
-            if (itemId <= 0) {
-                continue;
-            }
-            if (FREE_REOBTAINABLE.contains(itemId)) {
-                // No death risk (free to reclaim), so it's never priced for the cap either.
-                continue;
-            }
-            long price = Math.max(0L, request.riskValueSource.priceFor(itemId));
-            if (price > threshold) {
+            if (capRiskValueOf(itemId, request) > threshold) {
                 count++;
             }
         }
         return count;
+    }
+
+    /**
+     * The gp value the expensive-item cap counts {@code itemId} at: {@code 0}
+     * for an empty slot and for {@link #FREE_REOBTAINABLE} ids (no death risk,
+     * so never priced), otherwise the item's non-negative
+     * {@link Request#riskValueSource()} value. The ONE pricing rule shared by
+     * {@link #expensiveItemCountOf}, the charge-family helpers
+     * ({@link #bestOwnedFamilyMember}/{@link #familyDeriskPurchase}) and the
+     * cap diagnostic in {@link #optimize}, so they can never disagree about
+     * what a given item risks.
+     */
+    private static long capRiskValueOf(int itemId, Request request) {
+        if (itemId <= 0 || FREE_REOBTAINABLE.contains(itemId)) {
+            return 0L;
+        }
+        return Math.max(0L, request.riskValueSource().priceFor(itemId));
     }
 
     /**
@@ -1063,11 +1067,24 @@ public final class GearOptimizer {
      * candidates} to a single representative candidate (item #7): the family is
      * treated as one item so the optimiser never lists eight identical Amulet of
      * glory charges as separate options, and — when any charge is owned — the
-     * representative is the highest-charge owned member (so a player wearing the
-     * (1) but holding the (4) is recommended the (4)). A family the player
-     * force-included is left untouched (all its members pass through) so the
-     * explicit include always survives. Returns {@code candidates} unchanged
-     * when no family member is present, so non-charge items are unaffected.
+     * representative is the best owned member (see {@link #bestOwnedFamilyMember}:
+     * lowest cap-risk, tie-broken to the highest charge, so a player wearing the
+     * (1) but holding the (4) is recommended the (4)).
+     *
+     * <p>One deliberate exception to "single candidate": when the expensive-item
+     * cap is active and the representative's risk value sits ABOVE the cap's
+     * ceiling, the family also keeps ONE below-ceiling purchase member (see
+     * {@link #familyDeriskPurchase}) — otherwise a player owning only the ~50m
+     * Amulet of eternal glory could never be told to buy a ~15k identical-DPS
+     * glory to get back under the cap, even though the search makes exactly that
+     * de-risk swap for non-family items. On the ordinary equal-risk charge
+     * ladder (or with the cap inactive) the representative is never over the
+     * ceiling, so the family still collapses to exactly one candidate.
+     *
+     * <p>A family the player force-included is left untouched (all its members
+     * pass through) so the explicit include always survives. Returns {@code
+     * candidates} unchanged when no family member is present, so non-charge
+     * items are unaffected.
      */
     private static List<Candidate> collapseChargeFamilies(List<Candidate> candidates, Request request) {
         boolean anyFamily = false;
@@ -1100,19 +1117,75 @@ public final class GearOptimizer {
                 continue;
             }
             if (!emitted.add(family)) {
-                continue; // this family already has its representative
+                continue; // this family already has its candidate(s)
             }
             Candidate representative = chargeFamilyRepresentative(family, candidates, request);
-            out.add(representative != null ? representative : c);
+            if (representative == null) {
+                representative = c;
+            }
+            out.add(representative);
+            Candidate deRisk = familyDeriskPurchase(family, representative, candidates, request);
+            if (deRisk != null) {
+                out.add(deRisk);
+            }
         }
         return out;
     }
 
     /**
+     * The one EXTRA candidate that keeps the expensive-item risk cap able to
+     * de-risk WITHIN a charge family: when the cap is active
+     * ({@link #expensiveCapActive}) and {@code representative}'s risk value
+     * ({@link #capRiskValueOf}) is strictly above the ceiling, this returns the
+     * cheapest not-owned family member that survived this slot's gates
+     * (affordability/exclusion/level — i.e. is present in {@code candidates})
+     * AND whose own risk value is at/below the ceiling, tie-broken toward the
+     * highest charge (family order). Every member is DPS-identical, so the
+     * local search only ever picks it when it lowers the expensive-item
+     * overflow — a loadout already within the cap keeps the free owned
+     * representative on the DPS/stat tie-break and never buys needlessly.
+     *
+     * <p>{@code null} — leaving the family collapsed to the single
+     * representative exactly as before — when the cap is inactive, the
+     * representative is already within the ceiling (the ordinary equal-risk
+     * charge ladder), or no affordable below-ceiling member exists. Only
+     * not-owned members are considered because {@link #bestOwnedFamilyMember}
+     * already picks the LOWEST-risk owned member as representative: an
+     * over-ceiling owned representative proves every owned member is over the
+     * ceiling, so any within-ceiling member is necessarily a purchase.
+     */
+    private static Candidate familyDeriskPurchase(int[] family, Candidate representative,
+                                                  List<Candidate> candidates, Request request) {
+        if (!expensiveCapActive(request)) {
+            return null;
+        }
+        long threshold = request.expensiveItemThreshold();
+        if (capRiskValueOf(representative.itemId(), request) <= threshold) {
+            return null; // representative already within the ceiling — nothing to de-risk
+        }
+        Candidate best = null;
+        for (int memberId : family) { // highest charge first — a price tie resolves to the higher charge
+            if (memberId == representative.itemId() || capRiskValueOf(memberId, request) > threshold) {
+                continue;
+            }
+            for (Candidate c : candidates) {
+                if (c.itemId() == memberId && !c.owned()) {
+                    if (best == null || c.price() < best.price()) {
+                        best = c;
+                    }
+                    break;
+                }
+            }
+        }
+        return best;
+    }
+
+    /**
      * The owned, non-excluded member of {@code itemId}'s charge family to
-     * surface — the LOWEST risk-value member (per {@link Request#riskValueSource()}),
-     * tie-broken toward the HIGHEST charge (family array is highest-first). This
-     * refines the "recommend the highest owned charge" rule so it never needless-
+     * surface — the LOWEST cap-risk member (per {@link #capRiskValueOf}, the
+     * same pricing the expensive-item cap counts by), tie-broken toward the
+     * HIGHEST charge (family array is highest-first). This refines the
+     * "recommend the highest owned charge" rule so it never needless-
      * ly charges a same-DPS but far pricier charge against the expensive-item
      * risk cap: owning a normal ~15k Amulet of glory AND a ~50m Amulet of eternal
      * glory (identical combat stats) picks the cheap one. On the ordinary charge
@@ -1131,7 +1204,7 @@ public final class GearOptimizer {
             if (!request.owned.contains(memberId) || request.exclude.contains(memberId)) {
                 continue;
             }
-            long risk = request.riskValueSource().priceFor(memberId);
+            long risk = capRiskValueOf(memberId, request);
             // Strictly-lower risk wins; an equal-risk later (lower) charge never
             // displaces the earlier (higher) one, so ties resolve to highest charge.
             if (best == null || risk < bestRisk) {
@@ -1143,13 +1216,14 @@ public final class GearOptimizer {
     }
 
     /**
-     * The single candidate that stands in for {@code family}: the best owned,
+     * The candidate that stands in for {@code family}: the best owned,
      * non-excluded member (always free/owned — see {@link #bestOwnedFamilyMember})
      * when the player owns any, otherwise the cheapest not-owned charge that
      * survived this slot's gates — every charge has identical combat stats, so
      * the cheapest is the best buy, tie-broken toward the highest charge.
      * {@code null} only if the family has no usable member here (the caller then
-     * keeps the original candidate).
+     * keeps the original candidate). Usually the family's ONLY candidate; see
+     * {@link #familyDeriskPurchase} for the one risk-cap exception.
      */
     private static Candidate chargeFamilyRepresentative(int[] family, List<Candidate> candidates, Request request) {
         Integer ownedBest = bestOwnedFamilyMember(family[0], request);
@@ -1177,6 +1251,12 @@ public final class GearOptimizer {
      * — with their best owned charge rather than the DPS-identical worn one that
      * the tie-break would otherwise leave untouched. Returns {@code itemIds}
      * unchanged (same reference) when nothing needs rewriting.
+     *
+     * <p>Deliberately OWNED-only: when the player's sole owned member is an
+     * expensive one (only the ~50m eternal glory), the seed keeps it — a seed
+     * must never fabricate a purchase — and the search moves off it when the
+     * risk cap demands, via the below-ceiling purchase candidate that
+     * {@link #familyDeriskPurchase} keeps in the slot's pool.
      */
     private static int[] normalizeChargeFamilies(int[] itemIds, Request request) {
         int[] out = itemIds;
@@ -1255,8 +1335,11 @@ public final class GearOptimizer {
         // Charge-variant fuzzy grouping (item #7): collapse each charge family
         // (e.g. every Amulet of glory charge) to ONE candidate so the family is
         // treated as a single item — owned iff any charge is owned, represented
-        // by the highest-charge owned member. A no-op for slots/loadouts with no
-        // family members, so every non-charge item keeps its existing behaviour.
+        // by the best owned member — plus, under an active expensive-item cap
+        // with an over-ceiling representative, ONE below-ceiling purchase member
+        // so the cap can de-risk within the family (see familyDeriskPurchase).
+        // A no-op for slots/loadouts with no family members, so every non-charge
+        // item keeps its existing behaviour.
         affordable = collapseChargeFamilies(affordable, request);
 
         if (weaponSlotWithForcedShield) {
@@ -1298,7 +1381,7 @@ public final class GearOptimizer {
         List<Candidate> pruned = new ArrayList<>();
         Set<Integer> keptIds = new HashSet<>();
         for (Candidate c : affordable) {
-            boolean mandatory = c.owned() || request.include.contains(c.itemId());
+            boolean mandatory = mandatoryCandidate(c, request);
             if (mandatory || pruned.size() < request.candidatesPerSlot) {
                 pruned.add(c);
                 keptIds.add(c.itemId());
@@ -1306,6 +1389,25 @@ public final class GearOptimizer {
         }
         retainSubCeilingCandidates(affordable, pruned, keptIds, request);
         return pruned;
+    }
+
+    /**
+     * True when {@code c} must survive every per-slot pruning stage: the
+     * player owns it or force-included it (the historical "you already have
+     * it / you demanded it" exemptions — see the class javadoc), or it is a
+     * charge-family member that survived {@link #collapseChargeFamilies}.
+     * Post-collapse a family contributes at most two DELIBERATE candidates —
+     * its representative plus, under an active expensive-item cap, one
+     * below-ceiling purchase member — and each is load-bearing: pruning
+     * either away would break the family's "treated as one item"
+     * recommendation or the cap's ability to de-risk within the family. (A
+     * force-included family passes through the collapse whole, so its
+     * members are similarly all kept — a handful of identical-stat items at
+     * most.) Family candidates are never numerous, so the exemption cannot
+     * meaningfully widen the search.
+     */
+    private static boolean mandatoryCandidate(Candidate c, Request request) {
+        return c.owned() || request.include.contains(c.itemId()) || ChargeFamilies.isMember(c.itemId());
     }
 
     /**
@@ -1390,7 +1492,7 @@ public final class GearOptimizer {
         Set<Integer> keptIds = new HashSet<>();
         List<Candidate> viableByDps = new ArrayList<>(scored.size());
         for (Scored s : scored) {
-            boolean mandatory = s.candidate.owned() || request.include.contains(s.candidate.itemId());
+            boolean mandatory = mandatoryCandidate(s.candidate, request);
             if (mandatory || (pruned.size() < request.candidatesPerSlot && s.dps != Double.NEGATIVE_INFINITY)) {
                 pruned.add(s.candidate);
                 keptIds.add(s.candidate.itemId());
@@ -1454,7 +1556,7 @@ public final class GearOptimizer {
     private static void addPrunedGroup(List<Candidate> out, List<Candidate> group, Request request) {
         int kept = 0;
         for (Candidate c : group) {
-            boolean mandatory = c.owned() || request.include.contains(c.itemId());
+            boolean mandatory = mandatoryCandidate(c, request);
             if (mandatory || kept < request.candidatesPerSlot) {
                 out.add(c);
                 kept++;
