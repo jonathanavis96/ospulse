@@ -56,13 +56,30 @@ public final class ScentFormat
 
 	/**
 	 * Duller/darker decimal companions for {@link #GREEN}/{@link #RED},
-	 * each channel scaled by the same ~55% ratio the existing grey decimal
-	 * colour already sits at relative to white ({@code 0x8C / 0xFF ≈
-	 * 0.549}), so every "scent" colour pairing dims its decimals by the same
-	 * amount regardless of hue: {@code round(channel * 0.55)}.
+	 * produced by {@link #dim(String)} — see there for the exact ratio.
 	 */
-	public static final String GREEN_DIM = "#1E8427";
-	public static final String RED_DIM = "#7F1111";
+	public static final String GREEN_DIM = dim(GREEN);
+	public static final String RED_DIM = dim(RED);
+
+	/**
+	 * Darkens a {@code "#RRGGBB"} colour to the dim companion a "scent"
+	 * fragment uses for its de-emphasised part, by scaling each channel to
+	 * the same ~55% ratio the existing grey decimal colour already sits at
+	 * relative to white ({@code 0x8C / 0xFF ≈ 0.549}):
+	 * {@code round(channel * 0.55)}. The single source of truth for that
+	 * ratio — {@link #GREEN_DIM}/{@link #RED_DIM} are just {@code dim(GREEN)}/
+	 * {@code dim(RED)}, and any caller with its own integer colour (e.g. a
+	 * highlighted row's own accent colour) can derive a matching dim decimal
+	 * the same way instead of hand-picking one.
+	 */
+	public static String dim(String hexColor)
+	{
+		int r = Integer.parseInt(hexColor.substring(1, 3), 16);
+		int g = Integer.parseInt(hexColor.substring(3, 5), 16);
+		int b = Integer.parseInt(hexColor.substring(5, 7), 16);
+		return String.format("#%02X%02X%02X",
+			Math.round(r * 0.55f), Math.round(g * 0.55f), Math.round(b * 0.55f));
+	}
 
 	/**
 	 * Splits {@code formatted} (e.g. {@code "1.5m"}, {@code "100k"},
@@ -117,6 +134,19 @@ public final class ScentFormat
 	public static String fragment(String formatted)
 	{
 		return fragment(formatted, WHITE, GREY);
+	}
+
+	/**
+	 * {@link #fragment(String, String, String)} with the integer in {@code
+	 * color} and the decimal/suffix in {@link #dim(String) dim(color)} — for
+	 * a context colour that isn't one of the standing {@link #GREEN}/{@link
+	 * #RED} pairings (e.g. a highlighted/best row rendered in the panel's
+	 * brand accent colour, which must still dim its decimals rather than
+	 * hard-coding white).
+	 */
+	public static String fragment(String formatted, String color)
+	{
+		return fragment(formatted, color, dim(color));
 	}
 
 	/** {@link #fragment(String, String, String)} using the green-integer / dull-green-decimal pairing (positive delta). */

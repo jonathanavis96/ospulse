@@ -235,6 +235,21 @@ public final class GearSection extends CollapsibleSection
 	private static final java.awt.Color DELTA_UP_COLOR = ColorScheme.PROGRESS_COMPLETE_COLOR;
 	private static final java.awt.Color DELTA_DOWN_COLOR = ColorScheme.PROGRESS_ERROR_COLOR;
 
+	/**
+	 * Hex form of {@code ColorScheme.BRAND_ORANGE}, derived at class-init
+	 * from the actual runtime constant (rather than a hand-copied literal)
+	 * so it can never drift from it — needed because the best-ranked
+	 * style/spell row's DPS is a "scent" HTML fragment ({@link
+	 * ScentFormat#fragment(String, String)}), and the label's {@code
+	 * setForeground(BRAND_ORANGE)} has no effect on HTML content: an
+	 * explicit {@code <font color>} always wins over the component's own
+	 * foreground, so the fragment's own integer colour must agree with the
+	 * row colour or the number renders in the wrong colour ("looks white
+	 * even on an orange row").
+	 */
+	private static final String BRAND_ORANGE_HEX = String.format(Locale.ROOT, "#%02X%02X%02X",
+		ColorScheme.BRAND_ORANGE.getRed(), ColorScheme.BRAND_ORANGE.getGreen(), ColorScheme.BRAND_ORANGE.getBlue());
+
 	private final ItemManager itemManager;
 	private final SkillIconManager skillIconManager;
 	private final SpriteManager spriteManager;
@@ -2259,6 +2274,19 @@ public final class GearSection extends CollapsibleSection
 		return ScentFormat.fragment(formatDps(dps), intColor, decimalColor);
 	}
 
+	/**
+	 * {@link #dpsFragment(double)}, but with the integer in {@code intColor}
+	 * and the decimal dimmed to match it (see {@link ScentFormat#fragment(String, String)}) —
+	 * used by a highlighted/best row whose label foreground isn't the
+	 * default white, so the number's own colour has to agree with the row
+	 * instead of hard-coding white (an explicit HTML {@code <font color>}
+	 * always wins over the label's {@code setForeground}).
+	 */
+	private static String dpsFragment(double dps, String intColor)
+	{
+		return ScentFormat.fragment(formatDps(dps), intColor);
+	}
+
 	private static String formatDps(double dps)
 	{
 		return String.format(Locale.ROOT, "%.2f", dps);
@@ -2289,6 +2317,12 @@ public final class GearSection extends CollapsibleSection
 	private static String dpsHtml(double dps)
 	{
 		return "<html>" + dpsFragment(dps) + "</html>";
+	}
+
+	/** {@link #dpsFragment(double, String)} as a standalone HTML label string. */
+	private static String dpsHtml(double dps, String intColor)
+	{
+		return "<html>" + dpsFragment(dps, intColor) + "</html>";
 	}
 
 	private void setPrimarySecondary(String primary, String secondary)
@@ -6065,6 +6099,18 @@ public final class GearSection extends CollapsibleSection
 		return out;
 	}
 
+	/**
+	 * The raw (HTML-carrying) DPS text of the ranked style row at {@code
+	 * index} — {@code index == 0} is always the best/star row when ranking
+	 * succeeded (see {@code rankAndRender}'s {@code best = canRank && i == 0}).
+	 * Lets a test confirm the best row's number is coloured to match its
+	 * orange row rather than the default white.
+	 */
+	String styleRowDpsRawTextForTest(int index)
+	{
+		return styleRows.get(index).dpsRawTextForTest();
+	}
+
 	void clickStyleRowForTest(int index)
 	{
 		selectStyle(styleRows.get(index).style);
@@ -6375,7 +6421,8 @@ public final class GearSection extends CollapsibleSection
 				name.setIconTextGap(4);
 			}
 
-			JLabel dps = new JLabel(result == null ? "—" : dpsHtml(result.dps()));
+			JLabel dps = new JLabel(result == null ? "—"
+				: best ? dpsHtml(result.dps(), BRAND_ORANGE_HEX) : dpsHtml(result.dps()));
 			dps.setFont(FontManager.getRunescapeSmallFont());
 			dps.setForeground(best ? ColorScheme.BRAND_ORANGE : java.awt.Color.WHITE);
 			dps.setToolTipText("DPS autocasting this spell");
@@ -6408,6 +6455,8 @@ public final class GearSection extends CollapsibleSection
 		private final WeaponStyle style;
 		private final Border selectedBorder = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE);
 		private final Border unselectedBorder = BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR);
+		/** Kept for {@link #dpsRawTextForTest()} — the gated constructor never sets this. */
+		private JLabel dpsLabel;
 
 		private StyleRow(WeaponStyle style, DpsResult result, boolean best)
 		{
@@ -6434,10 +6483,12 @@ public final class GearSection extends CollapsibleSection
 			}
 			name.setToolTipText(style.name() + " (" + typeLabel(style.type()) + ")");
 
-			JLabel dps = new JLabel(result == null ? "—" : dpsHtml(result.dps()));
+			JLabel dps = new JLabel(result == null ? "—"
+				: best ? dpsHtml(result.dps(), BRAND_ORANGE_HEX) : dpsHtml(result.dps()));
 			dps.setFont(FontManager.getRunescapeSmallFont());
 			dps.setForeground(best ? ColorScheme.BRAND_ORANGE : java.awt.Color.WHITE);
 			dps.setToolTipText("DPS with this attack style");
+			dpsLabel = dps;
 
 			add(name, BorderLayout.CENTER);
 			add(dps, BorderLayout.EAST);
@@ -6502,6 +6553,12 @@ public final class GearSection extends CollapsibleSection
 			setBorder(BorderFactory.createCompoundBorder(selected ? selectedBorder : unselectedBorder,
 				BorderFactory.createEmptyBorder(2, 3, 2, 4)));
 			setBackground(selected ? ColorScheme.MEDIUM_GRAY_COLOR : ColorScheme.DARKER_GRAY_COLOR);
+		}
+
+		/** The DPS label's raw (HTML-carrying) text, so a test can confirm the fragment's own colour agrees with the row (see {@link #dpsLabel}). */
+		String dpsRawTextForTest()
+		{
+			return dpsLabel == null ? null : dpsLabel.getText();
 		}
 	}
 
