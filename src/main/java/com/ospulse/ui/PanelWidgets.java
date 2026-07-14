@@ -248,7 +248,9 @@ public final class PanelWidgets
 
 	public static void setSignedGpLabel(JLabel label, long value)
 	{
-		label.setText(GpFormat.format(value));
+		label.setText(value >= 0
+			? GpFormat.scentHtml(value, ScentFormat.GREEN, ScentFormat.GREEN_DIM)
+			: GpFormat.scentHtml(value, ScentFormat.RED, ScentFormat.RED_DIM));
 		label.setForeground(value >= 0
 			? ColorScheme.PROGRESS_COMPLETE_COLOR
 			: ColorScheme.PROGRESS_ERROR_COLOR);
@@ -256,7 +258,7 @@ public final class PanelWidgets
 
 	public static void gpLabel(JLabel label, long value)
 	{
-		label.setText(GpFormat.format(value));
+		label.setText(GpFormat.scentHtml(value));
 		resetLabelColor(label);
 	}
 

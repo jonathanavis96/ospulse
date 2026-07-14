@@ -439,6 +439,8 @@ public class GearSectionOptimizerTest
 			assertTrue("must show ownedOnlyDps -> dps as a plain arrow", deltaText.contains("->"));
 			assertEquals("positive delta must be coloured green (PROGRESS_COMPLETE_COLOR)",
 				net.runelite.client.ui.ColorScheme.PROGRESS_COMPLETE_COLOR, section.optimizerResultDeltaColorForTest());
+			assertTrue("an upgrade's decimal digits must use the dull-green shade, got: " + deltaText,
+				deltaText.contains("size='2' color='" + com.ospulse.ui.ScentFormat.GREEN_DIM + "'"));
 		});
 	}
 

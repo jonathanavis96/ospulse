@@ -458,6 +458,42 @@ public class GearSectionStyleRankingTest
 		});
 	}
 
+	/**
+	 * Item #10: accuracy, avg hit, TTK and overkill all get the same "scent"
+	 * number styling as DPS (unbolded white integer, dim half-size decimal +
+	 * suffix) — the raw label text carries the HTML markup, but the
+	 * plain-text accessors (used elsewhere to assert the displayed VALUE)
+	 * must still strip it back down to the same plain numbers the readout
+	 * always showed.
+	 */
+	@Test
+	public void accuracyAvgHitAndTtkAreScentStyledAndStripCleanly()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			GearSnapshot gear = gearWithWeapon(22324);
+			section.apply(snapshotWith(gear));
+			pickCerberus(section);
+
+			String accuracyRaw = section.accuracyRawTextForTest();
+			assertTrue("accuracy must actually carry the scent HTML markup, got: " + accuracyRaw,
+				accuracyRaw.startsWith("<html>") && accuracyRaw.contains("size='2' color='#8C8C8C'"));
+
+			String accuracy = section.accuracyTextForTest();
+			assertTrue("accuracy must be a plain N.N% once stripped, got: " + accuracy,
+				accuracy.matches("\\d+\\.\\d%"));
+
+			String avgHit = section.avgHitTextForTest();
+			assertTrue("avg hit must be a plain N.NN once stripped, got: " + avgHit,
+				avgHit.matches("\\d+\\.\\d\\d"));
+
+			String ttk = section.ttkTextForTest();
+			assertTrue("ttk must be a plain duration once stripped, got: " + ttk,
+				ttk.matches("\\d+\\.\\ds|\\d+:\\d\\d"));
+		});
+	}
+
 	// ---- QA fix 1: the potion toggle's right-click swap must actually feed a
 	// different magic-potion boost into the DPS readout, not just repaint an icon ----
 
