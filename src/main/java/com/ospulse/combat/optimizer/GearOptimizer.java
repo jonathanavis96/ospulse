@@ -901,15 +901,17 @@ public final class GearOptimizer {
 
     /**
      * Drives an over-cap loadout back within the expensive-item allowance by
-     * the CHEAPEST DPS concessions: each round gathers, across every
-     * non-forced slot, the within-budget swaps that LOWER the overflow
-     * ({@link #expensiveOverflowOf} of the full trial — a swap usually sheds
-     * one over-ceiling item, or two when a 2H weapon evicts an expensive
-     * shield), and applies only the one whose resulting loadout keeps the
-     * most DPS, repeating until the loadout is within the cap or no
-     * overflow-lowering swap exists (pool/budget exhausted — the leftover
-     * overflow then stays for the local search's guard/backstop). Every
-     * applied swap strictly lowers the overflow, so this terminates.
+     * the CHEAPEST DPS concessions that still REACH the allowance: each round
+     * gathers every valid overflow-lowering swap ({@link #overflowLoweringMoves})
+     * and applies the best-DPS one — except that a swap which leaves the
+     * loadout over the cap is only accepted while the cap stays reachable
+     * from its result ({@link #capClearableFrom}); otherwise the next-best
+     * DPS pick is tried, down to the clearing swaps (which trivially
+     * qualify), and only when NO move keeps the cap reachable does the plain
+     * DPS-best pick go ahead as a best-effort shed. Repeats until the
+     * loadout is within the cap or no overflow-lowering swap exists (the
+     * leftover overflow then stays for the local search's guard/backstop);
+     * every applied swap strictly lowers the overflow, so this terminates.
      *
      * <p>Choosing by least DPS loss is what spends the allowance on the
      * items that buy the most DPS: with one premium slot allowed, a premium
@@ -918,56 +920,154 @@ public final class GearOptimizer {
      * premium item. Leaving this to the local search's first-improving walk
      * instead let {@link #SEARCHABLE_SLOTS} order pick the sacrifice — the
      * amulet (slot 2, walked before ring slot 12) lost its item for the same
-     * risk count and strictly less DPS. A DPS tie falls back to the incoming
-     * item's {@link #tieBreakScore} (B9-2's idiom), then to slot order.
-     * Returns {@code current} unchanged when already within the cap (or the
-     * cap is inactive — every overflow is 0 then).
+     * risk count and strictly less DPS.
+     *
+     * <p>The reachability guard exists because the budget couples the
+     * rounds: over the cap by two, a cheap-DPS demotion that eats the
+     * remaining budget outranks a 2H purchase whose eviction of an expensive
+     * shield would clear the cap in one within-budget swap — and once the
+     * budget is spent that eviction is unaffordable forever, stranding the
+     * result over the cap although a compliant loadout was reachable.
+     * Feasibility dominates DPS, so the stranding pick must yield. Ranking
+     * by overflow shed instead would over-correct the other way — a
+     * huge-DPS-loss double eviction must not beat two cheap single demotions
+     * that clear the cap between them — which is why the guard rejects only
+     * moves that make the cap UNREACHABLE, never moves that merely clear it
+     * more slowly. When the budget never binds the guard never rejects and
+     * the pure least-DPS-loss ordering runs unchanged. Returns {@code
+     * current} unchanged when already within the cap (or the cap is inactive
+     * — every overflow is 0 then).
      */
     private static int[] deriskToCap(int[] current, List<List<Candidate>> candidatesBySlot, int[] slotForIndex,
                                      List<Candidate> ammoCandidates, Request request) {
         int overflow = expensiveOverflowOf(current, request);
         while (overflow > 0) {
-            int[] bestTrial = null;
-            Evaluation bestEval = null;
-            int bestSwapIn = -1;
-            for (int i = 0; i < slotForIndex.length; i++) {
-                int slot = slotForIndex[i];
-                if (request.include.contains(current[slot])) {
-                    continue; // forced — never sacrificed, same as the local search
-                }
-                for (Candidate c : candidatesBySlot.get(i)) {
-                    if (c.itemId() == current[slot]) {
-                        continue;
-                    }
-                    int[] trial = applySlotChoice(current, slot, c.itemId());
-                    if (slot == WhatIfLoadout.WEAPON_SLOT) {
-                        trial = withBestCompatibleAmmo(trial, ammoCandidates, request);
-                    }
-                    if (expensiveOverflowOf(trial, request) >= overflow || !withinBudget(trial, request)) {
-                        continue; // only overflow-LOWERING, within-budget swaps compete here
-                    }
-                    Evaluation trialEval = evaluate(trial, request);
-                    if (trialEval == null) {
-                        continue;
-                    }
-                    double diff = bestEval == null
-                            ? Double.POSITIVE_INFINITY
-                            : trialEval.dps.dps() - bestEval.dps.dps();
-                    if (diff > 1e-9
-                            || (Math.abs(diff) <= 1e-9 && tieBreakScore(c.itemId()) > tieBreakScore(bestSwapIn))) {
-                        bestTrial = trial;
-                        bestEval = trialEval;
-                        bestSwapIn = c.itemId();
-                    }
-                }
-            }
-            if (bestTrial == null) {
+            List<DeriskMove> moves =
+                    overflowLoweringMoves(current, overflow, candidatesBySlot, slotForIndex, ammoCandidates, request);
+            if (moves.isEmpty()) {
                 break;
             }
-            current = bestTrial;
-            overflow = expensiveOverflowOf(current, request);
+            moves.sort(DeriskMove.BY_DPS);
+            DeriskMove chosen = moves.get(0); // best-effort shed when nothing keeps the cap reachable
+            for (DeriskMove move : moves) {
+                if (move.overflow == 0 || capClearableFrom(move.trial, move.overflow, candidatesBySlot,
+                        slotForIndex, ammoCandidates, request)) {
+                    chosen = move;
+                    break;
+                }
+            }
+            current = chosen.trial;
+            overflow = chosen.overflow;
         }
         return current;
+    }
+
+    /** One candidate de-risk swap: the loadout it produces and how that loadout scores. */
+    private static final class DeriskMove {
+        /**
+         * Best DPS first; an exact DPS tie falls to the incoming item's
+         * {@link #tieBreakScore} (B9-2's idiom) — DPS-identical swaps (the
+         * usual tie: items whose differing stats are all DPS-invisible)
+         * evaluate to bit-equal DPS, so no epsilon is needed and the
+         * comparator stays a valid total order for sorting.
+         */
+        static final Comparator<DeriskMove> BY_DPS = (a, b) -> a.dps != b.dps
+                ? Double.compare(b.dps, a.dps)
+                : Integer.compare(tieBreakScore(b.swapInId), tieBreakScore(a.swapInId));
+
+        final int[] trial;
+        final int overflow;
+        final long spend;
+        final double dps;
+        final int swapInId;
+
+        DeriskMove(int[] trial, int overflow, long spend, double dps, int swapInId) {
+            this.trial = trial;
+            this.overflow = overflow;
+            this.spend = spend;
+            this.dps = dps;
+            this.swapInId = swapInId;
+        }
+    }
+
+    /**
+     * Every single-slot swap of {@code current} that LOWERS the expensive-item
+     * overflow while staying within budget and evaluable — the one move set
+     * both {@link #deriskToCap}'s DPS-ranked pass and {@link #capClearableFrom}'s
+     * reachability probe draw from (they must agree, or the probe could prove
+     * a path the real pass cannot take). The overflow comparison uses the
+     * full trial ({@link #expensiveOverflowOf}), so a 2H weapon evicting an
+     * expensive shield counts as the double removal it is. Force-included
+     * items are never swapped away, mirroring the local search.
+     */
+    private static List<DeriskMove> overflowLoweringMoves(int[] current, int overflow,
+                                                          List<List<Candidate>> candidatesBySlot, int[] slotForIndex,
+                                                          List<Candidate> ammoCandidates, Request request) {
+        List<DeriskMove> moves = new ArrayList<>();
+        for (int i = 0; i < slotForIndex.length; i++) {
+            int slot = slotForIndex[i];
+            if (request.include.contains(current[slot])) {
+                continue;
+            }
+            for (Candidate c : candidatesBySlot.get(i)) {
+                if (c.itemId() == current[slot]) {
+                    continue;
+                }
+                int[] trial = applySlotChoice(current, slot, c.itemId());
+                if (slot == WhatIfLoadout.WEAPON_SLOT) {
+                    trial = withBestCompatibleAmmo(trial, ammoCandidates, request);
+                }
+                int trialOverflow = expensiveOverflowOf(trial, request);
+                if (trialOverflow >= overflow) {
+                    continue;
+                }
+                long spend = totalSpendOf(trial, request);
+                if (spend > request.budget) {
+                    continue;
+                }
+                Evaluation trialEval = evaluate(trial, request);
+                if (trialEval == null) {
+                    continue;
+                }
+                moves.add(new DeriskMove(trial, trialOverflow, spend, trialEval.dps.dps(), c.itemId()));
+            }
+        }
+        return moves;
+    }
+
+    /**
+     * Whether the expensive-item cap is still REACHABLE from {@code state}
+     * within the budget: simulates the rest of the de-risk DPS-blind,
+     * applying the LOWEST-SPEND overflow-lowering move each round (spend
+     * tie: most overflow shed) until the overflow hits 0 (reachable) or no
+     * move remains (stranded). Spending as little as possible each round
+     * keeps the most budget open for the rest of the chain, so this finds a
+     * clearing path whenever budget headroom is the only question; a path
+     * needing one specific combination of unequal purchases can in principle
+     * still be missed, in which case {@link #deriskToCap} merely settles for
+     * a different (typically clearing) move — a {@code true} here is always
+     * genuine, since the simulated chain is one the real pass could take.
+     * Terminates like the caller: every simulated move strictly lowers the
+     * overflow.
+     */
+    private static boolean capClearableFrom(int[] state, int overflow, List<List<Candidate>> candidatesBySlot,
+                                            int[] slotForIndex, List<Candidate> ammoCandidates, Request request) {
+        while (overflow > 0) {
+            DeriskMove cheapest = null;
+            for (DeriskMove move
+                    : overflowLoweringMoves(state, overflow, candidatesBySlot, slotForIndex, ammoCandidates, request)) {
+                if (cheapest == null || move.spend < cheapest.spend
+                        || (move.spend == cheapest.spend && move.overflow < cheapest.overflow)) {
+                    cheapest = move;
+                }
+            }
+            if (cheapest == null) {
+                return false;
+            }
+            state = cheapest.trial;
+            overflow = cheapest.overflow;
+        }
+        return true;
     }
 
     private static int[] applySlotChoice(int[] itemIds, int slot, int itemId) {

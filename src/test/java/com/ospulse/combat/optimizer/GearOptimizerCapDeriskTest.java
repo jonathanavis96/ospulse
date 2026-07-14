@@ -120,10 +120,10 @@ public class GearOptimizerCapDeriskTest {
         return -1;
     }
 
-    private static int premiumItemsIn(GearOptimizer.Result result) {
+    private static int premiumItemsIn(GearOptimizer.Result result, GearOptimizer.PriceSource risk) {
         int count = 0;
         for (GearOptimizer.SlotChoice choice : result.loadout()) {
-            if (choice.itemId() > 0 && riskValues().priceFor(choice.itemId()) > THRESHOLD) {
+            if (choice.itemId() > 0 && risk.priceFor(choice.itemId()) > THRESHOLD) {
                 count++;
             }
         }
@@ -148,7 +148,7 @@ public class GearOptimizerCapDeriskTest {
         assertEquals("the zero-offensive-stat ring is the free demotion, so it must be the sacrifice",
                 RING_OF_SUFFERING, itemIdInSlot(result, RING_SLOT));
         assertTrue("the allowance itself must still be respected",
-                premiumItemsIn(result) <= 1);
+                premiumItemsIn(result, riskValues()) <= 1);
 
         // Demoting the ring costs no DPS at all, so the constrained result
         // must score exactly what the uncapped torture + suffering (i)
@@ -214,5 +214,150 @@ public class GearOptimizerCapDeriskTest {
                 GHRAZI_RAPIER, itemIdInSlot(result, WEAPON_SLOT));
         assertEquals("the amulet is the cheapest DPS concession here — it must be the sacrifice",
                 AMULET_OF_BLOOD_FURY, itemIdInSlot(result, AMULET_SLOT));
+    }
+
+    // ---------------- budget-coupled de-risk: a cheap swap must not strand the chain over the cap
+
+    private static final int SHIELD_SLOT = EquipmentInventorySlot.SHIELD.getSlotIdx(); // 5
+
+    private static final int AVERNIC_DEFENDER = 22322; // premium shield; only a 2H weapon can shed it here
+    private static final int BRONZE_2H_SWORD = 1307;   // junk 2H — its eviction is the sole route off the defender
+
+    /**
+     * The eviction fixture: rapier + torture + defender worn (all premium,
+     * one allowed — over the cap by two), everything owned except two
+     * purchases: a blood fury (100k — the whole small budget) and a junk
+     * bronze 2H (50k) whose eviction of the defender is the ONLY way to shed
+     * the shield's risk (the shield slot has no other candidate). The blood
+     * fury demotion keeps far more DPS than the 2H swap, so a purely
+     * DPS-ranked round takes it first — and at the small budget that leaves
+     * no room to ever buy the 2H, stranding the loadout at two premium items
+     * although "buy the 2H, keep the torture" was reachable, within budget
+     * and within the cap, in one swap.
+     */
+    private static GearOptimizer.Request evictionScenario(long budget) {
+        int[] live = emptyLoadout();
+        live[WEAPON_SLOT] = GHRAZI_RAPIER;
+        live[AMULET_SLOT] = AMULET_OF_TORTURE;
+        live[SHIELD_SLOT] = AVERNIC_DEFENDER;
+
+        java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+        prices.put(AMULET_OF_BLOOD_FURY, 100_000L);
+        prices.put(BRONZE_2H_SWORD, 50_000L);
+
+        java.util.Map<Integer, Long> risk = new java.util.HashMap<>();
+        risk.put(GHRAZI_RAPIER, 30_000_000L);
+        risk.put(AMULET_OF_TORTURE, 30_000_000L);
+        risk.put(AVERNIC_DEFENDER, 30_000_000L);
+        risk.put(AMULET_OF_BLOOD_FURY, 4_000_000L);
+        risk.put(BRONZE_2H_SWORD, 1_000_000L);
+
+        return GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(budget)
+                .priceSource(id -> prices.getOrDefault(id, 100_000_000L))
+                .riskValueSource(id -> risk.getOrDefault(id, 0L))
+                .expensiveItemThreshold(THRESHOLD)
+                .expensiveItemCount(1)
+                .build();
+    }
+
+    /**
+     * Feasibility must dominate DPS across the WHOLE de-risk chain, not just
+     * round by round: at a 100k budget the DPS-best first demotion (buy the
+     * blood fury) eats the budget and strands the search — the clearing 2H
+     * eviction is unaffordable ever after and the result stays over the cap.
+     * The de-risk must recognise the stranding and take the eviction instead,
+     * spending the one premium slot on the torture.
+     */
+    @Test
+    public void capDerisk_budgetBindsMidChain_takesTheClearingEvictionNotTheStrandingDemotion() {
+        GearOptimizer.Result result = GearOptimizer.optimize(evictionScenario(100_000L));
+
+        assertTrue("the cap was reachable within budget (buy the 2H, keep the torture) — the result "
+                        + "must be within the allowance, not stranded at two premium items",
+                premiumItemsIn(result, evictionRisk()) <= 1);
+        assertEquals("only the 2H eviction sheds the defender, so it must be taken",
+                BRONZE_2H_SWORD, itemIdInSlot(result, WEAPON_SLOT));
+        assertEquals("the surviving premium slot must hold the torture",
+                AMULET_OF_TORTURE, itemIdInSlot(result, AMULET_SLOT));
+        assertEquals("the 2H eviction empties the shield slot", -1, itemIdInSlot(result, SHIELD_SLOT));
+    }
+
+    /**
+     * The same fixture with an ample budget must reach the same cap-compliant
+     * loadout — and buy ONLY the 2H: when the budget never binds, no first
+     * pick can strand the chain, so the least-DPS-loss ordering runs exactly
+     * as before and the blood fury purchase never survives to the result.
+     */
+    @Test
+    public void capDerisk_ampleBudget_reachesTheSameCapCompliantLoadout() {
+        GearOptimizer.Result result = GearOptimizer.optimize(evictionScenario(1_000_000L));
+
+        assertTrue(premiumItemsIn(result, evictionRisk()) <= 1);
+        assertEquals(BRONZE_2H_SWORD, itemIdInSlot(result, WEAPON_SLOT));
+        assertEquals(AMULET_OF_TORTURE, itemIdInSlot(result, AMULET_SLOT));
+        assertEquals("only the 2H purchase belongs in the result", 50_000L, result.totalSpend());
+    }
+
+    /** The eviction fixture's risk values, for counting premium items in a result. */
+    private static GearOptimizer.PriceSource evictionRisk() {
+        java.util.Map<Integer, Long> risk = new java.util.HashMap<>();
+        risk.put(GHRAZI_RAPIER, 30_000_000L);
+        risk.put(AMULET_OF_TORTURE, 30_000_000L);
+        risk.put(AVERNIC_DEFENDER, 30_000_000L);
+        return id -> risk.getOrDefault(id, 0L);
+    }
+
+    /**
+     * The stranding guard must not over-correct into "shed the most overflow
+     * per swap": over the cap by two with a huge-DPS-loss double eviction
+     * available (junk 2H sheds rapier AND defender at once) but two cheap
+     * single demotions (the DPS-dead ring, then the near-tier blood fury)
+     * clearing the cap between them, the singles must win — the eviction
+     * clears faster but buys nothing that the cheaper chain doesn't.
+     */
+    @Test
+    public void capDerisk_cheapSingleDemotionsClearTheCap_doubleEvictionNotTaken() {
+        int[] live = emptyLoadout();
+        live[WEAPON_SLOT] = GHRAZI_RAPIER;
+        live[SHIELD_SLOT] = AVERNIC_DEFENDER;
+        live[AMULET_SLOT] = AMULET_OF_TORTURE;
+        live[RING_SLOT] = RING_OF_SUFFERING_I;
+
+        Set<Integer> owned = new HashSet<>(Arrays.asList(
+                GHRAZI_RAPIER, AVERNIC_DEFENDER, AMULET_OF_TORTURE, AMULET_OF_BLOOD_FURY,
+                RING_OF_SUFFERING_I, RING_OF_SUFFERING, BRONZE_2H_SWORD));
+
+        java.util.Map<Integer, Long> risk = new java.util.HashMap<>();
+        risk.put(GHRAZI_RAPIER, 30_000_000L);
+        risk.put(AVERNIC_DEFENDER, 30_000_000L);
+        risk.put(AMULET_OF_TORTURE, 30_000_000L);
+        risk.put(RING_OF_SUFFERING_I, 20_000_000L);
+        risk.put(AMULET_OF_BLOOD_FURY, 4_000_000L);
+        risk.put(RING_OF_SUFFERING, 500_000L);
+        risk.put(BRONZE_2H_SWORD, 1_000_000L);
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .owned(owned)
+                .priceSource(id -> 100_000_000L)
+                .riskValueSource(id -> risk.getOrDefault(id, 0L))
+                .expensiveItemThreshold(THRESHOLD)
+                .expensiveItemCount(2)
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals("the rapier must survive — the double eviction is the costliest route to the cap",
+                GHRAZI_RAPIER, itemIdInSlot(result, WEAPON_SLOT));
+        assertEquals("the defender must survive with it",
+                AVERNIC_DEFENDER, itemIdInSlot(result, SHIELD_SLOT));
+        assertEquals("the DPS-dead ring is the first cheap demotion",
+                RING_OF_SUFFERING, itemIdInSlot(result, RING_SLOT));
+        assertEquals("the near-tier amulet demotion is the second",
+                AMULET_OF_BLOOD_FURY, itemIdInSlot(result, AMULET_SLOT));
+        assertTrue(premiumItemsIn(result, id -> risk.getOrDefault(id, 0L)) <= 2);
     }
 }
