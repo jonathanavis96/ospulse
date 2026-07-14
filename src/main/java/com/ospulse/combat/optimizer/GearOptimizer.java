@@ -1116,8 +1116,42 @@ public final class GearOptimizer {
      * tie-broken toward the highest charge. {@code null} only if the family has
      * no usable member here (the caller then keeps the original candidate).
      */
+    /**
+     * The owned, non-excluded member of {@code itemId}'s charge family to
+     * surface — the LOWEST risk-value member (per {@link Request#riskValueSource()}),
+     * tie-broken toward the HIGHEST charge (family array is highest-first). This
+     * refines the "recommend the highest owned charge" rule so it never needless-
+     * ly charges a same-DPS but far pricier charge against the expensive-item
+     * risk cap: owning a normal ~15k Amulet of glory AND a ~50m Amulet of eternal
+     * glory (identical combat stats) picks the cheap one. On the ordinary charge
+     * ladder every member has the same risk value, so the tie-break still yields
+     * the highest charge — unchanged behaviour. {@code null} when {@code itemId}
+     * isn't a family member or no owned, non-excluded member exists.
+     */
+    private static Integer bestOwnedFamilyMember(int itemId, Request request) {
+        int[] family = ChargeFamilies.familyOf(itemId);
+        if (family == null) {
+            return null;
+        }
+        Integer best = null;
+        long bestRisk = Long.MAX_VALUE;
+        for (int memberId : family) { // highest charge first
+            if (!request.owned.contains(memberId) || request.exclude.contains(memberId)) {
+                continue;
+            }
+            long risk = request.riskValueSource().priceFor(memberId);
+            // Strictly-lower risk wins; an equal-risk later (lower) charge never
+            // displaces the earlier (higher) one, so ties resolve to highest charge.
+            if (best == null || risk < bestRisk) {
+                best = memberId;
+                bestRisk = risk;
+            }
+        }
+        return best;
+    }
+
     private static Candidate chargeFamilyRepresentative(int[] family, List<Candidate> candidates, Request request) {
-        Integer ownedBest = ChargeFamilies.bestOwnedMember(family[0], request.owned, request.exclude);
+        Integer ownedBest = bestOwnedFamilyMember(family[0], request);
         if (ownedBest != null) {
             return new Candidate(ownedBest, 0L, true);
         }
@@ -1146,7 +1180,7 @@ public final class GearOptimizer {
     private static int[] normalizeChargeFamilies(int[] itemIds, Request request) {
         int[] out = itemIds;
         for (int i = 0; i < itemIds.length; i++) {
-            Integer best = ChargeFamilies.bestOwnedMember(itemIds[i], request.owned, request.exclude);
+            Integer best = bestOwnedFamilyMember(itemIds[i], request);
             if (best != null && best != itemIds[i]) {
                 if (out == itemIds) {
                     out = itemIds.clone();

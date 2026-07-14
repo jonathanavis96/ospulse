@@ -39,6 +39,7 @@ public class GearOptimizerChargeFamilyTest {
     private static final int GLORY_2 = ItemID.AMULET_OF_GLORY_2;         // 1708
     private static final int GLORY_3 = ItemID.AMULET_OF_GLORY_3;         // 1710
     private static final int GLORY_4 = ItemID.AMULET_OF_GLORY_4;         // 1712
+    private static final int GLORY_ETERNAL = ItemID.AMULET_OF_GLORY_INF; // 19707 (~50m, high risk value)
 
     private static int[] emptyLoadout() {
         int[] ids = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
@@ -116,6 +117,58 @@ public class GearOptimizerChargeFamilyTest {
                 .exclude(new HashSet<>(Arrays.asList(GLORY_4))).build())));
         assertEquals(GLORY_2, amuletIdIn(GearOptimizer.optimize(ownedOnly(live, bank)
                 .exclude(new HashSet<>(Arrays.asList(GLORY_4, GLORY_3))).build())));
+    }
+
+    // ---------------------------------------- (a') lowest-risk among owned charges
+
+    @Test
+    public void owningHighRiskAndLowRiskCharge_prefersLowRiskSameDpsMember() {
+        int[] live = emptyLoadout();
+        live[WEAPON_SLOT] = ABYSSAL_WHIP;
+        Set<Integer> owned = new HashSet<>(Arrays.asList(GLORY_ETERNAL, GLORY_4, ABYSSAL_WHIP));
+
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .priceSource(id -> owned.contains(id) ? 0L : 100_000_000L)
+                // Eternal glory carries a ~50m risk value; the normal glory ~15k.
+                .riskValueSource(id -> id == GLORY_ETERNAL ? 50_000_000L : 15_000L)
+                .owned(owned)
+                .build();
+
+        assertEquals("a 50m eternal glory must not be surfaced when an identical-DPS ~15k glory is owned",
+                GLORY_4, amuletIdIn(GearOptimizer.optimize(request)));
+
+        // The single collapsed candidate is the low-risk member.
+        List<Integer> glories = new java.util.ArrayList<>();
+        for (int id : GearOptimizer.candidateIdsForSlotForTest(AMULET_SLOT, request)) {
+            if (ChargeFamilies.isMember(id)) {
+                glories.add(id);
+            }
+        }
+        assertEquals(1, glories.size());
+        assertEquals(Integer.valueOf(GLORY_4), glories.get(0));
+    }
+
+    @Test
+    public void wearingHighRiskCharge_seedNormalisesToLowRiskOwnedMember() {
+        int[] live = emptyLoadout();
+        live[WEAPON_SLOT] = ABYSSAL_WHIP;
+        live[AMULET_SLOT] = GLORY_ETERNAL; // wearing the 50m eternal glory
+        Set<Integer> ownedAmulets = new HashSet<>(Arrays.asList(GLORY_4)); // also hold a cheap glory
+
+        Set<Integer> owned = new HashSet<>(ownedAmulets);
+        owned.add(ABYSSAL_WHIP);
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .priceSource(id -> (id == ABYSSAL_WHIP || id == GLORY_ETERNAL || ownedAmulets.contains(id)) ? 0L : 100_000_000L)
+                .riskValueSource(id -> id == GLORY_ETERNAL ? 50_000_000L : 15_000L)
+                .owned(owned)
+                .build();
+
+        assertEquals("the worn 50m eternal glory must be seeded down to the identical-DPS ~15k owned glory",
+                GLORY_4, amuletIdIn(GearOptimizer.optimize(request)));
     }
 
     // ------------------------------------------------ (b) collapses to one candidate
