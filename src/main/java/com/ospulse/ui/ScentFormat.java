@@ -65,23 +65,52 @@ public final class ScentFormat
 	public static final String RED_DIM = "#7F1111";
 
 	/**
-	 * Splits {@code formatted} (e.g. {@code "1.5m"}, {@code "1,234"}, a
-	 * signed value, or a plain integer with no fractional part) on its first
-	 * {@code '.'} and renders the integer part unbolded in {@code intColor}
-	 * and the fractional digits plus any trailing suffix (k/m/b, %, s, ...)
-	 * at half-size in {@code decimalColor}. Returns a bare fragment (no
+	 * Splits {@code formatted} (e.g. {@code "1.5m"}, {@code "100k"},
+	 * {@code "1,234"}, a signed value, or a plain integer) at the end of its
+	 * whole-number part (see {@link #integerEnd}) and renders the integer part
+	 * unbolded in {@code intColor} and the remainder — a decimal point plus
+	 * fractional digits and/or a trailing suffix (k/m/b, %, s, ...) — at
+	 * half-size in {@code decimalColor}. Returns a bare fragment (no
 	 * surrounding {@code <html>} tags) so callers can compose it with other
 	 * fragments (e.g. a "before -&gt; after" comparison in one label).
 	 */
 	public static String fragment(String formatted, String intColor, String decimalColor)
 	{
-		int dot = formatted.indexOf('.');
-		if (dot < 0)
+		int split = integerEnd(formatted);
+		if (split >= formatted.length())
 		{
 			return "<font color='" + intColor + "'>" + formatted + "</font>";
 		}
-		return "<font color='" + intColor + "'>" + formatted.substring(0, dot) + "</font>"
-			+ "<font size='2' color='" + decimalColor + "'>" + formatted.substring(dot) + "</font>";
+		return "<font color='" + intColor + "'>" + formatted.substring(0, split) + "</font>"
+			+ "<font size='2' color='" + decimalColor + "'>" + formatted.substring(split) + "</font>";
+	}
+
+	/**
+	 * Index where the whole-number part of {@code formatted} ends: the first
+	 * character that isn't part of the integer magnitude reading (i.e. not a
+	 * digit, a leading sign, or a grouping comma). Everything from there on —
+	 * a decimal point and fractional digits, and/or a {@code k}/{@code m}/{@code b}
+	 * (or {@code %}/{@code s}/…) suffix — is the de-emphasised part. So a round
+	 * abbreviation like {@code "100k"} or {@code "2b"} dims its suffix too, not
+	 * only values that carry a decimal point. Equals the string length for a bare
+	 * integer such as {@code "1,234"} (nothing to dim).
+	 */
+	private static int integerEnd(String formatted)
+	{
+		int i = 0;
+		while (i < formatted.length())
+		{
+			char c = formatted.charAt(i);
+			if ((c >= '0' && c <= '9') || c == '-' || c == ',')
+			{
+				i++;
+			}
+			else
+			{
+				break;
+			}
+		}
+		return i;
 	}
 
 	/** {@link #fragment(String, String, String)} using the default white-integer / grey-decimal pairing. */
