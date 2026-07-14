@@ -163,9 +163,21 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
      heading to the new version (e.g. "### 0.2.1 — …") and bump the manifest PR. -->
 ### Unreleased
 
+**✨ New**
+
+- 💰 **Session net worth you can actually trust.** Your net‑worth change is now a sum you can check yourself — **Profit + GE flip + GE positions + Bank** — with GE positions and Bank each toggleable. Banking your loot no longer reads as a huge loss: moving gp between your pack and your bank doesn't change what you're worth. Open offers are valued at what you paid, so shifting your own coins into the GE doesn't inflate the figure either, and price drift on gear you're holding or wearing no longer leaks into the total.
+- ⚖️ **The risk cap now sacrifices the right item.** When you limit how many expensive items to allow, the optimiser used to give up whichever item happened to sit earliest in the slot order — demoting a DPS‑carrying amulet while a DPS‑dead ring kept its expensive spot. It now gives up whatever costs you the least DPS, so your allowed expensive slots go to the gear that earns them.
+- 💍 **Charge variants grouped into one entry.** Amulet of glory (1)/(2)/(3)/(4)/eternal were listed as separate items, so you'd see eight near‑identical amulets and be told to "buy" a charge of one already in your bank. Now it's a single entry using your highest owned charge — and under an active risk cap it steps down to the best charge you're allowed to take. Same for glory (t).
+- 🛡️ **Protected items are flagged.** Rare untradeables you can only keep on death with a Trouver parchment are now tinted, with a "must be protected (Trouver parchment)" tooltip, so you can see what you're really risking.
+- 🔢 **Clearer numbers everywhere.** DPS, Accuracy, Avg hit, TTK, Overkill and your gp figures all read the same way: the number and its unit (`k`/`m`/`b`/`%`) stay bright while the decimals dim back, so **1.98** can't be mistaken for *198* — all at normal text size.
+- 🏹 **The ammo slot names your ammo.** Reads "Rada's blessing 4 — Ammo slot (live)" instead of generic slot text, so similar‑looking ammo is no longer indistinguishable.
+- 🎭 **Recommendations name the variant you own.** Shows "Masori mask (f)" rather than the plain "Masori mask", with the icon, preview and bank highlight all agreeing.
+
 **🔧 Fixed**
 
-- **Clearer DPS numbers.** The whole number is now bold and the decimals dimmed, so a reading like **1.98** can't be mistaken for *198*.
+- **Cheap untradeables are no longer treated as 575k of risk.** Every rare untradeable was priced at the cost of a Trouver parchment, so Barrows gloves (~130k to reclaim) were risked at 575k. They're now valued at whichever is cheaper — parchment or real reclaim cost — and cheap‑reclaim items are no longer wrongly flagged "must be protected".
+- **Items priced through a crafting ingredient always read as unaffordable** — a Scorching bow (valued via a Tormented synapse) could never be recommended no matter your budget.
+- **Items sharing a name could read as not owned.** Imbued rings have a separate id per reward source, and the name lookup silently dropped all but one of them.
 
 ### 0.2.0 — Smarter gear, per‑monster
 
