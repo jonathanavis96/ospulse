@@ -68,56 +68,56 @@ public class GpFormatTest
 		assertEquals("1.3m", GpFormat.format(1_250_000L));
 	}
 
-	// --- scentFragment/scentHtml: bright white integer + suffix, dim-grey
-	// decimal only (no size change), delegating to the shared ScentFormat
-	// (see ScentFormatTest) so wealth/session-panel gp values get the same
+	// --- centFragment/centHtml: bright white integer + suffix, dim-grey
+	// decimal only (no size change), delegating to the shared CentFormat
+	// (see CentFormatTest) so wealth/session-panel gp values get the same
 	// misread-resistant treatment as GearSection's DPS/accuracy/etc rows. ---
 
 	@Test
-	public void scentFragmentIntegerOnlyAmountHasNoDimSpan()
+	public void centFragmentIntegerOnlyAmountHasNoDimSpan()
 	{
-		assertEquals("<font color='#FFFFFF'>500</font>", GpFormat.scentFragment(500L));
+		assertEquals("<font color='#FFFFFF'>500</font>", GpFormat.centFragment(500L));
 	}
 
 	@Test
-	public void scentFragmentSplitsIntegerDimDecimalAndBrightSuffix()
+	public void centFragmentSplitsIntegerDimDecimalAndBrightSuffix()
 	{
 		assertEquals("<font color='#FFFFFF'>1</font><font color='#8C8C8C'>.5</font><font color='#FFFFFF'>m</font>",
-			GpFormat.scentFragment(1_500_000L));
+			GpFormat.centFragment(1_500_000L));
 	}
 
 	@Test
-	public void scentFragmentNegativeKeepsMinusWithIntegerPart()
+	public void centFragmentNegativeKeepsMinusWithIntegerPart()
 	{
 		assertEquals("<font color='#FFFFFF'>-1</font><font color='#8C8C8C'>.5</font><font color='#FFFFFF'>m</font>",
-			GpFormat.scentFragment(-1_500_000L));
+			GpFormat.centFragment(-1_500_000L));
 	}
 
 	@Test
-	public void scentFragmentBigValueUsesRightSuffix()
+	public void centFragmentBigValueUsesRightSuffix()
 	{
 		assertEquals("<font color='#FFFFFF'>2</font><font color='#8C8C8C'>.5</font><font color='#FFFFFF'>b</font>",
-			GpFormat.scentFragment(2_500_000_000L));
+			GpFormat.centFragment(2_500_000_000L));
 	}
 
 	@Test
-	public void scentHtmlWrapsFragmentInHtmlTags()
+	public void centHtmlWrapsFragmentInHtmlTags()
 	{
 		assertEquals("<html><font color='#FFFFFF'>1</font><font color='#8C8C8C'>.5</font><font color='#FFFFFF'>m</font></html>",
-			GpFormat.scentHtml(1_500_000L));
+			GpFormat.centHtml(1_500_000L));
 	}
 
 	@Test
-	public void scentFragmentWithColorPairingUsesGivenColors()
+	public void centFragmentWithColorPairingUsesGivenColors()
 	{
 		assertEquals("<font color='#37F046'>1</font><font color='#1E8427'>.5</font><font color='#37F046'>m</font>",
-			GpFormat.scentFragment(1_500_000L, "#37F046", "#1E8427"));
+			GpFormat.centFragment(1_500_000L, "#37F046", "#1E8427"));
 	}
 
 	@Test
-	public void scentHtmlWithColorPairingWrapsInHtmlTags()
+	public void centHtmlWithColorPairingWrapsInHtmlTags()
 	{
 		assertEquals("<html><font color='#E61E1E'>-1</font><font color='#7F1111'>.5</font><font color='#E61E1E'>m</font></html>",
-			GpFormat.scentHtml(-1_500_000L, "#E61E1E", "#7F1111"));
+			GpFormat.centHtml(-1_500_000L, "#E61E1E", "#7F1111"));
 	}
 }

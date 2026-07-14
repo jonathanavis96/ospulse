@@ -31,9 +31,9 @@ import com.ospulse.session.GearMapper;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.GearVariants;
 import com.ospulse.session.SessionSnapshot;
+import com.ospulse.ui.CentFormat;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
-import com.ospulse.ui.ScentFormat;
 import com.ospulse.ui.sections.gear.CoinPileBadge;
 import com.ospulse.ui.sections.gear.GpFormat;
 import com.ospulse.ui.sections.gear.OwnedVariantResolver;
@@ -239,8 +239,8 @@ public final class GearSection extends CollapsibleSection
 	 * Hex form of {@code ColorScheme.BRAND_ORANGE}, derived at class-init
 	 * from the actual runtime constant (rather than a hand-copied literal)
 	 * so it can never drift from it — needed because the best-ranked
-	 * style/spell row's DPS is a "scent" HTML fragment ({@link
-	 * ScentFormat#fragment(String, String)}), and the label's {@code
+	 * style/spell row's DPS is a "cent" HTML fragment ({@link
+	 * CentFormat#fragment(String, String)}), and the label's {@code
 	 * setForeground(BRAND_ORANGE)} has no effect on HTML content: an
 	 * explicit {@code <font color>} always wins over the component's own
 	 * foreground, so the fragment's own integer colour must agree with the
@@ -2254,13 +2254,14 @@ public final class GearSection extends CollapsibleSection
 	 * does ~2 DPS. Price-tag style: the whole-number part is unbolded in the
 	 * given colour, and the decimal point plus the fractional digits are
 	 * dimmed and half-size, so the magnitude reads at a glance and the
-	 * decimals visibly recede. Delegates to {@link ScentFormat} so every
-	 * "scent" number in the panel (gp values, DPS, accuracy, avg hit, TTK,
-	 * overkill) shares the exact same treatment.
+	 * decimals visibly recede. Delegates to {@link CentFormat} so every
+	 * "cent" number in the panel (gp values, DPS, accuracy, avg hit, TTK,
+	 * overkill — "cent" meaning the fractional/decimal part, by analogy
+	 * with money cents) shares the exact same treatment.
 	 */
 	private static String dpsFragment(double dps)
 	{
-		return ScentFormat.fragment(formatDps(dps));
+		return CentFormat.fragment(formatDps(dps));
 	}
 
 	/**
@@ -2271,12 +2272,12 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private static String dpsFragment(double dps, String intColor, String decimalColor)
 	{
-		return ScentFormat.fragment(formatDps(dps), intColor, decimalColor);
+		return CentFormat.fragment(formatDps(dps), intColor, decimalColor);
 	}
 
 	/**
 	 * {@link #dpsFragment(double)}, but with the integer in {@code intColor}
-	 * and the decimal dimmed to match it (see {@link ScentFormat#fragment(String, String)}) —
+	 * and the decimal dimmed to match it (see {@link CentFormat#fragment(String, String)}) —
 	 * used by a highlighted/best row whose label foreground isn't the
 	 * default white, so the number's own colour has to agree with the row
 	 * instead of hard-coding white (an explicit HTML {@code <font color>}
@@ -2284,7 +2285,7 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private static String dpsFragment(double dps, String intColor)
 	{
-		return ScentFormat.fragment(formatDps(dps), intColor);
+		return CentFormat.fragment(formatDps(dps), intColor);
 	}
 
 	private static String formatDps(double dps)
@@ -2304,11 +2305,11 @@ public final class GearSection extends CollapsibleSection
 	{
 		if (delta > 1e-9)
 		{
-			return dpsFragment(dps, ScentFormat.GREEN, ScentFormat.GREEN_DIM);
+			return dpsFragment(dps, CentFormat.GREEN, CentFormat.GREEN_DIM);
 		}
 		if (delta < -1e-9)
 		{
-			return dpsFragment(dps, ScentFormat.RED, ScentFormat.RED_DIM);
+			return dpsFragment(dps, CentFormat.RED, CentFormat.RED_DIM);
 		}
 		return dpsFragment(dps);
 	}
@@ -5309,12 +5310,12 @@ public final class GearSection extends CollapsibleSection
 		}
 
 		maxHitValue.setText(String.valueOf(result.maxHit()));
-		accuracyValue.setText(ScentFormat.html(String.format(Locale.ROOT, "%.1f%%", result.accuracy() * 100.0)));
-		avgHitValue.setText(ScentFormat.html(String.format(Locale.ROOT, "%.2f", result.avgHit())));
+		accuracyValue.setText(CentFormat.html(String.format(Locale.ROOT, "%.1f%%", result.accuracy() * 100.0)));
+		avgHitValue.setText(CentFormat.html(String.format(Locale.ROOT, "%.2f", result.avgHit())));
 		lastDps = result.dps();
 		dpsValue.setText(dpsHtml(lastDps));
-		ttkValue.setText(ScentFormat.html(formatTtk(result.ttkSeconds())));
-		overkillValue.setText(ScentFormat.html(String.format(Locale.ROOT, "%.1f", result.overkillPerKill())));
+		ttkValue.setText(CentFormat.html(formatTtk(result.ttkSeconds())));
+		overkillValue.setText(CentFormat.html(String.format(Locale.ROOT, "%.1f", result.overkillPerKill())));
 		baseEstimateNote.setVisible(result.baseEstimate());
 		updateBoostIndicators(selectedStyle != null ? selectedStyle.type() : null);
 		updateWhatIfDelta();
@@ -6135,10 +6136,11 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
-	 * Strips the HTML markup that styles "scent" numbers (DPS, accuracy, avg
-	 * hit, TTK, overkill — see {@link ScentFormat}) so a test asserts the
-	 * displayed VALUE, not its presentation. Plain (non-HTML) text — e.g. the
-	 * "-" placeholder — passes through unchanged.
+	 * Strips the HTML markup that styles "cent" numbers (DPS, accuracy, avg
+	 * hit, TTK, overkill — see {@link CentFormat}; "cent" meaning the
+	 * fractional/decimal part, by analogy with money cents) so a test
+	 * asserts the displayed VALUE, not its presentation. Plain (non-HTML)
+	 * text — e.g. the "-" placeholder — passes through unchanged.
 	 */
 	private static String plainTextForTest(String text)
 	{
@@ -6243,7 +6245,7 @@ public final class GearSection extends CollapsibleSection
 		return plainTextForTest(avgHitValue.getText());
 	}
 
-	/** The raw (HTML-carrying) accuracy text, so a test can confirm the "scent" markup is actually applied rather than just checking the stripped value. */
+	/** The raw (HTML-carrying) accuracy text, so a test can confirm the "cent" markup is actually applied rather than just checking the stripped value. */
 	String accuracyRawTextForTest()
 	{
 		return accuracyValue.getText();
