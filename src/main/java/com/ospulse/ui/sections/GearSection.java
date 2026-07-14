@@ -35,6 +35,7 @@ import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
 import com.ospulse.ui.sections.gear.CoinPileBadge;
 import com.ospulse.ui.sections.gear.GpFormat;
+import com.ospulse.ui.sections.gear.OwnedVariantResolver;
 import com.ospulse.ui.sections.gear.RoundedButton;
 import com.ospulse.wealth.WealthSnapshot;
 
@@ -3882,13 +3883,6 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
-	 * Fortified/imbued variant name suffixes (space-prefixed, as they appear
-	 * at the end of an {@link EquipmentIndexRepository.Entry#name()}) whose
-	 * plain form should also count as owned — see {@link #addVariantPlainForm}.
-	 */
-	private static final String[] OWNED_VARIANT_SUFFIXES = { " (f)", " (i)" };
-
-	/**
 	 * The owned-item pool + GE prices for the optimiser: every worn item
 	 * (always owned, price irrelevant) plus the wealth snapshot's COMPLETE
 	 * owned-item map ({@link WealthSnapshot#getAllHoldings()} — inventory +
@@ -3964,31 +3958,17 @@ public final class GearSection extends CollapsibleSection
 
 	/**
 	 * If {@code ownedItemId}'s indexed name ends in one of
-	 * {@link #OWNED_VARIANT_SUFFIXES}, looks up the plain (suffix-stripped)
-	 * name's item id and marks it owned at price 0 too — see
-	 * {@link #ownedPriceMap}'s javadoc for why.
+	 * {@link OwnedVariantResolver#SUFFIXES}, marks the plain (suffix-stripped)
+	 * form's item id owned at price 0 too — see {@link #ownedPriceMap}'s
+	 * javadoc for why.
 	 */
 	private static void addVariantPlainForm(java.util.Map<Integer, Long> prices, EquipmentIndexRepository index,
 		int ownedItemId)
 	{
-		EquipmentIndexRepository.Entry entry = index.entryFor(ownedItemId);
-		if (entry == null)
+		Integer plainId = OwnedVariantResolver.plainFormId(index, ownedItemId);
+		if (plainId != null)
 		{
-			return;
-		}
-		String name = entry.name();
-		for (String suffix : OWNED_VARIANT_SUFFIXES)
-		{
-			if (name.regionMatches(true, name.length() - suffix.length(), suffix, 0, suffix.length()))
-			{
-				String plainName = name.substring(0, name.length() - suffix.length());
-				Integer plainId = index.idForName(plainName);
-				if (plainId != null)
-				{
-					prices.putIfAbsent(plainId, 0L);
-				}
-				return;
-			}
+			prices.putIfAbsent(plainId, 0L);
 		}
 	}
 
@@ -4853,6 +4833,12 @@ public final class GearSection extends CollapsibleSection
 		optimizerSwapList.removeAll();
 		int[] liveIds = lastGear == null ? new int[GearSnapshot.EQUIPMENT_SLOT_COUNT] : lastGear.equippedItemIds();
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		// Item #9: an owned recommendation whose id is the optimiser's
+		// variant-aware plain base form (see OwnedVariantResolver/
+		// addVariantPlainForm) must still be SHOWN as the actual owned
+		// variant (e.g. "Masori mask (f)"), not the plain name — buildSwapRow
+		// needs the owned-item pool to make that reverse lookup.
+		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
 		boolean anyRow = false;
 		for (GearOptimizer.SlotChoice choice : result.loadout())
 		{
@@ -4862,7 +4848,7 @@ public final class GearSection extends CollapsibleSection
 				continue; // unchanged — nothing to report for this slot
 			}
 			anyRow = true;
-			optimizerSwapList.add(buildSwapRow(index, choice.slotOrdinal(), liveId, choice.itemId(), choice));
+			optimizerSwapList.add(buildSwapRow(index, choice.slotOrdinal(), liveId, choice.itemId(), choice, ownedIds));
 			optimizerSwapList.add(Box.createRigidArea(new Dimension(0, 2)));
 		}
 		if (!anyRow)
@@ -4889,12 +4875,19 @@ public final class GearSection extends CollapsibleSection
 
 	/** One "current icon -&gt; suggested icon (spend)" swap row — see {@link #renderOptimizerSwapList}. */
 	private JPanel buildSwapRow(EquipmentIndexRepository index, int slotOrdinal, int currentItemId,
-		int suggestedItemId, GearOptimizer.SlotChoice choice)
+		int suggestedItemId, GearOptimizer.SlotChoice choice, java.util.Map<Integer, Long> ownedIds)
 	{
 		String slotName = slotOrdinal >= 0 && slotOrdinal < SLOT_NAMES.length && !SLOT_NAMES[slotOrdinal].isEmpty()
 			? SLOT_NAMES[slotOrdinal] : ("Slot " + slotOrdinal);
 		String currentName = itemDisplayName(index, currentItemId);
-		String suggestedName = itemDisplayName(index, suggestedItemId);
+		// Item #9: only an OWNED suggestion can be the variant-aware plain
+		// form in the first place (addVariantPlainForm only ever marks the
+		// plain id owned, never priced) — a not-owned suggestion is always
+		// exactly what the optimiser means to buy, so it's left alone.
+		int displayItemId = choice.owned()
+			? OwnedVariantResolver.preferOwnedVariant(index, suggestedItemId, ownedIds)
+			: suggestedItemId;
+		String suggestedName = itemDisplayName(index, displayItemId);
 		String spend = choice.owned() ? "owned" : (formatGp(choice.price()) + " — not owned");
 
 		JPanel row = new JPanel(new BorderLayout(4, 0));
@@ -4909,7 +4902,7 @@ public final class GearSection extends CollapsibleSection
 		arrow.setFont(FontManager.getRunescapeSmallFont());
 		arrow.setVerticalAlignment(SwingConstants.CENTER);
 		iconsPanel.add(arrow);
-		JLabel suggestedIcon = swapItemIcon(suggestedItemId, suggestedName + " (" + spend + ")");
+		JLabel suggestedIcon = swapItemIcon(displayItemId, suggestedName + " (" + spend + ")");
 		suggestedIcon.setComponentPopupMenu(buildExcludeItemPopup(suggestedItemId, suggestedName, -1));
 		if (lastOptimizerNeedsProtection.contains(suggestedItemId))
 		{
