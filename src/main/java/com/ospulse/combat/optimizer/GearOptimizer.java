@@ -1109,14 +1109,6 @@ public final class GearOptimizer {
     }
 
     /**
-     * The single candidate that stands in for {@code family}: the highest-charge
-     * owned, non-excluded member (always free/owned) when the player owns any,
-     * otherwise the cheapest not-owned charge that survived this slot's gates —
-     * every charge has identical combat stats, so the cheapest is the best buy,
-     * tie-broken toward the highest charge. {@code null} only if the family has
-     * no usable member here (the caller then keeps the original candidate).
-     */
-    /**
      * The owned, non-excluded member of {@code itemId}'s charge family to
      * surface — the LOWEST risk-value member (per {@link Request#riskValueSource()}),
      * tie-broken toward the HIGHEST charge (family array is highest-first). This
@@ -1150,6 +1142,15 @@ public final class GearOptimizer {
         return best;
     }
 
+    /**
+     * The single candidate that stands in for {@code family}: the best owned,
+     * non-excluded member (always free/owned — see {@link #bestOwnedFamilyMember})
+     * when the player owns any, otherwise the cheapest not-owned charge that
+     * survived this slot's gates — every charge has identical combat stats, so
+     * the cheapest is the best buy, tie-broken toward the highest charge.
+     * {@code null} only if the family has no usable member here (the caller then
+     * keeps the original candidate).
+     */
     private static Candidate chargeFamilyRepresentative(int[] family, List<Candidate> candidates, Request request) {
         Integer ownedBest = bestOwnedFamilyMember(family[0], request);
         if (ownedBest != null) {
