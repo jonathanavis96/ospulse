@@ -604,6 +604,14 @@ public final class GearOptimizer {
             }
         }
 
+        // De-risk BEFORE the DPS local search, choosing by DPS loss: the
+        // first-improving walk below takes the first overflow-lowering swap
+        // it meets in SEARCHABLE_SLOTS order, which would let slot order —
+        // not DPS — pick which over-cap item is sacrificed (see deriskToCap).
+        // Once within the cap the local search can never re-raise the
+        // overflow, so the allocation made here sticks.
+        current = deriskToCap(current, candidatesBySlot, slotForIndex, ammoCandidates, request);
+
         // Local search: repeat full passes over every slot, applying the first
         // improving single-slot swap found, until a pass makes no change. A
         // swap is only accepted if it BOTH improves the objective AND keeps
@@ -647,9 +655,13 @@ public final class GearOptimizer {
                     int trialOverflow = expensiveOverflowOf(trial, request);
                     boolean better;
                     if (trialOverflow != currentOverflow) {
-                        // Feasibility dominates DPS: de-risk toward the cap
-                        // (accept a lower overflow), never add risk (reject a
-                        // higher one). Equal overflow falls through to the
+                        // Feasibility dominates DPS: never add risk (reject a
+                        // higher overflow), accept a lower one. WHICH over-cap
+                        // slot to sacrifice is deriskToCap's decision (by DPS
+                        // loss, before this loop) — this branch only guards
+                        // against re-risking and backstops overflow the
+                        // pre-search pass could not clear (e.g. a later swap
+                        // freeing budget). Equal overflow falls through to the
                         // DPS/tie-break decision below; an inactive cap keeps
                         // every overflow 0, so this is a no-op there.
                         better = trialOverflow < currentOverflow;
@@ -885,6 +897,77 @@ public final class GearOptimizer {
             return 0;
         }
         return Math.max(0, expensiveItemCountOf(itemIds, request) - request.expensiveItemCount());
+    }
+
+    /**
+     * Drives an over-cap loadout back within the expensive-item allowance by
+     * the CHEAPEST DPS concessions: each round gathers, across every
+     * non-forced slot, the within-budget swaps that LOWER the overflow
+     * ({@link #expensiveOverflowOf} of the full trial — a swap usually sheds
+     * one over-ceiling item, or two when a 2H weapon evicts an expensive
+     * shield), and applies only the one whose resulting loadout keeps the
+     * most DPS, repeating until the loadout is within the cap or no
+     * overflow-lowering swap exists (pool/budget exhausted — the leftover
+     * overflow then stays for the local search's guard/backstop). Every
+     * applied swap strictly lowers the overflow, so this terminates.
+     *
+     * <p>Choosing by least DPS loss is what spends the allowance on the
+     * items that buy the most DPS: with one premium slot allowed, a premium
+     * amulet with real offensive stats worn alongside a premium ring with
+     * none, the DPS-dead ring is the free demotion and the amulet keeps its
+     * premium item. Leaving this to the local search's first-improving walk
+     * instead let {@link #SEARCHABLE_SLOTS} order pick the sacrifice — the
+     * amulet (slot 2, walked before ring slot 12) lost its item for the same
+     * risk count and strictly less DPS. A DPS tie falls back to the incoming
+     * item's {@link #tieBreakScore} (B9-2's idiom), then to slot order.
+     * Returns {@code current} unchanged when already within the cap (or the
+     * cap is inactive — every overflow is 0 then).
+     */
+    private static int[] deriskToCap(int[] current, List<List<Candidate>> candidatesBySlot, int[] slotForIndex,
+                                     List<Candidate> ammoCandidates, Request request) {
+        int overflow = expensiveOverflowOf(current, request);
+        while (overflow > 0) {
+            int[] bestTrial = null;
+            Evaluation bestEval = null;
+            int bestSwapIn = -1;
+            for (int i = 0; i < slotForIndex.length; i++) {
+                int slot = slotForIndex[i];
+                if (request.include.contains(current[slot])) {
+                    continue; // forced — never sacrificed, same as the local search
+                }
+                for (Candidate c : candidatesBySlot.get(i)) {
+                    if (c.itemId() == current[slot]) {
+                        continue;
+                    }
+                    int[] trial = applySlotChoice(current, slot, c.itemId());
+                    if (slot == WhatIfLoadout.WEAPON_SLOT) {
+                        trial = withBestCompatibleAmmo(trial, ammoCandidates, request);
+                    }
+                    if (expensiveOverflowOf(trial, request) >= overflow || !withinBudget(trial, request)) {
+                        continue; // only overflow-LOWERING, within-budget swaps compete here
+                    }
+                    Evaluation trialEval = evaluate(trial, request);
+                    if (trialEval == null) {
+                        continue;
+                    }
+                    double diff = bestEval == null
+                            ? Double.POSITIVE_INFINITY
+                            : trialEval.dps.dps() - bestEval.dps.dps();
+                    if (diff > 1e-9
+                            || (Math.abs(diff) <= 1e-9 && tieBreakScore(c.itemId()) > tieBreakScore(bestSwapIn))) {
+                        bestTrial = trial;
+                        bestEval = trialEval;
+                        bestSwapIn = c.itemId();
+                    }
+                }
+            }
+            if (bestTrial == null) {
+                break;
+            }
+            current = bestTrial;
+            overflow = expensiveOverflowOf(current, request);
+        }
+        return current;
     }
 
     private static int[] applySlotChoice(int[] itemIds, int slot, int itemId) {
