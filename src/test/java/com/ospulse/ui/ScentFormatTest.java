@@ -34,6 +34,43 @@ public class ScentFormatTest
 	}
 
 	@Test
+	public void roundThousandsSuffixIsDimmedEvenWithoutADecimal()
+	{
+		// GpFormat.format(100_000) -> "100k": the k must recede like a decimal would.
+		assertEquals("<font color='#FFFFFF'>100</font><font size='2' color='#8C8C8C'>k</font>",
+			ScentFormat.fragment("100k"));
+	}
+
+	@Test
+	public void roundMillionsAndBillionsSuffixIsDimmed()
+	{
+		assertEquals("<font color='#FFFFFF'>1</font><font size='2' color='#8C8C8C'>m</font>",
+			ScentFormat.fragment("1m"));
+		assertEquals("<font color='#FFFFFF'>2</font><font size='2' color='#8C8C8C'>b</font>",
+			ScentFormat.fragment("2b"));
+	}
+
+	@Test
+	public void negativeRoundSuffixKeepsSignWithTheIntegerAndDimsTheSuffix()
+	{
+		assertEquals("<font color='#FFFFFF'>-3</font><font size='2' color='#8C8C8C'>m</font>",
+			ScentFormat.fragment("-3m"));
+	}
+
+	@Test
+	public void commaGroupedIntegerHasNoDimmedPart()
+	{
+		assertEquals("<font color='#FFFFFF'>1,234</font>", ScentFormat.fragment("1,234"));
+	}
+
+	@Test
+	public void greenRoundSuffixDimsWithDullGreen()
+	{
+		assertEquals("<font color='#37F046'>5</font><font size='2' color='#1E8427'>m</font>",
+			ScentFormat.greenFragment("5m"));
+	}
+
+	@Test
 	public void explicitColorPairingOverridesDefaults()
 	{
 		assertEquals("<font color='#111111'>1</font><font size='2' color='#222222'>.5</font>",
