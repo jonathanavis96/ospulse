@@ -574,6 +574,11 @@ public final class GearOptimizer {
         // (guarantees the search never returns worse than the player's own gear
         // when combined with the greedy weapon pass below).
         int[] current = request.liveItemIds.clone();
+        // Charge-variant fuzzy grouping (item #7): a worn low charge is rewritten
+        // to the player's highest owned charge of the same family up front, so the
+        // recommendation surfaces the best owned charge instead of the identical
+        // worn one (which a DPS tie-break would otherwise never swap away).
+        current = normalizeChargeFamilies(current, request);
         applyForcedIncludes(current, request, index);
 
         // Greedy seed: independently pick each slot's best OWNED candidate
@@ -1037,6 +1042,121 @@ public final class GearOptimizer {
         }
     }
 
+    /**
+     * Test seam: the item ids the optimiser would consider for {@code slot}
+     * under {@code request} (post-collapse). Lets a test assert directly that a
+     * charge family collapses to a single candidate without reaching into the
+     * private candidate pipeline.
+     */
+    static List<Integer> candidateIdsForSlotForTest(int slot, Request request) {
+        List<Candidate> candidates =
+                buildCandidatesForSlot(EquipmentIndexRepository.getInstance(), slot, request, Collections.emptyList());
+        List<Integer> ids = new ArrayList<>();
+        for (Candidate c : candidates) {
+            ids.add(c.itemId());
+        }
+        return ids;
+    }
+
+    /**
+     * Collapses every {@link ChargeFamilies charge family} present in {@code
+     * candidates} to a single representative candidate (item #7): the family is
+     * treated as one item so the optimiser never lists eight identical Amulet of
+     * glory charges as separate options, and — when any charge is owned — the
+     * representative is the highest-charge owned member (so a player wearing the
+     * (1) but holding the (4) is recommended the (4)). A family the player
+     * force-included is left untouched (all its members pass through) so the
+     * explicit include always survives. Returns {@code candidates} unchanged
+     * when no family member is present, so non-charge items are unaffected.
+     */
+    private static List<Candidate> collapseChargeFamilies(List<Candidate> candidates, Request request) {
+        boolean anyFamily = false;
+        for (Candidate c : candidates) {
+            if (ChargeFamilies.isMember(c.itemId())) {
+                anyFamily = true;
+                break;
+            }
+        }
+        if (!anyFamily) {
+            return candidates;
+        }
+
+        // Families with a force-included member are never collapsed — the user's
+        // explicit choice of a specific charge must reach the search intact.
+        Set<int[]> includedFamilies = Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        for (Candidate c : candidates) {
+            int[] family = ChargeFamilies.familyOf(c.itemId());
+            if (family != null && request.include.contains(c.itemId())) {
+                includedFamilies.add(family);
+            }
+        }
+
+        List<Candidate> out = new ArrayList<>();
+        Set<int[]> emitted = Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        for (Candidate c : candidates) {
+            int[] family = ChargeFamilies.familyOf(c.itemId());
+            if (family == null || includedFamilies.contains(family)) {
+                out.add(c);
+                continue;
+            }
+            if (!emitted.add(family)) {
+                continue; // this family already has its representative
+            }
+            Candidate representative = chargeFamilyRepresentative(family, candidates, request);
+            out.add(representative != null ? representative : c);
+        }
+        return out;
+    }
+
+    /**
+     * The single candidate that stands in for {@code family}: the highest-charge
+     * owned, non-excluded member (always free/owned) when the player owns any,
+     * otherwise the cheapest not-owned charge that survived this slot's gates —
+     * every charge has identical combat stats, so the cheapest is the best buy,
+     * tie-broken toward the highest charge. {@code null} only if the family has
+     * no usable member here (the caller then keeps the original candidate).
+     */
+    private static Candidate chargeFamilyRepresentative(int[] family, List<Candidate> candidates, Request request) {
+        Integer ownedBest = ChargeFamilies.bestOwnedMember(family[0], request.owned, request.exclude);
+        if (ownedBest != null) {
+            return new Candidate(ownedBest, 0L, true);
+        }
+        Candidate best = null;
+        for (int memberId : family) { // highest charge first
+            for (Candidate c : candidates) {
+                if (c.itemId() == memberId && !c.owned()) {
+                    if (best == null || c.price() < best.price()) {
+                        best = c;
+                    }
+                    break;
+                }
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Rewrites any charge-family member in {@code itemIds} (the live/seed
+     * loadout) to the highest-charge owned member of its family (item #7), so a
+     * player already WEARING a low charge is seeded — and therefore recommended
+     * — with their best owned charge rather than the DPS-identical worn one that
+     * the tie-break would otherwise leave untouched. Returns {@code itemIds}
+     * unchanged (same reference) when nothing needs rewriting.
+     */
+    private static int[] normalizeChargeFamilies(int[] itemIds, Request request) {
+        int[] out = itemIds;
+        for (int i = 0; i < itemIds.length; i++) {
+            Integer best = ChargeFamilies.bestOwnedMember(itemIds[i], request.owned, request.exclude);
+            if (best != null && best != itemIds[i]) {
+                if (out == itemIds) {
+                    out = itemIds.clone();
+                }
+                out[i] = best;
+            }
+        }
+        return out;
+    }
+
     /** True if any force-included item occupies the shield slot (so a 2H weapon would evict it). */
     private static boolean forcesShieldSlot(Request request, EquipmentIndexRepository index) {
         for (int includedId : request.include) {
@@ -1096,6 +1216,13 @@ public final class GearOptimizer {
             }
             affordable.add(new Candidate(e.itemId(), price, owned));
         }
+
+        // Charge-variant fuzzy grouping (item #7): collapse each charge family
+        // (e.g. every Amulet of glory charge) to ONE candidate so the family is
+        // treated as a single item — owned iff any charge is owned, represented
+        // by the highest-charge owned member. A no-op for slots/loadouts with no
+        // family members, so every non-charge item keeps its existing behaviour.
+        affordable = collapseChargeFamilies(affordable, request);
 
         if (weaponSlotWithForcedShield) {
             // A forced shield-slot item (mirror shield vs Basilisk) can't coexist
