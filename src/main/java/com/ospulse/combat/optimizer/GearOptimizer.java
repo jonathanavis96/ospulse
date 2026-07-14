@@ -546,8 +546,6 @@ public final class GearOptimizer {
      * with no I/O, so any executor/background thread works; the caller
      * publishes the {@link Result} back to the EDT.
      */
-    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(GearOptimizer.class);
-
     public static Result optimize(Request request) {
         EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 
@@ -705,40 +703,6 @@ public final class GearOptimizer {
                 totalSpend += price;
             }
             loadoutOut.add(new SlotChoice(slot, itemId, owned, price));
-        }
-
-        // TEMP dev diagnostic (dev jar only; remove before Hub push): when the
-        // expensive-item cap is active, dump per-slot the chosen id, the price
-        // the cap actually sees, whether it counts as expensive, the candidate
-        // pool size and how many of those candidates were at/below threshold —
-        // so a "cap not working / junk picks" report can be pinned to either a
-        // starved sub-threshold pool or a correctly-enforced-but-DPS-neutral
-        // pick. Fires once per search, only when the cap is on.
-        if (expensiveCapActive(request) && log.isInfoEnabled()) {
-            long thr = request.expensiveItemThreshold();
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < slotForIndex.length; i++) {
-                int slot = slotForIndex[i];
-                int id = current[slot];
-                boolean exempt = FREE_REOBTAINABLE.contains(id);
-                // Same pricing rule as expensiveItemCountOf (capRiskValueOf) so
-                // the diagnostic shows the value the cap actually counts by.
-                long capPrice = capRiskValueOf(id, request);
-                List<Candidate> cands = candidatesBySlot.get(i);
-                int subThr = 0;
-                for (Candidate c : cands) {
-                    if (c.price() <= thr) {
-                        subThr++;
-                    }
-                }
-                sb.append(String.format(java.util.Locale.ROOT,
-                        " [slot=%d id=%d cap$=%d exp=%b%s cands=%d subThr=%d]",
-                        slot, id, capPrice, !exempt && id > 0 && capPrice > thr,
-                        exempt ? "(free)" : "", cands.size(), subThr));
-            }
-            log.info("optimizer-cap: threshold={} cap={} budget={} totalSpend={} expensiveInResult={}/{} |{}",
-                    thr, request.expensiveItemCount(), request.budget, totalSpend,
-                    expensiveItemCountOf(current, request), request.expensiveItemCount(), sb);
         }
 
         DpsResult finalDps = currentEval != null ? currentEval.dps : zeroDps();
