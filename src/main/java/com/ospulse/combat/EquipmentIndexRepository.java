@@ -42,20 +42,33 @@ public final class EquipmentIndexRepository {
     private final List<Entry> entries;
     private final Map<Integer, Entry> byItemId;
     private final Map<String, Integer> idByLowercaseName;
+    private final Map<String, List<Integer>> idsByLowercaseName;
 
     private EquipmentIndexRepository(List<Entry> entries) {
         this.entries = Collections.unmodifiableList(entries);
         Map<Integer, Entry> byId = new HashMap<>();
         Map<String, Integer> byName = new HashMap<>();
+        Map<String, List<Integer>> allByName = new HashMap<>();
         for (Entry e : entries) {
             byId.put(e.itemId(), e);
+            String key = e.name().toLowerCase(Locale.ROOT);
             // First entry wins on a name collision (several ids can share a
             // display name, e.g. multiple imbue-source id families for the
             // same item) — deterministic file-order preference.
-            byName.putIfAbsent(e.name().toLowerCase(Locale.ROOT), e.itemId());
+            byName.putIfAbsent(key, e.itemId());
+            // idsForName (below) keeps every id sharing the name, in file
+            // order, for callers that must check ALL of them (e.g. an
+            // ownership check against a name with several reward-source ids —
+            // idForName's single-id pick would silently miss a match).
+            allByName.computeIfAbsent(key, k -> new ArrayList<>()).add(e.itemId());
         }
         this.byItemId = Collections.unmodifiableMap(byId);
         this.idByLowercaseName = Collections.unmodifiableMap(byName);
+        Map<String, List<Integer>> frozen = new HashMap<>();
+        for (Map.Entry<String, List<Integer>> e : allByName.entrySet()) {
+            frozen.put(e.getKey(), Collections.unmodifiableList(e.getValue()));
+        }
+        this.idsByLowercaseName = Collections.unmodifiableMap(frozen);
     }
 
     /** Shared, lazily-initialised singleton loaded from the bundled resource. */
@@ -136,6 +149,24 @@ public final class EquipmentIndexRepository {
             return null;
         }
         return idByLowercaseName.get(name.toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * Every item id sharing {@code name} (case-insensitive), in file order —
+     * the multi-id counterpart to {@link #idForName}. Several display names
+     * genuinely have more than one backing id (e.g. an imbued ring or a
+     * slayer helmet has one id per reward source), so a caller that needs to
+     * check "do I own ANY item called X" (as opposed to "resolve the name to
+     * a single canonical id") must check all of them, not just
+     * {@link #idForName}'s single file-order pick. Never {@code null}; empty
+     * if no indexed item has that name.
+     */
+    public List<Integer> idsForName(String name) {
+        if (name == null) {
+            return Collections.emptyList();
+        }
+        List<Integer> ids = idsByLowercaseName.get(name.toLowerCase(Locale.ROOT));
+        return ids == null ? Collections.emptyList() : ids;
     }
 
     /** All indexed (computable) item ids — the optimiser's candidate universe. */
