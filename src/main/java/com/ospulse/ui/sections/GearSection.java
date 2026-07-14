@@ -39,6 +39,7 @@ import com.ospulse.ui.sections.gear.CoinPileBadge;
 import com.ospulse.ui.sections.gear.GpFormat;
 import com.ospulse.ui.sections.gear.OwnedVariantResolver;
 import com.ospulse.ui.sections.gear.RoundedButton;
+import com.ospulse.ui.sections.gear.StyleGrid;
 import com.ospulse.wealth.WealthSnapshot;
 
 import net.runelite.client.config.ConfigManager;
@@ -58,6 +59,7 @@ import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JPanel;
@@ -221,6 +223,16 @@ public final class GearSection extends CollapsibleSection
 
 	/** Side length for the attack-style-row and spell-row icons. */
 	private static final int STYLE_ICON_SIZE = 18;
+	/** Horizontal gap between the two style columns. */
+	private static final int STYLE_GRID_HGAP = 4;
+	/**
+	 * First-paint estimate of the styles viewport's usable width, used ONLY
+	 * until the real width is known ({@link #placeStyleRows} prefers
+	 * {@code stylesScroll.getViewport().getWidth()} whenever it is non-zero).
+	 * Derived from RuneLite's fixed {@code PluginPanel.PANEL_WIDTH} (225) less
+	 * the panel border and the scroll pane's own 1px line border.
+	 */
+	private static final int STYLES_VIEWPORT_WIDTH_ESTIMATE = 211;
 
 	/** Columns in the item-picker icon grid (design ask: "4 icons per row"). */
 	private static final int ITEM_GRID_COLUMNS = 4;
@@ -279,6 +291,8 @@ public final class GearSection extends CollapsibleSection
 	private final Map<Integer, ImageIcon> spellIconCache = new HashMap<>();
 	/** Per-sprite-id native attack-style icon cache — see {@link #attackStyleIcon}. */
 	private final Map<Integer, ImageIcon> attackStyleIconCache = new HashMap<>();
+	/** Visual rows the last {@link #placeStyleRows} produced — sizes the viewport. */
+	private int lastStyleVisualRows = 1;
 	/** Per-sprite-id prayer icon cache for the style-aware prayer indicator — see {@link #prayerIcon}. */
 	private final Map<Integer, ImageIcon> prayerIconCache = new HashMap<>();
 	/** Per-item-id potion icon cache for the style-aware potion indicator — see {@link #potionIcon}. */
@@ -1973,13 +1987,12 @@ public final class GearSection extends CollapsibleSection
 		}
 		spellPicker.setVisible(hasMagicStyle && !poweredStaff.applies());
 
-		// Attack styles render as a 2-column grid (e.g. Lunge | Stab / Block |
-		// Slash) instead of a tall single-column list. stylesPanel was cleared by
-		// rankAndRender, so switching the layout here is safe.
-		stylesPanel.setLayout(new GridLayout(0, 2, 4, 2));
-		renderRankedStyleRows(styles, canRank);
-		int gridRows = (int) Math.ceil(stylesPanel.getComponentCount() / 2.0);
-		setStylesViewportRows(Math.min(Math.max(gridRows, 1), STYLES_VISIBLE_ROWS));
+		// Attack styles prefer a compact 2-column grid (e.g. Lunge | Stab /
+		// Block | Slash) over a tall single-column list — but only when the
+		// names actually fit it; placeStyleRows/StyleGrid decide per weapon and
+		// report back how many visual rows resulted.
+		renderRankedStyleRows(styles, canRank, true);
+		setStylesViewportRows(Math.min(Math.max(lastStyleVisualRows, 1), STYLES_VISIBLE_ROWS));
 	}
 
 	/**
@@ -2004,12 +2017,9 @@ public final class GearSection extends CollapsibleSection
 	private void renderMagicView(int weaponId, List<WeaponStyle> styles, PoweredStaff poweredStaff, boolean canRank)
 	{
 		// The magic view keeps the vertical spell/option list (Standard book
-		// alone is ~25 rows) at the fixed 5-row viewport height — undo any
-		// 2-column grid the melee/ranged view may have left behind.
-		if (!(stylesPanel.getLayout() instanceof BoxLayout))
-		{
-			stylesPanel.setLayout(new BoxLayout(stylesPanel, BoxLayout.Y_AXIS));
-		}
+		// alone is ~25 rows) at the fixed 5-row viewport height. stylesPanel is
+		// permanently a BoxLayout — the melee/ranged grid is a sub-panel inside
+		// it, cleared by rankAndRender, so there is no layout to undo here.
 		setStylesViewportRows(STYLES_VISIBLE_ROWS);
 
 		// The stance carrier for spell computes: the weapon's own magic combat
@@ -2053,7 +2063,7 @@ public final class GearSection extends CollapsibleSection
 			{
 				magicStyles.add(magicCastStyle);
 			}
-			List<Ranked> ranked = renderRankedStyleRows(magicStyles, canRank);
+			List<Ranked> ranked = renderRankedStyleRows(magicStyles, canRank, false);
 			setPrimarySecondary(
 				readout(ranked.isEmpty() ? null : ranked.get(0).style.name(),
 					ranked.isEmpty() ? null : ranked.get(0).result),
@@ -2133,13 +2143,16 @@ public final class GearSection extends CollapsibleSection
 	 * re-selecting the best or keeping a surviving user pick. Shared by the
 	 * classic style view and the powered-staff magic view.
 	 */
-	private List<Ranked> renderRankedStyleRows(List<WeaponStyle> styles, boolean canRank)
+	/**
+	 * @param gridMode true for the melee/ranged view, which may pair rows into
+	 *                 a 2-column grid; false for the magic view's plain
+	 *                 vertical spell list. Passed in rather than sniffed from
+	 *                 the layout: {@code stylesPanel} is always a BoxLayout
+	 *                 now, and the grid (when it fits) is a sub-panel inside
+	 *                 it — see {@link #placeStyleRows}.
+	 */
+	private List<Ranked> renderRankedStyleRows(List<WeaponStyle> styles, boolean canRank, boolean gridMode)
 	{
-		// In the melee/ranged view stylesPanel is a 2-column grid; its vgap
-		// handles spacing, so the inter-row rigid-area spacers (needed only for
-		// the magic BoxLayout list) must be skipped or they'd eat grid cells.
-		boolean gridMode = stylesPanel.getLayout() instanceof GridLayout;
-
 		// Styles the selected target's combat requirement forbids are excluded
 		// from ranking/DPS entirely (never ranked, never auto-selected) and
 		// instead rendered as greyed, non-interactive rows below the ranked
@@ -2183,17 +2196,14 @@ public final class GearSection extends CollapsibleSection
 		}
 		selectedStyle = keep != null ? keep : (ranked.isEmpty() ? null : ranked.get(0).style);
 
+		List<JComponent> built = new ArrayList<>(ranked.size() + gated.size());
 		for (int i = 0; i < ranked.size(); i++)
 		{
 			Ranked r = ranked.get(i);
 			boolean best = canRank && i == 0;
 			StyleRow row = new StyleRow(r.style, r.result, best);
 			styleRows.add(row);
-			stylesPanel.add(row);
-			if (!gridMode)
-			{
-				stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
-			}
+			built.add(row);
 		}
 
 		for (WeaponStyle style : gated)
@@ -2202,25 +2212,92 @@ public final class GearSection extends CollapsibleSection
 			// JLabel lost the per-style icon and didn't match), just greyed
 			// out with a "0" DPS and not selectable — see the StyleRow(style,
 			// gated) constructor below.
-			stylesPanel.add(new StyleRow(style, true));
-			if (!gridMode)
-			{
-				stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
-			}
+			built.add(new StyleRow(style, true));
 		}
 		if (ranked.isEmpty() && !gated.isEmpty())
 		{
 			JLabel warningLabel = PanelWidgets.emptyRowLabel("No usable style — see the requirement note above.");
 			warningLabel.setForeground(ColorScheme.MEDIUM_GRAY_COLOR);
-			stylesPanel.add(warningLabel);
-			if (!gridMode)
+			built.add(warningLabel);
+		}
+
+		lastStyleVisualRows = placeStyleRows(built, gridMode);
+		highlightSelectedRow();
+		return ranked;
+	}
+
+	/**
+	 * Adds the built style rows to {@code stylesPanel} and returns how many
+	 * VISUAL rows they occupy (which drives the viewport height).
+	 *
+	 * <p>{@code gridMode} false is the magic view: a plain vertical list.
+	 * Otherwise the melee/ranged view asks {@link StyleGrid} whether the rows
+	 * actually fit two columns at the current width; if they do, the paired
+	 * rows go into a {@link GridLayout} sub-panel (GridLayout, not GridBag, so
+	 * the two columns are exactly equal) and any odd row out is added straight
+	 * to {@code stylesPanel} beneath it, where it spans the full width.
+	 */
+	private int placeStyleRows(List<JComponent> rows, boolean gridMode)
+	{
+		if (!gridMode)
+		{
+			for (JComponent row : rows)
+			{
+				stylesPanel.add(row);
+				stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+			}
+			return rows.size();
+		}
+
+		// Prefer the REAL viewport width; it is 0 only before the first
+		// layout, and rankAndRender re-runs on every gear/target change, so
+		// the fallback is a first-paint estimate that self-corrects.
+		int available = stylesScroll.getViewport().getWidth();
+		if (available <= 0)
+		{
+			available = STYLES_VIEWPORT_WIDTH_ESTIMATE;
+		}
+
+		List<Integer> widths = new ArrayList<>(rows.size());
+		for (JComponent row : rows)
+		{
+			widths.add(row.getPreferredSize().width);
+		}
+		boolean twoColumns = StyleGrid.fitsTwoColumns(widths, available, STYLE_GRID_HGAP);
+		int spanning = StyleGrid.spanningRowIndex(rows.size(), twoColumns);
+
+		if (!twoColumns)
+		{
+			for (JComponent row : rows)
+			{
+				stylesPanel.add(row);
+				stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
+			}
+			return rows.size();
+		}
+
+		int paired = spanning < 0 ? rows.size() : rows.size() - 1;
+		if (paired > 0)
+		{
+			JPanel grid = new JPanel(new GridLayout(0, 2, STYLE_GRID_HGAP, 2));
+			grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+			for (int i = 0; i < paired; i++)
+			{
+				grid.add(rows.get(i));
+			}
+			grid.setMaximumSize(new Dimension(Integer.MAX_VALUE, grid.getPreferredSize().height));
+			stylesPanel.add(grid);
+		}
+		if (spanning >= 0)
+		{
+			if (paired > 0)
 			{
 				stylesPanel.add(Box.createRigidArea(new Dimension(0, 2)));
 			}
+			stylesPanel.add(rows.get(spanning));
 		}
-
-		highlightSelectedRow();
-		return ranked;
+		return StyleGrid.visualRows(rows.size(), true);
 	}
 
 	/**
@@ -6483,7 +6560,14 @@ public final class GearSection extends CollapsibleSection
 			// weapon-type-specific attack-style sprite — see AttackStyleIcons);
 			// the style name stays as a small secondary label rather than the
 			// old custom text ("Chop"/"Slash"/etc used to BE the icon).
-			JLabel name = new JLabel((best ? "★ " : "") + style.name());
+			// No "★ " prefix: it cost 17px of a ~46px text budget, which is the
+			// whole reason Pound/Pummel/Accurate/Smash/... truncated in the
+			// 2-column grid (measured 2026-07-15 — 8 of the 12 problem names
+			// break ONLY when starred). The best row is already unmistakable:
+			// the name AND its DPS are BRAND_ORANGE while every other row is
+			// grey, and it is the auto-selected row, so it also carries the
+			// orange selection border. The star was a third marker on top.
+			JLabel name = new JLabel(style.name());
 			name.setFont(FontManager.getRunescapeSmallFont());
 			name.setForeground(best ? ColorScheme.BRAND_ORANGE : ColorScheme.LIGHT_GRAY_COLOR);
 			ImageIcon icon = attackStyleIcon(currentWeaponCategory, style);
