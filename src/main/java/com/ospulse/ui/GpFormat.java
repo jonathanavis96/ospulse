@@ -57,39 +57,39 @@ public final class GpFormat
 	}
 
 	/**
-	 * Renders a gp amount using the "scent" number styling: unbolded
+	 * Renders a gp amount using the "cent" number styling: unbolded
 	 * whole-number part in the default white, with the decimal point,
 	 * fractional digits and k/m/b suffix (if any) dimmed grey and half-size.
-	 * Delegates to {@link ScentFormat} so wealth/session-panel rows share the
+	 * Delegates to {@link CentFormat} so wealth/session-panel rows share the
 	 * exact same misread-resistant treatment as {@code GearSection}'s
 	 * DPS/Accuracy/Avg-hit/TTK/Overkill readouts. Built on top of
 	 * {@link #format(long)} — the sign stays with the integer part.
 	 */
-	public static String scentFragment(long gp)
+	public static String centFragment(long gp)
 	{
-		return ScentFormat.fragment(format(gp));
+		return CentFormat.fragment(format(gp));
 	}
 
 	/**
-	 * {@link #scentFragment(long)}, but with an explicit integer/decimal
-	 * colour pairing — e.g. {@link ScentFormat#GREEN}/{@link
-	 * ScentFormat#GREEN_DIM} for a positive gp delta, or {@link
-	 * ScentFormat#RED}/{@link ScentFormat#RED_DIM} for a negative one.
+	 * {@link #centFragment(long)}, but with an explicit integer/decimal
+	 * colour pairing — e.g. {@link CentFormat#GREEN}/{@link
+	 * CentFormat#GREEN_DIM} for a positive gp delta, or {@link
+	 * CentFormat#RED}/{@link CentFormat#RED_DIM} for a negative one.
 	 */
-	public static String scentFragment(long gp, String intColor, String decimalColor)
+	public static String centFragment(long gp, String intColor, String decimalColor)
 	{
-		return ScentFormat.fragment(format(gp), intColor, decimalColor);
+		return CentFormat.fragment(format(gp), intColor, decimalColor);
 	}
 
-	/** {@link #scentFragment(long)} as a standalone HTML label string. */
-	public static String scentHtml(long gp)
+	/** {@link #centFragment(long)} as a standalone HTML label string. */
+	public static String centHtml(long gp)
 	{
-		return "<html>" + scentFragment(gp) + "</html>";
+		return "<html>" + centFragment(gp) + "</html>";
 	}
 
-	/** {@link #scentFragment(long, String, String)} as a standalone HTML label string. */
-	public static String scentHtml(long gp, String intColor, String decimalColor)
+	/** {@link #centFragment(long, String, String)} as a standalone HTML label string. */
+	public static String centHtml(long gp, String intColor, String decimalColor)
 	{
-		return "<html>" + scentFragment(gp, intColor, decimalColor) + "</html>";
+		return "<html>" + centFragment(gp, intColor, decimalColor) + "</html>";
 	}
 }

@@ -190,20 +190,20 @@ public class GearSectionStyleRankingTest
 				net.runelite.client.ui.ColorScheme.BRAND_ORANGE.getRed(),
 				net.runelite.client.ui.ColorScheme.BRAND_ORANGE.getGreen(),
 				net.runelite.client.ui.ColorScheme.BRAND_ORANGE.getBlue());
-			String dullOrange = com.ospulse.ui.ScentFormat.dim(brandOrange);
+			String dullOrange = com.ospulse.ui.CentFormat.dim(brandOrange);
 
 			String bestRaw = section.styleRowDpsRawTextForTest(0);
 			assertTrue("best row's integer must be the row's own orange, not white, got: " + bestRaw,
 				bestRaw.contains("color='" + brandOrange + "'"));
 			assertFalse("best row must not fall back to the default white integer, got: " + bestRaw,
-				bestRaw.contains("color='" + com.ospulse.ui.ScentFormat.WHITE + "'"));
+				bestRaw.contains("color='" + com.ospulse.ui.CentFormat.WHITE + "'"));
 			assertTrue("best row's decimal must be dimmed to match the orange, got: " + bestRaw,
 				bestRaw.contains("<font color='" + dullOrange + "'"));
 
 			// A non-best row (still ranked, index > 0) keeps the plain default.
 			String otherRaw = section.styleRowDpsRawTextForTest(1);
 			assertTrue("non-best rows must keep the default white integer, got: " + otherRaw,
-				otherRaw.contains("color='" + com.ospulse.ui.ScentFormat.WHITE + "'"));
+				otherRaw.contains("color='" + com.ospulse.ui.CentFormat.WHITE + "'"));
 			assertFalse("non-best rows must not use the orange row colour, got: " + otherRaw,
 				otherRaw.contains(brandOrange));
 		});
@@ -501,7 +501,7 @@ public class GearSectionStyleRankingTest
 	}
 
 	/**
-	 * Item #10: accuracy, avg hit, TTK and overkill all get the same "scent"
+	 * Item #10: accuracy, avg hit, TTK and overkill all get the same "cent"
 	 * number styling as DPS (bright white integer and suffix, dim decimal
 	 * only, no size change) — the raw label text carries the HTML markup,
 	 * but the plain-text accessors (used elsewhere to assert the displayed
@@ -509,7 +509,7 @@ public class GearSectionStyleRankingTest
 	 * readout always showed.
 	 */
 	@Test
-	public void accuracyAvgHitAndTtkAreScentStyledAndStripCleanly()
+	public void accuracyAvgHitAndTtkAreCentStyledAndStripCleanly()
 	{
 		onEdt(() ->
 		{
@@ -519,7 +519,7 @@ public class GearSectionStyleRankingTest
 			pickCerberus(section);
 
 			String accuracyRaw = section.accuracyRawTextForTest();
-			assertTrue("accuracy must actually carry the scent HTML markup, got: " + accuracyRaw,
+			assertTrue("accuracy must actually carry the cent HTML markup, got: " + accuracyRaw,
 				accuracyRaw.startsWith("<html>") && accuracyRaw.contains("<font color='#8C8C8C'>"));
 
 			String accuracy = section.accuracyTextForTest();

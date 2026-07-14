@@ -1,16 +1,19 @@
 package com.ospulse.ui;
 
 /**
- * Pure, side-effect-free builder for the "scent" number styling used across
- * the panel: an integer part and any trailing suffix (k/m/b, %, s, ...)
+ * Pure, side-effect-free builder for the "cent" number styling used across
+ * the panel — "cent" here as in the fractional/decimal part of a number, by
+ * analogy with money cents being the fraction of a currency unit after the
+ * decimal point: an integer part and any trailing suffix (k/m/b, %, s, ...)
  * render bright in a context colour, while only the decimal point and its
- * fractional digits are dimmed to a duller colour, so the integer magnitude
- * reads at a glance (the "1.98 read as 198" misread this treatment exists to
- * prevent) without shrinking anything to a harder-to-read size.
+ * fractional digits (the "cents") are dimmed to a duller colour, so the
+ * integer magnitude reads at a glance (the "1.98 read as 198" misread this
+ * treatment exists to prevent) without shrinking anything to a
+ * harder-to-read size.
  *
  * <p>Shared by {@link GpFormat} (gp values in the wealth/session panels) and
  * {@code GearSection}'s DPS/Accuracy/Avg-hit/TTK/Overkill readouts so every
- * "scent" number in the plugin gets the exact same treatment from one place.
+ * "cent" number in the plugin gets the exact same treatment from one place.
  * Kept dependency-free (no Swing/RuneLite imports) so it's trivially
  * unit-testable and easy to split into its own module later.
  *
@@ -18,9 +21,9 @@ package com.ospulse.ui;
  * label's normal font size, and only the {@code color} changes between the
  * bright integer/suffix spans and the dim decimal span.
  */
-public final class ScentFormat
+public final class CentFormat
 {
-	private ScentFormat()
+	private CentFormat()
 	{
 	}
 
@@ -55,7 +58,7 @@ public final class ScentFormat
 	public static final String RED_DIM = dim(RED);
 
 	/**
-	 * Darkens a {@code "#RRGGBB"} colour to the dim companion a "scent"
+	 * Darkens a {@code "#RRGGBB"} colour to the dim companion a "cent"
 	 * fragment uses for its de-emphasised part, by scaling each channel to
 	 * the same ~55% ratio the existing grey decimal colour already sits at
 	 * relative to white ({@code 0x8C / 0xFF ≈ 0.549}):
