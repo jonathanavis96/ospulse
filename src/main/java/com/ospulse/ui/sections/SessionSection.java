@@ -153,11 +153,14 @@ public final class SessionSection extends CollapsibleSection
 		// 4. GE flip (realised) — always included in the total, no toggle.
 		geRealizedPnlValue = PanelWidgets.statRow(breakdownPanel, "GE flip",
 			categorySupport.buildMenu(CAT_GE_PNL, null));
-		// Both toggle rows share ONE name-column width so their tick boxes line
-		// up with each other while their names stay flush-left with the plain
-		// stat rows above (Profit/GE flip). Measured from the real font, so
-		// renaming a label below re-sizes the column automatically.
-		int toggleNameColumn = PanelWidgets.toggleNameColumnWidth("GE positions", "Bank");
+		// EVERY tick box in this section shares ONE name-column width so they
+		// all line up on one x, while their names stay flush-left with the
+		// plain stat rows above (Profit/GE flip). "Show breakdown" is included
+		// even though it is added further down, outside breakdownPanel — it is
+		// the widest of the three, so it is what sets the column. Measured from
+		// the real font, so renaming any label re-sizes the column
+		// automatically rather than silently misaligning it.
+		int toggleNameColumn = PanelWidgets.toggleNameColumnWidth("GE positions", "Bank", "Show breakdown");
 		// 5. GE positions (unrealised mark-to-market on open/collectable GE
 		// offers) — include/exclude toggle, default ON.
 		PanelWidgets.ToggleRow geRow = PanelWidgets.toggleStatRow(breakdownPanel, "GE positions", toggleNameColumn);
@@ -171,20 +174,16 @@ public final class SessionSection extends CollapsibleSection
 		bankToggle.addActionListener(e -> refreshNetWorthChange());
 
 		// 7. Split toggle: show/hide the component breakdown above, independent
-		// of the final total below.
-		splitToggle = new JCheckBox("Show breakdown", true);
-		splitToggle.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		splitToggle.setFont(FontManager.getRunescapeSmallFont());
-		splitToggle.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		splitToggle.setFocusPainted(false);
-		splitToggle.setAlignmentX(Component.LEFT_ALIGNMENT);
+		// of the final total below. Added to body(), NOT breakdownPanel — it
+		// must stay visible when the breakdown it controls is hidden. Uses the
+		// same name column as the rows above so all three boxes share one x.
+		splitToggle = PanelWidgets.toggleOnlyRow(body(), "Show breakdown", toggleNameColumn);
 		splitToggle.addActionListener(e ->
 		{
 			breakdownPanel.setVisible(splitToggle.isSelected());
 			body().revalidate();
 			body().repaint();
 		});
-		body().add(splitToggle);
 
 		// 8. Net worth change — LAST, the sum of the always-included components
 		// (Profit, GE flip) plus whichever of GE positions/Bank are toggled on.

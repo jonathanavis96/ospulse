@@ -1,13 +1,18 @@
 package com.ospulse.ui;
 
+import com.formdev.flatlaf.FlatDarkLaf;
 import org.junit.Test;
 
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.Dimension;
 import javax.swing.BoxLayout;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.LookAndFeel;
+import javax.swing.UIManager;
+import javax.swing.plaf.metal.MetalLookAndFeel;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -136,33 +141,89 @@ public class PanelWidgetsTest
 	}
 
 	/**
-	 * "Equal spacing along the session": a toggle row must sit flush with the
-	 * plain stat rows around it.
+	 * "Equal spacing along the session": a toggle row must be EXACTLY as tall
+	 * as the plain stat rows around it.
 	 *
-	 * <p>A default-margin JCheckBox measures 21x21 (vs a ~14px stat row), so
-	 * the old leading box made every toggle row ~9px taller than its
-	 * neighbours — that is the uneven, blown-out spacing this row was
-	 * rebuilt to fix. Zeroing the margin/border takes the box to 13x13.
-	 *
-	 * <p>One pixel remains: the box is 13px against a 12px text line. Closing
-	 * it would mean forcing the box below its own icon size and cropping it,
-	 * which is worse than a pixel. So the tolerance is 1 — still tight enough
-	 * that a regression to the LAF default (+9px) fails loudly.
+	 * <p>Asserted under BOTH look-and-feels on purpose. The first cut of this
+	 * row relied on zeroing the stock JCheckBox's margin, and was verified by
+	 * a test running under Metal (21x21 -> 13x13, a convincing win). The
+	 * client runs FlatLaf, where the same call achieves almost nothing
+	 * (19x19 -> 17x17), so the row shipped ~5px taller than its neighbours
+	 * with a green test. Drawing our own icon makes the size LAF-independent
+	 * — and this test only proves that if it actually exercises both.
 	 */
 	@Test
-	public void toggleRowIsFlushWithAPlainStatRow()
+	public void toggleRowIsExactlyAStatRowTallUnderEveryLookAndFeel() throws Exception
+	{
+		LookAndFeel original = UIManager.getLookAndFeel();
+		try
+		{
+			for (LookAndFeel laf : new LookAndFeel[]{new MetalLookAndFeel(), new FlatDarkLaf()})
+			{
+				UIManager.setLookAndFeel(laf);
+				JPanel container = breakdown();
+				PanelWidgets.statRow(container, "Profit");
+				int column = PanelWidgets.toggleNameColumnWidth("Bank");
+				PanelWidgets.toggleStatRow(container, "Bank", column);
+
+				int plainHeight = container.getComponent(0).getPreferredSize().height;
+				int toggleHeight = container.getComponent(1).getPreferredSize().height;
+				assertEquals("under " + laf.getName() + ", toggle row must match a plain stat row exactly",
+					plainHeight, toggleHeight);
+			}
+		}
+		finally
+		{
+			UIManager.setLookAndFeel(original);
+		}
+	}
+
+	/** The box size must come from us, not from whatever LAF happens to be installed. */
+	@Test
+	public void tickBoxSizeIsIdenticalUnderEveryLookAndFeel() throws Exception
+	{
+		LookAndFeel original = UIManager.getLookAndFeel();
+		try
+		{
+			Dimension metal;
+			Dimension flat;
+			UIManager.setLookAndFeel(new MetalLookAndFeel());
+			metal = PanelWidgets.toggleStatRow(breakdown(), "Bank", 80).checkbox.getPreferredSize();
+			UIManager.setLookAndFeel(new FlatDarkLaf());
+			flat = PanelWidgets.toggleStatRow(breakdown(), "Bank", 80).checkbox.getPreferredSize();
+
+			assertEquals("box must be the same size in every LAF", metal, flat);
+			assertEquals("box must be pinned to the stat-row text height",
+				SmallCheckBoxIcon.DEFAULT_SIZE, metal.height);
+		}
+		finally
+		{
+			UIManager.setLookAndFeel(original);
+		}
+	}
+
+	/**
+	 * "Show breakdown" is a display-only toggle added outside breakdownPanel,
+	 * but its box must still line up with the include/exclude boxes above it —
+	 * and being the widest name, it is what sets the shared column.
+	 */
+	@Test
+	public void displayOnlyToggleSharesTheColumnWithTheStatToggles()
 	{
 		JPanel container = breakdown();
-		PanelWidgets.statRow(container, "Profit");
-		int column = PanelWidgets.toggleNameColumnWidth("Bank");
-		PanelWidgets.toggleStatRow(container, "Bank", column);
+		int column = PanelWidgets.toggleNameColumnWidth("GE positions", "Bank", "Show breakdown");
+		JCheckBox ge = PanelWidgets.toggleStatRow(container, "GE positions", column).checkbox;
+		JCheckBox show = PanelWidgets.toggleOnlyRow(container, "Show breakdown", column);
 
-		int plainHeight = container.getComponent(0).getPreferredSize().height;
-		int toggleHeight = container.getComponent(1).getPreferredSize().height;
-		assertTrue("toggle row (" + toggleHeight + "px) must sit within 1px of a plain stat row ("
-				+ plainHeight + "px) — a default-margin checkbox would blow this out by ~9px",
-			toggleHeight - plainHeight <= 1);
-		assertTrue("toggle row must never be SHORTER than a stat row", toggleHeight >= plainHeight);
+		container.setSize(225, 200);
+		layout(container);
+
+		assertEquals("'Show breakdown' box must share the column with 'GE positions'",
+			xWithin(ge, container), xWithin(show, container));
+		assertEquals("names must still start flush left",
+			xWithin(nameLabelOf(ge), container), xWithin(nameLabelOf(show), container));
+		assertTrue("the widest name must set the column, pushing the boxes right",
+			column > PanelWidgets.toggleNameColumnWidth("GE positions", "Bank"));
 	}
 
 	/** The box lost its text, so the name has to stay a click target. */
