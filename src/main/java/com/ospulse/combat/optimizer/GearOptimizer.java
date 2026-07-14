@@ -1068,8 +1068,8 @@ public final class GearOptimizer {
      * treated as one item so the optimiser never lists eight identical Amulet of
      * glory charges as separate options, and — when any charge is owned — the
      * representative is the best owned member (see {@link #bestOwnedFamilyMember}:
-     * lowest cap-risk, tie-broken to the highest charge, so a player wearing the
-     * (1) but holding the (4) is recommended the (4)).
+     * the highest owned charge, de-risked under an active expensive-item cap, so
+     * a player wearing the (1) but holding the (4) is recommended the (4)).
      *
      * <p>One deliberate exception to "single candidate": when the expensive-item
      * cap is active and the representative's risk value sits ABOVE the cap's
@@ -1077,9 +1077,9 @@ public final class GearOptimizer {
      * {@link #familyDeriskPurchase}) — otherwise a player owning only the ~50m
      * Amulet of eternal glory could never be told to buy a ~15k identical-DPS
      * glory to get back under the cap, even though the search makes exactly that
-     * de-risk swap for non-family items. On the ordinary equal-risk charge
-     * ladder (or with the cap inactive) the representative is never over the
-     * ceiling, so the family still collapses to exactly one candidate.
+     * de-risk swap for non-family items. With the cap inactive, or any owned
+     * member within the ceiling (the representative then de-risks to it), the
+     * family still collapses to exactly one candidate.
      *
      * <p>A family the player force-included is left untouched (all its members
      * pass through) so the explicit include always survives. Returns {@code
@@ -1147,12 +1147,12 @@ public final class GearOptimizer {
      *
      * <p>{@code null} — leaving the family collapsed to the single
      * representative exactly as before — when the cap is inactive, the
-     * representative is already within the ceiling (the ordinary equal-risk
-     * charge ladder), or no affordable below-ceiling member exists. Only
-     * not-owned members are considered because {@link #bestOwnedFamilyMember}
-     * already picks the LOWEST-risk owned member as representative: an
-     * over-ceiling owned representative proves every owned member is over the
-     * ceiling, so any within-ceiling member is necessarily a purchase.
+     * representative is already within the ceiling, or no affordable
+     * below-ceiling member exists. Only not-owned members are considered
+     * because {@link #bestOwnedFamilyMember} already de-risks within the owned
+     * members under an active cap: an over-ceiling owned representative proves
+     * no owned member sits within the ceiling, so any within-ceiling member is
+     * necessarily a purchase.
      */
     private static Candidate familyDeriskPurchase(int[] family, Candidate representative,
                                                   List<Candidate> candidates, Request request) {
@@ -1182,16 +1182,22 @@ public final class GearOptimizer {
 
     /**
      * The owned, non-excluded member of {@code itemId}'s charge family to
-     * surface — the LOWEST cap-risk member (per {@link #capRiskValueOf}, the
-     * same pricing the expensive-item cap counts by), tie-broken toward the
-     * HIGHEST charge (family array is highest-first). This refines the
-     * "recommend the highest owned charge" rule so it never needless-
-     * ly charges a same-DPS but far pricier charge against the expensive-item
-     * risk cap: owning a normal ~15k Amulet of glory AND a ~50m Amulet of eternal
-     * glory (identical combat stats) picks the cheap one. On the ordinary charge
-     * ladder every member has the same risk value, so the tie-break still yields
-     * the highest charge — unchanged behaviour. {@code null} when {@code itemId}
-     * isn't a family member or no owned, non-excluded member exists.
+     * surface — the HIGHEST charge (family array is highest-first). Every
+     * member is DPS/stat-identical, and per-charge GE prices genuinely differ
+     * (a glory (1) is cheaper than a (4)), so risk values must never influence
+     * the pick while the expensive-item cap is inactive — ordering by risk
+     * would demote an owned (4) to the (1).
+     *
+     * <p>The one exception: when the cap is active ({@link #expensiveCapActive})
+     * and the highest owned charge's risk value ({@link #capRiskValueOf}) is
+     * strictly above the ceiling, the pick de-risks WITHIN the owned members —
+     * the highest owned charge at/below the ceiling — so owning a normal ~15k
+     * Amulet of glory AND a ~50m Amulet of eternal glory (identical combat
+     * stats) never needlessly burns the cap on the eternal. When no owned
+     * member is within the ceiling the highest charge is still returned;
+     * {@link #familyDeriskPurchase} then supplies the below-ceiling purchase
+     * alternative. {@code null} when {@code itemId} isn't a family member or
+     * no owned, non-excluded member exists.
      */
     private static Integer bestOwnedFamilyMember(int itemId, Request request) {
         int[] family = ChargeFamilies.familyOf(itemId);
@@ -1199,17 +1205,26 @@ public final class GearOptimizer {
             return null;
         }
         Integer best = null;
-        long bestRisk = Long.MAX_VALUE;
         for (int memberId : family) { // highest charge first
-            if (!request.owned.contains(memberId) || request.exclude.contains(memberId)) {
-                continue;
-            }
-            long risk = capRiskValueOf(memberId, request);
-            // Strictly-lower risk wins; an equal-risk later (lower) charge never
-            // displaces the earlier (higher) one, so ties resolve to highest charge.
-            if (best == null || risk < bestRisk) {
+            if (request.owned.contains(memberId) && !request.exclude.contains(memberId)) {
                 best = memberId;
-                bestRisk = risk;
+                break;
+            }
+        }
+        if (best == null || !expensiveCapActive(request)) {
+            return best;
+        }
+        long threshold = request.expensiveItemThreshold();
+        if (capRiskValueOf(best, request) <= threshold) {
+            return best;
+        }
+        // Over the ceiling — de-risk within owned first: the highest owned
+        // charge at/below the ceiling, if any, before the search resorts to
+        // the purchase candidate familyDeriskPurchase keeps in the pool.
+        for (int memberId : family) { // highest charge first
+            if (request.owned.contains(memberId) && !request.exclude.contains(memberId)
+                    && capRiskValueOf(memberId, request) <= threshold) {
+                return memberId;
             }
         }
         return best;
@@ -1246,10 +1261,11 @@ public final class GearOptimizer {
 
     /**
      * Rewrites any charge-family member in {@code itemIds} (the live/seed
-     * loadout) to the highest-charge owned member of its family (item #7), so a
-     * player already WEARING a low charge is seeded — and therefore recommended
-     * — with their best owned charge rather than the DPS-identical worn one that
-     * the tie-break would otherwise leave untouched. Returns {@code itemIds}
+     * loadout) to the best owned member of its family (item #7; highest charge,
+     * cap-aware — see {@link #bestOwnedFamilyMember}), so a player already
+     * WEARING a low charge is seeded — and therefore recommended — with their
+     * best owned charge rather than the DPS-identical worn one that the
+     * tie-break would otherwise leave untouched. Returns {@code itemIds}
      * unchanged (same reference) when nothing needs rewriting.
      *
      * <p>Deliberately OWNED-only: when the player's sole owned member is an
