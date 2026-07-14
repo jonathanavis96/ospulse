@@ -94,13 +94,29 @@ public final class SessionSection extends CollapsibleSection
 	private long suppliesBaseline;
 	private long netProfitBaseline;
 	private long profitPerHourBaseline;
-	private long netWorthDeltaBaseline;
 	private long gePnlBaseline;
+	/**
+	 * Net-worth-change baselines, captured PER COMPONENT when the "Net worth
+	 * change" row is reset — one raw component value each, ALWAYS all four
+	 * regardless of which components are toggled on/off at that instant. A
+	 * single aggregate baseline (the raw total at reset time) cannot survive
+	 * a later toggle flip: subtracting a toggle-filtered total from a
+	 * baseline that was captured with a different set of components included
+	 * jumps by exactly the flipped component's value the moment the toggle
+	 * changes (the bug this fixes). Per-component baselines make {@code raw -
+	 * baseline} well-defined for each component independently of its own
+	 * toggle state, at reset time or later.
+	 */
+	private long nwProfitBaseline;
+	private long nwGeFlipBaseline;
+	private long nwGePositionsBaseline;
+	private long nwBankBaseline;
 
 	private long elapsedMs;
 	private long displayedProfit;
-	/** The raw (untoggled) "Net worth change" sum from the last snapshot, so the toggles can recompute on click without waiting for the next apply(). */
-	private long lastRawNetWorthDelta;
+	/** The raw (untoggled) component values from the last snapshot, so the toggles can recompute on click without waiting for the next apply(). */
+	private long lastRawNetProfit;
+	private long lastRawGePnl;
 	private long lastRawGePositions;
 	private long lastRawBankDelta;
 
@@ -185,7 +201,8 @@ public final class SessionSection extends CollapsibleSection
 		long rawGePnl = snapshot.getGeRealizedPnl();
 		long rawGePositions = snapshot.getGePositions();
 		long rawBankDelta = snapshot.getBankDelta();
-		lastRawNetWorthDelta = snapshot.getNetWorthDelta();
+		lastRawNetProfit = rawNetProfit;
+		lastRawGePnl = rawGePnl;
 		lastRawGePositions = rawGePositions;
 		lastRawBankDelta = rawBankDelta;
 
@@ -230,19 +247,47 @@ public final class SessionSection extends CollapsibleSection
 		rebaseIfJustReset(CAT_SUPPLIES, rawSuppliesUsed, v -> suppliesBaseline = v);
 		rebaseIfJustReset(CAT_NET_PROFIT, rawNetProfit, v -> netProfitBaseline = v);
 		rebaseIfJustReset(CAT_PROFIT_PER_HOUR, rawProfitPerHour, v -> profitPerHourBaseline = v);
-		rebaseIfJustReset(CAT_NET_WORTH_DELTA, lastRawNetWorthDelta, v -> netWorthDeltaBaseline = v);
 		rebaseIfJustReset(CAT_GE_PNL, rawGePnl, v -> gePnlBaseline = v);
+		rebaseNetWorthChangeIfJustReset(rawNetProfit, rawGePnl, rawGePositions, rawBankDelta);
 
 		refreshNetWorthChange();
 		refreshSummary();
 	}
 
 	/**
-	 * Recomputes and renders the "Net worth change" total: the full raw sum
-	 * from the last snapshot, minus whichever of GE positions/Bank is
-	 * currently toggled OFF. Called on every {@link #apply} and immediately on
-	 * a toggle click, so unchecking a box updates the total without waiting
-	 * for the next snapshot.
+	 * Captures ALL FOUR net-worth-change component baselines together,
+	 * exactly once per "Net worth change" reset epoch — see the {@link
+	 * #nwProfitBaseline} field javadoc for why per-component (not one
+	 * aggregate) baselines are required.
+	 */
+	private void rebaseNetWorthChangeIfJustReset(long rawNetProfit, long rawGePnl,
+		long rawGePositions, long rawBankDelta)
+	{
+		int epoch = categorySupport.controller().resetEpoch(CAT_NET_WORTH_DELTA);
+		Integer lastEpoch = lastSeenEpoch.get(CAT_NET_WORTH_DELTA);
+		if (lastEpoch == null)
+		{
+			lastSeenEpoch.put(CAT_NET_WORTH_DELTA, epoch);
+			return;
+		}
+		if (epoch != lastEpoch)
+		{
+			nwProfitBaseline = rawNetProfit;
+			nwGeFlipBaseline = rawGePnl;
+			nwGePositionsBaseline = rawGePositions;
+			nwBankBaseline = rawBankDelta;
+			lastSeenEpoch.put(CAT_NET_WORTH_DELTA, epoch);
+		}
+	}
+
+	/**
+	 * Recomputes and renders the "Net worth change" total: Profit and GE flip
+	 * (always included) plus whichever of GE positions/Bank is currently
+	 * toggled on, each rebased against its OWN baseline captured at the last
+	 * "Net worth change" reset (see {@link #computeNetWorthChangeTotal}).
+	 * Called on every {@link #apply} and immediately on a toggle click, so
+	 * unchecking a box updates the total without waiting for the next
+	 * snapshot.
 	 */
 	private void refreshNetWorthChange()
 	{
@@ -250,16 +295,30 @@ public final class SessionSection extends CollapsibleSection
 		{
 			return;
 		}
-		long total = lastRawNetWorthDelta;
-		if (!gePositionsToggle.isSelected())
+		PanelWidgets.setSignedGpLabel(netWorthDeltaValue, computeNetWorthChangeTotal());
+	}
+
+	/**
+	 * The "Net worth change" total from the last snapshot: each component
+	 * rebased against its own reset-time baseline (zero if never reset), with
+	 * GE positions/Bank included only while their toggle is checked. Per-
+	 * component rebasing (rather than subtracting one aggregate baseline from
+	 * a toggle-filtered total) keeps the figure stable across a toggle flip
+	 * that happens after a reset — and equally across a reset that happens
+	 * while a component is already toggled off.
+	 */
+	private long computeNetWorthChangeTotal()
+	{
+		long total = (lastRawNetProfit - nwProfitBaseline) + (lastRawGePnl - nwGeFlipBaseline);
+		if (gePositionsToggle.isSelected())
 		{
-			total -= lastRawGePositions;
+			total += lastRawGePositions - nwGePositionsBaseline;
 		}
-		if (!bankToggle.isSelected())
+		if (bankToggle.isSelected())
 		{
-			total -= lastRawBankDelta;
+			total += lastRawBankDelta - nwBankBaseline;
 		}
-		PanelWidgets.setSignedGpLabel(netWorthDeltaValue, total - netWorthDeltaBaseline);
+		return total;
 	}
 
 	/** Reset-epoch tracking per category, so a baseline is captured exactly once per "Reset" click. */
@@ -308,11 +367,15 @@ public final class SessionSection extends CollapsibleSection
 		suppliesBaseline = 0;
 		netProfitBaseline = 0;
 		profitPerHourBaseline = 0;
-		netWorthDeltaBaseline = 0;
 		gePnlBaseline = 0;
+		nwProfitBaseline = 0;
+		nwGeFlipBaseline = 0;
+		nwGePositionsBaseline = 0;
+		nwBankBaseline = 0;
 		elapsedMs = 0;
 		displayedProfit = 0;
-		lastRawNetWorthDelta = 0;
+		lastRawNetProfit = 0;
+		lastRawGePnl = 0;
 		lastRawGePositions = 0;
 		lastRawBankDelta = 0;
 		lastSeenEpoch.clear();
@@ -346,16 +409,7 @@ public final class SessionSection extends CollapsibleSection
 	/** The currently-displayed "Net worth change" total (post-toggle, post-reset-baseline). */
 	long netWorthChangeForTest()
 	{
-		long total = lastRawNetWorthDelta;
-		if (!gePositionsToggle.isSelected())
-		{
-			total -= lastRawGePositions;
-		}
-		if (!bankToggle.isSelected())
-		{
-			total -= lastRawBankDelta;
-		}
-		return total - netWorthDeltaBaseline;
+		return computeNetWorthChangeTotal();
 	}
 
 	void setGePositionsToggleForTest(boolean included)

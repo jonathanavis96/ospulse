@@ -5,6 +5,7 @@ import com.ospulse.OSPulseConfig;
 import com.ospulse.ge.GeAttributions;
 import com.ospulse.session.MovementSignals;
 import com.ospulse.session.SessionEngine;
+import com.ospulse.session.SessionSnapshot;
 import com.ospulse.wealth.WealthSnapshot;
 import net.runelite.api.Client;
 import net.runelite.api.GrandExchangeOffer;
@@ -15,12 +16,14 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -136,5 +139,47 @@ public class SessionTrackerTest
 
 		verify(engine, times(1)).snapshot(any(WealthSnapshot.class), anyLong(),
 			anyList(), anyList(), anyMap(), anyLong(), anyLong(), eq(true));
+	}
+
+	/**
+	 * Regression: {@link SessionTracker#buildSnapshot} used to re-wrap the
+	 * engine's {@link SessionSnapshot} through the backward-compatible
+	 * constructor overload that defaults GE positions / Bank to {@code 0L},
+	 * silently stripping the engine-computed values before
+	 * {@code SessionSection} could ever read {@code getGePositions()} /
+	 * {@code getBankDelta()} — the session panel's GE positions and Bank rows
+	 * (and their toggles) showed 0 in the live game even though the engine
+	 * unit tests, which call {@link SessionEngine#snapshot} directly and
+	 * never touch this wrapping seam, kept passing. Proven here by stubbing
+	 * the engine's tick-commit snapshot with known nonzero values and
+	 * asserting the tracker's published snapshot still carries them.
+	 */
+	@Test
+	public void tickCommitPreservesGePositionsAndBankFromTheEngineSnapshot()
+	{
+		SessionSnapshot canned = new SessionSnapshot(
+			0L, 1000L, 0L, 0L, 0L, 130_000L, true,
+			java.util.Collections.emptyList(), java.util.Collections.emptyMap(), 0L,
+			WealthSnapshot.builder().build(),
+			java.util.Collections.emptyList(), java.util.Collections.emptyList(),
+			java.util.Collections.emptyList(), 0L, null, 0L,
+			java.util.Collections.emptyList(), 0L,
+			80_000L, 50_000L);
+		// doReturn/when (not when/thenReturn) — engine is a spy, and
+		// when(engine.snapshot(...)) would execute the REAL method with the
+		// raw matcher placeholders as arguments before Mockito can register
+		// the stub, throwing inside the real implementation.
+		doReturn(canned).when(engine).snapshot(any(WealthSnapshot.class), anyLong(),
+			anyList(), anyList(), anyMap(), anyLong(), anyLong(), eq(true));
+
+		tracker.onTick();
+
+		SessionSnapshot published = tracker.getLatest();
+		assertEquals("GE positions must survive SessionTracker's snapshot wrapping",
+			80_000L, published.getGePositions());
+		assertEquals("Bank must survive SessionTracker's snapshot wrapping",
+			50_000L, published.getBankDelta());
+		assertEquals("Net worth change must survive the wrapping too",
+			130_000L, published.getNetWorthDelta());
 	}
 }

@@ -663,7 +663,9 @@ public class SessionTracker implements SessionService
 			buildGear(),
 			base.getUnrealizedPnl(),
 			base.getHoldingPnls(),
-			base.getSuppliesUsed());
+			base.getSuppliesUsed(),
+			base.getGePositions(),
+			base.getBankDelta());
 	}
 
 	/**
