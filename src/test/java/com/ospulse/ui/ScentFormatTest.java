@@ -130,4 +130,58 @@ public class ScentFormatTest
 		assertEquals("#E61E1E", ScentFormat.RED);
 		assertEquals("#7F1111", ScentFormat.RED_DIM);
 	}
+
+	// --- dim(): the single source of truth GREEN_DIM/RED_DIM are derived
+	// from, and any caller with its own integer colour (e.g. a highlighted
+	// row's accent colour) can use directly instead of hand-picking a shade. ---
+
+	@Test
+	public void dimScalesWhiteDownToTheStandingGreyDecimalColor()
+	{
+		assertEquals("#8C8C8C", ScentFormat.dim("#FFFFFF"));
+	}
+
+	@Test
+	public void dimOfGreenMatchesTheStandingGreenDim()
+	{
+		assertEquals(ScentFormat.GREEN_DIM, ScentFormat.dim(ScentFormat.GREEN));
+	}
+
+	@Test
+	public void dimOfRedMatchesTheStandingRedDim()
+	{
+		assertEquals(ScentFormat.RED_DIM, ScentFormat.dim(ScentFormat.RED));
+	}
+
+	@Test
+	public void dimOfBlackStaysBlack()
+	{
+		assertEquals("#000000", ScentFormat.dim("#000000"));
+	}
+
+	// --- fragment(formatted, color): the 2-arg overload used for a context
+	// colour outside the standing GREEN/RED pairings, e.g. the best-ranked
+	// style/spell row rendered in the panel's brand accent colour. ---
+
+	@Test
+	public void twoArgFragmentDimsTheGivenColorForTheDecimal()
+	{
+		String orange = "#DC8A00";
+		assertEquals("<font color='#DC8A00'>1</font><font size='2' color='" + ScentFormat.dim(orange) + "'>.5</font>",
+			ScentFormat.fragment("1.5", orange));
+	}
+
+	@Test
+	public void twoArgFragmentMatchesThreeArgFragmentWithDimmedColor()
+	{
+		String orange = "#DC8A00";
+		assertEquals(ScentFormat.fragment("1.5", orange, ScentFormat.dim(orange)),
+			ScentFormat.fragment("1.5", orange));
+	}
+
+	@Test
+	public void twoArgFragmentIntegerOnlyStillUsesTheGivenColor()
+	{
+		assertEquals("<font color='#DC8A00'>500</font>", ScentFormat.fragment("500", "#DC8A00"));
+	}
 }

@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -164,6 +165,47 @@ public class GearSectionStyleRankingTest
 			assertEquals(ranked.get(0), section.selectedStyleForTest());
 			assertEquals(String.format(Locale.ROOT, "%.2f", dpsFor(gear, ranked.get(0))),
 				section.dpsTextForTest());
+		});
+	}
+
+	/**
+	 * Regression test for a Codex-flagged bug: the best-ranked row's name +
+	 * star render in BRAND_ORANGE, and the row's DPS label's foreground is
+	 * ALSO set to BRAND_ORANGE — but an HTML {@code <font color>} tag inside
+	 * the label's text always wins over {@code setForeground}, so the
+	 * fragment's own integer colour has to match the row, not default to
+	 * white, or the number visually reads white/grey on an orange row.
+	 */
+	@Test
+	public void bestStyleRowDpsUsesTheRowsOrangeNotTheDefaultWhite()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			GearSnapshot gear = gearWithWeapon(22324); // Ghrazi rapier -> stab sword (4 styles)
+			section.apply(snapshotWith(gear));
+			pickCerberus(section);
+
+			String brandOrange = String.format(Locale.ROOT, "#%02X%02X%02X",
+				net.runelite.client.ui.ColorScheme.BRAND_ORANGE.getRed(),
+				net.runelite.client.ui.ColorScheme.BRAND_ORANGE.getGreen(),
+				net.runelite.client.ui.ColorScheme.BRAND_ORANGE.getBlue());
+			String dullOrange = com.ospulse.ui.ScentFormat.dim(brandOrange);
+
+			String bestRaw = section.styleRowDpsRawTextForTest(0);
+			assertTrue("best row's integer must be the row's own orange, not white, got: " + bestRaw,
+				bestRaw.contains("color='" + brandOrange + "'"));
+			assertFalse("best row must not fall back to the default white integer, got: " + bestRaw,
+				bestRaw.contains("color='" + com.ospulse.ui.ScentFormat.WHITE + "'"));
+			assertTrue("best row's decimal must be dimmed to match the orange, got: " + bestRaw,
+				bestRaw.contains("size='2' color='" + dullOrange + "'"));
+
+			// A non-best row (still ranked, index > 0) keeps the plain default.
+			String otherRaw = section.styleRowDpsRawTextForTest(1);
+			assertTrue("non-best rows must keep the default white integer, got: " + otherRaw,
+				otherRaw.contains("color='" + com.ospulse.ui.ScentFormat.WHITE + "'"));
+			assertFalse("non-best rows must not use the orange row colour, got: " + otherRaw,
+				otherRaw.contains(brandOrange));
 		});
 	}
 
