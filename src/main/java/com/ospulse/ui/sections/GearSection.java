@@ -34,6 +34,7 @@ import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CentFormat;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
+import com.ospulse.ui.WidthTrackingPanel;
 import com.ospulse.ui.sections.gear.CoinPileBadge;
 import com.ospulse.ui.sections.gear.GpFormat;
 import com.ospulse.ui.sections.gear.OwnedVariantResolver;
@@ -897,7 +898,13 @@ public final class GearSection extends CollapsibleSection
 		body().add(bookTabsPanel);
 		body().add(Box.createRigidArea(new Dimension(0, 2)));
 
-		stylesPanel = new JPanel();
+		// WidthTrackingPanel, NOT a plain JPanel: with HORIZONTAL_SCROLLBAR_NEVER
+		// below, a non-Scrollable view is laid out at its own preferred width and
+		// any excess is clipped off the right edge unreachably — which ate the
+		// StyleRow DPS label (BorderLayout.EAST), rendering "5." instead of
+		// "5.23". Tracking the viewport width makes the row layouts fit the
+		// visible width instead. See WidthTrackingPanel's javadoc.
+		stylesPanel = new WidthTrackingPanel(STYLE_ROW_HEIGHT);
 		stylesPanel.setLayout(new BoxLayout(stylesPanel, BoxLayout.Y_AXIS));
 		stylesPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		stylesPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -911,7 +918,9 @@ public final class GearSection extends CollapsibleSection
 		stylesScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
 		stylesScroll.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
 		stylesScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
-		stylesScroll.getVerticalScrollBar().setUnitIncrement(STYLE_ROW_HEIGHT);
+		// NB: no setUnitIncrement here — stylesPanel is Scrollable, so the
+		// scrollbar takes its increment from WidthTrackingPanel (constructed
+		// with STYLE_ROW_HEIGHT above) and would ignore a value set here.
 		int viewportHeight = STYLE_ROW_HEIGHT * STYLES_VISIBLE_ROWS;
 		stylesScroll.setPreferredSize(new Dimension(0, viewportHeight));
 		stylesScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, viewportHeight));
