@@ -87,6 +87,8 @@ public class GearSectionOptimizerStyleTest
 	private static final int ABYSSAL_BLUDGEON = 13263;
 	private static final int MAGIC_SHORTBOW = 861;
 	private static final int RADAS_BLESSING_4 = 22947; // ammo slot, no ranged strength but +2 prayer
+	private static final int MASORI_MASK = 27226;       // plain base form the optimiser's ownership map aliases to
+	private static final int MASORI_MASK_F = 27235;     // the actual owned fortified variant
 
 	private static int[] loadout(int weaponId)
 	{
@@ -360,6 +362,71 @@ public class GearSectionOptimizerStyleTest
 				ammoTooltip.contains("Rada's blessing 4"));
 			assertFalse("must not be the generic slot-name placeholder",
 				ammoTooltip.startsWith("Ammo slot (live)"));
+		});
+	}
+
+	// ------------------------------------------------ #9: recommendation shows the OWNED variant's name
+
+	/**
+	 * Item #9: when the optimiser's ownership map (see {@code
+	 * OwnedVariantResolver}/{@code GearSection#addVariantPlainForm}) marks a
+	 * plain base item owned because the player actually owns a fortified/
+	 * imbued VARIANT of it, the resulting recommendation must be displayed
+	 * under the variant's own name ("Masori mask (f)"), not the plain base
+	 * name the optimiser matched candidates against — the player doesn't own
+	 * a plain Masori mask, they own the fortified one.
+	 *
+	 * <p>The owned variant (Masori mask (f)) is excluded from suggestions so
+	 * the optimiser is forced to fall back to its plain-base-id ownership
+	 * mapping for the head slot instead of just picking the (objectively
+	 * better-stat) variant directly on its own merits — deterministically
+	 * reproducing the "resolved to the plain form" case this fix targets.
+	 */
+	@Test
+	public void ownedRecommendation_showsTheOwnedVariantName_notThePlainBaseName()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(MAGIC_SHORTBOW)), wealthWith(MASORI_MASK_F)));
+			section.excludeItemFromSuggestionsForTest(MASORI_MASK_F);
+			pickCerberus(section);
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			int headChoiceId = -1;
+			boolean headOwned = false;
+			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
+			{
+				if (choice.slotOrdinal() == 0) // HEAD
+				{
+					headChoiceId = choice.itemId();
+					headOwned = choice.owned();
+				}
+			}
+			assertEquals("the optimiser must match against the plain base id via the ownership map",
+				MASORI_MASK, headChoiceId);
+			assertTrue("the plain base id must be free/owned (that's the whole point of the mapping)", headOwned);
+
+			String swapTooltip = null;
+			for (int i = 0; i < section.optimizerSwapRowCountForTest() && swapTooltip == null; i++)
+			{
+				String tooltip;
+				try
+				{
+					tooltip = section.suggestedIconTooltipForTest(i);
+				}
+				catch (IllegalArgumentException notARow)
+				{
+					continue; // a Box.createRigidArea spacer between rows, not a row
+				}
+				if (tooltip != null && tooltip.startsWith("Masori"))
+				{
+					swapTooltip = tooltip;
+				}
+			}
+			assertTrue("the recommendation must name the OWNED variant, not the plain base item: " + swapTooltip,
+				swapTooltip != null && swapTooltip.contains("Masori mask (f)"));
 		});
 	}
 
