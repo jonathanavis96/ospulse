@@ -33,6 +33,7 @@ import com.ospulse.session.GearVariants;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
+import com.ospulse.ui.ScentFormat;
 import com.ospulse.ui.sections.gear.CoinPileBadge;
 import com.ospulse.ui.sections.gear.GpFormat;
 import com.ospulse.ui.sections.gear.OwnedVariantResolver;
@@ -2232,33 +2233,59 @@ public final class GearSection extends CollapsibleSection
 			: "<html>" + escapeHtml(name) + " &middot; " + dpsFragment(result.dps()) + "</html>";
 	}
 
-	// Colour of the de-emphasised fractional digits in a DPS number (see dpsFragment).
-	private static final String DPS_DECIMAL_COLOR = "#8C8C8C";
-
 	/**
 	 * Renders a DPS value as an HTML fragment that resists the "1.98 read as
 	 * 198" misread — a real report, since a woodcutting felling axe legitimately
-	 * does ~2 DPS. Price-tag style: the whole-number part is bold in the label's
-	 * own colour, and the decimal point plus the fractional digits are dimmed
-	 * grey, so the magnitude reads at a glance and the decimals visibly recede.
-	 *
-	 * <p>Font SIZE is deliberately left unchanged: the RuneScape bitmap font
-	 * doesn't scale, so a smaller size would silently fall back to a mismatched
-	 * proportional AWT font. Bold + colour contrast alone kills the misread.
+	 * does ~2 DPS. Price-tag style: the whole-number part is unbolded in the
+	 * given colour, and the decimal point plus the fractional digits are
+	 * dimmed and half-size, so the magnitude reads at a glance and the
+	 * decimals visibly recede. Delegates to {@link ScentFormat} so every
+	 * "scent" number in the panel (gp values, DPS, accuracy, avg hit, TTK,
+	 * overkill) shares the exact same treatment.
 	 */
 	private static String dpsFragment(double dps)
 	{
-		String s = String.format(Locale.ROOT, "%.2f", dps);
-		int dot = s.indexOf('.');
-		if (dot < 0)
-		{
-			return "<b>" + s + "</b>";
-		}
-		return "<b>" + s.substring(0, dot) + "</b>"
-			+ "<font color='" + DPS_DECIMAL_COLOR + "'>" + s.substring(dot) + "</font>";
+		return ScentFormat.fragment(formatDps(dps));
 	}
 
-	/** {@link #dpsFragment} as a standalone HTML label string. */
+	/**
+	 * {@link #dpsFragment(double)}, but with an explicit integer/decimal
+	 * colour pairing — used by the "vs worn"/optimizer delta rows so a
+	 * green (upgrade) or red (downgrade) comparison dims its decimals in the
+	 * matching hue instead of the default grey.
+	 */
+	private static String dpsFragment(double dps, String intColor, String decimalColor)
+	{
+		return ScentFormat.fragment(formatDps(dps), intColor, decimalColor);
+	}
+
+	private static String formatDps(double dps)
+	{
+		return String.format(Locale.ROOT, "%.2f", dps);
+	}
+
+	/**
+	 * {@link #dpsFragment(double)} coloured to match a "vs worn"/optimizer
+	 * delta's sign — green (with a dull-green decimal) for an upgrade, red
+	 * (dull-red decimal) for a downgrade, or the plain white/grey default
+	 * when the delta is effectively zero. {@code delta} is shared across
+	 * both the "before" and "after" values in a single comparison row so
+	 * they always render in the same colour.
+	 */
+	private static String deltaDpsFragment(double dps, double delta)
+	{
+		if (delta > 1e-9)
+		{
+			return dpsFragment(dps, ScentFormat.GREEN, ScentFormat.GREEN_DIM);
+		}
+		if (delta < -1e-9)
+		{
+			return dpsFragment(dps, ScentFormat.RED, ScentFormat.RED_DIM);
+		}
+		return dpsFragment(dps);
+	}
+
+	/** {@link #dpsFragment(double)} as a standalone HTML label string. */
 	private static String dpsHtml(double dps)
 	{
 		return "<html>" + dpsFragment(dps) + "</html>";
@@ -3389,7 +3416,8 @@ public final class GearSection extends CollapsibleSection
 		java.awt.Color color = delta > 1e-9 ? DELTA_UP_COLOR
 			: delta < -1e-9 ? DELTA_DOWN_COLOR : java.awt.Color.WHITE;
 		whatIfDeltaValue.setForeground(color);
-		whatIfDeltaValue.setText("<html>" + dpsFragment(baselineDps) + " -> " + dpsFragment(lastDps) + "</html>");
+		whatIfDeltaValue.setText("<html>" + deltaDpsFragment(baselineDps, delta) + " -> "
+			+ deltaDpsFragment(lastDps, delta) + "</html>");
 		whatIfRow.setVisible(true);
 	}
 
@@ -4717,7 +4745,8 @@ public final class GearSection extends CollapsibleSection
 		java.awt.Color deltaColor = delta > 1e-9 ? DELTA_UP_COLOR
 			: delta < -1e-9 ? DELTA_DOWN_COLOR : java.awt.Color.WHITE;
 		optimizerResultDelta.setForeground(deltaColor);
-		optimizerResultDelta.setText("<html>" + dpsFragment(result.ownedOnlyDps()) + " -> " + dpsFragment(result.dps().dps()) + "</html>");
+		optimizerResultDelta.setText("<html>" + deltaDpsFragment(result.ownedOnlyDps(), delta) + " -> "
+			+ deltaDpsFragment(result.dps().dps(), delta) + "</html>");
 		optimizerResultSpend.setText(formatGp(result.totalSpend()));
 		optimizerResultDpsPerGp.setText(result.totalSpend() > 0
 			? String.format(Locale.ROOT, "%.6f", result.dpsPerGp())
@@ -5246,12 +5275,12 @@ public final class GearSection extends CollapsibleSection
 		}
 
 		maxHitValue.setText(String.valueOf(result.maxHit()));
-		accuracyValue.setText(String.format(Locale.ROOT, "%.1f%%", result.accuracy() * 100.0));
-		avgHitValue.setText(String.format(Locale.ROOT, "%.2f", result.avgHit()));
+		accuracyValue.setText(ScentFormat.html(String.format(Locale.ROOT, "%.1f%%", result.accuracy() * 100.0)));
+		avgHitValue.setText(ScentFormat.html(String.format(Locale.ROOT, "%.2f", result.avgHit())));
 		lastDps = result.dps();
 		dpsValue.setText(dpsHtml(lastDps));
-		ttkValue.setText(formatTtk(result.ttkSeconds()));
-		overkillValue.setText(String.format(Locale.ROOT, "%.1f", result.overkillPerKill()));
+		ttkValue.setText(ScentFormat.html(formatTtk(result.ttkSeconds())));
+		overkillValue.setText(ScentFormat.html(String.format(Locale.ROOT, "%.1f", result.overkillPerKill())));
 		baseEstimateNote.setVisible(result.baseEstimate());
 		updateBoostIndicators(selectedStyle != null ? selectedStyle.type() : null);
 		updateWhatIfDelta();
@@ -6060,9 +6089,10 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
-	 * Strips the HTML markup that styles DPS numbers (see {@link #dpsFragment})
-	 * so a test asserts the displayed VALUE, not its presentation. Plain
-	 * (non-HTML) text — e.g. the "-" placeholder — passes through unchanged.
+	 * Strips the HTML markup that styles "scent" numbers (DPS, accuracy, avg
+	 * hit, TTK, overkill — see {@link ScentFormat}) so a test asserts the
+	 * displayed VALUE, not its presentation. Plain (non-HTML) text — e.g. the
+	 * "-" placeholder — passes through unchanged.
 	 */
 	private static String plainTextForTest(String text)
 	{
@@ -6149,12 +6179,28 @@ public final class GearSection extends CollapsibleSection
 
 	String ttkTextForTest()
 	{
-		return ttkValue.getText();
+		return plainTextForTest(ttkValue.getText());
 	}
 
 	String overkillTextForTest()
 	{
-		return overkillValue.getText();
+		return plainTextForTest(overkillValue.getText());
+	}
+
+	String accuracyTextForTest()
+	{
+		return plainTextForTest(accuracyValue.getText());
+	}
+
+	String avgHitTextForTest()
+	{
+		return plainTextForTest(avgHitValue.getText());
+	}
+
+	/** The raw (HTML-carrying) accuracy text, so a test can confirm the "scent" markup is actually applied rather than just checking the stripped value. */
+	String accuracyRawTextForTest()
+	{
+		return accuracyValue.getText();
 	}
 
 	javax.swing.JComboBox<Spell> spellPickerForTest()

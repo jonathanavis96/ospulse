@@ -283,6 +283,14 @@ public class GearSectionWhatIfTest
 			java.awt.Color expectedColor = delta > 1e-9 ? ColorScheme.PROGRESS_COMPLETE_COLOR
 				: delta < -1e-9 ? ColorScheme.PROGRESS_ERROR_COLOR : java.awt.Color.WHITE;
 			assertEquals("delta colour must match the sign of the DPS change", expectedColor, section.whatIfDeltaColorForTest());
+
+			// The scent-formatted decimal digits inside the delta row must be dimmed
+			// in the SAME hue as the delta (dull green for an upgrade, dull red for
+			// a downgrade) rather than the generic grey used elsewhere.
+			String expectedDimDecimal = delta > 1e-9 ? com.ospulse.ui.ScentFormat.GREEN_DIM
+				: delta < -1e-9 ? com.ospulse.ui.ScentFormat.RED_DIM : com.ospulse.ui.ScentFormat.GREY;
+			assertTrue("delta decimals must use the colour-matched dim shade, got: " + deltaText,
+				deltaText.contains("size='2' color='" + expectedDimDecimal + "'"));
 		});
 	}
 
