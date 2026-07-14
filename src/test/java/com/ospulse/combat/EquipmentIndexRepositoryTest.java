@@ -100,4 +100,42 @@ public class EquipmentIndexRepositoryTest {
     public void unknownIdReturnsNull() {
         assertNull(EquipmentIndexRepository.getInstance().entryFor(99_999_999));
     }
+
+    /**
+     * Codex review finding #3 (PR #5, {@code OwnedVariantResolver}): several
+     * indexed names genuinely have more than one backing id (one per reward
+     * source) — {@code idForName} keeps only the first, but {@code
+     * idsForName} must return every one so a caller checking "do I own ANY
+     * copy of this name" doesn't miss a match.
+     */
+    @Test
+    public void idsForName_returnsEveryIdSharingTheName() {
+        EquipmentIndexRepository repo = EquipmentIndexRepository.getInstance();
+        List<Integer> ids = repo.idsForName("Warrior ring (i)");
+        assertEquals(java.util.Arrays.asList(26769, 11772, 25262), ids);
+        // idForName's single-id pick must be the FIRST of idsForName's list —
+        // the two must never silently disagree.
+        assertEquals(ids.get(0), repo.idForName("Warrior ring (i)"));
+    }
+
+    @Test
+    public void idsForName_isCaseInsensitive() {
+        EquipmentIndexRepository repo = EquipmentIndexRepository.getInstance();
+        assertEquals(repo.idsForName("Abyssal whip"), repo.idsForName("ABYSSAL WHIP"));
+        assertTrue(repo.idsForName("abyssal whip").contains(4151));
+    }
+
+    @Test
+    public void idsForName_unknownNameReturnsEmptyNotNull() {
+        List<Integer> ids = EquipmentIndexRepository.getInstance().idsForName("Not a real item, honestly");
+        assertNotNull(ids);
+        assertTrue(ids.isEmpty());
+    }
+
+    @Test
+    public void idsForName_nullReturnsEmpty() {
+        List<Integer> ids = EquipmentIndexRepository.getInstance().idsForName(null);
+        assertNotNull(ids);
+        assertTrue(ids.isEmpty());
+    }
 }
