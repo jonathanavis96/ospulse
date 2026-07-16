@@ -13,9 +13,23 @@ import java.util.regex.Pattern;
  *   <li>Potions/food/ammo/runes are common enough, and named consistently
  *       enough, that regex matching on the item name catches the vast
  *       majority without needing per-item ids.</li>
- *   <li>False negatives (a consumable this doesn't recognise) simply aren't
- *       counted as supplies — they still reduce profit as before, just
- *       without a line item in "supplies used".</li>
+ *   <li>False negatives (a consumable this doesn't recognise) are NOT merely
+ *       cosmetic. This comment used to claim they "still reduce profit as
+ *       before, just without a line item" — true under the old top-down model,
+ *       which measured wealth change directly and so caught every cost whether
+ *       or not it was named. Under the bottom-up model (Profit = Loot −
+ *       Supplies, see {@code SessionEngine#snapshot}) profit is BUILT from what
+ *       is recognised, so an unrecognised input that was never looted has
+ *       nothing to charge against and its cost is silently discarded — the
+ *       value lands in the "Bank" residual instead. A miss here is a real
+ *       accounting hole, not a missing line item.</li>
+ *   <li>The episode ledger ({@code SessionEngine}'s skilling P&L) closes that
+ *       hole for the case it was actually costing money — production skilling,
+ *       where inputs like "Clean toadflax" or "Toadflax potion(unf)" match
+ *       nothing here — by valuing the whole conversion rather than relying on
+ *       this classifier to name its inputs. Outside an episode the hole above
+ *       still applies, so adding a genuinely-missing pattern is still worth
+ *       doing.</li>
  *   <li>False positives are guarded against by keeping the patterns narrow
  *       (e.g. "rune" alone would match "runite ore"/"rune platebody"; we
  *       require a known rune-name prefix instead).</li>

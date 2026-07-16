@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -3702,5 +3703,304 @@ public class SessionEngineTest
 		assertIdentity("after overflow catch lands in inventory", s);
 		assertEquals("overflow catch books as fresh loot, not eaten by a stale ledger",
 			6_060L, s.getLootValue());
+	}
+
+	// ------------------------------------------- diff-loot reporting seam
+	//
+	// The loot feed does not derive its rows from LootReceived events alone —
+	// it derives them from the engine's own inventory diff, so loot that
+	// RuneLite never announces still shows up. These two pin the engine side
+	// of that contract directly (real engine, no stubs), because the feed is
+	// only as honest as lastUpdateDiffLoot() is.
+
+	@Test
+	public void unexplainedAppearIsReportedAsDiffLoot()
+	{
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// A bird nest materialises with NO LootReceipt to explain it — the
+		// auto-searched-nest seam. Nothing else can account for the quantity
+		// (no GE attribution, no pending vanish, no ground parcel, no
+		// purchase), so the diff must book it as loot and report it out.
+		Map<Integer, ItemStack> tracked = items(new ItemStack(BIRD_NEST, "Bird nest", 2L, 5_000L));
+		engine.update(snap(10_010_000L, tracked, 0L, false, 1_000L),
+			(GeAttributions) null, MovementSignals.NONE, 1_000L);
+
+		List<DiffLoot> diff = engine.lastUpdateDiffLoot();
+		assertEquals("the unexplained appear is reported out", 1, diff.size());
+		assertEquals(BIRD_NEST, diff.get(0).itemId);
+		assertEquals(2L, diff.get(0).quantity);
+		assertEquals(5_000L, diff.get(0).unitValue);
+	}
+
+	@Test
+	public void diffLootReportsNothingWhileTheBankIsOpen()
+	{
+		WealthSnapshot initial = snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 0L);
+		engine.startSession(initial, 0L);
+
+		// Book a real diff-loot residue FIRST, so the assertion below can only
+		// pass by the banking update actually clearing it. Without this the
+		// list would be trivially empty and the test would prove nothing.
+		Map<Integer, ItemStack> nest = items(new ItemStack(BIRD_NEST, "Bird nest", 2L, 5_000L));
+		engine.update(snap(10_010_000L, nest, 20_000_000L, true, 1_000L),
+			(GeAttributions) null, MovementSignals.NONE, 1_000L);
+		assertEquals("precondition: the nest booked as diff loot",
+			1, engine.lastUpdateDiffLoot().size());
+
+		// Now bank. update() early-returns while banking (a withdrawal is not
+		// loot), so the PREVIOUS update's residue must not be readable a
+		// second time — a re-read would double-book the nest into the feed.
+		engine.setBankOpen(true, snap(10_010_000L, nest, 20_000_000L, true, 2_000L), 2_000L);
+		Map<Integer, ItemStack> withdrawn = items(
+			new ItemStack(BIRD_NEST, "Bird nest", 2L, 5_000L),
+			new ItemStack(DRAGON_BONES, "Dragon bones", 10L, 10_000L));
+		engine.update(snap(10_110_000L, withdrawn, 19_900_000L, true, 3_000L),
+			(GeAttributions) null, MovementSignals.NONE, 3_000L);
+
+		assertTrue("a banking update books no diff loot",
+			engine.lastUpdateDiffLoot().isEmpty());
+	}
+
+	// ------------------------------------------- episode-scoped skilling P&L
+	//
+	// Bottom-up accounting (Profit = Loot − Supplies) silently discards the cost
+	// of any input the SupplyClassifier does not recognise: it never matched a
+	// consumable pattern, and reverseLoot retracts nothing because a herb
+	// withdrawn from the bank was never looted. The crafted output is then
+	// credited at full GE value, so Profit can only ever go up. Inside a
+	// production episode — no loot, no GE, only conversion — a scoped value
+	// delta is trustworthy, so these pin that scoped number.
+
+	private static final int CLEAN_TOADFLAX = 2998;
+	private static final int VIAL_OF_WATER = 227;
+	private static final int TOADFLAX_UNF = 3002;
+	private static final int COAL = 453;
+
+	/** 10 herbs @ 8,000 + 10 vials @ 5 = 80,050 of tracked inputs on top of 10M. */
+	private static Map<Integer, ItemStack> herbloreInputs()
+	{
+		return items(
+			new ItemStack(CLEAN_TOADFLAX, "Clean toadflax", 10L, 8_000L),
+			new ItemStack(VIAL_OF_WATER, "Vial of water", 10L, 5L));
+	}
+
+	private static Map<Integer, ItemStack> unfPotions(long unitValue)
+	{
+		return items(new ItemStack(TOADFLAX_UNF, "Toadflax potion(unf)", 10L, unitValue));
+	}
+
+	private static MovementSignals crafting()
+	{
+		return MovementSignals.builder().productionXp().productionAnimation().build();
+	}
+
+	@Test
+	public void herbloreAtALossRegistersNegativeProfit()
+	{
+		// THE HEADLINE REGRESSION. 80,050 of inputs become 60,000 of unf potions
+		// while the price is down: a real 20,050 loss. Before the episode ledger
+		// the herbs cost nothing (no classifier match, never looted) and the
+		// potions credited as 60,000 of loot, so this read as +60,000 profit.
+		WealthSnapshot initial = snap(10_080_050L, herbloreInputs(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		WealthSnapshot crafted = snap(10_060_000L, unfPotions(6_000L), 0L, false, 1_000L);
+		engine.update(crafted, (GeAttributions) null, crafting(), 1_000L);
+
+		SessionSnapshot s = engine.snapshot(crafted, 0L, Collections.emptyMap(), 0L, 1_000L);
+		assertEquals("crafting at a loss must reduce Profit", -20_050L, s.getNetProfit());
+		assertEquals("a manufactured potion is not loot", 0L, s.getLootValue());
+		assertIdentity("herblore at a loss", s);
+	}
+
+	@Test
+	public void herbloreStep1WithNoXpStillChargesTheHerb()
+	{
+		// Guards the exact hole that killed the XP-gate design. Clean herb +
+		// Vial of water -> unf potion awards ZERO Herblore XP, and that step is
+		// where the expensive herb goes. Animation is the ONLY signal here.
+		WealthSnapshot initial = snap(10_080_050L, herbloreInputs(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		MovementSignals animationOnly = MovementSignals.builder().productionAnimation().build();
+		WealthSnapshot crafted = snap(10_060_000L, unfPotions(6_000L), 0L, false, 1_000L);
+		engine.update(crafted, (GeAttributions) null, animationOnly, 1_000L);
+
+		SessionSnapshot s = engine.snapshot(crafted, 0L, Collections.emptyMap(), 0L, 1_000L);
+		assertEquals("animation alone must open the episode — an XP-only trigger "
+			+ "misses unf-making entirely", -20_050L, s.getNetProfit());
+		assertIdentity("herblore step 1, no XP", s);
+	}
+
+	@Test
+	public void profitableCraftingStillReadsPositive()
+	{
+		// No sign inversion: the same machinery must read +39,950 when the
+		// potions are worth more than the herbs.
+		WealthSnapshot initial = snap(10_080_050L, herbloreInputs(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		WealthSnapshot crafted = snap(10_120_000L, unfPotions(12_000L), 0L, false, 1_000L);
+		engine.update(crafted, (GeAttributions) null, crafting(), 1_000L);
+
+		SessionSnapshot s = engine.snapshot(crafted, 0L, Collections.emptyMap(), 0L, 1_000L);
+		assertEquals("a profitable craft reads positive", 39_950L, s.getNetProfit());
+		assertIdentity("profitable craft", s);
+	}
+
+	@Test
+	public void midEpisodeLootIsSubtractedFromTheCraftMargin()
+	{
+		// A bird nest during the episode is genuine loot — it has a receipt. It
+		// must show in the feed AND must not inflate the craft margin: the two
+		// numbers stay separated. Episode P&L = tracked change − loot booked.
+		WealthSnapshot initial = snap(10_080_050L, herbloreInputs(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		MovementSignals withNest = MovementSignals.builder()
+			.productionXp()
+			.productionAnimation()
+			.lootReceived(new LootReceipt(BIRD_NEST, 1L, 80_000L))
+			.build();
+
+		Map<Integer, ItemStack> after = items(
+			new ItemStack(TOADFLAX_UNF, "Toadflax potion(unf)", 10L, 6_000L),
+			new ItemStack(BIRD_NEST, "Bird nest", 1L, 80_000L));
+		WealthSnapshot crafted = snap(10_140_000L, after, 0L, false, 1_000L);
+		engine.update(crafted, (GeAttributions) null, withNest, 1_000L);
+
+		SessionSnapshot s = engine.snapshot(crafted, 0L, Collections.emptyMap(), 0L, 1_000L);
+		assertEquals("the nest is still loot and still shows in the feed",
+			80_000L, s.getLootValue());
+		assertEquals("the nest does not inflate the craft margin",
+			59_950L, s.getNetProfit());
+		assertIdentity("mid-episode nest", s);
+	}
+
+	@Test
+	public void craftInFlightBooksNoTransientLoss()
+	{
+		// The herb is gone and the potion is not yet born. Booking the input
+		// half alone would render a phantom -80,050 dip that corrects a tick
+		// later. The vanish is HELD until its output answers it, so Profit
+		// moves exactly once, by the net.
+		WealthSnapshot initial = snap(10_080_050L, herbloreInputs(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		WealthSnapshot inFlight = snap(10_000_000L, Collections.emptyMap(), 0L, false, 1_000L);
+		engine.update(inFlight, (GeAttributions) null, crafting(), 1_000L);
+		SessionSnapshot mid = engine.snapshot(inFlight, 0L, Collections.emptyMap(), 0L, 1_000L);
+		assertEquals("a craft in flight books no transient loss", 0L, mid.getNetProfit());
+
+		WealthSnapshot landed = snap(10_060_000L, unfPotions(6_000L), 0L, false, 1_600L);
+		engine.update(landed, (GeAttributions) null, crafting(), 1_600L);
+		SessionSnapshot s = engine.snapshot(landed, 0L, Collections.emptyMap(), 0L, 1_600L);
+		assertEquals("the settled transformation books its true margin, once",
+			-20_050L, s.getNetProfit());
+		assertIdentity("settled craft", s);
+	}
+
+	@Test
+	public void unansweredEpisodeInputBooksAsALossOnceSettled()
+	{
+		// The other half of the settle contract: an input that NEVER produces an
+		// output is a genuine loss, and must not be held out of Profit forever.
+		WealthSnapshot initial = snap(10_080_050L, herbloreInputs(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		WealthSnapshot gone = snap(10_000_000L, Collections.emptyMap(), 0L, false, 1_000L);
+		engine.update(gone, (GeAttributions) null, crafting(), 1_000L);
+		assertEquals("still in flight", 0L,
+			engine.snapshot(gone, 0L, Collections.emptyMap(), 0L, 1_000L).getNetProfit());
+
+		// Well past the settle window with no output: accept it as real.
+		WealthSnapshot later = snap(10_000_000L, Collections.emptyMap(), 0L, false, 30_000L);
+		engine.update(later, (GeAttributions) null, crafting(), 30_000L);
+		SessionSnapshot s = engine.snapshot(later, 0L, Collections.emptyMap(), 0L, 30_000L);
+		assertEquals("an input with no output is a real loss once settled",
+			-80_050L, s.getNetProfit());
+		assertIdentity("unanswered input", s);
+	}
+
+	@Test
+	public void bankOpeningClosesTheEpisode()
+	{
+		// MANDATORY. update() early-returns while banking, so an episode left
+		// open across a bank visit would read the restock withdrawal as a
+		// catastrophic loss the moment the bank closed.
+		WealthSnapshot initial = snap(10_080_050L, herbloreInputs(), 0L, true, 0L);
+		engine.startSession(initial, 0L);
+
+		WealthSnapshot crafted = snap(10_060_000L, unfPotions(6_000L), 0L, true, 1_000L);
+		engine.update(crafted, (GeAttributions) null, crafting(), 1_000L);
+		assertEquals("baseline: the craft booked its loss", -20_050L,
+			engine.snapshot(crafted, 0L, Collections.emptyMap(), 0L, 1_000L).getNetProfit());
+
+		// Restock: bank the potions, withdraw fresh herbs.
+		WealthSnapshot atBank = snap(10_060_000L, unfPotions(6_000L), 5_000_000L, true, 2_000L);
+		engine.setBankOpen(true, atBank, 2_000L);
+		assertTrue("opening the bank must close the episode", !engine.isEpisodeOpen());
+
+		WealthSnapshot restocked = snap(10_080_050L, herbloreInputs(), 4_919_950L, true, 3_000L);
+		engine.setBankOpen(false, restocked, 3_000L);
+		engine.update(restocked, (GeAttributions) null, MovementSignals.NONE, 3_500L);
+
+		SessionSnapshot s = engine.snapshot(restocked, 0L, Collections.emptyMap(), 0L, 3_500L);
+		assertEquals("a restock withdrawal is not a crafting loss", -20_050L, s.getNetProfit());
+		assertIdentity("after restock", s);
+	}
+
+	@Test
+	public void parkingItemsOutsideAnEpisodeIsStillNotCharged()
+	{
+		// Non-episode behaviour is unchanged. Coal into a coal bag is still
+		// OWNED — the episode ledger must not leak into ordinary play. This is
+		// the scoping guarantee that let the blanket "charge every unexplained
+		// vanish" approach be rejected. (Coal, not runes: a rune name matches
+		// the SupplyClassifier and is charged as a supply by existing design.)
+		Map<Integer, ItemStack> coal = items(new ItemStack(COAL, "Coal", 1_000L, 200L));
+		WealthSnapshot initial = snap(10_200_000L, coal, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Coal leaves tracked wealth with no production signal at all.
+		WealthSnapshot parked = snap(10_000_000L, Collections.emptyMap(), 0L, false, 1_000L);
+		engine.update(parked, (GeAttributions) null, MovementSignals.NONE, 1_000L);
+		// Push well past both the settle and idle windows.
+		WealthSnapshot later = snap(10_000_000L, Collections.emptyMap(), 0L, false, 60_000L);
+		engine.update(later, (GeAttributions) null, MovementSignals.NONE, 60_000L);
+
+		SessionSnapshot s = engine.snapshot(later, 0L, Collections.emptyMap(), 0L, 60_000L);
+		assertEquals("parking outside an episode is not a supply charge", 0L, s.getSuppliesUsed());
+		assertEquals("parking outside an episode does not reduce Profit", 0L, s.getNetProfit());
+	}
+
+	@Test
+	public void episodeIdlesClosedSoLaterParkingIsNotCharged()
+	{
+		// An episode must not outlive the activity that opened it, or ordinary
+		// play after a crafting stint would be charged as crafting inputs.
+		WealthSnapshot initial = snap(10_080_050L, herbloreInputs(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		WealthSnapshot crafted = snap(10_060_000L, unfPotions(6_000L), 0L, false, 1_000L);
+		engine.update(crafted, (GeAttributions) null, crafting(), 1_000L);
+
+		// Long idle with no XP and no animation: the episode closes.
+		WealthSnapshot idle = snap(10_060_000L, unfPotions(6_000L), 0L, false, 60_000L);
+		engine.update(idle, (GeAttributions) null, MovementSignals.NONE, 60_000L);
+		assertTrue("idling must close the episode", !engine.isEpisodeOpen());
+
+		// Now park the potions (e.g. into a looting bag) with no production
+		// signal — owned, not consumed.
+		WealthSnapshot gone = snap(10_000_000L, Collections.emptyMap(), 0L, false, 61_000L);
+		engine.update(gone, (GeAttributions) null, MovementSignals.NONE, 61_000L);
+		WealthSnapshot settled = snap(10_000_000L, Collections.emptyMap(), 0L, false, 120_000L);
+		engine.update(settled, (GeAttributions) null, MovementSignals.NONE, 120_000L);
+
+		SessionSnapshot s = engine.snapshot(settled, 0L, Collections.emptyMap(), 0L, 120_000L);
+		assertEquals("parking after the episode closed is not charged to it",
+			-20_050L, s.getNetProfit());
 	}
 }

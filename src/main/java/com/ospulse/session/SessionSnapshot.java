@@ -38,6 +38,7 @@ public final class SessionSnapshot
 	private final long suppliesUsed;
 	private final long gePositions;
 	private final long bankDelta;
+	private final long episodePnl;
 
 	/**
 	 * Backward-compatible constructor: no active-offer / source-loot breakdown.
@@ -227,6 +228,44 @@ public final class SessionSnapshot
 		long gePositions,
 		long bankDelta)
 	{
+		this(startMs, elapsedMs, lootValue, profitPerHour, geRealizedPnl, netWorthDelta,
+			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
+			xpSkills, xpPerHour, gear, unrealizedPnl, holdingPnls, suppliesUsed,
+			gePositions, bankDelta, 0L);
+	}
+
+	/**
+	 * Full constructor including {@code episodePnl} — the session-cumulative
+	 * profit/loss of skilling episodes (see {@link SessionEngine}'s episode
+	 * ledger). It is a component of {@link #getNetProfit() Profit}, NOT a fifth
+	 * component of the LOCKED net-worth model: crafting is neither loot nor a
+	 * GE flip nor a bank movement, it is realised activity, and Profit is where
+	 * realised activity belongs.
+	 */
+	public SessionSnapshot(
+		long startMs,
+		long elapsedMs,
+		long lootValue,
+		long profitPerHour,
+		long geRealizedPnl,
+		long netWorthDelta,
+		boolean bankKnown,
+		List<LootEntry> loot,
+		Map<String, Long> xpGained,
+		long xpTotal,
+		WealthSnapshot wealth,
+		List<GeOfferView> geOffers,
+		List<SourceLoot> lootSources,
+		List<XpSkillView> xpSkills,
+		long xpPerHour,
+		GearSnapshot gear,
+		long unrealizedPnl,
+		List<HoldingPnl> holdingPnls,
+		long suppliesUsed,
+		long gePositions,
+		long bankDelta,
+		long episodePnl)
+	{
 		this.startMs = startMs;
 		this.elapsedMs = elapsedMs;
 		this.lootValue = lootValue;
@@ -260,6 +299,7 @@ public final class SessionSnapshot
 		this.suppliesUsed = suppliesUsed;
 		this.gePositions = gePositions;
 		this.bankDelta = bankDelta;
+		this.episodePnl = episodePnl;
 	}
 
 	public long getStartMs()
@@ -287,16 +327,34 @@ public final class SessionSnapshot
 	}
 
 	/**
-	 * Session net profit: {@link #getLootValue() loot value} minus the
-	 * {@link #getSuppliesUsed() consumable spend} burned to earn it. This is
-	 * the true bottom line — what you actually walked away with — whereas
+	 * Session net profit: {@link #getLootValue() loot value}, minus the
+	 * {@link #getSuppliesUsed() consumable spend} burned to earn it, plus the
+	 * {@link #getEpisodePnl() episode P&L} of any skilling done. This is the
+	 * true bottom line — what you actually walked away with — whereas
 	 * {@code getLootValue()} is gross loot before supply cost.
 	 * {@link #getProfitPerHour()} is the hourly extrapolation of THIS figure,
 	 * so an hour that nets negative after supplies reads negative here too.
+	 *
+	 * <p>The episode term is what stops crafting at a loss from reading as pure
+	 * upside. Bottom-up accounting can only see loot and recognised consumables,
+	 * so an unrecognised input (a herb: not a potion, not food, never looted)
+	 * used to cost nothing while its output credited at full value.
 	 */
 	public long getNetProfit()
 	{
-		return lootValue - suppliesUsed;
+		return lootValue - suppliesUsed + episodePnl;
+	}
+
+	/**
+	 * Session-cumulative profit/loss of skilling episodes: what conversion
+	 * activity (Herblore/Crafting/Fletching/Smithing/Cooking) did to wealth,
+	 * net of any loot booked during those windows. Negative when you craft at a
+	 * loss. Folded into {@link #getNetProfit()}; exposed separately for
+	 * diagnostics and display, NOT as a fifth net-worth component.
+	 */
+	public long getEpisodePnl()
+	{
+		return episodePnl;
 	}
 
 	public long getProfitPerHour()

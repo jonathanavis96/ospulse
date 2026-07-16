@@ -1,6 +1,7 @@
 package com.ospulse.ge;
 
 import java.util.Objects;
+import java.util.OptionalLong;
 
 /**
  * Immutable, read-only view of a single active Grand Exchange offer slot, for
@@ -24,6 +25,16 @@ public final class GeOfferView
 	private final long gpProgress;
 	/** gp the offer would move if fully filled: pricePerItem * totalQuantity. */
 	private final long gpPotential;
+	/**
+	 * Realised flip P&amp;L accumulated so far for this offer's slot (see
+	 * {@link GeReconciler#slotRealizedPnl(int)}), or {@link
+	 * OptionalLong#empty()} if this offer isn't a flip — a still-open buy
+	 * offer, or a sell that only dumped items with no GE cost basis. Absent
+	 * vs. a present {@code 0} is deliberate: a dump shows no P&amp;L at all,
+	 * while a flip that broke exactly even (net of GE sales tax) still shows
+	 * a real, present figure.
+	 */
+	private final OptionalLong realizedPnl;
 
 	public GeOfferView(
 		boolean buying,
@@ -33,7 +44,8 @@ public final class GeOfferView
 		long quantityTransacted,
 		long pricePerItem,
 		long gpProgress,
-		long gpPotential)
+		long gpPotential,
+		OptionalLong realizedPnl)
 	{
 		this.buying = buying;
 		this.itemId = itemId;
@@ -43,6 +55,7 @@ public final class GeOfferView
 		this.pricePerItem = pricePerItem;
 		this.gpProgress = gpProgress;
 		this.gpPotential = gpPotential;
+		this.realizedPnl = realizedPnl == null ? OptionalLong.empty() : realizedPnl;
 	}
 
 	public boolean isBuying()
@@ -85,6 +98,11 @@ public final class GeOfferView
 		return gpPotential;
 	}
 
+	public OptionalLong getRealizedPnl()
+	{
+		return realizedPnl;
+	}
+
 	@Override
 	public boolean equals(Object o)
 	{
@@ -104,14 +122,15 @@ public final class GeOfferView
 			&& pricePerItem == that.pricePerItem
 			&& gpProgress == that.gpProgress
 			&& gpPotential == that.gpPotential
-			&& Objects.equals(itemName, that.itemName);
+			&& Objects.equals(itemName, that.itemName)
+			&& Objects.equals(realizedPnl, that.realizedPnl);
 	}
 
 	@Override
 	public int hashCode()
 	{
 		return Objects.hash(buying, itemId, itemName, totalQuantity, quantityTransacted,
-			pricePerItem, gpProgress, gpPotential);
+			pricePerItem, gpProgress, gpPotential, realizedPnl);
 	}
 
 	@Override
@@ -122,6 +141,7 @@ public final class GeOfferView
 			+ " " + quantityTransacted + "/" + totalQuantity
 			+ " @ " + pricePerItem
 			+ " gp " + gpProgress + "/" + gpPotential
+			+ (realizedPnl.isPresent() ? " pnl " + realizedPnl.getAsLong() : "")
 			+ '}';
 	}
 }

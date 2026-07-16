@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -108,6 +109,22 @@ public final class GeReconciler implements GeAttributions
 	}
 
 	/**
+	 * Per-slot realised flip P&amp;L accumulator, keyed by GE slot — backs
+	 * {@link #slotRealizedPnl(int)} for the panel's per-offer signed P&amp;L
+	 * row. {@code hasFlip} is the "not a flip" vs "a flip that happens to be
+	 * exactly zero" flag: it is set {@code true} the instant {@link
+	 * #applySell} matches ANY quantity against a cost basis, independent of
+	 * what {@code pnl} nets out to, so a break-even flip (present, {@code 0})
+	 * stays distinguishable from a pure dump (absent) or an unsold buy offer
+	 * (absent).
+	 */
+	private static final class SlotPnl
+	{
+		long pnl;
+		boolean hasFlip;
+	}
+
+	/**
 	 * Plain, serializable snapshot of one item's cost-basis ledger entry —
 	 * returned by {@link #exportCostBasis()} and accepted by {@link
 	 * #importCostBasis(Map)} so a caller (e.g. {@code SessionTracker}) can
@@ -153,6 +170,8 @@ public final class GeReconciler implements GeAttributions
 
 	private final Map<Integer, SlotTracker> slots = new HashMap<>();
 	private final Map<Integer, CostBasis> costBasis = new HashMap<>();
+	/** Per-slot flip P&amp;L accumulator — see {@link SlotPnl}. */
+	private final Map<Integer, SlotPnl> slotPnl = new HashMap<>();
 	/** FIFO expectation ledgers — see {@link ExpectedArrival}/{@link ExpectedRemoval}. */
 	private final List<ExpectedArrival> expectedArrivals = new ArrayList<>();
 	private final List<ExpectedRemoval> expectedRemovals = new ArrayList<>();
@@ -207,6 +226,9 @@ public final class GeReconciler implements GeAttributions
 			// expire rather than linger to swallow genuine loot).
 			stampSlotCleared(slot, tsMs);
 			slots.remove(slot);
+			// The slot's offer is gone: its flip P&L must not leak into
+			// whatever offer eventually reuses this slot.
+			slotPnl.remove(slot);
 			return;
 		}
 
@@ -230,6 +252,11 @@ public final class GeReconciler implements GeAttributions
 			tracker.lastQuantityTransacted = 0L;
 			tracker.lastGpTransacted = 0L;
 			slots.put(slot, tracker);
+			// Brand new offer in this slot (whether or not an EMPTY was
+			// observed in between — see the quantityTransacted-regression
+			// case above): its predecessor's flip P&L, if any, must not
+			// carry forward.
+			slotPnl.remove(slot);
 			if (state == GeOfferState.SELLING || state == GeOfferState.SOLD)
 			{
 				// Sell placement: the whole offered stack left the inventory
@@ -278,7 +305,7 @@ public final class GeReconciler implements GeAttributions
 					break;
 				case SELLING:
 				case SOLD:
-					long matched = applySell(itemId, incremental, pricePerItem);
+					long matched = applySell(slot, itemId, incremental, pricePerItem);
 					// The collectable proceeds are the gp actually transacted (a
 					// sell can fill ABOVE the offer price) minus the per-item
 					// tax.
@@ -339,6 +366,7 @@ public final class GeReconciler implements GeAttributions
 		if (state == null || state == GeOfferState.EMPTY)
 		{
 			slots.remove(slot);
+			slotPnl.remove(slot);
 			return;
 		}
 		SlotTracker tracker = new SlotTracker();
@@ -347,6 +375,9 @@ public final class GeReconciler implements GeAttributions
 		tracker.lastGpTransacted = Math.max(0L, gpTransacted);
 		tracker.lastState = state;
 		slots.put(slot, tracker);
+		// Priming never records flip P&L (see the class-level Javadoc above),
+		// so this slot starts fresh here too.
+		slotPnl.remove(slot);
 	}
 
 	/**
@@ -409,13 +440,16 @@ public final class GeReconciler implements GeAttributions
 		basis.qty = newQty;
 	}
 
-	private long applySell(int itemId, long qty, long pricePerItem)
+	private long applySell(int slot, int itemId, long qty, long pricePerItem)
 	{
 		CostBasis basis = costBasis.get(itemId);
 		if (basis == null || basis.qty <= 0)
 		{
 			// Selling with no GE cost basis (dumping looted or previously
-			// owned items, not flipping) is not a flip: nothing matched.
+			// owned items, not flipping) is not a flip: nothing matched, and
+			// slotPnl is deliberately left untouched (no entry created) so
+			// slotRealizedPnl keeps reporting absent for this slot rather
+			// than a misleading present zero.
 			return 0L;
 		}
 
@@ -424,7 +458,15 @@ public final class GeReconciler implements GeAttributions
 
 		// The seller nets the sale price minus the GE's per-item sales tax.
 		long netProceedsPerItem = pricePerItem - saleTaxPerItem(itemId, pricePerItem);
-		realizedPnl += (netProceedsPerItem - basis.avgUnitCost) * matched;
+		long delta = (netProceedsPerItem - basis.avgUnitCost) * matched;
+		realizedPnl += delta;
+
+		// Mirror the same delta into this slot's own accumulator so the panel
+		// can show a per-offer figure without recomputing from the (already
+		// mutated below) live cost basis — see slotRealizedPnl's Javadoc.
+		SlotPnl sp = slotPnl.computeIfAbsent(slot, k -> new SlotPnl());
+		sp.pnl += delta;
+		sp.hasFlip = true;
 
 		basis.qty -= matched;
 		if (basis.qty == 0)
@@ -440,6 +482,38 @@ public final class GeReconciler implements GeAttributions
 	public long realizedPnl()
 	{
 		return realizedPnl;
+	}
+
+	/**
+	 * Realised flip P&amp;L accumulated so far for the offer currently (or
+	 * most recently) occupying {@code slot}, or {@link OptionalLong#empty()}
+	 * if that offer has never matched any quantity against a GE cost basis —
+	 * i.e. a still-open buy offer, or a sell that only dumped items with no
+	 * GE cost basis (see {@link #applySell}).
+	 *
+	 * <p>Absent vs. present-zero is deliberate and load-bearing for the panel:
+	 * absent means "not a flip, don't show a P&amp;L figure at all"; a
+	 * present {@code 0L} (or any other value) means "a flip, and this is its
+	 * net result" — which can legitimately be a small loss (a break-even sale
+	 * still pays the GE's sales tax). Overloading a bare {@code 0L} to mean
+	 * both would make a dump indistinguishable from a break-even flip.
+	 *
+	 * <p>Reset to absent whenever the slot's offer changes underneath it (a
+	 * genuinely new offer, or the same slot reused without an observed
+	 * transition) or the slot empties — see the {@code slotPnl.remove} calls
+	 * in {@link #onOfferUpdate} — so a reused slot never inherits the
+	 * previous offer's number.
+	 *
+	 * <p>Computed incrementally at the same point {@link #realizedPnl} is
+	 * (inside {@link #applySell}, before the cost basis is mutated for the
+	 * matched quantity), NOT recomputed from the live cost basis afterwards —
+	 * recomputing post-hoc would be wrong for a partially filled offer, since
+	 * each fill already consumes its matched slice of the basis.
+	 */
+	public OptionalLong slotRealizedPnl(int slot)
+	{
+		SlotPnl sp = slotPnl.get(slot);
+		return (sp == null || !sp.hasFlip) ? OptionalLong.empty() : OptionalLong.of(sp.pnl);
 	}
 
 	/**
@@ -519,6 +593,7 @@ public final class GeReconciler implements GeAttributions
 		expectedRemovals.clear();
 		realizedPnl = 0L;
 		lootSales.clear();
+		slotPnl.clear();
 	}
 
 	/**

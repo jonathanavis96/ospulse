@@ -18,6 +18,8 @@ public final class MovementSignals
 	private final boolean diedThisTick;
 	private final List<LootReceipt> lootReceipts;
 	private final Map<Integer, Long> storageEmptied;
+	private final boolean productionXp;
+	private final boolean productionAnimation;
 
 	private MovementSignals(Builder b)
 	{
@@ -26,12 +28,32 @@ public final class MovementSignals
 		this.diedThisTick = b.diedThisTick;
 		this.lootReceipts = Collections.unmodifiableList(new ArrayList<>(b.lootReceipts));
 		this.storageEmptied = Collections.unmodifiableMap(new LinkedHashMap<>(b.storageEmptied));
+		this.productionXp = b.productionXp;
+		this.productionAnimation = b.productionAnimation;
 	}
 
 	public Set<Integer> droppedItemIds() { return droppedItemIds; }
 	public Set<Integer> destroyedItemIds() { return destroyedItemIds; }
 	public boolean diedThisTick() { return diedThisTick; }
 	public List<LootReceipt> lootReceipts() { return lootReceipts; }
+
+	/**
+	 * XP was gained this tick in a production skill (see
+	 * {@link ProductionActivity#isProductionSkill}).
+	 */
+	public boolean productionXp() { return productionXp; }
+
+	/**
+	 * The player was performing a production animation this tick (see
+	 * {@link ProductionActivity#isProductionAnimation}).
+	 *
+	 * <p>Kept SEPARATE from {@link #productionXp()} rather than pre-OR-ed by
+	 * the caller, because the two are not interchangeable: herblore's unf-making
+	 * step grants no XP at all, so animation is the only signal that sees it.
+	 * Keeping them distinct lets that case be tested in isolation, which is the
+	 * exact hole an XP-only trigger leaves open.
+	 */
+	public boolean productionAnimation() { return productionAnimation; }
 
 	/**
 	 * Exact contents (item id → quantity) emptied from a tracked storage
@@ -52,11 +74,19 @@ public final class MovementSignals
 		private boolean diedThisTick;
 		private final List<LootReceipt> lootReceipts = new ArrayList<>();
 		private final Map<Integer, Long> storageEmptied = new LinkedHashMap<>();
+		private boolean productionXp;
+		private boolean productionAnimation;
 
 		public Builder dropped(int itemId) { droppedItemIds.add(itemId); return this; }
 		public Builder destroyed(int itemId) { destroyedItemIds.add(itemId); return this; }
 		public Builder died(boolean died) { this.diedThisTick = died; return this; }
 		public Builder lootReceived(LootReceipt r) { lootReceipts.add(r); return this; }
+
+		/** Records that a production skill gained XP this tick. */
+		public Builder productionXp() { this.productionXp = true; return this; }
+
+		/** Records that a production animation was playing this tick. */
+		public Builder productionAnimation() { this.productionAnimation = true; return this; }
 
 		/** Records {@code qty} of {@code itemId} emptied from a storage container into the bank this tick. */
 		public Builder storageEmptied(int itemId, long qty)

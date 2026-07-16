@@ -3,20 +3,28 @@ package com.ospulse.integration;
 import com.google.gson.Gson;
 import com.ospulse.OSPulseConfig;
 import com.ospulse.ge.GeAttributions;
+import com.ospulse.session.DiffLoot;
 import com.ospulse.session.MovementSignals;
 import com.ospulse.session.SessionEngine;
 import com.ospulse.session.SessionSnapshot;
+import com.ospulse.session.SourceLoot;
 import com.ospulse.wealth.WealthSnapshot;
 import net.runelite.api.Client;
 import net.runelite.api.GrandExchangeOffer;
 import net.runelite.api.InventoryID;
+import net.runelite.api.ItemComposition;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.util.Collections;
+import java.util.List;
+
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -48,7 +56,15 @@ public class SessionTrackerTest
 {
 	static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
+	/** Bird nest contents — the auto-search case that fires no LootReceived. */
+	private static final int SNAPDRAGON_SEED_ID = 5300;
+	private static final long SNAPDRAGON_SEED_UNIT = 40_000L;
+	/** An ordinary NPC drop, which RuneLite's Loot Tracker does report. */
+	private static final int BONES_ID = 526;
+	private static final long BONES_UNIT = 100L;
+
 	private Client client;
+	private ItemManager itemManager;
 	private SessionEngine engine;
 	private SessionTracker tracker;
 
@@ -56,7 +72,7 @@ public class SessionTrackerTest
 	public void setUp()
 	{
 		client = mock(Client.class);
-		ItemManager itemManager = mock(ItemManager.class);
+		itemManager = mock(ItemManager.class);
 		OSPulseConfig config = mock(OSPulseConfig.class);
 		ConfigManager configManager = mock(ConfigManager.class);
 		engine = spy(new SessionEngine());
@@ -71,6 +87,169 @@ public class SessionTrackerTest
 		tracker.onLogin();
 		tracker.onTick();   // first tick bootstraps the session (engine.startSession), then returns
 		reset(engine);      // ignore bootstrap interactions; assert only on post-bootstrap events
+	}
+
+	/**
+	 * Teaches the mocked {@link ItemManager} about one item so the tracker's
+	 * valuation can canonicalize, name and price it — the path
+	 * {@link SessionTracker#onLootReceived} takes to build both the feed row and
+	 * the {@code LootReceipt} the diff correlation matches against.
+	 */
+	private void priceItem(int itemId, String name, int unitValue)
+	{
+		ItemComposition comp = mock(ItemComposition.class);
+		when(comp.isTradeable()).thenReturn(true);
+		when(comp.getName()).thenReturn(name);
+		when(comp.getHaPrice()).thenReturn(0);
+		when(itemManager.canonicalize(itemId)).thenReturn(itemId);
+		when(itemManager.getItemComposition(itemId)).thenReturn(comp);
+		when(itemManager.getItemPrice(itemId)).thenReturn(unitValue);
+	}
+
+	/** The published feed's group for {@code source}, or null when absent. */
+	private SourceLoot sourceNamed(String source)
+	{
+		for (SourceLoot s : tracker.getLatest().getLootSources())
+		{
+			if (s.getSource().equals(source))
+			{
+				return s;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Stubs the engine's per-update residue accessor so a tick observes exactly
+	 * these unexplained inventory appearances. Successive lists are returned on
+	 * successive ticks, mirroring the engine clearing the residue each update.
+	 */
+	private void engineReportsDiffLoot(List<DiffLoot> first, Object... rest)
+	{
+		doReturn(first, rest).when(engine).lastUpdateDiffLoot();
+	}
+
+	/**
+	 * THE CORE REGRESSION (bird nests searched by an auto mechanism): the wealth
+	 * appears in the inventory but RuneLite's Loot Tracker never fires, so no
+	 * {@code LootReceived} and no receipt exists. The engine's own diff already
+	 * books it as LOOT; the feed must show it too, under a stable constant key.
+	 */
+	@Test
+	public void unattributedInventoryAppearLandsInTheFeedUnderTheUnattributedSource()
+	{
+		engineReportsDiffLoot(Collections.singletonList(
+			new DiffLoot(SNAPDRAGON_SEED_ID, "Snapdragon seed", 1L, SNAPDRAGON_SEED_UNIT)));
+
+		tracker.onTick();
+
+		SourceLoot s = sourceNamed(SessionTracker.UNATTRIBUTED_LOOT_SOURCE);
+		assertNotNull("an inventory appear with no LootReceived must reach the feed", s);
+		assertEquals(SNAPDRAGON_SEED_UNIT, s.getTotalValue());
+		assertEquals(1, s.getItems().size());
+		assertEquals("Snapdragon seed", s.getItems().get(0).getName());
+		assertEquals(1L, s.getItems().get(0).getQuantity());
+		assertNull("it must not be conflated with RuneLite's empty-source Unknown",
+			sourceNamed(SessionTracker.UNKNOWN_LOOT_SOURCE));
+	}
+
+	/**
+	 * THE CRITICAL RISK. A normal kill is seen TWICE: once as a {@code
+	 * LootReceived} (which books the feed row) and once as the same tick's
+	 * inventory appear (which the engine books as LOOT). The diff residue must be
+	 * netted against the tick's receipts or every kill double-counts in the feed.
+	 */
+	@Test
+	public void aKillWithAMatchingLootReceivedIsAttributedToTheNpcExactlyOnce()
+	{
+		priceItem(BONES_ID, "Bones", (int) BONES_UNIT);
+		// Same tick: the drop event, then the inventory diff that carries it.
+		tracker.onLootReceived("Goblin", 1, Collections.singletonList(
+			new net.runelite.client.game.ItemStack(BONES_ID, 3)));
+		engineReportsDiffLoot(Collections.singletonList(
+			new DiffLoot(BONES_ID, "Bones", 3L, BONES_UNIT)));
+
+		tracker.onTick();
+
+		SourceLoot goblin = sourceNamed("Goblin");
+		assertNotNull("the receipt still books the kill under its NPC source", goblin);
+		assertEquals("the kill is worth 3 bones, NOT 6 — the diff must not re-book it",
+			3 * BONES_UNIT, goblin.getTotalValue());
+		assertEquals(3L, goblin.getItems().get(0).getQuantity());
+		assertNull("the matched appear must not also land under the unattributed key",
+			sourceNamed(SessionTracker.UNATTRIBUTED_LOOT_SOURCE));
+	}
+
+	/**
+	 * Undercount guard: several unattributed appears in a row (nest after nest)
+	 * must each register. They aggregate under the one stable key — a per-tick
+	 * key would break the panel's persisted collapse/hide identity — but their
+	 * quantities must accumulate, never collapse onto the last one seen.
+	 */
+	@Test
+	public void rapidUnattributedAppearsEachRegisterInsteadOfCollapsing()
+	{
+		engineReportsDiffLoot(
+			Collections.singletonList(new DiffLoot(SNAPDRAGON_SEED_ID, "Snapdragon seed", 1L, SNAPDRAGON_SEED_UNIT)),
+			Collections.singletonList(new DiffLoot(SNAPDRAGON_SEED_ID, "Snapdragon seed", 2L, SNAPDRAGON_SEED_UNIT)),
+			Collections.singletonList(new DiffLoot(SNAPDRAGON_SEED_ID, "Snapdragon seed", 1L, SNAPDRAGON_SEED_UNIT)));
+
+		tracker.onTick();
+		tracker.onTick();
+		tracker.onTick();
+
+		SourceLoot s = sourceNamed(SessionTracker.UNATTRIBUTED_LOOT_SOURCE);
+		assertNotNull(s);
+		assertEquals("all four seeds accumulate", 4L, s.getItems().get(0).getQuantity());
+		assertEquals(4 * SNAPDRAGON_SEED_UNIT, s.getTotalValue());
+		assertEquals("each search counts as its own drop", 3L, s.getCount());
+	}
+
+	/**
+	 * Existing behaviour preserved: a {@code LootReceived} carrying a source still
+	 * aggregates exactly as it does today, with no engine diff residue involved.
+	 */
+	@Test
+	public void lootReceivedWithASourceStillAggregatesAsBefore()
+	{
+		priceItem(BONES_ID, "Bones", (int) BONES_UNIT);
+		engineReportsDiffLoot(Collections.<DiffLoot>emptyList());
+
+		tracker.onLootReceived("Goblin", 1, Collections.singletonList(
+			new net.runelite.client.game.ItemStack(BONES_ID, 2)));
+		tracker.onLootReceived("Goblin", 1, Collections.singletonList(
+			new net.runelite.client.game.ItemStack(BONES_ID, 5)));
+		tracker.onTick();
+
+		SourceLoot goblin = sourceNamed("Goblin");
+		assertNotNull(goblin);
+		assertEquals(7L, goblin.getItems().get(0).getQuantity());
+		assertEquals(7 * BONES_UNIT, goblin.getTotalValue());
+		assertEquals("two kills", 2L, goblin.getCount());
+	}
+
+	/**
+	 * A tick whose diff carries MORE than the receipt reported (a kill and an
+	 * auto-search of the same id landing together) nets the receipt out and books
+	 * only the genuine remainder — the netting is per-quantity, not all-or-nothing
+	 * on an exact tuple match, so neither side double-counts nor disappears.
+	 */
+	@Test
+	public void anAppearLargerThanItsReceiptBooksOnlyTheUnreceiptedRemainder()
+	{
+		priceItem(BONES_ID, "Bones", (int) BONES_UNIT);
+		tracker.onLootReceived("Goblin", 1, Collections.singletonList(
+			new net.runelite.client.game.ItemStack(BONES_ID, 2)));
+		engineReportsDiffLoot(Collections.singletonList(
+			new DiffLoot(BONES_ID, "Bones", 5L, BONES_UNIT)));
+
+		tracker.onTick();
+
+		assertEquals("the receipted 2 stay with the NPC",
+			2 * BONES_UNIT, sourceNamed("Goblin").getTotalValue());
+		SourceLoot un = sourceNamed(SessionTracker.UNATTRIBUTED_LOOT_SOURCE);
+		assertNotNull("the unreceipted 3 are still real wealth and must be shown", un);
+		assertEquals(3L, un.getItems().get(0).getQuantity());
 	}
 
 	/**

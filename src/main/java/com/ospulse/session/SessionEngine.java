@@ -515,6 +515,102 @@ public final class SessionEngine
 	/** Loot recorded by the PREVIOUS update, reversible symmetrically. */
 	private List<PendingSwing> pendingLooted = new ArrayList<>();
 
+	/**
+	 * The loot the MOST RECENT {@link #update} booked from the inventory diff —
+	 * see {@link #lastUpdateDiffLoot()}. Rebuilt from scratch every update, so it
+	 * only ever describes that one update's residue.
+	 */
+	private List<DiffLoot> lastDiffLoot = new ArrayList<>();
+
+	// ---- Episode-scoped skilling P&L.
+	//
+	// Bottom-up accounting (Profit = Loot − Supplies) stays global, because it is
+	// the figure that survived the bank-lag noise the old top-down number was
+	// full of. But it has one structural blind spot: it can only charge for an
+	// input it RECOGNISES. A herb is not a potion, not food, and — withdrawn from
+	// the bank — was never looted, so reverseLoot retracts nothing and the cost
+	// is silently discarded, while the potion it becomes credits as loot at full
+	// GE value. Profit could only ever go up.
+	//
+	// Inside a production episode there is no loot and no GE activity, only
+	// conversion, so a value delta scoped to that window IS trustworthy. Hence:
+	// bottom-up globally, scoped top-down exactly where bottom-up is known to
+	// fail. The episode figure folds into Profit; it is deliberately NOT a fifth
+	// component of the LOCKED net-worth model.
+
+	/**
+	 * Wall-clock window (ms) an unexplained episode vanish is HELD before it
+	 * books as a crafting input. A craft is not atomic across a tick boundary —
+	 * the herb can leave on one tick and the potion arrive on the next — so
+	 * booking the input half the instant it is seen renders a phantom loss that
+	 * corrects itself a tick later. Holding it until an output answers it (or
+	 * this window expires with none) makes Profit move exactly once, by the net.
+	 *
+	 * <p>This is a SETTLE window, NOT a rate limit. Sampling every Nth tick
+	 * would catch the same partial state, just later: the flicker is a settle
+	 * problem, not a rate problem.
+	 *
+	 * <p>TODO(tune): craft cadence is roughly one item per 2-3 ticks
+	 * (~1.2-1.8s). 3s is a deliberately loose first cut, pending an empirical
+	 * value from in-client observation.
+	 */
+	private static final long EPISODE_SETTLE_MS = 3_000L;
+
+	/**
+	 * Wall-clock window (ms) with no production XP and no production animation
+	 * after which an open episode closes. An episode must not outlive the
+	 * activity that opened it, or ordinary play afterwards — parking runes in a
+	 * pouch, stuffing a looting bag — would be charged as crafting inputs.
+	 *
+	 * <p>Comfortably longer than {@link #EPISODE_SETTLE_MS} and than the gap
+	 * between consecutive crafts, so a bulk operation reads as ONE episode
+	 * rather than flickering open and shut between individual items.
+	 */
+	private static final long EPISODE_IDLE_MS = 10_000L;
+
+	/**
+	 * One crafting input held awaiting the output that explains it — see
+	 * {@link #EPISODE_SETTLE_MS}. Mirrors the {@link #pendingVanished} /
+	 * {@link #VANISH_RETURN_WINDOW_MS} idiom (hold a vanish briefly rather than
+	 * commit to a reading of it), but kept as its own list: a pendingVanished
+	 * entry's retention is tuned for reversal netting (partial swings survive
+	 * exactly one interval), which would drop a held input long before it has
+	 * settled.
+	 */
+	private static final class PendingEpisodeInput
+	{
+		final int itemId;
+		/** Remaining held quantity; whittled down if the stack comes back. */
+		long quantity;
+		/**
+		 * The episode's share of this vanish: tracked value lost MINUS the loot
+		 * value already retracted for it. A LOOTED item consumed in a craft has
+		 * already had its value taken off Loot, so charging the whole stack to
+		 * the episode as well would count the same cost twice.
+		 */
+		long value;
+		final long tsMs;
+
+		PendingEpisodeInput(int itemId, long quantity, long value, long tsMs)
+		{
+			this.itemId = itemId;
+			this.quantity = quantity;
+			this.value = value;
+			this.tsMs = tsMs;
+		}
+	}
+
+	private final List<PendingEpisodeInput> pendingEpisodeInputs = new ArrayList<>();
+	/** True while a production episode is open — see {@link ProductionActivity}. */
+	private boolean episodeOpen;
+	/** When production XP/animation was last seen; drives the idle close. */
+	private long episodeLastActivityMs;
+	/**
+	 * Session-cumulative episode P&L, folded into {@code netProfit} in
+	 * {@link #snapshot}. Negative when the player crafts at a loss.
+	 */
+	private long episodePnl;
+
 	/** One in-flight deposit expectation — see {@link #pendingBankSettles}. */
 	private static final class PendingBankSettle
 	{
@@ -734,6 +830,10 @@ public final class SessionEngine
 		this.gePoolLastObserved = initialGePool;
 		this.geNonPoolLastObserved = initial.tracked() - initialGePool;
 		this.pendingBankSettles.clear();
+		this.pendingEpisodeInputs.clear();
+		this.episodeOpen = false;
+		this.episodeLastActivityMs = 0L;
+		this.episodePnl = 0L;
 		this.lastTransferFoldKnown = false;
 		this.revertSuspectAmount = 0L;
 		this.pendingStaleBankDrop = 0L;
@@ -793,6 +893,12 @@ public final class SessionEngine
 		long bankDelta = reconcileBankMovement(current, tsMs);
 		if (!this.bankOpen && open)
 		{
+			// MANDATORY: the bank opening ends any skilling episode. update()
+			// early-returns while banking, so an episode that survived the visit
+			// would meet the restock withdrawal on the far side and read a fresh
+			// inventory of herbs as a catastrophic unexplained loss. Restocking
+			// is a transfer, not a craft.
+			closeEpisode(tsMs, "bank opened");
 			// FALSE -> TRUE: bank just opened. Anchor the blind-visit fallback.
 			this.trackedAtBankOpen = current.tracked();
 			this.visitSawBank = current.isBankKnown();
@@ -1471,6 +1577,10 @@ public final class SessionEngine
 	 */
 	public void update(WealthSnapshot current, GeAttributions ge, MovementSignals signals, long tsMs)
 	{
+		// Reset the per-update loot residue up front, so an update that returns
+		// early (bank open — see below) reports no diff loot rather than leaving
+		// the previous update's list to be read a second time.
+		lastDiffLoot = new ArrayList<>();
 		// Fold a newly-known bank in as soon as it's observed — see the
 		// matching comment in setBankOpen.
 		foldNewlyKnownBankIntoStart(current);
@@ -1493,6 +1603,12 @@ public final class SessionEngine
 		}
 		if (bankOpen)
 		{
+			// Belt-and-braces with setBankOpen's close: whatever route made the
+			// bank open, an episode must not survive it. Everything below this
+			// point is skipped while banking, so an episode left open across a
+			// bank visit would meet the restock withdrawal on the far side with
+			// no memory of the deposit that balanced it.
+			closeEpisode(tsMs, "bank open");
 			syncCostBasis(current);
 			syncGeCostBasis(current);
 			long bankDelta = reconcileBankMovement(current, tsMs);
@@ -1585,6 +1701,26 @@ public final class SessionEngine
 			syncGeCostBasis(current);
 			this.previous = current;
 			return;
+		}
+
+		// ---- Episode gating: open on production XP OR a matching animation,
+		// stay open while either persists, close after a quiet spell.
+		//
+		// The animation half is load-bearing, not a nicety. Herblore step 1
+		// (clean herb + Vial of water -> unf potion) grants ZERO XP, and that is
+		// exactly where the expensive herb goes — an XP-only trigger would leave
+		// the costliest input of a herblore session uncharged and reproduce the
+		// bug this ledger exists to fix. The two signals are OR-ed so a wrong or
+		// missing animation id degrades to today's XP-driven behaviour rather
+		// than mis-booking anything (see ProductionActivity).
+		if (signals.productionXp() || signals.productionAnimation())
+		{
+			episodeOpen = true;
+			episodeLastActivityMs = tsMs;
+		}
+		else if (episodeOpen && tsMs - episodeLastActivityMs > EPISODE_IDLE_MS)
+		{
+			closeEpisode(tsMs, "idle");
 		}
 
 		long trackedBefore = previous == null ? current.tracked() : previous.tracked();
@@ -1817,6 +1953,19 @@ public final class SessionEngine
 		boolean purchaseTick = coinsSpentThisTick > 0 && arrivingItemValue > 0
 			&& 2 * coinsSpentThisTick >= arrivingItemValue;
 
+		// This tick's loot receipts, indexed by id and CLAIMABLE (each reported
+		// unit can vouch for exactly one appearing unit). Used only to tell a
+		// manufactured output apart from genuine loot during an episode: an
+		// appear a receipt vouches for is a real drop (a bird nest mid-craft);
+		// an appear nothing reported is something the player made.
+		Map<Integer, Long> unclaimedReceipts = new LinkedHashMap<>();
+		for (LootReceipt r : signals.lootReceipts())
+		{
+			unclaimedReceipts.merge(r.itemId, r.quantity, Long::sum);
+		}
+
+		long episodeOutput = 0L;
+
 		for (Swing a : appeared)
 		{
 			for (int pass = 0; pass < 2 && a.quantity > 0; pass++)
@@ -1867,6 +2016,14 @@ public final class SessionEngine
 					}
 					else
 					{
+						// If this vanish was being HELD as a crafting input, the
+						// stack coming back proves there was no transformation to
+						// charge for. Cancel the hold, or it would settle into
+						// Profit as a phantom loss for an item the player still
+						// owns. (Only inputs held by EARLIER updates can be
+						// cancelled here, which is exactly right — this update's
+						// own inputs are collected after this loop.)
+						cancelPendingEpisodeInput(a.itemId, reversedQty);
 						// The stack returned. If its drop had retracted looted
 						// value, restore exactly that much so a drop/re-pickup
 						// nets to zero; a pre-owned stack reversed nothing, so it
@@ -1999,6 +2156,30 @@ public final class SessionEngine
 				a.quantity = 0L;
 			}
 
+			if (a.quantity > 0 && episodeOpen)
+			{
+				// Inside an episode, an appear NOTHING reported is a manufactured
+				// output, not loot — the same idiom as PURCHASE above: a
+				// net-worth item the player already paid for, here in herbs
+				// rather than coins. Crediting it as loot at full GE value while
+				// its inputs cost nothing is exactly how Profit came to floor at
+				// zero. A receipt-matched appear falls through to the loot path
+				// below, which is what keeps a mid-craft bird nest in the feed
+				// AND out of the craft margin: the episode is charged
+				// (tracked change − loot booked), so a nest that lifts both
+				// sides equally contributes nothing to the margin.
+				long vouched = claimReceipt(unclaimedReceipts, a.itemId, a.quantity);
+				long manufactured = a.quantity - vouched;
+				if (manufactured > 0)
+				{
+					long outputValue = manufactured * a.unitValue;
+					episodeOutput += outputValue;
+					a.quantity -= manufactured;
+					logAttribution(a.itemId, a.name, manufactured, outputValue,
+						"CRAFT(episode output; made, not looted)");
+				}
+			}
+
 			if (a.quantity > 0)
 			{
 				long lootValue = a.quantity * a.unitValue;
@@ -2006,6 +2187,13 @@ public final class SessionEngine
 				lootLedger.recordLoot(a.itemId, a.quantity, a.unitValue);
 				lootRecorded += lootValue;
 				logAttribution(a.itemId, a.name, a.quantity, lootValue, "LOOT");
+				// Reaching here already means "unexplained appear": every earlier
+				// stage that could account for this quantity has whittled it down
+				// (a.quantity -= ret) or zeroed it. Whatever remains is loot no
+				// matter how the player triggered it — which is the whole point of
+				// reporting it out, since a menu-driven LootReceived is only one of
+				// the ways loot can land in the inventory.
+				lastDiffLoot.add(new DiffLoot(a.itemId, a.name, a.quantity, a.unitValue));
 				newPendingLooted.add(new PendingSwing(a.itemId, a.quantity, a.unitValue,
 					a.fullSwing, false, a.hadBasis, a.basisQuantity, a.basisTotalCost, tsMs));
 			}
@@ -2178,8 +2366,32 @@ public final class SessionEngine
 					{
 						retractLoot(v.itemId, reversedLootQty, reversedLootQty * v.unitValue);
 					}
-					logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue,
-						"VANISH(drop; " + reversedLootQty + " looted units removed from Loot)");
+					if (episodeOpen)
+					{
+						// An episode INPUT — the herb this whole design exists to
+						// charge for. What the episode owes is the tracked value
+						// lost MINUS whatever Loot just gave back for it: a LOOTED
+						// herb cleaned into a better one has already had its value
+						// retracted above, so charging the full stack here too
+						// would count the same cost twice. A never-looted herb
+						// reverses nothing, so the episode carries all of it —
+						// which is the case bottom-up accounting was dropping.
+						//
+						// HELD, not booked: see EPISODE_SETTLE_MS.
+						long episodeValue = (v.quantity - reversedLootQty) * v.unitValue;
+						if (episodeValue > 0)
+						{
+							pendingEpisodeInputs.add(new PendingEpisodeInput(
+								v.itemId, v.quantity, episodeValue, tsMs));
+							logAttribution(v.itemId, v.name, -v.quantity, -episodeValue,
+								"CRAFT(episode input; held for settle)");
+						}
+					}
+					else
+					{
+						logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue,
+							"VANISH(drop; " + reversedLootQty + " looted units removed from Loot)");
+					}
 				}
 				// Remember ALL surviving vanishes (consumable or not) so a
 				// reappearance next update is netted instead of read as loot.
@@ -2189,6 +2401,11 @@ public final class SessionEngine
 				newPendingVanished.add(pending);
 			}
 		}
+
+		// Both halves of this update's episode activity are now known, so settle
+		// them together: an output booked here can release the inputs that
+		// produced it in the SAME update, and Profit moves once by the margin.
+		settleEpisodeLedger(episodeOutput, tsMs);
 
 		// ---- 4. Commit. Loot records and partial-stack vanishes roll forward
 		// exactly one interval (the equip-transient window); whole-stack
@@ -2525,6 +2742,136 @@ public final class SessionEngine
 		return rows;
 	}
 
+	/**
+	 * The loot the most recent {@link #update(WealthSnapshot, GeAttributions, MovementSignals, long)}
+	 * booked purely from the inventory diff, before it is overwritten by the next
+	 * update. Read it immediately after {@code update} returns.
+	 *
+	 * <p>This is the engine's item accounting, NOT a per-source feed: the engine
+	 * has no idea what produced any of it. A caller that keeps a source-attributed
+	 * feed must reconcile these against the same tick's
+	 * {@link MovementSignals#lootReceipts()} before booking them, or loot reported
+	 * by BOTH paths — the ordinary case for an NPC kill — counts twice.
+	 */
+	public List<DiffLoot> lastUpdateDiffLoot()
+	{
+		return Collections.unmodifiableList(lastDiffLoot);
+	}
+
+	/**
+	 * Claims up to {@code wanted} units of {@code itemId} from this tick's
+	 * unclaimed loot receipts, returning how many were vouched for. Claiming
+	 * consumes the receipt, so one reported drop can only ever explain one
+	 * appearing unit.
+	 */
+	private static long claimReceipt(Map<Integer, Long> unclaimedReceipts, int itemId, long wanted)
+	{
+		long available = unclaimedReceipts.getOrDefault(itemId, 0L);
+		long claimed = Math.min(available, wanted);
+		if (claimed > 0)
+		{
+			unclaimedReceipts.put(itemId, available - claimed);
+		}
+		return claimed;
+	}
+
+	/**
+	 * Folds this update's episode activity into {@link #episodePnl}.
+	 *
+	 * <p>An output landing RELEASES every input still held: inside an episode,
+	 * the inputs that vanished since the last output are what produced it. Both
+	 * halves then book in the same update, so Profit moves once by the net
+	 * margin and never renders the input half on its own. This is what makes the
+	 * hold a settle rather than a delay — a same-tick craft books immediately
+	 * (both halves are in this update), and a craft split across a tick boundary
+	 * books the instant its output lands, not when a timer says so.
+	 *
+	 * <p>An input that no output answers within {@link #EPISODE_SETTLE_MS} was
+	 * not a transformation in flight — it is a genuine loss, and books alone.
+	 */
+	private void settleEpisodeLedger(long outputThisUpdate, long tsMs)
+	{
+		if (outputThisUpdate > 0)
+		{
+			episodePnl += outputThisUpdate - drainPendingEpisodeInputs();
+		}
+		long expired = 0L;
+		for (Iterator<PendingEpisodeInput> it = pendingEpisodeInputs.iterator(); it.hasNext(); )
+		{
+			PendingEpisodeInput p = it.next();
+			if (tsMs - p.tsMs >= EPISODE_SETTLE_MS)
+			{
+				expired += p.value;
+				it.remove();
+			}
+		}
+		episodePnl -= expired;
+	}
+
+	/** Removes every held input and returns their total value. */
+	private long drainPendingEpisodeInputs()
+	{
+		long total = 0L;
+		for (PendingEpisodeInput p : pendingEpisodeInputs)
+		{
+			total += p.value;
+		}
+		pendingEpisodeInputs.clear();
+		return total;
+	}
+
+	/**
+	 * Un-holds {@code qty} units of {@code itemId} because the stack came back —
+	 * see the reversal-netting branch in {@link #update}. Value is released
+	 * pro-rata so a partial return leaves the rest of the hold intact.
+	 */
+	private void cancelPendingEpisodeInput(int itemId, long qty)
+	{
+		long remaining = qty;
+		for (Iterator<PendingEpisodeInput> it = pendingEpisodeInputs.iterator();
+			it.hasNext() && remaining > 0; )
+		{
+			PendingEpisodeInput p = it.next();
+			if (p.itemId != itemId || p.quantity <= 0)
+			{
+				continue;
+			}
+			long cancelled = Math.min(remaining, p.quantity);
+			long cancelledValue = Math.round((double) p.value * cancelled / p.quantity);
+			p.quantity -= cancelled;
+			p.value -= cancelledValue;
+			remaining -= cancelled;
+			if (p.quantity <= 0)
+			{
+				it.remove();
+			}
+		}
+	}
+
+	/**
+	 * Closes an open episode, booking every input still held.
+	 *
+	 * <p>A held input is an unfinished transformation. Once the episode is over
+	 * nothing is coming to answer it, so it settles as a real loss rather than
+	 * being abandoned — abandoning it would silently discard the cost all over
+	 * again, which is the entire defect this ledger addresses.
+	 */
+	private void closeEpisode(long tsMs, String reason)
+	{
+		if (!episodeOpen && pendingEpisodeInputs.isEmpty())
+		{
+			return;
+		}
+		long flushed = drainPendingEpisodeInputs();
+		episodePnl -= flushed;
+		episodeOpen = false;
+		if (diagEnabled())
+		{
+			logDiag("[episode] closed ({}) at {}: flushed held inputs={} episodePnl={}",
+				reason, tsMs, flushed, episodePnl);
+		}
+	}
+
 	private void addLoot(LootEntry entry)
 	{
 		LootEntry existing = lootTotals.get(entry.getItemId());
@@ -2656,11 +3003,20 @@ public final class SessionEngine
 		long loot = lootLedger.lootValue();
 
 		long elapsedMs = tsMs - startMs;
-		// Profit/hr extrapolates NET profit — realised gains minus the
-		// consumable spend burned to earn them — not gross profit. Supplies
-		// are a real cost of the session, so an hour that nets negative after
-		// supplies must read negative. (Matches SessionSnapshot#getNetProfit.)
-		long netProfit = loot - suppliesUsed;
+		// Profit/hr extrapolates NET profit — realised gains, minus the
+		// consumable spend burned to earn them, plus what skilling episodes did
+		// to wealth — not gross profit. Supplies and crafting losses are real
+		// costs of the session, so an hour that nets negative after them must
+		// read negative. (Matches SessionSnapshot#getNetProfit.)
+		//
+		// episodePnl folds in HERE, into Profit, and must never become a fifth
+		// component of the LOCKED model below: crafting is neither loot nor a GE
+		// flip nor a bank movement — it is realised activity, and Profit is
+		// where realised activity belongs. Because bankDelta is computed as a
+		// RESIDUAL against netProfit, the moment the episode ledger charges a
+		// herb the same value stops being absorbed into "Bank" — which is where
+		// it had been hiding all along.
+		long netProfit = loot - suppliesUsed + episodePnl;
 		long profitPerHour = elapsedMs > 0 ? netProfit * 3600000L / elapsedMs : 0L;
 
 		// ---- Session panel's "Net worth change" — LOCKED model: a pure SUM of
@@ -2746,7 +3102,8 @@ public final class SessionEngine
 			holdingPnls,
 			suppliesUsed,
 			gePositions,
-			bankDelta);
+			bankDelta,
+			episodePnl);
 	}
 
 	/**
@@ -2780,6 +3137,18 @@ public final class SessionEngine
 	public long getBaseline()
 	{
 		return baseline;
+	}
+
+	/** Whether a production episode is currently open — see {@link ProductionActivity}. */
+	public boolean isEpisodeOpen()
+	{
+		return episodeOpen;
+	}
+
+	/** Session-cumulative episode P&L; folded into Profit by {@link #snapshot}. */
+	public long getEpisodePnl()
+	{
+		return episodePnl;
 	}
 
 	public boolean isBankOpen()
