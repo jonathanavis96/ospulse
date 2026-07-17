@@ -673,7 +673,7 @@ public final class GearOptimizer {
                         double currentDps = currentEval == null ? Double.NEGATIVE_INFINITY : currentEval.dps.dps();
                         double diff = trialEval.dps.dps() - currentDps;
                         better = diff > 1e-9
-                                || (Math.abs(diff) <= 1e-9 && prayerBonusOf(c.itemId()) > prayerBonusOf(current[slot]));
+                                || (Math.abs(diff) <= 1e-9 && CandidateScore.prayerBonusOf(c.itemId()) > CandidateScore.prayerBonusOf(current[slot]));
                     } else if (currentEval == null) {
                         better = true;
                     } else {
@@ -683,7 +683,7 @@ public final class GearOptimizer {
                         double diff = trialEval.dps.dps() - currentEval.dps.dps();
                         better = diff > 1e-9
                                 || (Math.abs(diff) <= 1e-9
-                                    && tieBreakScore(c.itemId()) > tieBreakScore(current[slot]));
+                                    && CandidateScore.tieBreakScore(c.itemId()) > CandidateScore.tieBreakScore(current[slot]));
                     }
                     if (better) {
                         current = trial;
@@ -973,7 +973,7 @@ public final class GearOptimizer {
          */
         static final Comparator<DeriskMove> BY_DPS = (a, b) -> a.dps != b.dps
                 ? Double.compare(b.dps, a.dps)
-                : Integer.compare(tieBreakScore(b.swapInId), tieBreakScore(a.swapInId));
+                : Integer.compare(CandidateScore.tieBreakScore(b.swapInId), CandidateScore.tieBreakScore(a.swapInId));
 
         final int[] trial;
         final int overflow;
@@ -1098,7 +1098,7 @@ public final class GearOptimizer {
                                               List<Candidate> ammoCandidates) {
         int[] best = itemIds;
         Evaluation bestEval = evaluate(itemIds, request);
-        int bestPrayer = slot == AMMO_SLOT ? prayerBonusOf(slotItemId(itemIds, slot)) : 0;
+        int bestPrayer = slot == AMMO_SLOT ? CandidateScore.prayerBonusOf(slotItemId(itemIds, slot)) : 0;
         for (Candidate c : candidates) {
             int[] trial = applySlotChoice(itemIds, slot, c.itemId());
             if (slot == WhatIfLoadout.WEAPON_SLOT) {
@@ -1109,7 +1109,7 @@ public final class GearOptimizer {
                 continue;
             }
             boolean better;
-            int trialPrayer = slot == AMMO_SLOT ? prayerBonusOf(c.itemId()) : 0;
+            int trialPrayer = slot == AMMO_SLOT ? CandidateScore.prayerBonusOf(c.itemId()) : 0;
             if (bestEval == null) {
                 better = true;
             } else if (slot == AMMO_SLOT) {
@@ -1125,7 +1125,7 @@ public final class GearOptimizer {
                 double diff = trialEval.dps.dps() - bestEval.dps.dps();
                 better = diff > 1e-9
                         || (Math.abs(diff) <= 1e-9
-                            && tieBreakScore(c.itemId()) > tieBreakScore(slotItemId(best, slot)));
+                            && CandidateScore.tieBreakScore(c.itemId()) > CandidateScore.tieBreakScore(slotItemId(best, slot)));
             }
             if (better) {
                 best = trial;
@@ -1456,7 +1456,7 @@ public final class GearOptimizer {
             if (request.exclude.contains(e.itemId())) {
                 continue;
             }
-            if (slot == WhatIfLoadout.WEAPON_SLOT && !weaponSupportsStyle(e.itemId(), request.style)) {
+            if (slot == WhatIfLoadout.WEAPON_SLOT && !CandidateScore.weaponSupportsStyle(e.itemId(), request.style)) {
                 // Style-constrained search (item #6e): a weapon that cannot
                 // attack with the requested damage type is never a candidate —
                 // it would only ever evaluate to null under the constraint.
@@ -1540,7 +1540,7 @@ public final class GearOptimizer {
         // These slots contribute additively under a fixed style, so the
         // proxy ranking is faithful enough; owned/included items are exempt
         // from pruning as always.
-        affordable.sort(Comparator.comparingInt((Candidate c) -> -proxyOffensiveScore(c.itemId(), request.style)));
+        affordable.sort(Comparator.comparingInt((Candidate c) -> -CandidateScore.proxyOffensiveScore(c.itemId(), request.style)));
         List<Candidate> pruned = new ArrayList<>();
         Set<Integer> keptIds = new HashSet<>();
         for (Candidate c : affordable) {
@@ -1700,17 +1700,17 @@ public final class GearOptimizer {
             if (entry.getKey().isConsumable()) {
                 // Ranged strength drives consumable ammo's DPS contribution.
                 group.sort(Comparator.comparingInt((Candidate c) ->
-                        -proxyOffensiveScore(c.itemId(), CombatStyle.RANGED)));
+                        -CandidateScore.proxyOffensiveScore(c.itemId(), CombatStyle.RANGED)));
             } else {
                 // Blessings are DPS-invisible — prayer bonus is their value.
-                group.sort(Comparator.comparingInt((Candidate c) -> -prayerBonusOf(c.itemId())));
+                group.sort(Comparator.comparingInt((Candidate c) -> -CandidateScore.prayerBonusOf(c.itemId())));
             }
             addPrunedGroup(pruned, group, request);
         }
         // Unknown/unclassifiable ammo (not expected with current data): keep
         // the old proxy ranking so nothing silently disappears.
         unclassified.sort(Comparator.comparingInt((Candidate c) ->
-                -proxyOffensiveScore(c.itemId(), CombatStyle.RANGED)));
+                -CandidateScore.proxyOffensiveScore(c.itemId(), CombatStyle.RANGED)));
         addPrunedGroup(pruned, unclassified, request);
         return pruned;
     }
@@ -1727,78 +1727,9 @@ public final class GearOptimizer {
         }
     }
 
-    /**
-     * A DPS-tie tie-break score: the sum of an item's every offensive, defensive
-     * and prayer bonus. Used to fill DPS-neutral slots (B9-2) with the best
-     * wearable owned piece on a DPS tie; an empty/unknown slot scores lowest so
-     * any real item beats "wear nothing".
-     */
-    private static int tieBreakScore(int itemId) {
-        if (itemId <= 0) {
-            return Integer.MIN_VALUE;
-        }
-        com.ospulse.combat.EquipmentStatsRepository.Stats s =
-                com.ospulse.combat.EquipmentStatsRepository.getInstance().statsFor(itemId);
-        if (s == null) {
-            return Integer.MIN_VALUE + 1;
-        }
-        return s.astab() + s.aslash() + s.acrush() + s.amagic() + s.arange()
-                + s.dstab() + s.dslash() + s.dcrush() + s.dmagic() + s.drange()
-                + s.str() + s.rstr() + (int) s.mdmg() + s.prayer();
-    }
-
-    /** The prayer bonus of one item (0 if unknown), for the ammo-slot-ignored-by-weapon ranking exception. */
-    private static int prayerBonusOf(int itemId) {
-        com.ospulse.combat.EquipmentStatsRepository.Stats s = com.ospulse.combat.EquipmentStatsRepository.getInstance().statsFor(itemId);
-        return s == null ? 0 : s.prayer();
-    }
-
-    /** True when the weapon id's real combat options include a style of {@code type} ({@code null} type = no constraint). */
-    private static boolean weaponSupportsStyle(int weaponId, CombatStyle type) {
-        if (type == null) {
-            return true;
-        }
-        for (WeaponStyle style : WeaponCategoryRepository.getInstance().stylesForItem(weaponId)) {
-            if (style.type() == type) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * The cheap pruning proxy for one item. Unconstrained ({@code style ==
-     * null}): the historical sum of every offensive bonus. Style-constrained:
-     * only the bonuses that actually feed that style's DPS — otherwise e.g. a
-     * MAGIC-constrained search would prune Ancestral (small raw totals) in
-     * favour of melee armour whose big slash/str numbers are irrelevant to the
-     * constraint. Weights: magic damage is a percentage (1% is worth far more
-     * than 1 accuracy point) and ranged strength scales the max hit directly
-     * (keeps ammo/blessing candidates ranked above accuracy-only picks).
-     */
-    private static int proxyOffensiveScore(int itemId, CombatStyle style) {
-        com.ospulse.combat.EquipmentStatsRepository.Stats s = com.ospulse.combat.EquipmentStatsRepository.getInstance().statsFor(itemId);
-        if (s == null) {
-            return Integer.MIN_VALUE;
-        }
-        if (style == null) {
-            return s.astab() + s.aslash() + s.acrush() + s.arange() + s.amagic() + s.str() + s.rstr() + (int) s.mdmg();
-        }
-        switch (style) {
-            case STAB:
-                return s.astab() + s.str();
-            case SLASH:
-                return s.aslash() + s.str();
-            case CRUSH:
-                return s.acrush() + s.str();
-            case RANGED:
-                return s.arange() + 2 * s.rstr();
-            case MAGIC:
-                return s.amagic() + (int) (10 * s.mdmg());
-            default:
-                return s.astab() + s.aslash() + s.acrush() + s.arange() + s.amagic() + s.str() + s.rstr() + (int) s.mdmg();
-        }
-    }
+    // Item-id scoring heuristics (tieBreakScore, prayerBonusOf,
+    // weaponSupportsStyle, proxyOffensiveScore) now live in CandidateScore —
+    // pure proxies with no dependency on Request or an in-progress loadout.
 
     /** One fully-evaluated candidate loadout: its best style/spell and resulting DPS. */
     private static final class Evaluation {
@@ -1913,7 +1844,7 @@ public final class GearOptimizer {
             }
         }
         ownedAmmo.sort(Comparator.comparingInt((Candidate c) ->
-                -proxyOffensiveScore(c.itemId(), CombatStyle.RANGED)));
+                -CandidateScore.proxyOffensiveScore(c.itemId(), CombatStyle.RANGED)));
         for (int slot : SEARCHABLE_SLOTS) {
             List<Candidate> ownedCandidates = new ArrayList<>();
             for (EquipmentIndexRepository.Entry e : index.forSlot(slot)) {
