@@ -458,6 +458,28 @@ public final class SessionEngine
 	 */
 	private DebugFigures lastLoggedFigures;
 	/**
+	 * One-shot latch for the net-worth invariant guard (see
+	 * {@link #invariantDiscrepancy}): set once the guard has WARNed, so a
+	 * session logs the self-capture line at most once. The first occurrence
+	 * carries all the diagnostic value; a residual that persists (or drifts
+	 * gp by gp) would otherwise spam every subsequent commit. Purely
+	 * diagnostic — never affects profit/unrealized computation.
+	 */
+	private boolean invariantWarned;
+	/**
+	 * True once this session has taken a modeled net-worth-only event the
+	 * panel deliberately books in NO component — a DESTROY's never-looted
+	 * portion, a non-consumable dropped parcel despawning unclaimed, or a
+	 * shop purchase's buy margin (items worth more or less than the coins
+	 * paid; the Zaff battlestaff flow). Such value moves raw net worth
+	 * without touching Profit/GE/unrealized, so the "Bank" residual is
+	 * shifted for the rest of the session and the invariant guard can no
+	 * longer decide "unexplained" — it stays quiet instead of crying wolf
+	 * (Codex PR #10 rounds 2-3). Purely diagnostic — never affects
+	 * profit/unrealized computation.
+	 */
+	private boolean modeledResidualShiftSeen;
+	/**
 	 * Wall-clock window (ms) within which a stack vanishing in one update and
 	 * reappearing in the next (or vice versa) is treated as the two halves of
 	 * a single equip/unequip rather than genuine consumption followed by loot.
@@ -700,6 +722,68 @@ public final class SessionEngine
 		}
 	}
 
+	/**
+	 * Discrepancy the net-worth invariant guard warns on: tracked-wealth
+	 * movement no session-panel component explains. Only measurable while the
+	 * bank value is UNKNOWN (never read this session): raw net worth then
+	 * contains no bank component, so outside bank-transfer noise every gp of
+	 * net-worth movement must be explained by Profit + GE flip + GE positions
+	 * + held-price drift, and the "Bank" residual must be exactly zero. Once
+	 * the bank is known, the residual legitimately absorbs closed-bank
+	 * revaluation observed at each re-open — indistinguishable from a bug at
+	 * this level — so the guard returns 0 rather than guess. (The first cut
+	 * compared netWorthDelta against Profit + GE flip + unrealizedPnl, but
+	 * the LOCKED model deliberately excludes held-price drift from net-worth
+	 * change, so plain price wobble on a held item tripped it — Codex PR #10
+	 * review.) Pure function of its inputs (unit-testable); package-private
+	 * for tests.
+	 */
+	static long invariantDiscrepancy(boolean bankKnown, long bankDelta)
+	{
+		return bankKnown ? 0L : bankDelta;
+	}
+
+	/**
+	 * Any dropped parcel still on the ground with a never-looted portion: its
+	 * value has left raw net worth, but no panel component books it (the
+	 * looted portion was already reversed out of Loot at drop time). While
+	 * one exists, the net-worth residual is transiently polluted and the
+	 * invariant guard must not warn — re-pickup restores the value and the
+	 * residual on its own.
+	 */
+	private boolean hasOwnedGroundParcel()
+	{
+		for (Parcel p : onGround.values())
+		{
+			if (p.qty > p.lootedQty)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Any un-signalled vanish still inside its return window with an owned
+	 * portion — never looted (nothing reversed out of Loot) and never charged
+	 * as supplies. Its value has left raw net worth unbooked until the window
+	 * resolves: a return restores it, expiry makes the shift permanent (the
+	 * retention loop latches {@link #modeledResidualShiftSeen} then). While
+	 * one is pending, the net-worth residual is transiently polluted and the
+	 * invariant guard must not warn.
+	 */
+	private boolean hasPendingOwnedVanish()
+	{
+		for (PendingSwing p : pendingVanished)
+		{
+			if (!p.suppliesCharged && p.quantity > p.reversedLootQty)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	/** Mutable per-item cost-basis accumulator (quantity held + total cost). */
 	private static final class Basis
 	{
@@ -750,6 +834,8 @@ public final class SessionEngine
 		this.storageMaterialising.clear();
 		this.lastRiseSettled = 0L;
 		this.lastLoggedFigures = null;
+		this.invariantWarned = false;
+		this.modeledResidualShiftSeen = false;
 		this.pendingVanished = new ArrayList<>();
 		this.pendingLooted = new ArrayList<>();
 		// Holdings present at session start enter at their live price, so
@@ -1557,6 +1643,13 @@ public final class SessionEngine
 				logAttribution(e.getKey(), "id" + e.getKey(), -owned, -consumedValue,
 					"SUPPLY(dropped supply despawned; owned portion)");
 			}
+			else if (owned > 0)
+			{
+				// Non-consumable despawned unclaimed: booked nowhere (the
+				// looted portion left Loot at drop time), so the residual is
+				// permanently shifted — see modeledResidualShiftSeen.
+				modeledResidualShiftSeen = true;
+			}
 			return true;
 		});
 
@@ -1816,6 +1909,7 @@ public final class SessionEngine
 		}
 		boolean purchaseTick = coinsSpentThisTick > 0 && arrivingItemValue > 0
 			&& 2 * coinsSpentThisTick >= arrivingItemValue;
+		long purchasedValueThisTick = 0L;
 
 		for (Swing a : appeared)
 		{
@@ -1993,7 +2087,11 @@ public final class SessionEngine
 			{
 				// Bought this tick (coins left to pay for it) — a net-worth item, not
 				// loot. Skip the loot ledger entirely; the tracked rise already lifts
-				// net worth by its value.
+				// net worth by its value. Accumulate the value actually classified
+				// as PURCHASE — the buy-margin latch below compares it against the
+				// coins spent (arrivingItemValue would overstate: it is computed
+				// before same-tick ground returns are filtered out).
+				purchasedValueThisTick += a.quantity * a.unitValue;
 				logAttribution(a.itemId, a.name, a.quantity, a.quantity * a.unitValue,
 					"PURCHASE(bought with coins this tick; not loot)");
 				a.quantity = 0L;
@@ -2009,6 +2107,15 @@ public final class SessionEngine
 				newPendingLooted.add(new PendingSwing(a.itemId, a.quantity, a.unitValue,
 					a.fullSwing, false, a.hadBasis, a.basisQuantity, a.basisTotalCost, tsMs));
 			}
+		}
+
+		if (purchasedValueThisTick != 0 && purchasedValueThisTick != coinsSpentThisTick)
+		{
+			// A NONZERO buy margin — value actually classified as PURCHASE vs
+			// the coins paid — surfaces only in net worth: a modeled residual
+			// shift, so the invariant guard must go quiet. An exact-value
+			// purchase leaves no residual and must not burn the guard.
+			modeledResidualShiftSeen = true;
 		}
 
 		long lootReversed = 0L;
@@ -2053,6 +2160,12 @@ public final class SessionEngine
 				}
 				logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue,
 					"DESTROY(permanent; " + looted + " looted units removed from Loot)");
+				if (v.quantity - looted > 0)
+				{
+					// The never-looted portion is a modeled permanent loss the
+					// panel books nowhere — see modeledResidualShiftSeen.
+					modeledResidualShiftSeen = true;
+				}
 				v.quantity = 0L; // no parcel — permanent
 				continue;
 			}
@@ -2207,6 +2320,15 @@ public final class SessionEngine
 			if (p.quantity > 0 && (retainLootReturn || retainSupplyReturn))
 			{
 				retainedVanished.add(p);
+			}
+			else if (!p.suppliesCharged && p.quantity > p.reversedLootQty)
+			{
+				// An owned (never-looted, never-charged) portion expired
+				// unreturned: its value left raw net worth booked nowhere — a
+				// permanent modeled residual shift, so the invariant guard
+				// goes quiet for the rest of the session (see
+				// modeledResidualShiftSeen).
+				modeledResidualShiftSeen = true;
 			}
 		}
 		retainedVanished.addAll(newPendingVanished);
@@ -2695,6 +2817,50 @@ public final class SessionEngine
 		long gePositions = gePool - geCostBasis;
 		long bankDelta = rawNetWorthDelta - netProfit - geRealizedPnl - gePositions - unrealizedPnl;
 		long netWorthDelta = netProfit + geRealizedPnl + gePositions + bankDelta;
+
+		// ---- Invariant guard: self-capture for the 2026-07-10 field report
+		// ("Profit + Unrealized ≠ Net worth") that could not be reproduced.
+		// Purely diagnostic — WARNs (always on, unlike the diag-gated wealth
+		// line below) when tracked wealth moved in a way NO panel component
+		// explains. That is only decidable while the bank is unknown (see
+		// invariantDiscrepancy), and only OUTSIDE the existing bank-transfer
+		// tolerance: an in-flight deposit still settling, an owed
+		// stale-re-read bank drop, or the BANK_TRANSFER_SETTLE_WINDOW_MS
+		// after the last transfer fold — the exact machinery that already
+		// excuses transient bank skew, reused here rather than inventing a
+		// new threshold. At most ONE warn per session via invariantWarned
+		// (Codex PR #10 review: a gap first seen inside the tolerance must
+		// still warn once the window lapses, and a persisting or drifting
+		// residual must not spam), and only a COMMITTED snapshot may run or
+		// latch it (previews mutate nothing, and commits arrive at most once
+		// per game tick). Modeled net-worth-only events pollute the residual,
+		// so the guard also goes quiet while a dropped parcel with a
+		// never-looted portion sits on the ground (transient — re-pickup
+		// self-heals) or once a DESTROY, an unclaimed non-consumable despawn,
+		// or a shop purchase's buy margin has shifted it for good (Codex
+		// rounds 2-3). One benign trigger is
+		// known and accepted: a deposit-box deposit made before the bank has
+		// ever been read leaves the residual nonzero once its settle
+		// expectation expires — one log line per session, not a spam source.
+		// No accounting state is read-modified here.
+		if (commit && !invariantWarned)
+		{
+			long invariantGap = invariantDiscrepancy(current.isBankKnown(), bankDelta);
+			boolean withinBankTransferTolerance = pendingSettle != 0
+				|| pendingStaleBankDrop != 0
+				|| (lastTransferFoldKnown && tsMs - lastTransferFoldTsMs <= BANK_TRANSFER_SETTLE_WINDOW_MS);
+			boolean residualPolluted = modeledResidualShiftSeen || hasOwnedGroundParcel()
+				|| hasPendingOwnedVanish();
+			if (invariantGap != 0 && !withinBankTransferTolerance && !residualPolluted)
+			{
+				invariantWarned = true;
+				log.warn("net-worth invariant violated: {} gp of net-worth movement is unexplained while the bank "
+						+ "is unknown (netWorthDelta={} netProfit={} geRealizedPnl={} gePositions={} "
+						+ "unrealizedPnl={} bankDelta={})",
+					invariantGap, netWorthDelta, netProfit, geRealizedPnl, gePositions,
+					unrealizedPnl, bankDelta);
+			}
+		}
 
 		if (diagEnabled())
 		{

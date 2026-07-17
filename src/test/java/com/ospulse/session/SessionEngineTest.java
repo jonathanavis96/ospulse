@@ -3703,4 +3703,24 @@ public class SessionEngineTest
 		assertEquals("overflow catch books as fresh loot, not eaten by a stale ledger",
 			6_060L, s.getLootValue());
 	}
+
+	// ---- Invariant-guard discrepancy arithmetic (2026-07-10 field report
+	// self-capture): zero exactly when netWorthDelta == Profit + GE flip +
+	// unrealized, signed gap otherwise.
+
+	@Test
+	public void invariantDiscrepancyOnlyMeasurableWhileBankUnknown()
+	{
+		// Bank unknown: the Bank residual has nothing legitimate to absorb,
+		// so any nonzero value IS the unexplained movement, sign preserved.
+		assertEquals(0L, SessionEngine.invariantDiscrepancy(false, 0L));
+		assertEquals(100L, SessionEngine.invariantDiscrepancy(false, 100L));
+		assertEquals(-3_900_000L, SessionEngine.invariantDiscrepancy(false, -3_900_000L));
+
+		// Bank known: closed-bank revaluation lands in the residual
+		// legitimately, so no gap is decidable — the guard must stay quiet.
+		assertEquals(0L, SessionEngine.invariantDiscrepancy(true, 0L));
+		assertEquals(0L, SessionEngine.invariantDiscrepancy(true, 100L));
+		assertEquals(0L, SessionEngine.invariantDiscrepancy(true, -3_900_000L));
+	}
 }
