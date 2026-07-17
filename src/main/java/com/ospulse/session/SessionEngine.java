@@ -467,16 +467,18 @@ public final class SessionEngine
 	 */
 	private boolean invariantWarned;
 	/**
-	 * True once this session has taken a modeled PERMANENT loss the panel
-	 * deliberately books nowhere — a DESTROY's never-looted portion, or a
-	 * non-consumable dropped parcel despawning unclaimed. Such value leaves
-	 * raw net worth without touching Profit/GE/unrealized, so the "Bank"
-	 * residual is shifted for the rest of the session and the invariant
-	 * guard can no longer decide "unexplained" — it stays quiet instead of
-	 * crying wolf (Codex PR #10 review). Purely diagnostic — never affects
+	 * True once this session has taken a modeled net-worth-only event the
+	 * panel deliberately books in NO component — a DESTROY's never-looted
+	 * portion, a non-consumable dropped parcel despawning unclaimed, or a
+	 * shop purchase's buy margin (items worth more or less than the coins
+	 * paid; the Zaff battlestaff flow). Such value moves raw net worth
+	 * without touching Profit/GE/unrealized, so the "Bank" residual is
+	 * shifted for the rest of the session and the invariant guard can no
+	 * longer decide "unexplained" — it stays quiet instead of crying wolf
+	 * (Codex PR #10 rounds 2-3). Purely diagnostic — never affects
 	 * profit/unrealized computation.
 	 */
-	private boolean modeledPermanentLossSeen;
+	private boolean modeledResidualShiftSeen;
 	/**
 	 * Wall-clock window (ms) within which a stack vanishing in one update and
 	 * reappearing in the next (or vice versa) is treated as the two halves of
@@ -812,7 +814,7 @@ public final class SessionEngine
 		this.lastRiseSettled = 0L;
 		this.lastLoggedFigures = null;
 		this.invariantWarned = false;
-		this.modeledPermanentLossSeen = false;
+		this.modeledResidualShiftSeen = false;
 		this.pendingVanished = new ArrayList<>();
 		this.pendingLooted = new ArrayList<>();
 		// Holdings present at session start enter at their live price, so
@@ -1624,8 +1626,8 @@ public final class SessionEngine
 			{
 				// Non-consumable despawned unclaimed: booked nowhere (the
 				// looted portion left Loot at drop time), so the residual is
-				// permanently shifted — see modeledPermanentLossSeen.
-				modeledPermanentLossSeen = true;
+				// permanently shifted — see modeledResidualShiftSeen.
+				modeledResidualShiftSeen = true;
 			}
 			return true;
 		});
@@ -2063,7 +2065,10 @@ public final class SessionEngine
 			{
 				// Bought this tick (coins left to pay for it) — a net-worth item, not
 				// loot. Skip the loot ledger entirely; the tracked rise already lifts
-				// net worth by its value.
+				// net worth by its value. The buy margin (items worth more or less
+				// than the coins paid) surfaces only in net worth — a modeled
+				// residual shift, so the invariant guard must go quiet.
+				modeledResidualShiftSeen = true;
 				logAttribution(a.itemId, a.name, a.quantity, a.quantity * a.unitValue,
 					"PURCHASE(bought with coins this tick; not loot)");
 				a.quantity = 0L;
@@ -2126,8 +2131,8 @@ public final class SessionEngine
 				if (v.quantity - looted > 0)
 				{
 					// The never-looted portion is a modeled permanent loss the
-					// panel books nowhere — see modeledPermanentLossSeen.
-					modeledPermanentLossSeen = true;
+					// panel books nowhere — see modeledResidualShiftSeen.
+					modeledResidualShiftSeen = true;
 				}
 				v.quantity = 0L; // no parcel — permanent
 				continue;
@@ -2787,11 +2792,12 @@ public final class SessionEngine
 		// still warn once the window lapses, and a persisting or drifting
 		// residual must not spam), and only a COMMITTED snapshot may run or
 		// latch it (previews mutate nothing, and commits arrive at most once
-		// per game tick). Modeled losses the panel books nowhere pollute the
-		// residual, so the guard also goes quiet while a dropped parcel with
-		// a never-looted portion sits on the ground (transient — re-pickup
-		// self-heals) or once a DESTROY / unclaimed non-consumable despawn
-		// has shifted it for good (Codex round 2). One benign trigger is
+		// per game tick). Modeled net-worth-only events pollute the residual,
+		// so the guard also goes quiet while a dropped parcel with a
+		// never-looted portion sits on the ground (transient — re-pickup
+		// self-heals) or once a DESTROY, an unclaimed non-consumable despawn,
+		// or a shop purchase's buy margin has shifted it for good (Codex
+		// rounds 2-3). One benign trigger is
 		// known and accepted: a deposit-box deposit made before the bank has
 		// ever been read leaves the residual nonzero once its settle
 		// expectation expires — one log line per session, not a spam source.
@@ -2802,7 +2808,7 @@ public final class SessionEngine
 			boolean withinBankTransferTolerance = pendingSettle != 0
 				|| pendingStaleBankDrop != 0
 				|| (lastTransferFoldKnown && tsMs - lastTransferFoldTsMs <= BANK_TRANSFER_SETTLE_WINDOW_MS);
-			boolean residualPolluted = modeledPermanentLossSeen || hasOwnedGroundParcel();
+			boolean residualPolluted = modeledResidualShiftSeen || hasOwnedGroundParcel();
 			if (invariantGap != 0 && !withinBankTransferTolerance && !residualPolluted)
 			{
 				invariantWarned = true;
