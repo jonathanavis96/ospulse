@@ -3709,22 +3709,18 @@ public class SessionEngineTest
 	// unrealized, signed gap otherwise.
 
 	@Test
-	public void invariantDiscrepancyZeroWhenIdentityHolds()
+	public void invariantDiscrepancyOnlyMeasurableWhileBankUnknown()
 	{
-		assertEquals(0L, SessionEngine.invariantDiscrepancy(0L, 0L, 0L, 0L));
-		assertEquals(0L, SessionEngine.invariantDiscrepancy(1_500L, 1_000L, 300L, 200L));
-		assertEquals(0L, SessionEngine.invariantDiscrepancy(-700L, -1_000L, 500L, -200L));
-	}
+		// Bank unknown: the Bank residual has nothing legitimate to absorb,
+		// so any nonzero value IS the unexplained movement, sign preserved.
+		assertEquals(0L, SessionEngine.invariantDiscrepancy(false, 0L));
+		assertEquals(100L, SessionEngine.invariantDiscrepancy(false, 100L));
+		assertEquals(-3_900_000L, SessionEngine.invariantDiscrepancy(false, -3_900_000L));
 
-	@Test
-	public void invariantDiscrepancyReportsSignedGap()
-	{
-		// Net worth 100 gp higher than the visible terms explain.
-		assertEquals(100L, SessionEngine.invariantDiscrepancy(1_600L, 1_000L, 300L, 200L));
-		// Net worth 250 gp LOWER than the visible terms explain.
-		assertEquals(-250L, SessionEngine.invariantDiscrepancy(1_250L, 1_000L, 300L, 200L));
-		// Each term participates with its own sign.
-		assertEquals(0L, SessionEngine.invariantDiscrepancy(
-			-3_900_000L, -4_000_000L, 150_000L, -50_000L));
+		// Bank known: closed-bank revaluation lands in the residual
+		// legitimately, so no gap is decidable — the guard must stay quiet.
+		assertEquals(0L, SessionEngine.invariantDiscrepancy(true, 0L));
+		assertEquals(0L, SessionEngine.invariantDiscrepancy(true, 100L));
+		assertEquals(0L, SessionEngine.invariantDiscrepancy(true, -3_900_000L));
 	}
 }
