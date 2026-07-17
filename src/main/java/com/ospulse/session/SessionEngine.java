@@ -669,44 +669,6 @@ public final class SessionEngine
 		}
 	}
 
-	/**
-	 * Parsed "<base> (<dose>)" shape of a dose-suffixed item name (potions,
-	 * brews, restores — anything named "...(1)" through "...(4)"), used only
-	 * to pair a dose-down within the same update (see {@link #update}). Not
-	 * related to {@link SupplyClassifier}'s broader consumable matching.
-	 */
-	private static final class DoseName
-	{
-		private static final java.util.regex.Pattern PATTERN =
-			java.util.regex.Pattern.compile("^(?<base>.+?)\\s*\\((?<dose>[1-4])\\)$",
-				java.util.regex.Pattern.CASE_INSENSITIVE);
-
-		final String base;
-		final int dose;
-
-		private DoseName(String base, int dose)
-		{
-			this.base = base;
-			this.dose = dose;
-		}
-
-		/** @return the parsed base/dose, or {@code null} if not dose-suffixed. */
-		static DoseName parse(String name)
-		{
-			if (name == null)
-			{
-				return null;
-			}
-			java.util.regex.Matcher m = PATTERN.matcher(name.trim());
-			if (!m.matches())
-			{
-				return null;
-			}
-			return new DoseName(m.group("base").trim().toLowerCase(java.util.Locale.ROOT),
-				Integer.parseInt(m.group("dose")));
-		}
-	}
-
 	/** Immutable bundle of the debug-loggable figures from one snapshot. */
 	private static final class DebugFigures
 	{
