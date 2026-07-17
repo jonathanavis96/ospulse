@@ -1888,6 +1888,7 @@ public final class SessionEngine
 		}
 		boolean purchaseTick = coinsSpentThisTick > 0 && arrivingItemValue > 0
 			&& 2 * coinsSpentThisTick >= arrivingItemValue;
+		long purchasedValueThisTick = 0L;
 
 		for (Swing a : appeared)
 		{
@@ -2065,14 +2066,11 @@ public final class SessionEngine
 			{
 				// Bought this tick (coins left to pay for it) — a net-worth item, not
 				// loot. Skip the loot ledger entirely; the tracked rise already lifts
-				// net worth by its value. A NONZERO buy margin (items worth more or
-				// less than the coins paid) surfaces only in net worth — a modeled
-				// residual shift, so the invariant guard must go quiet. An
-				// exact-value trade leaves no residual and must not burn the guard.
-				if (arrivingItemValue != coinsSpentThisTick)
-				{
-					modeledResidualShiftSeen = true;
-				}
+				// net worth by its value. Accumulate the value actually classified
+				// as PURCHASE — the buy-margin latch below compares it against the
+				// coins spent (arrivingItemValue would overstate: it is computed
+				// before same-tick ground returns are filtered out).
+				purchasedValueThisTick += a.quantity * a.unitValue;
 				logAttribution(a.itemId, a.name, a.quantity, a.quantity * a.unitValue,
 					"PURCHASE(bought with coins this tick; not loot)");
 				a.quantity = 0L;
@@ -2088,6 +2086,15 @@ public final class SessionEngine
 				newPendingLooted.add(new PendingSwing(a.itemId, a.quantity, a.unitValue,
 					a.fullSwing, false, a.hadBasis, a.basisQuantity, a.basisTotalCost, tsMs));
 			}
+		}
+
+		if (purchasedValueThisTick != 0 && purchasedValueThisTick != coinsSpentThisTick)
+		{
+			// A NONZERO buy margin — value actually classified as PURCHASE vs
+			// the coins paid — surfaces only in net worth: a modeled residual
+			// shift, so the invariant guard must go quiet. An exact-value
+			// purchase leaves no residual and must not burn the guard.
+			modeledResidualShiftSeen = true;
 		}
 
 		long lootReversed = 0L;
