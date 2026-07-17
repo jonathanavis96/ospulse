@@ -763,6 +763,27 @@ public final class SessionEngine
 		return false;
 	}
 
+	/**
+	 * Any un-signalled vanish still inside its return window with an owned
+	 * portion — never looted (nothing reversed out of Loot) and never charged
+	 * as supplies. Its value has left raw net worth unbooked until the window
+	 * resolves: a return restores it, expiry makes the shift permanent (the
+	 * retention loop latches {@link #modeledResidualShiftSeen} then). While
+	 * one is pending, the net-worth residual is transiently polluted and the
+	 * invariant guard must not warn.
+	 */
+	private boolean hasPendingOwnedVanish()
+	{
+		for (PendingSwing p : pendingVanished)
+		{
+			if (!p.suppliesCharged && p.quantity > p.reversedLootQty)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	/** Mutable per-item cost-basis accumulator (quantity held + total cost). */
 	private static final class Basis
 	{
@@ -2300,6 +2321,15 @@ public final class SessionEngine
 			{
 				retainedVanished.add(p);
 			}
+			else if (!p.suppliesCharged && p.quantity > p.reversedLootQty)
+			{
+				// An owned (never-looted, never-charged) portion expired
+				// unreturned: its value left raw net worth booked nowhere — a
+				// permanent modeled residual shift, so the invariant guard
+				// goes quiet for the rest of the session (see
+				// modeledResidualShiftSeen).
+				modeledResidualShiftSeen = true;
+			}
 		}
 		retainedVanished.addAll(newPendingVanished);
 		this.pendingVanished = retainedVanished;
@@ -2819,7 +2849,8 @@ public final class SessionEngine
 			boolean withinBankTransferTolerance = pendingSettle != 0
 				|| pendingStaleBankDrop != 0
 				|| (lastTransferFoldKnown && tsMs - lastTransferFoldTsMs <= BANK_TRANSFER_SETTLE_WINDOW_MS);
-			boolean residualPolluted = modeledResidualShiftSeen || hasOwnedGroundParcel();
+			boolean residualPolluted = modeledResidualShiftSeen || hasOwnedGroundParcel()
+				|| hasPendingOwnedVanish();
 			if (invariantGap != 0 && !withinBankTransferTolerance && !residualPolluted)
 			{
 				invariantWarned = true;
