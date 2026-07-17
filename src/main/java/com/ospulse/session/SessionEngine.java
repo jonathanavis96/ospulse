@@ -467,6 +467,17 @@ public final class SessionEngine
 	 */
 	private boolean invariantWarned;
 	/**
+	 * True once this session has taken a modeled PERMANENT loss the panel
+	 * deliberately books nowhere — a DESTROY's never-looted portion, or a
+	 * non-consumable dropped parcel despawning unclaimed. Such value leaves
+	 * raw net worth without touching Profit/GE/unrealized, so the "Bank"
+	 * residual is shifted for the rest of the session and the invariant
+	 * guard can no longer decide "unexplained" — it stays quiet instead of
+	 * crying wolf (Codex PR #10 review). Purely diagnostic — never affects
+	 * profit/unrealized computation.
+	 */
+	private boolean modeledPermanentLossSeen;
+	/**
 	 * Wall-clock window (ms) within which a stack vanishing in one update and
 	 * reappearing in the next (or vice versa) is treated as the two halves of
 	 * a single equip/unequip rather than genuine consumption followed by loot.
@@ -730,6 +741,26 @@ public final class SessionEngine
 		return bankKnown ? 0L : bankDelta;
 	}
 
+	/**
+	 * Any dropped parcel still on the ground with a never-looted portion: its
+	 * value has left raw net worth, but no panel component books it (the
+	 * looted portion was already reversed out of Loot at drop time). While
+	 * one exists, the net-worth residual is transiently polluted and the
+	 * invariant guard must not warn — re-pickup restores the value and the
+	 * residual on its own.
+	 */
+	private boolean hasOwnedGroundParcel()
+	{
+		for (Parcel p : onGround.values())
+		{
+			if (p.qty > p.lootedQty)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	/** Mutable per-item cost-basis accumulator (quantity held + total cost). */
 	private static final class Basis
 	{
@@ -781,6 +812,7 @@ public final class SessionEngine
 		this.lastRiseSettled = 0L;
 		this.lastLoggedFigures = null;
 		this.invariantWarned = false;
+		this.modeledPermanentLossSeen = false;
 		this.pendingVanished = new ArrayList<>();
 		this.pendingLooted = new ArrayList<>();
 		// Holdings present at session start enter at their live price, so
@@ -1588,6 +1620,13 @@ public final class SessionEngine
 				logAttribution(e.getKey(), "id" + e.getKey(), -owned, -consumedValue,
 					"SUPPLY(dropped supply despawned; owned portion)");
 			}
+			else if (owned > 0)
+			{
+				// Non-consumable despawned unclaimed: booked nowhere (the
+				// looted portion left Loot at drop time), so the residual is
+				// permanently shifted — see modeledPermanentLossSeen.
+				modeledPermanentLossSeen = true;
+			}
 			return true;
 		});
 
@@ -2084,6 +2123,12 @@ public final class SessionEngine
 				}
 				logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue,
 					"DESTROY(permanent; " + looted + " looted units removed from Loot)");
+				if (v.quantity - looted > 0)
+				{
+					// The never-looted portion is a modeled permanent loss the
+					// panel books nowhere — see modeledPermanentLossSeen.
+					modeledPermanentLossSeen = true;
+				}
 				v.quantity = 0L; // no parcel — permanent
 				continue;
 			}
@@ -2742,18 +2787,23 @@ public final class SessionEngine
 		// still warn once the window lapses, and a persisting or drifting
 		// residual must not spam), and only a COMMITTED snapshot may run or
 		// latch it (previews mutate nothing, and commits arrive at most once
-		// per game tick). One benign trigger is known and accepted: a
-		// deposit-box deposit made before the bank has ever been read leaves
-		// the residual nonzero once its settle expectation expires — one log
-		// line per session, not a spam source. No accounting state is
-		// read-modified here.
+		// per game tick). Modeled losses the panel books nowhere pollute the
+		// residual, so the guard also goes quiet while a dropped parcel with
+		// a never-looted portion sits on the ground (transient — re-pickup
+		// self-heals) or once a DESTROY / unclaimed non-consumable despawn
+		// has shifted it for good (Codex round 2). One benign trigger is
+		// known and accepted: a deposit-box deposit made before the bank has
+		// ever been read leaves the residual nonzero once its settle
+		// expectation expires — one log line per session, not a spam source.
+		// No accounting state is read-modified here.
 		if (commit && !invariantWarned)
 		{
 			long invariantGap = invariantDiscrepancy(current.isBankKnown(), bankDelta);
 			boolean withinBankTransferTolerance = pendingSettle != 0
 				|| pendingStaleBankDrop != 0
 				|| (lastTransferFoldKnown && tsMs - lastTransferFoldTsMs <= BANK_TRANSFER_SETTLE_WINDOW_MS);
-			if (invariantGap != 0 && !withinBankTransferTolerance)
+			boolean residualPolluted = modeledPermanentLossSeen || hasOwnedGroundParcel();
+			if (invariantGap != 0 && !withinBankTransferTolerance && !residualPolluted)
 			{
 				invariantWarned = true;
 				log.warn("net-worth invariant violated: {} gp of net-worth movement is unexplained while the bank "
