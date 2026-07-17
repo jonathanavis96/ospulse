@@ -458,6 +458,15 @@ public final class SessionEngine
 	 */
 	private DebugFigures lastLoggedFigures;
 	/**
+	 * Rate-limit latch for the net-worth invariant guard (see
+	 * {@link #invariantDiscrepancy}): the discrepancy value last observed by a
+	 * COMMITTED snapshot, so the WARN fires once per distinct discrepancy
+	 * rather than every game tick it persists. Purely diagnostic — never
+	 * affects profit/unrealized computation. {@code 0} means the identity
+	 * held (or nothing has been observed yet).
+	 */
+	private long lastInvariantDiscrepancy;
+	/**
 	 * Wall-clock window (ms) within which a stack vanishing in one update and
 	 * reappearing in the next (or vice versa) is treated as the two halves of
 	 * a single equip/unequip rather than genuine consumption followed by loot.
@@ -700,6 +709,18 @@ public final class SessionEngine
 		}
 	}
 
+	/**
+	 * Discrepancy of the session panel's headline identity — how far the
+	 * displayed net-worth change strays from the sum of the terms a user can
+	 * see move ("Profit + GE flip + unrealized"). Zero when the identity
+	 * holds. Pure function of its inputs (extracted so the guard's arithmetic
+	 * is unit-testable); package-private for tests.
+	 */
+	static long invariantDiscrepancy(long netWorthDelta, long netProfit, long geRealizedPnl, long unrealizedPnl)
+	{
+		return netWorthDelta - (netProfit + geRealizedPnl + unrealizedPnl);
+	}
+
 	/** Mutable per-item cost-basis accumulator (quantity held + total cost). */
 	private static final class Basis
 	{
@@ -750,6 +771,7 @@ public final class SessionEngine
 		this.storageMaterialising.clear();
 		this.lastRiseSettled = 0L;
 		this.lastLoggedFigures = null;
+		this.lastInvariantDiscrepancy = 0L;
 		this.pendingVanished = new ArrayList<>();
 		this.pendingLooted = new ArrayList<>();
 		// Holdings present at session start enter at their live price, so
@@ -2695,6 +2717,36 @@ public final class SessionEngine
 		long gePositions = gePool - geCostBasis;
 		long bankDelta = rawNetWorthDelta - netProfit - geRealizedPnl - gePositions - unrealizedPnl;
 		long netWorthDelta = netProfit + geRealizedPnl + gePositions + bankDelta;
+
+		// ---- Invariant guard: self-capture for the 2026-07-10 field report
+		// ("Profit + Unrealized ≠ Net worth") that could not be reproduced.
+		// Purely diagnostic — WARNs (always on, unlike the diag-gated wealth
+		// line below) when the panel identity
+		//   netWorthDelta == Profit + GE flip + unrealizedPnl
+		// fails to hold OUTSIDE the existing bank-transfer tolerance: an
+		// in-flight deposit still settling, an owed stale-re-read bank drop,
+		// or the BANK_TRANSFER_SETTLE_WINDOW_MS after the last transfer fold —
+		// the exact machinery that already excuses transient bank skew, reused
+		// here rather than inventing a new threshold. Rate-limited to once per
+		// distinct discrepancy value via lastInvariantDiscrepancy, and only a
+		// COMMITTED snapshot may run/latch it (Finding 5: previews mutate
+		// nothing, and commits arrive at most once per game tick, so the WARN
+		// cannot spam). No accounting state is read-modified here.
+		if (commit)
+		{
+			long invariantGap = invariantDiscrepancy(netWorthDelta, netProfit, geRealizedPnl, unrealizedPnl);
+			boolean withinBankTransferTolerance = pendingSettle != 0
+				|| pendingStaleBankDrop != 0
+				|| (lastTransferFoldKnown && tsMs - lastTransferFoldTsMs <= BANK_TRANSFER_SETTLE_WINDOW_MS);
+			if (invariantGap != 0 && invariantGap != lastInvariantDiscrepancy && !withinBankTransferTolerance)
+			{
+				log.warn("net-worth invariant violated: netWorthDelta={} != profit={} + geRealizedPnl={} + unrealizedPnl={} "
+						+ "(discrepancy={}; context: gePositions={} bankDelta={})",
+					netWorthDelta, netProfit, geRealizedPnl, unrealizedPnl,
+					invariantGap, gePositions, bankDelta);
+			}
+			lastInvariantDiscrepancy = invariantGap;
+		}
 
 		if (diagEnabled())
 		{

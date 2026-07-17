@@ -3703,4 +3703,28 @@ public class SessionEngineTest
 		assertEquals("overflow catch books as fresh loot, not eaten by a stale ledger",
 			6_060L, s.getLootValue());
 	}
+
+	// ---- Invariant-guard discrepancy arithmetic (2026-07-10 field report
+	// self-capture): zero exactly when netWorthDelta == Profit + GE flip +
+	// unrealized, signed gap otherwise.
+
+	@Test
+	public void invariantDiscrepancyZeroWhenIdentityHolds()
+	{
+		assertEquals(0L, SessionEngine.invariantDiscrepancy(0L, 0L, 0L, 0L));
+		assertEquals(0L, SessionEngine.invariantDiscrepancy(1_500L, 1_000L, 300L, 200L));
+		assertEquals(0L, SessionEngine.invariantDiscrepancy(-700L, -1_000L, 500L, -200L));
+	}
+
+	@Test
+	public void invariantDiscrepancyReportsSignedGap()
+	{
+		// Net worth 100 gp higher than the visible terms explain.
+		assertEquals(100L, SessionEngine.invariantDiscrepancy(1_600L, 1_000L, 300L, 200L));
+		// Net worth 250 gp LOWER than the visible terms explain.
+		assertEquals(-250L, SessionEngine.invariantDiscrepancy(1_250L, 1_000L, 300L, 200L));
+		// Each term participates with its own sign.
+		assertEquals(0L, SessionEngine.invariantDiscrepancy(
+			-3_900_000L, -4_000_000L, 150_000L, -50_000L));
+	}
 }
