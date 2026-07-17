@@ -2065,10 +2065,14 @@ public final class SessionEngine
 			{
 				// Bought this tick (coins left to pay for it) — a net-worth item, not
 				// loot. Skip the loot ledger entirely; the tracked rise already lifts
-				// net worth by its value. The buy margin (items worth more or less
-				// than the coins paid) surfaces only in net worth — a modeled
-				// residual shift, so the invariant guard must go quiet.
-				modeledResidualShiftSeen = true;
+				// net worth by its value. A NONZERO buy margin (items worth more or
+				// less than the coins paid) surfaces only in net worth — a modeled
+				// residual shift, so the invariant guard must go quiet. An
+				// exact-value trade leaves no residual and must not burn the guard.
+				if (arrivingItemValue != coinsSpentThisTick)
+				{
+					modeledResidualShiftSeen = true;
+				}
 				logAttribution(a.itemId, a.name, a.quantity, a.quantity * a.unitValue,
 					"PURCHASE(bought with coins this tick; not loot)");
 				a.quantity = 0L;
