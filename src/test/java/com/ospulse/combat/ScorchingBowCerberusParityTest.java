@@ -15,7 +15,9 @@ import static org.junit.Assert.assertTrue;
  * <p>GearScape (matches in-game): max hit <b>58</b>, accuracy <b>86.67%</b>,
  * DPS <b>10.479</b>. Derivation: boosted ranged 112 (ranging potion), Rigour;
  * effStr floor(112*1.23)+8 = 145, effAtt floor(112*1.20)+8 = 142; total
- * arange +252, rstr +113 (cache data); base max floor((145*177+320)/640)=40;
+ * arange +252, rstr +114 (cache data, cache 2639 — Pegasian boots +1 ranged
+ * strength, matching the wiki oracle); base max floor((145*178+320)/640)=40
+ * (unchanged: the +1 rstr doesn't cross a floor boundary here);
  * on-task imbued helm + demonbane fold: floor(40*29/20) = <b>58</b>; base
  * roll 142*316 = 44872, floor(*23/20)=51602, floor(*13/10)=67082 vs Cerberus
  * defence roll (100+9)*(100+64)=17876 -> hit 1-17878/134166 = <b>0.86675</b>;
@@ -64,7 +66,7 @@ public class ScorchingBowCerberusParityTest {
         // Guard the aggregate inputs so a data regression fails loudly here,
         // not as a mysteriously shifted max hit.
         assertEquals("total ranged attack bonus", 252, gear.arange());
-        assertEquals("total ranged strength bonus", 113, gear.rstr());
+        assertEquals("total ranged strength bonus", 114, gear.rstr());
         assertEquals("Scorching bow speed", 5, gear.weaponSpeedTicks());
 
         PlayerCombat player = PlayerCombat.builder()
