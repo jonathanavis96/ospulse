@@ -500,7 +500,7 @@ public class TargetDamageRuleTest {
         for (String name : new String[]{"The Hueycoatl (Tail)", "The Hueycoatl (Tail (broken))"}) {
             MonsterCombatRequirement req = repo.forMonster(name).orElseThrow(AssertionError::new);
             assertEquals(name + " must be capped at 4", 4,
-                TargetDamageRule.maxHitCapFor(req, gearWithAttackBonuses(50, 10, 10)));
+                TargetDamageRule.maxHitCapFor(req, gearWithAttackBonuses(50, 10, 10), CombatStyle.STAB, WHIP));
         }
     }
 
