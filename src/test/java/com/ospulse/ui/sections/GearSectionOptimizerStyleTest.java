@@ -585,6 +585,72 @@ public class GearSectionOptimizerStyleTest
 	}
 
 	/**
+	 * The WORN case, and the reason a reported self-swap does not actually
+	 * occur — recorded because the reasoning is not obvious from either side.
+	 *
+	 * <p>The concern: with the mode-locked cape equipped rather than banked,
+	 * the optimiser would be forced onto its credited plain counterpart
+	 * (21791) since 29617 is excluded from every search, the display would
+	 * resolve that back to 29617, and comparing the RAW choice against the
+	 * live id would render a 29617 → 29617 self-swap, report a slot change
+	 * and auto-apply a redundant override.
+	 *
+	 * <p>It does not happen, because the exclude set filters <b>candidates</b>
+	 * and a worn item is not a candidate — it is the <b>seed</b>.
+	 * {@code GearOptimizer.Request.Builder} adds every live id to {@code
+	 * owned} unconditionally ("the player's own worn gear is always owned"),
+	 * and the search starts from {@code request.liveItemIds.clone()}. A worn
+	 * mode-locked item therefore stays in its slot and comes back as the raw
+	 * choice, so the live-vs-choice comparison already matches. This test
+	 * pins that: the raw cape choice IS the worn deadman id.
+	 *
+	 * <p>The margin is one tie-break wide, which is why the comparisons still
+	 * resolve first (see {@code GearSection#hasAnySlotChange}). The greedy
+	 * seed picks each slot's best owned CANDIDATE, and 21791 is in the owned
+	 * set via the credit while 29617 is not a candidate — the two are
+	 * stat-identical, so the tie keeps the worn item today. Anything that
+	 * made the credited counterpart score strictly higher would hand the slot
+	 * to 21791 and make the self-swap real.
+	 */
+	@Test
+	public void wornDeadmanCape_isNotReportedAsASwapAgainstItself()
+	{
+		onEdt(() ->
+		{
+			int[] worn = loadout(TRIDENT_OF_THE_SEAS);
+			worn[CAPE_SLOT] = IMBUED_SARADOMIN_CAPE_DEADMAN;
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(worn), wealthWith(IMBUED_SARADOMIN_CAPE_DEADMAN)));
+			pickCerberus(section);
+			section.clickOptimizerStyleForTest(CombatStyle.MAGIC);
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			int capeChoiceId = -1;
+			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
+			{
+				if (choice.slotOrdinal() == CAPE_SLOT)
+				{
+					capeChoiceId = choice.itemId();
+				}
+			}
+			assertEquals("a worn mode-locked item is the search SEED, not a candidate, so it comes "
+					+ "back as the raw choice unchanged",
+				IMBUED_SARADOMIN_CAPE_DEADMAN, capeChoiceId);
+
+			assertEquals("no swap row may be rendered for a cape the player is already wearing",
+				null, findSwapTooltipStartingWith(section, "Imbued saradomin cape"));
+			assertFalse("the cape slot must not count as a change, or the panel reports an upgrade "
+					+ "that is the item already on the player's back",
+				section.hasAnySlotChangeForTest(section.lastOptimizerResultForTest()));
+
+			section.clickApplyOptimizerResultForTest();
+			assertEquals("no redundant override may be applied for an unchanged slot",
+				-1, section.overrideForTest().itemIdFor(CAPE_SLOT));
+		});
+	}
+
+	/**
 	 * The kernel of the original P1, still enforced: a substitution only ever
 	 * happens for a choice the player does NOT physically hold. Here they own
 	 * the plain "Imbued saradomin cape" outright AND the mode-locked deadman

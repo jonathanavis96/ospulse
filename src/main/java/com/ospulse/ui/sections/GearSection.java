@@ -4890,14 +4890,32 @@ public final class GearSection extends CollapsibleSection
 		optimizerSwapList.setVisible(visible);
 	}
 
-	/** True if the optimiser's proposed loadout differs from the currently worn gear in at least one slot. */
+	/**
+	 * True if the optimiser's proposed loadout differs from the currently worn
+	 * gear in at least one slot.
+	 *
+	 * <p><b>The comparison is against the RESOLVED id, not the raw choice.</b>
+	 * When a mode-locked variant is already WORN rather than banked, the
+	 * optimiser is forced to pick its credited plain counterpart (the variant
+	 * itself is excluded from every search), and {@link
+	 * #resolvedChoiceItemId} maps that straight back to the worn id. Comparing
+	 * the raw choice would see live 29617 against choice 21791, call it a
+	 * change, and report an upgrade that is really the item already on the
+	 * player's back. Every live-vs-suggestion comparison — here, {@link
+	 * #renderOptimizerSwapList}'s skip and {@link
+	 * #applyOptimizerResultToOverride}'s — must therefore resolve first, or
+	 * they disagree with what the panel actually shows.
+	 */
 	private boolean hasAnySlotChange(GearOptimizer.Result result)
 	{
 		int[] liveIds = lastGear == null ? new int[GearSnapshot.EQUIPMENT_SLOT_COUNT] : lastGear.equippedItemIds();
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
+		java.util.Set<Integer> heldIds = HeldItemIds.from(lastWealth, lastGear, index);
 		for (GearOptimizer.SlotChoice choice : result.loadout())
 		{
 			int liveId = choice.slotOrdinal() < liveIds.length ? liveIds[choice.slotOrdinal()] : -1;
-			if (liveId != choice.itemId())
+			if (liveId != resolvedChoiceItemId(index, choice, ownedIds, heldIds))
 			{
 				return true;
 			}
@@ -4932,14 +4950,17 @@ public final class GearSection extends CollapsibleSection
 		boolean anyRow = false;
 		for (GearOptimizer.SlotChoice choice : result.loadout())
 		{
+			// Resolve BEFORE comparing — see hasAnySlotChange: a worn mode-locked
+			// variant resolves back to itself, and comparing the raw choice would
+			// render a 29617 -> 29617 self-swap row.
+			int resolvedId = resolvedChoiceItemId(index, choice, ownedIds, heldIds);
 			int liveId = choice.slotOrdinal() < liveIds.length ? liveIds[choice.slotOrdinal()] : -1;
-			if (liveId == choice.itemId())
+			if (liveId == resolvedId)
 			{
 				continue; // unchanged — nothing to report for this slot
 			}
 			anyRow = true;
-			optimizerSwapList.add(buildSwapRow(index, choice.slotOrdinal(), liveId,
-				resolvedChoiceItemId(index, choice, ownedIds, heldIds), choice));
+			optimizerSwapList.add(buildSwapRow(index, choice.slotOrdinal(), liveId, resolvedId, choice));
 			optimizerSwapList.add(Box.createRigidArea(new Dimension(0, 2)));
 		}
 		if (!anyRow)
@@ -5259,12 +5280,16 @@ public final class GearSection extends CollapsibleSection
 		LoadoutOverride next = LoadoutOverride.empty();
 		for (GearOptimizer.SlotChoice choice : lastOptimizerResult.loadout())
 		{
+			// Resolve BEFORE comparing — see hasAnySlotChange: a worn mode-locked
+			// variant resolves back to itself, and comparing the raw choice would
+			// preview a redundant override of the item already equipped.
+			int resolvedId = resolvedChoiceItemId(index, choice, ownedIds, heldIds);
 			int liveId = choice.slotOrdinal() < liveIds.length ? liveIds[choice.slotOrdinal()] : -1;
-			if (liveId == choice.itemId())
+			if (liveId == resolvedId)
 			{
 				continue; // unchanged — nothing to preview for this slot
 			}
-			next = next.withSlot(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds, heldIds));
+			next = next.withSlot(choice.slotOrdinal(), resolvedId);
 		}
 		// B9-3: a two-handed weapon frees the shield slot. The optimiser empties
 		// the shield internally, but empty slots aren't listed in loadout(), so
@@ -5889,6 +5914,12 @@ public final class GearSection extends CollapsibleSection
 	GearOptimizer.Result lastOptimizerResultForTest()
 	{
 		return lastOptimizerResult;
+	}
+
+	/** Test seam: {@link #hasAnySlotChange} — the "No upgrade found" verdict. */
+	boolean hasAnySlotChangeForTest(GearOptimizer.Result result)
+	{
+		return hasAnySlotChange(result);
 	}
 
 	/**
