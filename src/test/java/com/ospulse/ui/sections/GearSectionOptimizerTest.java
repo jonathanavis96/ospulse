@@ -952,4 +952,44 @@ public class GearSectionOptimizerTest
 				1_000L, risk.priceFor(SARADOMIN_CAPE_PLAIN));
 		});
 	}
+
+	/**
+	 * The load-bearing layer of the same rule, one below the two tests above.
+	 * The credit's justification is that the player effectively HAS the plain
+	 * item because they hold the variant — so excluding the variant withdraws
+	 * the backing and the credit must go with it. Otherwise the exclusion
+	 * manufactures a free item out of nothing: the optimiser recommends the
+	 * plain cape at zero spend when the bank contains no cape at all, and the
+	 * highlighter points at an id that cannot be there.
+	 *
+	 * <p>Asserted on the ownership map itself, since that is where the credit
+	 * is granted and every downstream surface reads it.
+	 */
+	@Test
+	public void excludedVariant_grantsNoSyntheticOwnershipOfThePlainItem()
+	{
+		onEdt(() ->
+		{
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(SARADOMIN_CAPE_DEADMAN, "Imbued saradomin cape (deadman)", 1, 40_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+
+			assertTrue("fixture sanity: the credit must exist BEFORE the exclusion, or the test proves "
+					+ "nothing about withdrawing it",
+				section.ownedPriceMapForTest().containsKey(SARADOMIN_CAPE_PLAIN));
+
+			section.excludeItemFromSuggestionsForTest(SARADOMIN_CAPE_DEADMAN);
+
+			assertTrue("excluding the only backing variant must withdraw the synthetic credit — the plain "
+					+ "cape is in no bank and must not be free",
+				!section.ownedPriceMapForTest().containsKey(SARADOMIN_CAPE_PLAIN));
+			assertTrue("the excluded variant itself is still genuinely owned; exclusion means "
+					+ "\"never suggest\", not \"pretend it is gone\"",
+				section.ownedPriceMapForTest().containsKey(SARADOMIN_CAPE_DEADMAN));
+		});
+	}
 }

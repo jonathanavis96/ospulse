@@ -450,15 +450,30 @@ public class GearSectionOptimizerStyleTest
 	}
 
 	/**
-	 * Codex review finding #2 (PR #5): if the player EXCLUDED their own
-	 * owned variant from suggestions, the optimiser correctly falls back to
-	 * recommending the plain base form via the ownership map — and the
-	 * display must NOT remap that back to the excluded variant, or the
-	 * excluded item would silently reappear under a different id's row. The
-	 * plain name is shown/applied instead, matching what the optimiser is
-	 * actually proposing (also exercises finding #1's consistency: whatever
-	 * the row shows is exactly what gets applied, even in this fallback
-	 * case).
+	 * Codex review finding #2 (PR #5) established that an excluded owned
+	 * variant must never reappear in the suggestions. That still holds and is
+	 * still asserted here.
+	 *
+	 * <p><b>What changed is the fallback</b> (2026-07-26): the original
+	 * version asserted the plain base id came back <i>owned and free</i> —
+	 * "that's the whole point of the mapping". It is not, and that assertion
+	 * encoded a defect. The credit's entire justification is that the player
+	 * effectively HAS the plain item because they hold the variant. Excluding
+	 * the variant withdraws that backing, and a player who fortified their
+	 * Masori mask has no plain Masori mask in the bank — so recommending one
+	 * at zero spend proposes an item that does not exist anywhere, and the
+	 * bank highlighter then points at an id that cannot be found. The
+	 * exclusion would have manufactured a free item out of nothing.
+	 *
+	 * <p>The honest outcome at budget 0 is what this now asserts: no free
+	 * plain fallback for that slot. With a real budget the plain form is
+	 * simply a purchase, priced like any other — which is exactly what it
+	 * would be.
+	 *
+	 * <p>Applied uniformly across {@code SUFFIXES} rather than only to the
+	 * mode-locked "(deadman)" class that surfaced it: a rule that held for one
+	 * variant class and not another is precisely the kind of split that
+	 * produced several of these findings.
 	 */
 	@Test
 	public void excludedOwnedVariant_doesNotReappearInSuggestions()
@@ -472,30 +487,33 @@ public class GearSectionOptimizerStyleTest
 			section.setBudgetTextForTest("0");
 			section.runOptimizerSyncForTest();
 
-			int headChoiceId = -1;
-			boolean headOwned = false;
+			assertFalse("excluding the only backing variant must withdraw the synthetic credit — the plain "
+					+ "mask is in no bank and must not be marked owned at price 0",
+				section.ownedPriceMapForTest().containsKey(MASORI_MASK));
+			assertTrue("the excluded variant itself is still genuinely owned; exclusion means \"never "
+					+ "suggest\", not \"pretend it is gone\"",
+				section.ownedPriceMapForTest().containsKey(MASORI_MASK_F));
+
 			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
 			{
 				if (choice.slotOrdinal() == 0) // HEAD
 				{
-					headChoiceId = choice.itemId();
-					headOwned = choice.owned();
+					assertFalse("the excluded variant must never be recommended", choice.itemId() == MASORI_MASK_F);
+					assertFalse("and its plain form must not be handed over free in its place",
+						choice.itemId() == MASORI_MASK && choice.owned());
 				}
 			}
-			assertEquals("the optimiser must fall back to matching the plain base id via the ownership map",
-				MASORI_MASK, headChoiceId);
-			assertTrue("the plain base id must be free/owned (that's the whole point of the mapping)", headOwned);
 
 			String swapTooltip = findSwapTooltipStartingWith(section, "Masori");
-			assertTrue("a swap row must exist for the head slot: " + swapTooltip, swapTooltip != null);
-			assertFalse("the excluded variant must NOT reappear — its name must not appear anywhere in the row: "
-				+ swapTooltip, swapTooltip.contains("Masori mask (f)"));
-			assertTrue("the plain item's name must be shown instead: " + swapTooltip,
-				swapTooltip.contains("Masori mask ("));
+			assertEquals("no Masori row at all at budget 0 — neither the excluded variant nor a plain mask "
+					+ "the player does not have: " + swapTooltip,
+				null, swapTooltip);
 
 			section.clickApplyOptimizerResultForTest();
-			assertEquals("the applied preview must match the (plain) row too, not resurrect the excluded variant",
-				MASORI_MASK, section.overrideForTest().itemIdFor(0)); // HEAD
+			assertFalse("the preview must not equip the excluded variant",
+				section.overrideForTest().itemIdFor(0) == MASORI_MASK_F);
+			assertFalse("nor the plain form it no longer credits",
+				section.overrideForTest().itemIdFor(0) == MASORI_MASK);
 		});
 	}
 
