@@ -22,12 +22,14 @@ public final class MonsterCombatRequirement
     private final String note;
     private final double damageMultiplier;
     private final Set<CombatStyle> penalisedStyles;
+    private final Set<CombatStyle> exemptStyles;
     private final int maxHitCap;
     private final int maxHitCapWhenCrushHighest;
 
     private MonsterCombatRequirement(Type type, Set<Integer> allowedItemIds, Set<Integer> allowedAmmoIds,
                                      Set<CombatStyle> allowedStyles, Set<Integer> finisherItemIds, String note,
                                      double damageMultiplier, Set<CombatStyle> penalisedStyles,
+                                     Set<CombatStyle> exemptStyles,
                                      int maxHitCap, int maxHitCapWhenCrushHighest)
     {
         this.type = type;
@@ -40,6 +42,8 @@ public final class MonsterCombatRequirement
         this.damageMultiplier = damageMultiplier;
         this.penalisedStyles = (penalisedStyles == null || penalisedStyles.isEmpty())
             ? EnumSet.noneOf(CombatStyle.class) : EnumSet.copyOf(penalisedStyles);
+        this.exemptStyles = (exemptStyles == null || exemptStyles.isEmpty())
+            ? EnumSet.noneOf(CombatStyle.class) : EnumSet.copyOf(exemptStyles);
         this.maxHitCap = maxHitCap;
         this.maxHitCapWhenCrushHighest = maxHitCapWhenCrushHighest;
     }
@@ -48,13 +52,13 @@ public final class MonsterCombatRequirement
                                                       Set<CombatStyle> allowedStyles, String note)
     {
         return new MonsterCombatRequirement(Type.WEAPON_GATE, allowedItemIds, allowedAmmoIds,
-            allowedStyles, Collections.emptySet(), note, 1.0, Collections.emptySet(), -1, -1);
+            allowedStyles, Collections.emptySet(), note, 1.0, Collections.emptySet(), Collections.emptySet(), -1, -1);
     }
 
     public static MonsterCombatRequirement finisher(Set<Integer> finisherItemIds, String note)
     {
         return new MonsterCombatRequirement(Type.FINISHER, Collections.emptySet(), Collections.emptySet(),
-            EnumSet.noneOf(CombatStyle.class), finisherItemIds, note, 1.0, Collections.emptySet(), -1, -1);
+            EnumSet.noneOf(CombatStyle.class), finisherItemIds, note, 1.0, Collections.emptySet(), Collections.emptySet(), -1, -1);
     }
 
     /**
@@ -64,10 +68,12 @@ public final class MonsterCombatRequirement
      * means every style). This never gates — see {@link TargetDamageRule}.
      */
     public static MonsterCombatRequirement damagePenalty(Set<Integer> allowedItemIds, double damageMultiplier,
-                                                          Set<CombatStyle> penalisedStyles, String note)
+                                                          Set<CombatStyle> penalisedStyles,
+                                                          Set<CombatStyle> exemptStyles, String note)
     {
         return new MonsterCombatRequirement(Type.DAMAGE_PENALTY, allowedItemIds, Collections.emptySet(),
-            EnumSet.noneOf(CombatStyle.class), Collections.emptySet(), note, damageMultiplier, penalisedStyles, -1, -1);
+            EnumSet.noneOf(CombatStyle.class), Collections.emptySet(), note, damageMultiplier, penalisedStyles,
+            exemptStyles, -1, -1);
     }
 
     /**
@@ -79,7 +85,7 @@ public final class MonsterCombatRequirement
     {
         return new MonsterCombatRequirement(Type.DAMAGE_CAP, Collections.emptySet(), Collections.emptySet(),
             EnumSet.noneOf(CombatStyle.class), Collections.emptySet(), note, 1.0, Collections.emptySet(),
-            maxHitCap, maxHitCapWhenCrushHighest);
+            Collections.emptySet(), maxHitCap, maxHitCapWhenCrushHighest);
     }
 
     public Type type() { return type; }
@@ -94,6 +100,8 @@ public final class MonsterCombatRequirement
 
     /** Styles the {@link #damageMultiplier()} applies to; empty means "all styles". Default empty. */
     public Set<CombatStyle> penalisedStyles() { return Collections.unmodifiableSet(penalisedStyles); }
+    /** Styles on which {@code allowedItemIds} actually grants the exemption; empty = any penalised style. */
+    public Set<CombatStyle> exemptStyles() { return Collections.unmodifiableSet(exemptStyles); }
 
     /** Flat max-hit ceiling; {@code -1} means "no cap". Default {@code -1}. */
     public int maxHitCap() { return maxHitCap; }

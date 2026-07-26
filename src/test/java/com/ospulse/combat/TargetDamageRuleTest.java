@@ -22,10 +22,16 @@ public class TargetDamageRuleTest {
     private static final int CORPBANE_SPEAR = 4158; // Leaf-bladed spear — a Corp Beast exempt weapon
     private static final int WHIP = 4151;           // an ordinary, non-exempt stab-capable weapon
 
+    /** Exemption applies on any penalised style — the pre-{@code exemptStyles} behaviour. */
     private static MonsterCombatRequirement corpBeastPenalty(Set<CombatStyle> penalisedStyles) {
+        return corpBeastPenalty(penalisedStyles, EnumSet.noneOf(CombatStyle.class));
+    }
+
+    private static MonsterCombatRequirement corpBeastPenalty(Set<CombatStyle> penalisedStyles,
+                                                             Set<CombatStyle> exemptStyles) {
         return MonsterCombatRequirement.damagePenalty(
-                new HashSet<>(Arrays.asList(CORPBANE_SPEAR)), 0.5, penalisedStyles,
-                "Corp is nearly immune to stab — corpbane weapons deal full damage, everything else half.");
+                new HashSet<>(Arrays.asList(CORPBANE_SPEAR)), 0.5, penalisedStyles, exemptStyles,
+                "Corp halves melee and ranged; a corpbane weapon on stab deals full damage.");
     }
 
     // ---- damageMultiplierFor ------------------------------------------------------------
@@ -182,5 +188,62 @@ public class TargetDamageRuleTest {
         assertEquals(22, r.maxHit());
         assertEquals(0.31769534079021483, r.accuracy(), 1e-9);
         assertEquals(1.461858995665119, r.dps(), 1e-9);
+    }
+
+    // ---- style-sensitive exemption -------------------------------------------------------
+    // Corp's rule is "50% reduction against any weapon that is not a corpbane weapon ON STAB
+    // attack style". Exempting purely on item id overstates a corpbane weapon swung on slash,
+    // and penalising only STAB lets slash/crush/ranged through at full damage.
+
+    /** The real dataset shape: every melee style plus ranged is penalised, magic is not. */
+    private static MonsterCombatRequirement realCorpBeastRule() {
+        return corpBeastPenalty(
+            EnumSet.of(CombatStyle.STAB, CombatStyle.SLASH, CombatStyle.CRUSH, CombatStyle.RANGED),
+            EnumSet.of(CombatStyle.STAB));
+    }
+
+    @Test
+    public void corpbaneSpearIsExemptOnStab() {
+        assertEquals(1.0,
+            TargetDamageRule.damageMultiplierFor(realCorpBeastRule(), CORPBANE_SPEAR, CombatStyle.STAB), 0.0);
+    }
+
+    @Test
+    public void theSameCorpbaneSpearIsStillHalvedOnSlash() {
+        assertEquals("a spear only earns the exemption on the stab style", 0.5,
+            TargetDamageRule.damageMultiplierFor(realCorpBeastRule(), CORPBANE_SPEAR, CombatStyle.SLASH), 0.0);
+    }
+
+    @Test
+    public void nonStabMeleeAndRangedAreHalved() {
+        MonsterCombatRequirement req = realCorpBeastRule();
+        assertEquals(0.5, TargetDamageRule.damageMultiplierFor(req, WHIP, CombatStyle.SLASH), 0.0);
+        assertEquals(0.5, TargetDamageRule.damageMultiplierFor(req, WHIP, CombatStyle.CRUSH), 0.0);
+        assertEquals(0.5, TargetDamageRule.damageMultiplierFor(req, WHIP, CombatStyle.RANGED), 0.0);
+    }
+
+    @Test
+    public void magicIsNeverReduced() {
+        assertEquals("magic deals full damage at Corp — it is only inaccurate", 1.0,
+            TargetDamageRule.damageMultiplierFor(realCorpBeastRule(), WHIP, CombatStyle.MAGIC), 0.0);
+    }
+
+    /** An empty exemptStyles keeps the exemption style-agnostic, so older entries are unaffected. */
+    @Test
+    public void emptyExemptStylesExemptsOnAnyPenalisedStyle() {
+        MonsterCombatRequirement req = corpBeastPenalty(
+            EnumSet.of(CombatStyle.STAB, CombatStyle.SLASH), EnumSet.noneOf(CombatStyle.class));
+        assertEquals(1.0, TargetDamageRule.damageMultiplierFor(req, CORPBANE_SPEAR, CombatStyle.STAB), 0.0);
+        assertEquals(1.0, TargetDamageRule.damageMultiplierFor(req, CORPBANE_SPEAR, CombatStyle.SLASH), 0.0);
+    }
+
+    /** The shipped dataset must match the wiki rule, not just the model. */
+    @Test
+    public void shippedCorpBeastEntryPenalisesEverythingButMagic() {
+        MonsterCombatRequirement req = MonsterCombatRequirementRepository.getInstance()
+            .forMonster("Corporeal Beast").orElseThrow(AssertionError::new);
+        assertEquals(0.5, TargetDamageRule.damageMultiplierFor(req, WHIP, CombatStyle.SLASH), 0.0);
+        assertEquals(0.5, TargetDamageRule.damageMultiplierFor(req, WHIP, CombatStyle.RANGED), 0.0);
+        assertEquals(1.0, TargetDamageRule.damageMultiplierFor(req, WHIP, CombatStyle.MAGIC), 0.0);
     }
 }

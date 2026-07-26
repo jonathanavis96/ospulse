@@ -38,6 +38,31 @@ A **defensive** requirement belongs there, not here.
   - `WEAPON_GATE` — only the listed styles/items can damage this monster at all.
   - `FINISHER` — an item is needed to land the killing blow (note only; the
     optimiser does not force it).
+  - `DAMAGE_PENALTY` — a style still works but deals reduced damage. Never gates.
+  - `DAMAGE_CAP` — max hit is flatly capped regardless of gear. Never gates.
+
+### `DAMAGE_PENALTY` fields
+
+- `damageMultiplier` — applied to max hit. `0.5` halves it. Default `1.0`.
+- `penalisedStyles` — which styles suffer it. **Empty means every style**, so list
+  them explicitly unless that is really what you want.
+- `allowedItemIds` — weapons that can escape the penalty.
+- `exemptStyles` — the styles on which `allowedItemIds` actually grants the escape.
+  Empty means "exempt on any penalised style".
+
+That last field exists because exemption is often style-sensitive. Corporeal Beast's
+rule is *"50% damage reduction against any weapon that is not a corpbane weapon **on
+stab attack style**"* — so a Zamorakian spear earns full damage on stab and is still
+halved on slash. Exempting purely on item id would overstate that loadout, and
+penalising only `STAB` would let slash, crush and ranged through at full damage.
+Magic is not listed as penalised at all: at Corp it deals full damage and is merely
+inaccurate.
+
+### `DAMAGE_CAP` fields
+
+- `maxHitCap` — the ceiling. `-1`/absent means no cap.
+- `maxHitCapWhenCrushHighest` — alternative ceiling used when the loadout's crush
+  attack bonus beats both its stab and slash bonuses.
 - `allowedStyles`: `STAB` / `SLASH` / `CRUSH` / `RANGED` / `MAGIC`. Any style
   listed here is permitted outright.
 - `allowedItemIds`: specific weapons permitted **regardless of style** — the

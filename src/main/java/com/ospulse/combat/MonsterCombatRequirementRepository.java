@@ -95,23 +95,10 @@ public final class MonsterCombatRequirementRepository {
                                 dto.finisherItemIds == null ? Collections.emptySet() : new HashSet<>(dto.finisherItemIds),
                                 dto.note);
                     } else if (type == MonsterCombatRequirement.Type.DAMAGE_PENALTY) {
-                        Set<CombatStyle> penalisedStyles = EnumSet.noneOf(CombatStyle.class);
-                        if (dto.penalisedStyles != null) {
-                            for (String styleName : dto.penalisedStyles) {
-                                if (styleName == null) {
-                                    continue;
-                                }
-                                try {
-                                    penalisedStyles.add(CombatStyle.valueOf(styleName.trim().toUpperCase(Locale.ROOT)));
-                                } catch (IllegalArgumentException ignored) {
-                                    // unknown style name in the data — skip defensively
-                                }
-                            }
-                        }
                         requirement = MonsterCombatRequirement.damagePenalty(
                                 dto.allowedItemIds == null ? Collections.emptySet() : new HashSet<>(dto.allowedItemIds),
                                 dto.damageMultiplier == null ? 1.0 : dto.damageMultiplier,
-                                penalisedStyles, dto.note);
+                                parseStyles(dto.penalisedStyles), parseStyles(dto.exemptStyles), dto.note);
                     } else if (type == MonsterCombatRequirement.Type.DAMAGE_CAP) {
                         requirement = MonsterCombatRequirement.damageCap(
                                 dto.maxHitCap == null ? -1 : dto.maxHitCap,
@@ -135,6 +122,25 @@ public final class MonsterCombatRequirementRepository {
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to load monster combat requirement data from " + resourcePath, e);
         }
+    }
+
+    /** Parses a style-name list from the curated data, skipping anything unrecognised. */
+    private static Set<CombatStyle> parseStyles(List<String> styleNames) {
+        Set<CombatStyle> styles = EnumSet.noneOf(CombatStyle.class);
+        if (styleNames == null) {
+            return styles;
+        }
+        for (String styleName : styleNames) {
+            if (styleName == null) {
+                continue;
+            }
+            try {
+                styles.add(CombatStyle.valueOf(styleName.trim().toUpperCase(Locale.ROOT)));
+            } catch (IllegalArgumentException ignored) {
+                // unknown style name in the data — skip defensively
+            }
+        }
+        return styles;
     }
 
     private static InputStream requireResource(String resourcePath) {
@@ -202,6 +208,7 @@ public final class MonsterCombatRequirementRepository {
         String note;
         Double damageMultiplier;
         List<String> penalisedStyles;
+        List<String> exemptStyles;
         Integer maxHitCap;
         Integer maxHitCapWhenCrushHighest;
     }

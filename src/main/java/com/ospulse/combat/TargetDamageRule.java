@@ -21,13 +21,21 @@ public final class TargetDamageRule
      * Applies when: {@code req} is non-null, {@code req.type()} is
      * {@link MonsterCombatRequirement.Type#DAMAGE_PENALTY}, {@code style} is
      * one of {@code req.penalisedStyles()} (an empty set means "all styles"),
-     * AND {@code weaponId} is NOT one of {@code req.allowedItemIds()} (the
-     * exempt/corpbane weapons). When it applies, returns
+     * AND the weapon does not earn the exemption. When it applies, returns
      * {@code req.damageMultiplier()}; otherwise returns {@code 1.0} — the
      * neutral value for a {@code null} requirement, any other {@link
      * MonsterCombatRequirement.Type}, an unpenalised style, or an exempt
      * weapon. A penalty never gates a weapon out — see {@link
      * MonsterCombatRequirement#permits} for that.
+     *
+     * <p><b>The exemption is style-sensitive.</b> A weapon in
+     * {@code req.allowedItemIds()} escapes the penalty only when the current
+     * style is in {@code req.exemptStyles()}; an empty {@code exemptStyles}
+     * means the weapon is exempt on any penalised style. This distinction is
+     * load-bearing at the Corporeal Beast, whose rule is "50% reduction against
+     * any weapon that is not a corpbane weapon <i>on stab attack style</i>" — a
+     * Zamorakian spear swung on slash is still halved, so exempting it purely
+     * on item id would overstate that loadout.
      */
     public static double damageMultiplierFor(MonsterCombatRequirement req, int weaponId, CombatStyle style)
     {
@@ -40,11 +48,18 @@ public final class TargetDamageRule
         {
             return 1.0;
         }
-        if (req.allowedItemIds().contains(weaponId))
+        if (req.allowedItemIds().contains(weaponId) && exemptOnThisStyle(req, style))
         {
             return 1.0;
         }
         return req.damageMultiplier();
+    }
+
+    /** An empty {@code exemptStyles} keeps the old "exempt on any penalised style" behaviour. */
+    private static boolean exemptOnThisStyle(MonsterCombatRequirement req, CombatStyle style)
+    {
+        Set<CombatStyle> exemptStyles = req.exemptStyles();
+        return exemptStyles.isEmpty() || exemptStyles.contains(style);
     }
 
     /**
