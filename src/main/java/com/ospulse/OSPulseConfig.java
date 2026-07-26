@@ -108,6 +108,22 @@ public interface OSPulseConfig extends Config
 		return false;
 	}
 
+	@ConfigItem(
+		keyName = "ironmanOwnedOnly",
+		name = "Ironman: owned gear only",
+		description = "Restrict Find Best to gear you already own (the budget is forced to 0) and hide "
+			+ "the upgrade-oriented budget/spend UI, so every recommendation is something you can "
+			+ "actually equip right now. Auto-enabled the first time an ironman account is detected; "
+			+ "toggle freely afterwards - turning it off deliberately is remembered and never "
+			+ "silently re-enabled.",
+		position = 5,
+		section = sessionSection
+	)
+	default boolean ironmanOwnedOnly()
+	{
+		return false;
+	}
+
 	// ---------------------------------------------------------- Price trends
 
 	@ConfigItem(

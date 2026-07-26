@@ -8,6 +8,7 @@ import com.ospulse.integration.RuneLiteItemValuation;
 import com.ospulse.integration.SessionTracker;
 import com.ospulse.ui.OSPulsePanel;
 import com.ospulse.ui.sections.GearSection;
+import com.ospulse.ui.sections.gear.IronmanAutoDetect;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
@@ -20,6 +21,7 @@ import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.vars.AccountType;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.events.ConfigChanged;
@@ -105,6 +107,11 @@ public class OSPulsePlugin extends Plugin
 	@com.google.inject.Inject(optional = true)
 	private net.runelite.client.plugins.banktags.TagManager tagManager;
 
+	/** Mirrors {@link OSPulseConfig#ironmanOwnedOnly()}'s {@code keyName} — see {@link #checkIronmanAutoDetect()}. */
+	private static final String IRONMAN_OWNED_ONLY_KEY = "ironmanOwnedOnly";
+	/** Per-RS-profile "have I already evaluated auto-detect for this profile" bookkeeping key — see {@link #checkIronmanAutoDetect()}. */
+	private static final String IRONMAN_AUTO_DETECT_SEEN_KEY = "ironmanOwnedOnlyAutoDetectSeen";
+
 	private SessionTracker tracker;
 	private OSPulsePanel panel;
 	private PriceTrendService priceTrendService;
@@ -113,6 +120,14 @@ public class OSPulsePlugin extends Plugin
 
 	/** Last observed bank-interface-open state, to fire transitions once. */
 	private boolean lastBankOpen;
+
+	/**
+	 * Set on every {@code LOGGED_IN} transition, cleared on the next {@link
+	 * #onGameTick}, which is where {@link #checkIronmanAutoDetect()} actually
+	 * runs — see that method's javadoc for why account state can't be read
+	 * on the LOGGED_IN event itself.
+	 */
+	private boolean pendingIronmanAutoDetect;
 
 	@Override
 	protected void startUp()
@@ -298,6 +313,7 @@ public class OSPulsePlugin extends Plugin
 		{
 			case LOGGED_IN:
 				tracker.onLogin();
+				pendingIronmanAutoDetect = true;
 				break;
 			case LOGIN_SCREEN:
 			case HOPPING:
@@ -316,6 +332,12 @@ public class OSPulsePlugin extends Plugin
 		if (client.getGameState() != GameState.LOGGED_IN)
 		{
 			return;
+		}
+
+		if (pendingIronmanAutoDetect)
+		{
+			pendingIronmanAutoDetect = false;
+			checkIronmanAutoDetect();
 		}
 
 		// Detect bank open/close transitions before advancing the tracker so the
@@ -344,6 +366,52 @@ public class OSPulsePlugin extends Plugin
 		}
 
 		tracker.onTick();
+	}
+
+	/**
+	 * One-time, per-RS-profile auto-enable of {@link OSPulseConfig#ironmanOwnedOnly()}
+	 * for ironman accounts (issue #11). Deliberately run from the first
+	 * {@link GameTick} after login rather than {@link #onGameStateChanged}
+	 * itself: reading account state (e.g. {@link Client#getAccountType()}) on
+	 * the LOGGED_IN transition has been observed elsewhere in this codebase
+	 * (see the bank-cache/GE-ledger restore in {@code SessionTracker}) to run
+	 * before the client has finished populating post-login state, so this
+	 * mirrors {@code SessionTracker#onTick}'s own bootstrap-on-next-tick
+	 * pattern by deferring exactly one tick.
+	 *
+	 * <p>The actual {@code ironmanOwnedOnly} flag stays a normal client-wide
+	 * {@code @ConfigItem} (read/written via plain {@code getConfiguration}/
+	 * {@code setConfiguration}, exactly like {@code hideUnprotectableItems}).
+	 * Only the bookkeeping "have I already evaluated this profile" marker is
+	 * RS-profile-scoped (via {@code getRSProfileConfiguration}/{@code
+	 * setRSProfileConfiguration}, mirroring {@code SessionTracker}'s bank-cache/
+	 * GE-ledger persistence) — this guarantees an ironman alt and a main
+	 * sharing one client each get their own independent one-time evaluation,
+	 * rather than one profile's "already decided" state silently blocking the
+	 * other's. See {@link IronmanAutoDetect} for the pure decision logic.
+	 */
+	private void checkIronmanAutoDetect()
+	{
+		if (configManager == null || client.getAccountHash() == -1L)
+		{
+			return;
+		}
+
+		String seenMarker = configManager.getRSProfileConfiguration(
+			OSPulseConfig.GROUP, IRONMAN_AUTO_DETECT_SEEN_KEY);
+		if (!IronmanAutoDetect.needsEvaluation(seenMarker))
+		{
+			return;
+		}
+		configManager.setRSProfileConfiguration(OSPulseConfig.GROUP, IRONMAN_AUTO_DETECT_SEEN_KEY, true);
+
+		String rawOwnedOnly = configManager.getConfiguration(OSPulseConfig.GROUP, IRONMAN_OWNED_ONLY_KEY);
+		AccountType accountType = client.getAccountType();
+		boolean isIronman = accountType != null && (accountType.isIronman() || accountType.isGroupIronman());
+		if (IronmanAutoDetect.shouldAutoEnable(rawOwnedOnly, isIronman))
+		{
+			configManager.setConfiguration(OSPulseConfig.GROUP, IRONMAN_OWNED_ONLY_KEY, true);
+		}
 	}
 
 	@Subscribe
