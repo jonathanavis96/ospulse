@@ -3060,6 +3060,23 @@ public final class GearSection extends CollapsibleSection
 	 * the lightning special-attack damage."), hidden entirely when the target
 	 * has none or no target is selected. Called whenever {@link #selectedMonster}
 	 * changes (every {@link #updateTargetLabel} call site).
+	 *
+	 * <p><b>Ownership disclosure:</b> {@code GearOptimizer} force-includes a
+	 * mandatory override's item id past the budget filter entirely ({@code
+	 * GearOptimizer.java}'s per-slot affordability check exempts {@code
+	 * request.include}) and then force-equips it into the recommended
+	 * loadout regardless of ownership or price ({@code applyForcedIncludes})
+	 * — a real, deliberate behaviour (these are mechanical/safety
+	 * requirements, not DPS suggestions: dropping one because it's unowned
+	 * would produce a result that LOOKS safe and isn't), never changed here.
+	 * What changes is disclosure only: when the requirement isn't satisfied
+	 * by anything the player owns (not the primary item, nor any of {@link
+	 * MonsterGearOverride#alternativeItemIds()} — same substitution rule
+	 * {@link #isSlotInvalidForTarget} already uses), the note says so, so the
+	 * "equip X" instruction doesn't read as something already in hand. This
+	 * is NOT gated to owned-only mode: an unowned mandatory include bypasses
+	 * the budget filter in every mode, not just budget-0, so the gap is
+	 * worth disclosing regardless of mode.
 	 */
 	private void updateGearOverrideNote()
 	{
@@ -3067,10 +3084,14 @@ public final class GearSection extends CollapsibleSection
 		List<MonsterGearOverride> overrides = selectedMonster == null
 			? Collections.emptyList()
 			: MonsterGearOverrideRepository.getInstance().forMonster(selectedMonster.name());
+		java.util.Set<Integer> ownedIds = overrides.isEmpty() ? Collections.emptySet() : ownedPriceMap().keySet();
 		for (MonsterGearOverride override : overrides)
 		{
+			boolean owned = ownedIds.contains(override.itemId())
+				|| override.alternativeItemIds().stream().anyMatch(ownedIds::contains);
 			String raw = "⚠ vs " + selectedMonster.name() + ": equip "
-				+ override.itemName() + " (" + slotDisplayName(override.slot()) + ") — " + override.reason();
+				+ override.itemName() + " (" + slotDisplayName(override.slot()) + ")"
+				+ (owned ? "" : " — you don't own this") + " — " + override.reason();
 			// A plain JLabel does not wrap, and a hard-coded HTML div width
 			// clips as soon as the side panel is narrower than that pixel
 			// value (Jonathan saw "...equip in selected boot..." cut off).
@@ -3080,6 +3101,20 @@ public final class GearSection extends CollapsibleSection
 		gearOverrideNotePanel.setVisible(!overrides.isEmpty());
 		gearOverrideNotePanel.revalidate();
 		gearOverrideNotePanel.repaint();
+	}
+
+	/** Test seam: the rendered text of every current {@link #gearOverrideNotePanel} advisory line, in order. */
+	java.util.List<String> gearOverrideNoteTextsForTest()
+	{
+		java.util.List<String> texts = new ArrayList<>();
+		for (Component c : gearOverrideNotePanel.getComponents())
+		{
+			if (c instanceof javax.swing.JTextArea)
+			{
+				texts.add(((javax.swing.JTextArea) c).getText());
+			}
+		}
+		return texts;
 	}
 
 	/**
