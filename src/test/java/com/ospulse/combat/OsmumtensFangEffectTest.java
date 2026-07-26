@@ -153,22 +153,22 @@ public class OsmumtensFangEffectTest {
     public void fangHitChance_matchesHandWorkedFormula_directly() {
         // Direct CombatMath-level pin, independent of the gear/DpsCalculator plumbing,
         // for the a>d branch used above.
-        assertEquals(0.8418232861871717, CombatMath.fangHitChance(18040, 12426), DELTA);
+        assertEquals(0.8418232861871717, DamageDistribution.fangHitChance(18040, 12426), DELTA);
 
         // a <= d branch: attackRoll 5000, defenceRoll 12426 ->
         // a*(4a+5) / (6*(a+1)*(d+1)) = 5000*20005 / (6*5001*12427)
         double expected = 5000.0 * (4.0 * 5000.0 + 5.0) / (6.0 * 5001.0 * 12427.0);
-        assertEquals(expected, CombatMath.fangHitChance(5000, 12426), DELTA);
-        assertTrue(CombatMath.fangHitChance(5000, 12426) < 1.0);
+        assertEquals(expected, DamageDistribution.fangHitChance(5000, 12426), DELTA);
+        assertTrue(DamageDistribution.fangHitChance(5000, 12426) < 1.0);
     }
 
     @Test
     public void fangAverageDamage_compressesRangeWithoutChangingItsMidpointShape() {
         // maxHit 60 -> wiki's own worked example: roll range [9, 51].
         // At hitChance 1.0 (certainty), avg damage = (9+51)/2 = 30 exactly.
-        assertEquals(30.0, CombatMath.fangAverageDamagePerAttack(1.0, 60), DELTA);
+        assertEquals(30.0, DamageDistribution.fangAverageDamagePerAttack(1.0, 60), DELTA);
 
         // maxHit 24 -> range [3, 21]; at hitChance 1.0, avg = 12.
-        assertEquals(12.0, CombatMath.fangAverageDamagePerAttack(1.0, 24), DELTA);
+        assertEquals(12.0, DamageDistribution.fangAverageDamagePerAttack(1.0, 24), DELTA);
     }
 }

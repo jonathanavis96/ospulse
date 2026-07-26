@@ -88,9 +88,9 @@ than widening this set.
   thing:**
   - `CLAMP` — the roll stays uniform `0..uncappedMaxHit` and every result above
     the cap lands ON the cap, piling probability mass there. Implemented by
-    `CombatMath.cappedAverageDamagePerAttack` / `cappedExpectedOverkill`.
+    `DamageDistribution.cappedAverageDamagePerAttack` / `cappedExpectedOverkill`.
   - `REROLL` — a hit above the cap is re-rolled uniformly into `0..cap`.
-    Implemented by `CombatMath.rerolledAverageDamagePerAttack` /
+    Implemented by `DamageDistribution.rerolledAverageDamagePerAttack` /
     `rerolledExpectedOverkill`.
 
     ⚠ **Do NOT collapse this to `maxHit = min(maxHit, cap)` through the ordinary

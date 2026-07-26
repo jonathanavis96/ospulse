@@ -21,7 +21,7 @@ import org.junit.Test;
  * independently in this test, cross-checked against {@link
  * TwinflameSecondHit#rerolledSecondHitAverage}/{@code
  * rerolledCombinedExpectedOverkill} and {@link
- * CombatMath#rerolledAverageDamagePerAttack} for several {@code (M, C)}
+ * DamageDistribution#rerolledAverageDamagePerAttack} for several {@code (M, C)}
  * pairs, plus one end-to-end {@link DpsCalculator} proof that the wiring
  * (not just the maths) is fixed.
  */
@@ -178,7 +178,7 @@ public class TwinflameRerollCapTest {
             int m = pair[0];
             int c = pair[1];
             double expected = exactFirstHitAverage(m, c);
-            double actual = CombatMath.rerolledAverageDamagePerAttack(1.0, m, c);
+            double actual = DamageDistribution.rerolledAverageDamagePerAttack(1.0, m, c);
             assertEquals("M=" + m + ", C=" + c, expected, actual, DELTA);
         }
     }
