@@ -124,6 +124,17 @@ public class VerzikDamageCapTest {
                 .build();
     }
 
+    /** Same defence profile as {@link #verzikP1()} but not a curated monster — reveals the true (uncapped) max hit. */
+    private static Monster uncappedControl() {
+        return Monster.builder()
+                .name("Zzz Verzik Reroll Control (Uncapped)")
+                .hitpoints(400)
+                .defenceLevel(150)
+                .defenceBonuses(50, 50, 50, 50, 50)
+                .magicLevel(200)
+                .build();
+    }
+
     private static PlayerCombat player() {
         return PlayerCombat.builder()
                 .attack(99, 99).strength(99, 99).defence(70, 70).ranged(99, 99).magic(99, 99)
@@ -165,18 +176,20 @@ public class VerzikDamageCapTest {
     @Test
     public void rerollCap_meleeEqualsAnUncappedComputationAtTheCapValue_forSeveralMaxHitPairs() {
         for (int strBonus : new int[]{80, 200, 500}) {
+            DpsResult control = DpsCalculator.compute(meleeGear(strBonus), player(), CombatStyle.STAB, uncappedControl(), 0);
             DpsResult r = DpsCalculator.compute(meleeGear(strBonus), player(), CombatStyle.STAB, verzikP1(), 0);
             assertEquals("strBonus=" + strBonus + ": cap must actually bind", 10, r.maxHit());
-            assertRerollMatchesUncappedAtCap(r, 10, verzikP1().hitpoints(), 4);
+            assertRerollMatchesReferenceFormula(r, control.maxHit(), 10, verzikP1().hitpoints(), 4);
         }
     }
 
     @Test
     public void rerollCap_rangedEqualsAnUncappedComputationAtTheCapValue_forSeveralMaxHitPairs() {
         for (int rangedStrBonus : new int[]{50, 150, 400}) {
+            DpsResult control = DpsCalculator.compute(rangedGear(rangedStrBonus), player(), CombatStyle.RANGED, uncappedControl(), 0);
             DpsResult r = DpsCalculator.compute(rangedGear(rangedStrBonus), player(), CombatStyle.RANGED, verzikP1(), 0);
             assertEquals("rangedStrBonus=" + rangedStrBonus + ": cap must actually bind", 3, r.maxHit());
-            assertRerollMatchesUncappedAtCap(r, 3, verzikP1().hitpoints(), 4);
+            assertRerollMatchesReferenceFormula(r, control.maxHit(), 3, verzikP1().hitpoints(), 4);
         }
     }
 
@@ -185,23 +198,33 @@ public class VerzikDamageCapTest {
         // Vary the base spell max hit directly instead of gear — magic's max hit
         // doesn't depend on strength bonuses.
         for (int baseSpellMaxHit : new int[]{20, 60, 150}) {
+            DpsResult control = DpsCalculator.compute(magicGear(), player(), CombatStyle.MAGIC, uncappedControl(), baseSpellMaxHit);
             DpsResult r = DpsCalculator.compute(magicGear(), player(), CombatStyle.MAGIC, verzikP1(), baseSpellMaxHit);
             assertEquals("baseSpellMaxHit=" + baseSpellMaxHit + ": cap must actually bind", 3, r.maxHit());
-            assertRerollMatchesUncappedAtCap(r, 3, verzikP1().hitpoints(), 4);
+            assertRerollMatchesReferenceFormula(r, control.maxHit(), 3, verzikP1().hitpoints(), 4);
         }
     }
 
     /**
-     * The equivalence itself: REROLL needs no new distribution math, so avgHit,
-     * overkill, dps and ttk must all match the plain uncapped formulas fed the
-     * cap as maxHit, using the SAME accuracy the capped computation produced
+     * The equivalence itself: REROLL's SHAPE reduces to a plain 0..cap roll,
+     * but its mean still depends on the true uncapped max hit {@code M} — the
+     * ordinary "rolled 0 becomes 1" bump belongs to the ORIGINAL {@code 0..M}
+     * roll, not to the re-roll's own genuine zero. So avgHit, overkill, dps
+     * and ttk must all match {@link CombatMath#rerolledAverageDamagePerAttack}/
+     * {@code rerolledExpectedOverkill} fed the REAL {@code M} (obtained from an
+     * uncapped control run against an identical, uncurated target) and the
+     * cap — NOT the plain {@link CombatMath#averageDamagePerAttack}/{@code
+     * expectedOverkill} fed just the cap, which would double-apply the bump
+     * and overstate the mean (e.g. 1.75 instead of Verzik's true ~1.524 at a
+     * cap of 3). Uses the SAME accuracy the capped computation produced
      * (capping never touches accuracy — only the damage magnitude).
      */
-    private static void assertRerollMatchesUncappedAtCap(DpsResult r, int cap, int targetHitpoints, int weaponSpeedTicks) {
-        double expectedAvg = CombatMath.averageDamagePerAttack(r.accuracy(), cap);
+    private static void assertRerollMatchesReferenceFormula(DpsResult r, int uncappedMaxHit, int cap,
+                                                             int targetHitpoints, int weaponSpeedTicks) {
+        double expectedAvg = CombatMath.rerolledAverageDamagePerAttack(r.accuracy(), uncappedMaxHit, cap);
         assertEquals(expectedAvg, r.avgHit(), 1e-9);
 
-        double expectedOverkill = CombatMath.expectedOverkill(cap, targetHitpoints);
+        double expectedOverkill = CombatMath.rerolledExpectedOverkill(uncappedMaxHit, cap, targetHitpoints);
         assertEquals(expectedOverkill, r.overkillPerKill(), 1e-9);
 
         double expectedDps = CombatMath.dps(expectedAvg, weaponSpeedTicks);
@@ -247,16 +270,27 @@ public class VerzikDamageCapTest {
                 .weaponSpeedTicks(4)
                 .build();
 
+        Monster hueycoatlUncappedControl = Monster.builder()
+                .name("Zzz Hueycoatl Reroll Comparison Control (Uncapped)")
+                .hitpoints(300)
+                .defenceLevel(125)
+                .defenceBonuses(100, 100, 0, 200, 350)
+                .magicLevel(50)
+                .build();
+        DpsResult hueycoatlControl = DpsCalculator.compute(gear, player(), CombatStyle.STAB, hueycoatlUncappedControl, 0);
         DpsResult clampResult = DpsCalculator.compute(gear, player(), CombatStyle.STAB, hueycoatl, 0);
         assertEquals("sanity: Hueycoatl's flat cap must actually bind here", 4, clampResult.maxHit());
-        double rerollEquivalentAvg = CombatMath.averageDamagePerAttack(clampResult.accuracy(), 4);
+        double rerollEquivalentAvg = CombatMath.rerolledAverageDamagePerAttack(
+            clampResult.accuracy(), hueycoatlControl.maxHit(), 4);
         assertTrue("CLAMP piles mass on the cap, so its average must be strictly higher "
-                + "than what REROLL would have given for the same cap and accuracy",
+                + "than what REROLL would have given for the same true max, cap and accuracy",
             clampResult.avgHit() > rerollEquivalentAvg);
 
+        DpsResult verzikControl = DpsCalculator.compute(meleeGear(500), player(), CombatStyle.STAB, uncappedControl(), 0);
         DpsResult rerollResult = DpsCalculator.compute(meleeGear(500), player(), CombatStyle.STAB, verzikP1(), 0);
         assertEquals(10, rerollResult.maxHit());
-        double sameFormulaAvg = CombatMath.averageDamagePerAttack(rerollResult.accuracy(), 10);
+        double sameFormulaAvg = CombatMath.rerolledAverageDamagePerAttack(
+            rerollResult.accuracy(), verzikControl.maxHit(), 10);
         assertEquals("REROLL must match the formula exactly — no distribution gap",
             sameFormulaAvg, rerollResult.avgHit(), 1e-9);
     }

@@ -97,15 +97,66 @@ public class FangRerollCapTest {
         assertEquals(0.0, CombatMath.rerolledFangAverageDamagePerAttack(1.0, 40, 0), 1e-12);
     }
 
+    // ---- The degenerate lo<=0 fallback: it IS a generic 0..hi roll, so it needs the SAME
+    // zero-aware fix as DpsCalculator.finish's REROLL branch, not the ordinary bumped formula.
+
+    /**
+     * A true max hit of 6 or below shrinks to {@code lo=0}, so the fang's
+     * "compressed" roll is really a plain {@code 0..hi} roll — exactly the
+     * generic case, and re-rolling it at a cap needs {@link
+     * CombatMath#rerolledAverageDamagePerAttack}, not the ordinary bumped
+     * {@link CombatMath#averageDamagePerAttack} (an earlier version of this
+     * method used that, double-applying the "rolled 0 becomes 1" bump to the
+     * re-roll's own genuine zero).
+     */
+    private static double bruteForceDegenerateFangMean(int trueMaxHit, int cap) {
+        int hi = trueMaxHit - (trueMaxHit * 3 / 20);
+        double total = 0.0;
+        for (int raw = 0; raw <= hi; raw++) {
+            int bumped = raw <= 1 ? 1 : raw;
+            total += (bumped > cap) ? (cap / 2.0) : bumped;
+        }
+        return total / (hi + 1);
+    }
+
+    @Test
+    public void degenerateBranch_matchesABruteForceEnumeration_ofTheGenericZeroAwareModel() {
+        // trueMaxHit <= 6 -> shrink == 0 -> lo <= 0 (the degenerate branch).
+        for (int trueMax : new int[]{0, 1, 3, 5, 6}) {
+            int hi = trueMax - (trueMax * 3 / 20);
+            for (int cap : new int[]{0, 1, 2, 3}) {
+                if (cap >= hi) {
+                    continue; // covered by capAtOrAboveTheShrunkMaximum_reducesToThePlainFangFormula
+                }
+                assertEquals("trueMax=" + trueMax + " cap=" + cap,
+                    bruteForceDegenerateFangMean(trueMax, cap),
+                    CombatMath.rerolledFangAverageDamagePerAttack(1.0, trueMax, cap), 1e-12);
+            }
+        }
+    }
+
+    @Test
+    public void degenerateBranch_isNotTheNaiveBumpedFormula() {
+        // trueMax=6 -> shrink=0, lo=0, hi=6 -- a binding cap of 3 must NOT be
+        // averageDamagePerAttack(hitChance, 3) (~1.75), which double-applies the bump.
+        double correct = CombatMath.rerolledFangAverageDamagePerAttack(1.0, 6, 3);
+        double naiveBumped = CombatMath.averageDamagePerAttack(1.0, 3);
+        assertNotEquals(naiveBumped, correct, 1e-9);
+        assertEquals(3.0 / 2.0 + 1.0 / 7.0, correct, 1e-12);
+    }
+
     // ---- rerolledFangExpectedOverkill: Monte Carlo simulation of the real mechanic --------
 
     /**
      * Simulates the ACTUAL described mechanic directly (roll uniform lo..hi;
-     * if it exceeds the cap, re-roll uniformly into 0..cap; accumulate until
-     * the target's HP is exhausted; record the overshoot) many times and
-     * averages the result. Independent of every formula under test — this
-     * doesn't call {@link CombatMath} at all — so it can catch a bug in the
-     * closed-form DP that a test built from the same algebra could not.
+     * apply the ordinary "rolled 0 becomes 1" bump — only ever reachable when
+     * {@code lo <= 0}, the degenerate case, since a genuine {@code lo >= 1}
+     * roll can never produce a 0 in the first place; if the (bumped) result
+     * exceeds the cap, re-roll uniformly into 0..cap; accumulate until the
+     * target's HP is exhausted; record the overshoot) many times and averages
+     * the result. Independent of every formula under test — this doesn't call
+     * {@link CombatMath} at all — so it can catch a bug in the closed-form DP
+     * that a test built from the same algebra could not.
      */
     private static double simulateRerolledFangOverkill(int trueMaxHit, int cap, int targetHitpoints, long seed, int trials) {
         int shrink = trueMaxHit * 3 / 20;
@@ -117,7 +168,8 @@ public class FangRerollCapTest {
             int hp = targetHitpoints;
             while (hp > 0) {
                 int roll = lo + random.nextInt(hi - lo + 1);
-                int damage = roll > cap ? random.nextInt(cap + 1) : roll;
+                int bumped = roll == 0 ? 1 : roll;
+                int damage = bumped > cap ? random.nextInt(cap + 1) : bumped;
                 hp -= damage;
             }
             totalOverkill += -hp; // hp is <= 0 here; the overshoot is its magnitude
@@ -138,6 +190,26 @@ public class FangRerollCapTest {
         double analytic = CombatMath.rerolledFangExpectedOverkill(40, 5, 30);
         double simulated = simulateRerolledFangOverkill(40, 5, 30, 7L, 400_000);
         assertEquals(analytic, simulated, 0.05);
+    }
+
+    /** trueMax=6 -> shrink=0, lo=0, hi=6 -- the degenerate branch, simulated directly. */
+    @Test
+    public void rerolledFangOverkillMatchesAMonteCarloSimulation_degenerateBranch() {
+        double analytic = CombatMath.rerolledFangExpectedOverkill(6, 3, 20);
+        double simulated = simulateRerolledFangOverkill(6, 3, 20, 99L, 400_000);
+        assertEquals(analytic, simulated, 0.05);
+    }
+
+    /**
+     * The degenerate branch must NOT reuse {@link CombatMath#expectedOverkill}
+     * on the cap (an earlier version of this method did) -- that bakes in the
+     * ordinary bump, assuming the re-roll's zero is impossible.
+     */
+    @Test
+    public void degenerateOverkillBranch_isNotTheNaiveBumpedFormula() {
+        double correct = CombatMath.rerolledFangExpectedOverkill(6, 3, 20);
+        double naiveBumped = CombatMath.expectedOverkill(3, 20);
+        assertNotEquals(naiveBumped, correct, 1e-6);
     }
 
     @Test

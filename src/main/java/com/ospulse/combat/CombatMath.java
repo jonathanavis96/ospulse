@@ -156,6 +156,53 @@ final class CombatMath {
         return hitChance * (belowCap + atCap + 1.0) / (uncappedMaxHit + 1.0);
     }
 
+    /**
+     * Average damage per attack when a monster RE-ROLLS each hitsplat above a
+     * cap back into {@code 0..cap} (e.g. Verzik Vitur phase 1), as opposed to
+     * {@link #cappedAverageDamagePerAttack}'s clamp.
+     *
+     * <p><b>This is NOT simply {@link #averageDamagePerAttack} fed the cap as
+     * maxHit.</b> That formula's "+1/(maxHit+1)" term bakes in the ordinary
+     * damage-roll convention — a rolled 0 on a successful hit is bumped to 1 —
+     * which is true of a genuine {@code 0..cap} weapon roll but NOT of a
+     * re-rolled hitsplat: the monster re-rolls a value that has ALREADY had
+     * that bump applied (the bump belongs to the original {@code 0..M} roll,
+     * which happens first; the re-roll into {@code 0..cap} is a separate,
+     * later step that produces its own genuine zero). Feeding the cap into
+     * {@link #averageDamagePerAttack} therefore reports a mean of
+     * {@code cap/2 + 1/(cap+1)} — at Verzik's ranged/magic cap of 3 that is
+     * 1.75, a 14.8% overstatement of the true ~1.524.
+     *
+     * <p>Derivation: a roll of 0 or 1 both count as a landed 1 (weight
+     * {@code 2/(M+1)}), a roll of {@code 2..C} counts as itself (weight
+     * {@code 1/(M+1)} each), and each of the {@code M-C} rolls above {@code C}
+     * re-rolls uniformly into {@code 0..C} (weight {@code 1/(M+1)} split
+     * {@code (M-C)/((M+1)(C+1))} onto every value in {@code 0..C}, INCLUDING a
+     * genuine, un-bumped 0). Summing {@code d * P(d)} over the resulting
+     * distribution collapses — verified in exact rational arithmetic against a
+     * direct enumeration for several {@code (M, C)} pairs — to the clean
+     * identity:
+     * <pre>
+     * hitChance * ( cap / 2 + 1 / (uncappedMaxHit + 1) )
+     * </pre>
+     * Note the correction term is {@code 1/(M+1)} (the ORIGINAL roll's range),
+     * NOT {@code 1/(cap+1)} — a plain {@code C/2} is closer than the naive
+     * {@link #averageDamagePerAttack} call but still drops the bump the kept
+     * values (0 and 1, when they land within {@code 0..cap} directly) carry.
+     */
+    static double rerolledAverageDamagePerAttack(double hitChance, int uncappedMaxHit, int cap) {
+        if (cap <= 0) {
+            // The identity below assumes cap >= 1 (so the bumped value 1 can
+            // legitimately survive as "kept" rather than itself needing a
+            // re-roll). At cap == 0 every outcome, including the bumped 1,
+            // exceeds the cap and re-rolls into the single value {0}, so the
+            // true mean is exactly 0 — matching cappedAverageDamagePerAttack's
+            // own cap <= 0 guard.
+            return 0.0;
+        }
+        return hitChance * (cap / 2.0 + 1.0 / (uncappedMaxHit + 1.0));
+    }
+
     /** DPS = average damage per attack / (weaponSpeedTicks * 0.6 seconds/tick). */
     static double dps(double averageDamagePerAttack, int weaponSpeedTicks) {
         return averageDamagePerAttack / (weaponSpeedTicks * 0.6);
@@ -380,23 +427,37 @@ final class CombatMath {
      * re-derives the compression from the already-capped value).
      *
      * <pre>
-     * lo &lt;= 0  : averageDamagePerAttack(hitChance, min(hi, cap))     — degenerate range touches 0; the generic equivalence applies directly
-     * cap &gt;= hi: fangAverageDamagePerAttack(hitChance, trueMaxHit)   — cap can never bind
-     * cap &lt; lo : hitChance * cap / 2                                 — every result re-rolls into a plain uniform 0..cap
+     * lo &lt;= 0  : rerolledAverageDamagePerAttack(hitChance, hi, min(hi, cap)) — degenerate range touches 0; this IS a genuine uniform 0..hi roll, so the GENERIC zero-aware equivalence applies directly
+     * cap &gt;= hi: fangAverageDamagePerAttack(hitChance, trueMaxHit)          — cap can never bind
+     * cap &lt; lo : hitChance * cap / 2                                        — every result re-rolls into a plain uniform 0..cap
      * else     : hitChance * ( sum_(d=lo)^(cap) d + (hi-cap)*cap/2 ) / (hi-lo+1)
      *            where sum_(d=lo)^(cap) d = (lo+cap)*(cap-lo+1)/2
      * </pre>
-     * None of these branches carry the ordinary "rolled 0 is bumped to 1"
-     * correction: the worked example above only reduces to {@code 160/29}
-     * without it, and a re-rolled fang hitsplat of 0 is a genuine result, not
-     * folded into 1.
+     * The middle two branches carry NO correction term at all — a re-rolled
+     * fang hitsplat of 0 is a genuine result, never folded into 1, so there is
+     * no bump to apply. The {@code lo <= 0} branch is the one exception: it
+     * delegates to {@link #rerolledAverageDamagePerAttack}, whose
+     * {@code 1/(hi+1)} term is NOT the ordinary bump — it is that same
+     * function's own zero-aware correction for the ORIGINAL {@code 0..hi}
+     * roll (which this degenerate case genuinely is), not a re-application of
+     * it to the re-roll. Calling the plain {@link #averageDamagePerAttack}
+     * here instead (as an earlier version of this method did) double-applies
+     * the bump to the re-roll's own genuine zero and overstates the mean —
+     * exactly the mistake {@link DpsCalculator#finish}'s generic {@code
+     * REROLL} branch was fixed for in the same review.
      */
     static double rerolledFangAverageDamagePerAttack(double hitChance, int trueMaxHit, int cap) {
         int shrink = trueMaxHit * 3 / 20;
         int lo = shrink;
         int hi = trueMaxHit - shrink;
         if (lo <= 0) {
-            return averageDamagePerAttack(hitChance, Math.min(hi, cap));
+            // The shrunk range touches 0, so this IS a genuine uniform 0..hi roll
+            // re-rolled at cap — the generic zero-aware equivalence applies
+            // directly. NOT averageDamagePerAttack(hitChance, min(hi, cap)): that
+            // bakes in the ordinary "rolled 0 becomes 1" bump a second time, on
+            // the re-roll's own genuine zero (the same mistake fixed in
+            // DpsCalculator.finish's REROLL branch).
+            return rerolledAverageDamagePerAttack(hitChance, hi, Math.min(hi, cap));
         }
         if (cap >= hi) {
             return fangAverageDamagePerAttack(hitChance, trueMaxHit);
@@ -490,6 +551,46 @@ final class CombatMath {
     }
 
     /**
+     * Expected overkill when a monster RE-ROLLS each hitsplat above a cap back
+     * into {@code 0..cap} — the SAME per-attack distribution {@link
+     * #rerolledAverageDamagePerAttack} uses, so this cannot disagree with it
+     * (that was precisely the earlier fang defect this PR was bitten by once
+     * already: an average migrated onto a new distribution while overkill
+     * silently stayed on the old one — the same over-general "REROLL is just
+     * {@link #expectedOverkill} fed the cap" mistake for the generic path,
+     * caught in the SAME review as the fang one).
+     *
+     * <p>Builds the explicit distribution described on {@link
+     * #rerolledAverageDamagePerAttack} — a kept 0/1 both bump to 1 (weight
+     * {@code 2/(M+1)}), a kept {@code 2..cap} counts as itself (weight
+     * {@code 1/(M+1)} each), and every value in {@code 0..cap} — INCLUDING a
+     * genuine, un-bumped 0 — additionally gains a re-rolled share {@code
+     * (M-cap)/((M+1)(cap+1))} — then runs it through {@link
+     * #overkillFromExplicitDistribution}, which is already zero-aware (built
+     * for exactly this: a re-rolled hitsplat of 0 is a real, HP-neutral
+     * result, not folded into 1 the way {@link #expectedOverkill}/{@link
+     * #cappedExpectedOverkill} assume). Setting {@code cap >= uncappedMaxHit}
+     * delegates to {@link #expectedOverkill} (the cap can never bind).
+     */
+    static double rerolledExpectedOverkill(int uncappedMaxHit, int cap, int targetHitpoints) {
+        if (cap >= uncappedMaxHit) {
+            return expectedOverkill(uncappedMaxHit, targetHitpoints);
+        }
+        if (cap <= 0 || targetHitpoints <= 0) {
+            return 0.0;
+        }
+        double denom = uncappedMaxHit + 1.0;
+        double rerollShare = (uncappedMaxHit - cap) / (denom * (cap + 1.0));
+        double[] p = new double[cap + 1];
+        p[0] = rerollShare;
+        p[1] = 2.0 / denom + rerollShare;
+        for (int d = 2; d <= cap; d++) {
+            p[d] = 1.0 / denom + rerollShare;
+        }
+        return overkillFromExplicitDistribution(p, cap, targetHitpoints);
+    }
+
+    /**
      * Expected overkill for Osmumten's fang against a capped target: the same
      * recurrence again, but over the fang's COMPRESSED roll with each result
      * clamped — the distribution {@link #cappedFangAverageDamagePerAttack}
@@ -558,9 +659,9 @@ final class CombatMath {
      * exactly, each delegating to whichever EXACT overkill model matches
      * that branch's distribution:
      * <pre>
-     * lo &lt;= 0  : expectedOverkill(min(hi, cap), ...)   — degenerate range touches 0, generic equivalence applies
-     * cap &gt;= hi: expectedOverkill(trueMaxHit, ...)      — cap can never bind; same approximation tier as the uncapped fang path
-     * cap &lt; lo : uniform 0..cap, no bump                — every result re-rolls
+     * lo &lt;= 0  : rerolledExpectedOverkill(hi, min(hi, cap), ...) — degenerate range touches 0; this IS a genuine uniform 0..hi roll, so the GENERIC zero-aware equivalence applies directly (NOT expectedOverkill, which bakes in the bump a second time)
+     * cap &gt;= hi: expectedOverkill(trueMaxHit, ...)               — cap can never bind; same approximation tier as the uncapped fang path
+     * cap &lt; lo : uniform 0..cap, no bump                         — every result re-rolls
      * else     : the exact "kept lo..cap plus re-rolled share" mixture
      * </pre>
      * The last two build the per-attack probability array explicitly (see
@@ -578,7 +679,11 @@ final class CombatMath {
         int lo = shrink;
         int hi = trueMaxHit - shrink;
         if (lo <= 0) {
-            return expectedOverkill(Math.min(hi, cap), targetHitpoints);
+            // Same reasoning as the average's degenerate branch: this is a
+            // genuine uniform 0..hi roll re-rolled at cap, so the generic
+            // zero-aware equivalence applies directly — NOT expectedOverkill,
+            // which bakes in the ordinary bump a second time.
+            return rerolledExpectedOverkill(hi, Math.min(hi, cap), targetHitpoints);
         }
         if (cap >= hi) {
             return expectedOverkill(trueMaxHit, targetHitpoints);
