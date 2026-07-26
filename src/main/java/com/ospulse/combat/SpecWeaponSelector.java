@@ -13,9 +13,11 @@ import java.util.Set;
  * <pre>
  * 1. Filter to owned ({@link SpecWeapon#isOwned}), NOT excluded ({@link
  *    SpecWeapon#isExcluded} — the panel's user-facing "Exclude from
- *    suggestions" action, same as any ordinary optimiser candidate),
- *    equippable at the player's current levels ({@link
- *    EquipmentRequirementsRepository#canEquip} — owning an item never
+ *    suggestions" action, same as any ordinary optimiser candidate), NOT
+ *    permanently restricted ({@link SpecWeapon#itemId()} present in the
+ *    caller's mode-lock restriction set — per-ID only, deliberately not
+ *    alias-symmetric like {@code isExcluded}), equippable at the player's
+ *    current levels ({@link SpecWeapon#canEquip} — owning an item never
  *    implies meeting its equip requirements), and legal ({@link
  *    MonsterCombatRequirement#permitsWeapon}/{@link
  *    MonsterCombatRequirement#permitsAmmo} — a ranged spec that fires WORN
@@ -107,40 +109,76 @@ public final class SpecWeaponSelector {
     }
 
     /**
-     * See the class javadoc for the exact rule; {@link Optional#empty()} when
-     * nothing owned+legal qualifies.
+     * Back-compat overload with no standing (mode-locked) restriction set —
+     * equivalent to calling the full overload with an empty {@code
+     * restrictedItemIds}. See the full overload for the exact rule.
      *
-     * @param excludedItemIds   the panel's "Exclude from suggestions" set
-     *                          (plus any other standing exclusion the caller
-     *                          folds in, e.g. {@code
-     *                          ItemEligibility.restrictedItemIds()}) — same
-     *                          seam {@code GearOptimizer.Request.exclude}
-     *                          reads, not a second copy.
-     * @param playerBaseLevels  the player's base skill levels (lowercase
-     *                          skill-name keys, e.g. {@code "attack"}), fed
-     *                          straight to {@link
-     *                          EquipmentRequirementsRepository#canEquip} —
-     *                          the SAME map {@code GearOptimizer.Request}'s
-     *                          {@code playerBaseLevels} carries.
-     * @param wornAmmoItemId    the player's currently effective worn ammo
-     *                          item id (or {@code <= 0} for none), used only
-     *                          for a candidate whose style is {@link
-     *                          CombatStyle#RANGED} and which fires worn ammo
-     *                          (see {@link AmmoCompatibility#consumedClass})
-     *                          — {@link MonsterCombatRequirement#permitsAmmo}
-     *                          is the ONLY thing that can tell "Zaryte
-     *                          crossbow, but the ammo gate needs broad
-     *                          bolts and I'm not wearing any" apart from a
-     *                          legitimately unrestricted target.
+     * @param excludedItemIds   the panel's "Exclude from suggestions" set —
+     *                          a USER action, alias-symmetric via {@link
+     *                          SpecWeapon#isExcluded} (excluding any cosmetic
+     *                          recolour excludes the whole weapon family).
      */
     public static Optional<SpecWeaponRecommendation> select(Monster target, MonsterCombatRequirement requirement,
                                                               Set<Integer> ownedItemIds, Set<Integer> excludedItemIds,
+                                                              Map<String, Integer> playerBaseLevels, int wornAmmoItemId,
+                                                              DpsProbe probe) {
+        return select(target, requirement, ownedItemIds, excludedItemIds, java.util.Collections.emptySet(),
+                playerBaseLevels, wornAmmoItemId, probe);
+    }
+
+    /**
+     * See the class javadoc for the exact rule; {@link Optional#empty()} when
+     * nothing owned+legal qualifies.
+     *
+     * @param excludedItemIds    the panel's "Exclude from suggestions" set —
+     *                           a USER action, alias-symmetric via {@link
+     *                           SpecWeapon#isExcluded}: excluding any one
+     *                           cosmetic-recolour/alias id excludes the whole
+     *                           weapon family, same as an ordinary optimiser
+     *                           candidate.
+     * @param restrictedItemIds  standing, permanent per-ID restrictions (e.g.
+     *                           {@code ItemEligibility.restrictedItemIds()} —
+     *                           Deadman/BH/LMS/beta-locked ids). Deliberately
+     *                           NOT alias-symmetric and NOT merged with
+     *                           {@code excludedItemIds}: a restricted id is
+     *                           checked only against {@link
+     *                           SpecWeapon#itemId()} directly (round-2 fix —
+     *                           merging it into the alias-symmetric exclusion
+     *                           set previously suppressed an entire family,
+     *                           e.g. Voidwaker (deadman) 29607 being
+     *                           restricted wrongly excluded the ordinary,
+     *                           perfectly legal Voidwaker 27690, since 29607
+     *                           is only an {@code ownedAliasIds} entry of
+     *                           that catalog row, not its own row).
+     * @param playerBaseLevels   the player's base skill levels (lowercase
+     *                           skill-name keys, e.g. {@code "attack"}), fed
+     *                           straight to {@link SpecWeapon#canEquip} — the
+     *                           SAME map {@code GearOptimizer.Request}'s
+     *                           {@code playerBaseLevels} carries.
+     * @param wornAmmoItemId     the player's currently effective worn ammo
+     *                           item id (or {@code <= 0} for none) — used for
+     *                           ANY candidate that fires worn ammo (see
+     *                           {@link AmmoCompatibility#consumedClass}),
+     *                           regardless of target, to enforce that the
+     *                           worn ammo's class actually matches what the
+     *                           weapon fires; ALSO fed to {@link
+     *                           MonsterCombatRequirement#permitsAmmo} when
+     *                           the target additionally gates ammo (e.g.
+     *                           Kurask's broad-ammo-only gate — {@code
+     *                           permitsWeapon} alone can't tell "Zaryte
+     *                           crossbow, but the ammo gate needs broad
+     *                           bolts and I'm not wearing any").
+     */
+    public static Optional<SpecWeaponRecommendation> select(Monster target, MonsterCombatRequirement requirement,
+                                                              Set<Integer> ownedItemIds, Set<Integer> excludedItemIds,
+                                                              Set<Integer> restrictedItemIds,
                                                               Map<String, Integer> playerBaseLevels, int wornAmmoItemId,
                                                               DpsProbe probe) {
         if (target == null || ownedItemIds == null || probe == null) {
             return Optional.empty();
         }
         Set<Integer> exclusions = excludedItemIds == null ? java.util.Collections.emptySet() : excludedItemIds;
+        Set<Integer> restrictions = restrictedItemIds == null ? java.util.Collections.emptySet() : restrictedItemIds;
         List<SpecWeapon> eligible = new ArrayList<>();
         for (SpecWeapon weapon : SpecWeapon.CATALOG) {
             if (weapon.role() == SpecRole.UTILITY) {
@@ -152,10 +190,31 @@ public final class SpecWeaponSelector {
             if (weapon.isExcluded(exclusions)) {
                 continue; // "Exclude from suggestions" — same rule an ordinary candidate obeys.
             }
-            if (!EquipmentRequirementsRepository.getInstance().canEquip(weapon.itemId(), playerBaseLevels)) {
+            if (restrictions.contains(weapon.itemId())) {
+                // Per-ID only, deliberately NOT alias-symmetric — see the
+                // @param javadoc above. A restricted ALIAS (e.g. the deadman
+                // recolour) must not suppress this row when the row's own
+                // canonical id is not itself restricted.
+                continue;
+            }
+            if (!weapon.canEquip(playerBaseLevels)) {
                 continue; // owning it is not the same as meeting its equip requirements.
             }
-            boolean weaponUsesWornAmmo = AmmoCompatibility.consumedClass(weapon.itemId()) != null;
+            AmmoCompatibility.AmmoClass consumedClass = AmmoCompatibility.consumedClass(weapon.itemId());
+            boolean weaponUsesWornAmmo = consumedClass != null;
+            if (weapon.style() == CombatStyle.RANGED && weaponUsesWornAmmo
+                    && AmmoCompatibility.classify(wornAmmoItemId) != consumedClass) {
+                // Weapon/ammo compatibility is a property of the WEAPON and
+                // must be enforced regardless of whether the monster gates
+                // ammo at all — most targets are unrestricted, so this can't
+                // live inside the `requirement != null` branch below. E.g. a
+                // Magic shortbow (fires ARROW) with broad bolts (BOLT) worn
+                // must be rejected even at a target with no combat
+                // requirement, and even at one whose allowedAmmoIds happen to
+                // include broad bolts for a DIFFERENT weapon (Kurask permits
+                // both broad arrows and broad bolts).
+                continue;
+            }
             if (requirement != null) {
                 if (!requirement.permitsWeapon(weapon.itemId(), weapon.style(), weaponUsesWornAmmo)) {
                     continue;

@@ -2072,12 +2072,19 @@ public final class GearSection extends CollapsibleSection
 	 *
 	 * <p>Every constraint the ordinary optimiser already enforces is threaded
 	 * through here via the SAME seam rather than a second copy (PR #25
-	 * findings): {@link #excludedItemIds}/{@link ItemEligibility#restrictedItemIds}
-	 * (the exact set {@link #buildOptimizerRequest} folds into {@code
-	 * GearOptimizer.Request.exclude}), {@link #currentBaseLevels} (the exact
+	 * findings): {@link #excludedItemIds} (the user's alias-symmetric
+	 * "Exclude from suggestions" set) and {@link
+	 * ItemEligibility#restrictedItemIds} (permanent, per-id mode-lock
+	 * restrictions) are kept as TWO separate sets rather than merged into one
+	 * — a round-2 fix: merging a restricted alias id (e.g. Voidwaker
+	 * (deadman) 29607) into the same set the alias-symmetric {@code
+	 * SpecWeapon.isExcluded} consumes wrongly suppressed the whole family
+	 * (the ordinary, perfectly legal Voidwaker 27690 too), since {@link
+	 * ItemEligibility#restrictedItemIds} is a per-id restriction, not a
+	 * family-wide one. {@link #currentBaseLevels} (the exact
 	 * map fed to {@code Request.playerBaseLevels}, which {@link
-	 * SpecWeaponSelector#select} passes to {@code
-	 * EquipmentRequirementsRepository.canEquip} — owning a Voidwaker at 60
+	 * SpecWeaponSelector#select} passes to {@link
+	 * com.ospulse.combat.SpecWeapon#canEquip} — owning a Voidwaker at 60
 	 * Attack does not mean it can be equipped), {@link #effectiveAmmoId} (fed
 	 * to {@code MonsterCombatRequirement.permitsAmmo} for an ammo-gated
 	 * target, since {@code permitsWeapon} alone deliberately accepts a
@@ -2096,8 +2103,9 @@ public final class GearSection extends CollapsibleSection
 			return;
 		}
 		java.util.Set<Integer> ownedIds = ownedPriceMap().keySet();
+		// Kept as TWO separate sets — see the method javadoc's round-2 fix note.
 		java.util.Set<Integer> specExclusions = new java.util.LinkedHashSet<>(excludedItemIds);
-		specExclusions.addAll(ItemEligibility.restrictedItemIds());
+		java.util.Set<Integer> specRestrictions = ItemEligibility.restrictedItemIds();
 		java.util.Map<String, Integer> baseLevels = currentBaseLevels();
 		int wornAmmoId = effectiveAmmoId();
 		MonsterCombatRequirement requirement =
@@ -2114,7 +2122,8 @@ public final class GearSection extends CollapsibleSection
 			return computeAgainst(swappedStats, style, weapon.itemId());
 		};
 		SpecWeaponRecommendation recommendation =
-			SpecWeaponSelector.select(selectedMonster, requirement, ownedIds, specExclusions, baseLevels, wornAmmoId, probe)
+			SpecWeaponSelector.select(selectedMonster, requirement, ownedIds, specExclusions, specRestrictions,
+					baseLevels, wornAmmoId, probe)
 				.orElse(null);
 		specWeaponCell.refresh(recommendation, itemManager);
 	}

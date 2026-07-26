@@ -33,6 +33,8 @@ public class GearSectionSpecWeaponCellTest
 	private static final int DRAGON_CLAWS = 13652;
 	private static final int DRAGON_DAGGER = 1231;
 	private static final int DRAGON_WARHAMMER = 13576;
+	private static final int VOIDWAKER = 27690;
+	private static final int VOIDWAKER_DEADMAN = 29607; // alias of VOIDWAKER; mode-locked by name (bug C)
 
 	private static void onEdt(Runnable body)
 	{
@@ -302,6 +304,65 @@ public class GearSectionSpecWeaponCellTest
 			section.monsterListForTest().setSelectedIndex(indexOf(section.monsterListForTest().getModel(), "cerberus"));
 
 			assertEquals(DRAGON_CLAWS, section.specWeaponCellItemIdForTest());
+		});
+	}
+
+	// ---- Round 2 finding (a): mode restrictions must not be family-wide ------------------
+
+	/**
+	 * {@code ItemEligibility.restrictedItemIds()} always contains 29607
+	 * (Voidwaker (deadman)) because its indexed name carries the "(deadman)"
+	 * mode marker (bug C). 29607 is declared as an ALIAS of the ordinary
+	 * Voidwaker (27690) in {@link SpecWeapon#CATALOG}. Before the fix,
+	 * {@code updateSpecWeaponCell} folded the mode-restriction into the SAME
+	 * set consumed by the alias-symmetric {@link SpecWeapon#isExcluded}, so
+	 * the restricted alias suppressed the WHOLE family — an owner of the
+	 * ordinary, perfectly legal Voidwaker could never be recommended it.
+	 */
+	@Test
+	public void modeRestrictedAliasDoesNotSuppressTheOrdinaryWeapon()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearWielding(VOIDWAKER), null));
+
+			// Cerberus: bundled defenceLevel 100, well under HIGH_DEFENCE_THRESHOLD,
+			// no combat-requirement gate — a plain DAMAGE-role pick, same target
+			// used by ownedDamageSpecIsRecommendedAgainstALowDefenceTarget.
+			section.searchFieldForTest().setText("cerberus");
+			int index = indexOf(section.monsterListForTest().getModel(), "cerberus");
+			assertTrue("Cerberus must appear in the filtered list", index >= 0);
+			section.monsterListForTest().setSelectedIndex(index);
+
+			assertEquals("Voidwaker (deadman) 29607 is mode-restricted, but that must only block "
+					+ "29607 itself — the owned, ordinary 27690 must still be recommended",
+				VOIDWAKER, section.specWeaponCellItemIdForTest());
+		});
+	}
+
+	/**
+	 * The other direction of the same fix: a user's explicit exclusion IS
+	 * family-wide/alias-symmetric (unlike a mode restriction) and must still
+	 * remove the whole Voidwaker family, exactly as it did before this fix.
+	 */
+	@Test
+	public void userExclusionOfTheOrdinaryWeaponStillRemovesTheWholeFamily()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearWielding(VOIDWAKER), null));
+			section.excludeItemFromSuggestionsForTest(VOIDWAKER);
+
+			section.searchFieldForTest().setText("cerberus");
+			int index = indexOf(section.monsterListForTest().getModel(), "cerberus");
+			assertTrue("Cerberus must appear in the filtered list", index >= 0);
+			section.monsterListForTest().setSelectedIndex(index);
+
+			assertEquals("excluding the ordinary Voidwaker is a user action and must still be "
+					+ "family-wide, unlike the permanently-restricted deadman id",
+				-1, section.specWeaponCellItemIdForTest());
 		});
 	}
 

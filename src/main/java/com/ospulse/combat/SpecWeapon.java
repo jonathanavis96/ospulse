@@ -2,8 +2,10 @@ package com.ospulse.combat;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -172,6 +174,61 @@ public final class SpecWeapon {
             }
         }
         return false;
+    }
+
+    /**
+     * True if a player at {@code baseLevels} can equip this weapon, per
+     * {@link EquipmentRequirementsRepository#canEquip} — BUT resolved across
+     * the whole family ({@link #itemId()} plus every {@link #ownedAliasIds()}
+     * entry) rather than the canonical id alone (round-2 fix). Data-shape bug
+     * found in review: the canonical Dragon dagger id (1231) has NO row in
+     * {@code equipment_requirements.min.json}, while alias ids 1215/5698
+     * carry the real 60 Attack requirement — checking 1231 alone fails OPEN
+     * (no row = no requirement) and lets a sub-60-Attack owner be
+     * recommended it. Every alias here is the SAME physical weapon (cosmetic
+     * recolour / poison-charge variant — see class javadoc), so they share
+     * one true in-game requirement; a missing row on one member is a data
+     * gap, never evidence of a lower requirement. The binding requirement is
+     * the union of every requirement found across the family, keeping the
+     * STRICTEST (max) level per skill so a hole in one row can never relax
+     * what another row in the same family proves is actually required.
+     *
+     * <p>Deliberately NOT a change to {@link
+     * EquipmentRequirementsRepository#canEquip}'s fail-open default itself —
+     * that default is correct for the optimiser at large (an item with
+     * genuinely no requirement, e.g. level 1 gear, must stay unblocked) and
+     * changing it globally would affect every candidate, not just this
+     * catalog's data gap.
+     */
+    public boolean canEquip(Map<String, Integer> baseLevels) {
+        EquipmentRequirementsRepository repo = EquipmentRequirementsRepository.getInstance();
+        Map<String, Integer> merged = new HashMap<>();
+        mergeRequirements(merged, repo.requirementsFor(itemId));
+        for (int alias : ownedAliasIds) {
+            mergeRequirements(merged, repo.requirementsFor(alias));
+        }
+        if (merged.isEmpty()) {
+            return true;
+        }
+        if (baseLevels == null || baseLevels.isEmpty()) {
+            return true; // no level info supplied → don't over-filter, mirrors the repository's own rule.
+        }
+        for (Map.Entry<String, Integer> req : merged.entrySet()) {
+            Integer have = baseLevels.get(req.getKey());
+            if (have != null && have < req.getValue()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static void mergeRequirements(Map<String, Integer> merged, Map<String, Integer> reqs) {
+        if (reqs == null) {
+            return;
+        }
+        for (Map.Entry<String, Integer> e : reqs.entrySet()) {
+            merged.merge(e.getKey(), e.getValue(), Math::max);
+        }
     }
 
     /** Expected damage dealt by ONE use of this special, given the generic pipeline's (hitChance, maxHit) for {@link #style()}. */

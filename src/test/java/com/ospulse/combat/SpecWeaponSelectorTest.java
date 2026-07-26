@@ -230,6 +230,50 @@ public class SpecWeaponSelectorTest {
         assertEquals(voidwaker, rec.get().itemId());
     }
 
+    // ---- Round 2 finding (c): equip level must be resolved across the weapon family ------
+
+    /**
+     * The catalog's canonical Dragon dagger id (1231) has NO row in
+     * {@code equipment_requirements.min.json} — a data-shape gap found in
+     * review — while alias ids 1215/5698 carry the real 60 Attack
+     * requirement. Checking the canonical id alone (as {@link
+     * EquipmentRequirementsRepository#canEquip} does when given just {@link
+     * #DRAGON_DAGGER}) fails OPEN and lets a sub-60-Attack player be
+     * recommended it. The fix resolves the requirement across the whole
+     * family (canonical + every alias) at the spec-catalog level.
+     */
+    @Test
+    public void equipLevelRequirementIsResolvedAcrossTheWeaponFamilyEvenWhenTheCanonicalIdHasNoRow() {
+        assertEquals("test assumes the canonical id's data gap — if this fails the bundled data changed",
+                null, EquipmentRequirementsRepository.getInstance().requirementsFor(DRAGON_DAGGER));
+        assertEquals("test assumes an alias carries the real requirement — if this fails the bundled data changed",
+                Integer.valueOf(60), EquipmentRequirementsRepository.getInstance().requirementsFor(1215).get("attack"));
+
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(DRAGON_DAGGER));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(DRAGON_DAGGER, result(40, 0.6));
+        java.util.Map<String, Integer> tooLowAttack = Collections.singletonMap("attack", 30);
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), null, owned, Collections.emptySet(), tooLowAttack, -1, fixedProbe(byId));
+        assertFalse("30 Attack cannot equip a 60-Attack Dragon dagger, even though the canonical id's own row is missing",
+                rec.isPresent());
+    }
+
+    /** Same setup as above, but with a level that DOES meet the family's real requirement. */
+    @Test
+    public void equipLevelRequirementResolvedAcrossTheFamilyAllowsTheWeaponOnceMet() {
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(DRAGON_DAGGER));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(DRAGON_DAGGER, result(40, 0.6));
+        java.util.Map<String, Integer> sufficientAttack = Collections.singletonMap("attack", 60);
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), null, owned, Collections.emptySet(), sufficientAttack, -1, fixedProbe(byId));
+        assertTrue(rec.isPresent());
+        assertEquals(DRAGON_DAGGER, rec.get().itemId());
+    }
+
     // ---- PR #25 finding 2: ranged specs need worn-ammo validation ------------------------
 
     /**
@@ -296,6 +340,67 @@ public class SpecWeaponSelectorTest {
                 Collections.emptyMap(), -1, fixedProbe(byId));
         assertFalse("a dart-firing blowpipe cannot hit a broad-ammo-gated target regardless of worn ammo",
                 rec.isPresent());
+    }
+
+    // ---- Round 2 finding (b): ammo must match the WEAPON, not just the target ------------
+
+    /**
+     * Kurask's real gate permits BOTH broad arrows and broad bolts (see
+     * {@link #kuraskShapedAmmoGate}) — that is a target-side allowlist, not a
+     * promise that any weapon can fire any allowed ammo. A Magic shortbow
+     * only ever fires the ARROW class ({@link AmmoCompatibility#consumedClass}),
+     * so broad BOLTS worn behind it must still be rejected even though
+     * {@code permitsWeapon}/{@code permitsAmmo} both pass — the bow physically
+     * cannot load a bolt.
+     */
+    @Test
+    public void rangedSpecWithWrongAmmoClassForTheWeaponIsRejectedEvenWhenTheTargetAllowsIt() {
+        int broadBolts = 11875; // in kuraskShapedAmmoGate()'s allowedAmmoIds, but wrong CLASS for a bow
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(MAGIC_SHORTBOW));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(MAGIC_SHORTBOW, result(90, 0.99));
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), kuraskShapedAmmoGate(), owned, Collections.emptySet(),
+                Collections.emptyMap(), broadBolts, fixedProbe(byId));
+        assertFalse("a Magic shortbow cannot fire broad bolts even though Kurask's gate allows the ammo class",
+                rec.isPresent());
+    }
+
+    /**
+     * The bigger hole from the finding: MOST targets have no combat
+     * requirement at all (unrestricted), so {@code requirement == null}
+     * skipped the ammo check entirely. Weapon/ammo compatibility is a
+     * property of the weapon and must be enforced regardless of whether the
+     * monster gates ammo.
+     */
+    @Test
+    public void rangedSpecWithWrongAmmoClassForTheWeaponIsRejectedEvenAtAnUnrestrictedTarget() {
+        int broadBolts = 11875; // BOLT class; Magic shortbow only fires ARROW
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(MAGIC_SHORTBOW));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(MAGIC_SHORTBOW, result(90, 0.99));
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), null, owned, Collections.emptySet(),
+                Collections.emptyMap(), broadBolts, fixedProbe(byId));
+        assertFalse("no monster requirement at all must not exempt weapon/ammo compatibility",
+                rec.isPresent());
+    }
+
+    /** Sanity check: the SAME unrestricted target still recommends the shortbow when the worn ammo actually matches. */
+    @Test
+    public void rangedSpecWithCorrectAmmoClassIsRecommendedAtAnUnrestrictedTarget() {
+        int runeArrow = 893; // ARROW class — matches Magic shortbow's consumedClass
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(MAGIC_SHORTBOW));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(MAGIC_SHORTBOW, result(90, 0.99));
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), null, owned, Collections.emptySet(),
+                Collections.emptyMap(), runeArrow, fixedProbe(byId));
+        assertTrue(rec.isPresent());
+        assertEquals(MAGIC_SHORTBOW, rec.get().itemId());
     }
 
     // ---- PR #25 finding 4: "Exclude from suggestions" must be honoured -------------------
