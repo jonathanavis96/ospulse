@@ -34,8 +34,13 @@ package com.ospulse.combat;
  * behind their own "applies when" predicate.
  *
  * <p>Per-target damage-magnitude effects (a curated {@link
- * MonsterCombatRequirement} resolved once per compute call from {@code
- * target.name()} via {@link MonsterCombatRequirementRepository}): a {@link
+ * MonsterCombatRequirement}, resolved once per compute call from {@code
+ * target.name()} via {@link MonsterCombatRequirementRepository} by the
+ * overloads below that don't take one explicitly, or supplied directly by a
+ * caller — such as {@code GearOptimizer} — that already resolved its own,
+ * which then takes priority instead of a second, independent lookup here; see
+ * {@link #applyTargetDamageRules} for how "not supplied" and "supplied null"
+ * are told apart): a {@link
  * MonsterCombatRequirement.Type#DAMAGE_PENALTY} multiplies max hit for an
  * off-style weapon (e.g. Corporeal Beast's half-damage stab), and a {@link
  * MonsterCombatRequirement.Type#DAMAGE_CAP} ceilings max hit, optionally per
@@ -78,10 +83,36 @@ public final class DpsCalculator {
      */
     public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
                                      Monster target, int baseSpellMaxHit, int weaponId) {
+        return compute(gear, player, style, target, baseSpellMaxHit, weaponId, resolveRequirement(target));
+    }
+
+    /**
+     * As {@link #compute(EquipmentStats, PlayerCombat, CombatStyle, Monster, int)},
+     * but the caller supplies the target's already-resolved {@link
+     * MonsterCombatRequirement} instead of it being looked up here — see
+     * {@link #applyTargetDamageRules} for why a caller-supplied {@code null}
+     * is never re-resolved.
+     */
+    public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                     Monster target, int baseSpellMaxHit, MonsterCombatRequirement requirement) {
+        return compute(gear, player, style, target, baseSpellMaxHit, UNKNOWN_WEAPON_ID, requirement);
+    }
+
+    /**
+     * As {@link #compute(EquipmentStats, PlayerCombat, CombatStyle, Monster, int, int)},
+     * but the caller supplies the target's already-resolved {@link
+     * MonsterCombatRequirement} instead of it being looked up here — see
+     * {@link #applyTargetDamageRules} for why a caller-supplied {@code null}
+     * is never re-resolved.
+     */
+    public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                     Monster target, int baseSpellMaxHit, int weaponId,
+                                     MonsterCombatRequirement requirement) {
         if (style == CombatStyle.MAGIC) {
-            return computeMagic(gear, player, target, baseSpellMaxHit, gear.weaponSpeedTicks(), false, null, weaponId);
+            return computeMagic(gear, player, target, baseSpellMaxHit, gear.weaponSpeedTicks(), false, null, weaponId,
+                    requirement);
         }
-        return computeNonMagic(gear, player, style, target, weaponId);
+        return computeNonMagic(gear, player, style, target, weaponId, requirement);
     }
 
     /**
@@ -104,36 +135,73 @@ public final class DpsCalculator {
      */
     public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
                                      Monster target, Spell spell, int weaponId) {
+        return compute(gear, player, style, target, spell, weaponId, resolveRequirement(target));
+    }
+
+    /**
+     * As {@link #compute(EquipmentStats, PlayerCombat, CombatStyle, Monster, Spell)},
+     * but the caller supplies the target's already-resolved {@link
+     * MonsterCombatRequirement} instead of it being looked up here — see
+     * {@link #applyTargetDamageRules} for why a caller-supplied {@code null}
+     * is never re-resolved.
+     */
+    public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                     Monster target, Spell spell, MonsterCombatRequirement requirement) {
+        return compute(gear, player, style, target, spell, UNKNOWN_WEAPON_ID, requirement);
+    }
+
+    /**
+     * As {@link #compute(EquipmentStats, PlayerCombat, CombatStyle, Monster, Spell, int)},
+     * but the caller supplies the target's already-resolved {@link
+     * MonsterCombatRequirement} instead of it being looked up here — see
+     * {@link #applyTargetDamageRules} for why a caller-supplied {@code null}
+     * is never re-resolved.
+     */
+    public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                     Monster target, Spell spell, int weaponId, MonsterCombatRequirement requirement) {
         if (style != CombatStyle.MAGIC) {
-            return computeNonMagic(gear, player, style, target, weaponId);
+            return computeNonMagic(gear, player, style, target, weaponId, requirement);
         }
         if (gear.poweredStaff().applies()) {
             // Base max hit derives from the boosted level inside computeMagic.
             // Powered staves cast their own built-in "spell" (Magic Dart etc.),
             // which is not a real Spell and carries no element - no weakness bonus.
             return computeMagic(gear, player, target, POWERED_STAFF_SENTINEL, gear.weaponSpeedTicks(),
-                    gear.poweredStaff().approximate(), null, weaponId);
+                    gear.poweredStaff().approximate(), null, weaponId, requirement);
         }
         int baseMaxHit = spell == null ? 0 : spell.baseMaxHit();
         Spell.Element element = spell == null ? null : spell.element();
-        return computeMagic(gear, player, target, baseMaxHit, Spell.CAST_SPEED_TICKS, false, element, weaponId);
+        return computeMagic(gear, player, target, baseMaxHit, Spell.CAST_SPEED_TICKS, false, element, weaponId,
+                requirement);
     }
 
     /** Sentinel meaning "the worn weapon's item id is not known to this caller". */
     private static final int UNKNOWN_WEAPON_ID = -1;
 
+    /**
+     * The repository-default resolution used by every overload that does not
+     * take an explicit {@link MonsterCombatRequirement} — exactly what {@link
+     * #applyTargetDamageRules} looked up internally before this class started
+     * threading the requirement through as a parameter. Kept as its own
+     * method so every "resolve it yourself" overload performs the identical
+     * lookup, byte-identical to the old behaviour.
+     */
+    private static MonsterCombatRequirement resolveRequirement(Monster target) {
+        return MonsterCombatRequirementRepository.getInstance().forMonster(target.name()).orElse(null);
+    }
+
     private static DpsResult computeNonMagic(EquipmentStats gear, PlayerCombat player, CombatStyle style,
-                                             Monster target, int weaponId) {
+                                             Monster target, int weaponId, MonsterCombatRequirement requirement) {
         if (style == CombatStyle.RANGED) {
-            return computeRanged(gear, player, target, weaponId);
+            return computeRanged(gear, player, target, weaponId, requirement);
         }
-        return computeMelee(gear, player, style, target, weaponId);
+        return computeMelee(gear, player, style, target, weaponId, requirement);
     }
 
     // ---- Melee (STAB/SLASH/CRUSH) -----------------------------------------------------
 
     private static DpsResult computeMelee(EquipmentStats gear, PlayerCombat player, CombatStyle style,
-                                          Monster target, int weaponId) {
+                                          Monster target, int weaponId, MonsterCombatRequirement requirement) {
         int boostedStr = player.assumeBestPotion()
                 ? PotionBoosts.bestMeleeBoostedLevel(player.baseStrength())
                 : player.boostedStrength();
@@ -192,7 +260,7 @@ public final class DpsCalculator {
         // attackRoll themselves — they change how hitChance/avgDamage are
         // derived from them, so this bypasses the generic finish() path.
         boolean fangApplies = gear.osmumtensFang() && style == CombatStyle.STAB;
-        TargetDamage damage = applyTargetDamageRules(maxHit, target, gear, style, weaponId);
+        TargetDamage damage = applyTargetDamageRules(maxHit, requirement, gear, style, weaponId);
         maxHit = damage.visibleMaxHit();
         if (fangApplies) {
             return finishFang(damage, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
@@ -203,7 +271,8 @@ public final class DpsCalculator {
 
     // ---- Ranged -----------------------------------------------------------------------
 
-    private static DpsResult computeRanged(EquipmentStats gear, PlayerCombat player, Monster target, int weaponId) {
+    private static DpsResult computeRanged(EquipmentStats gear, PlayerCombat player, Monster target, int weaponId,
+                                           MonsterCombatRequirement requirement) {
         int boostedRanged = player.assumeBestPotion()
                 ? PotionBoosts.bestRangedBoostedLevel(player.baseRanged())
                 : player.boostedRanged();
@@ -289,7 +358,7 @@ public final class DpsCalculator {
         int weaponSpeedTicks = gear.weaponSpeedTicks() - (player.stance() == Stance.RAPID ? 1 : 0);
         weaponSpeedTicks = Math.max(1, weaponSpeedTicks);
 
-        TargetDamage damage = applyTargetDamageRules(maxHit, target, gear, CombatStyle.RANGED, weaponId);
+        TargetDamage damage = applyTargetDamageRules(maxHit, requirement, gear, CombatStyle.RANGED, weaponId);
         maxHit = damage.visibleMaxHit();
         return finish(damage, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints(), false);
     }
@@ -318,7 +387,8 @@ public final class DpsCalculator {
 
     private static DpsResult computeMagic(EquipmentStats gear, PlayerCombat player, Monster target,
                                           int baseSpellMaxHit, int castSpeedTicks, boolean approximate,
-                                          Spell.Element spellElement, int weaponId) {
+                                          Spell.Element spellElement, int weaponId,
+                                          MonsterCombatRequirement requirement) {
         int boostedMagic = player.assumeBestPotion()
                 ? magicPotionBoostedLevel(player.magicPotionVariant(), player.baseMagic())
                 : player.boostedMagic();
@@ -397,19 +467,38 @@ public final class DpsCalculator {
             maxHit = (int) new Fraction(11, 10).applyFloor(maxHit);
         }
 
-        TargetDamage damage = applyTargetDamageRules(maxHit, target, gear, CombatStyle.MAGIC, weaponId);
+        TargetDamage damage = applyTargetDamageRules(maxHit, requirement, gear, CombatStyle.MAGIC, weaponId);
         maxHit = damage.visibleMaxHit();
         return finish(damage, accuracyRoll, defenceRoll, castSpeedTicks, target.hitpoints(), approximate);
     }
 
     /**
-     * The final max-hit step, shared by all three styles: resolves the
-     * target's curated {@link MonsterCombatRequirement} once (by name, {@code
-     * null} if this monster has none) and applies its damage penalty then its
-     * damage cap, in that order — see {@link TargetDamageRule}. A monster
-     * with no requirement (the overwhelming majority) is unaffected: both
-     * {@link TargetDamageRule} methods return their neutral values for a
+     * The final max-hit step, shared by all three styles: applies the given,
+     * already-resolved {@link MonsterCombatRequirement}'s damage penalty then
+     * its damage cap, in that order — see {@link TargetDamageRule}. A
+     * {@code null} req (the overwhelming majority of monsters) is unaffected:
+     * both {@link TargetDamageRule} methods return their neutral values for a
      * {@code null} requirement.
+     *
+     * <p><b>{@code req} is never re-resolved here</b> — resolution happens
+     * exactly once, before this method is ever called, so a plain {@code
+     * null} unambiguously means "this target has no requirement" and nothing
+     * else. There is no third "not yet resolved" state to confuse it with:
+     * the public {@code compute(...)} overloads that do NOT accept a {@link
+     * MonsterCombatRequirement} parameter (the original API) look it up
+     * themselves via {@link #resolveRequirement} — exactly the {@code
+     * MonsterCombatRequirementRepository.getInstance().forMonster(target.name())}
+     * call this method used to make internally — and pass that (possibly
+     * {@code null}) result down through {@code computeNonMagic}/{@code
+     * computeMelee}/{@code computeRanged}/{@code computeMagic} to here
+     * unchanged; the newer overloads that DO accept the parameter pass the
+     * caller's value straight through, likewise unchanged. Overload dispatch
+     * (arity/type, decided at the call site, not at runtime) is therefore the
+     * whole "sentinel": which family of overload was invoked is what tells
+     * "resolve it yourself" apart from "here is the resolved answer, even if
+     * that answer is null" — no in-band marker value is needed, and none of
+     * {@code MonsterCombatRequirement}'s real states is stolen for the
+     * purpose.
      *
      * <p>Deliberately does NOT collapse a {@code REROLL} cap into a lower
      * {@code uncapped} value here, tempting as that shortcut looks for the
@@ -423,10 +512,8 @@ public final class DpsCalculator {
      * carries the mode, and each of {@link #finish}/{@link #finishFang}
      * decides for itself what to do with it.
      */
-    private static TargetDamage applyTargetDamageRules(int maxHit, Monster target, EquipmentStats gear,
+    private static TargetDamage applyTargetDamageRules(int maxHit, MonsterCombatRequirement req, EquipmentStats gear,
                                                        CombatStyle style, int weaponId) {
-        MonsterCombatRequirement req = MonsterCombatRequirementRepository.getInstance()
-                .forMonster(target.name()).orElse(null);
         int afterPenalty = (int) Math.floor(maxHit * TargetDamageRule.damageMultiplierFor(req, weaponId, style));
         int cap = TargetDamageRule.maxHitCapFor(req, gear, style, weaponId);
         MonsterCombatRequirement.CapMode mode = TargetDamageRule.capModeFor(req);
