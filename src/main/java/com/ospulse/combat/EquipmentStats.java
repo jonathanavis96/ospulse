@@ -37,6 +37,7 @@ public final class EquipmentStats {
     private final boolean harmonisedNightmareStaff;
     private final PoweredStaff poweredStaff;
     private final Tome tome;
+    private final boolean tonalzticsOfRalosCharged;
 
     private EquipmentStats(Builder b) {
         this.astab = b.astab;
@@ -66,6 +67,7 @@ public final class EquipmentStats {
         this.harmonisedNightmareStaff = b.harmonisedNightmareStaff;
         this.poweredStaff = b.poweredStaff;
         this.tome = b.tome;
+        this.tonalzticsOfRalosCharged = b.tonalzticsOfRalosCharged;
     }
 
     public int astab() {
@@ -213,6 +215,16 @@ public final class EquipmentStats {
         return tome;
     }
 
+    /**
+     * True when the worn weapon is the CHARGED Tonalztics of Ralos (item id
+     * 28922) — fires two full, independent damage rolls per attack rather
+     * than the ordinary single roll; see {@link TonalzticsDualHit}. The
+     * uncharged variant (28919) leaves this {@code false}.
+     */
+    public boolean tonalzticsOfRalosCharged() {
+        return tonalzticsOfRalosCharged;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -245,6 +257,7 @@ public final class EquipmentStats {
         private boolean harmonisedNightmareStaff;
         private PoweredStaff poweredStaff = PoweredStaff.NONE;
         private Tome tome = Tome.NONE;
+        private boolean tonalzticsOfRalosCharged;
 
         private Builder() {
         }
@@ -339,6 +352,11 @@ public final class EquipmentStats {
 
         public Builder poweredStaff(PoweredStaff value) {
             this.poweredStaff = value;
+            return this;
+        }
+
+        public Builder tonalzticsOfRalosCharged(boolean value) {
+            this.tonalzticsOfRalosCharged = value;
             return this;
         }
 

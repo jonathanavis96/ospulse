@@ -447,6 +447,32 @@ public final class GearVariants
 		return weaponItemId == HARMONISED_NIGHTMARE_STAFF;
 	}
 
+	// ==== Tonalztics of Ralos (charged dual-hit passive) ==================================
+
+	/**
+	 * Tonalztics of Ralos, UNCHARGED — no combat passive; ids from the
+	 * bundled {@code equipment_index.min.json} 2026-07-26 (both ids share the
+	 * display name "Tonalztics of ralos"; the charged/uncharged distinction
+	 * is not in the name, only in which id the game hands out after charging
+	 * with Ralos's blessing).
+	 */
+	private static final int TONALZTICS_OF_RALOS_UNCHARGED = 28919;
+
+	/**
+	 * Tonalztics of Ralos, CHARGED — fires two full, independent damage
+	 * rolls per attack (neither halved), per the OSRS Wiki: "the weapon will
+	 * hit twice, with two independent damage rolls". Only this charged id
+	 * carries the passive; the uncharged variant behaves as an ordinary
+	 * single-hit ranged weapon and is deliberately excluded below.
+	 */
+	private static final int TONALZTICS_OF_RALOS_CHARGED = 28922;
+
+	/** True when the worn weapon is the CHARGED Tonalztics of Ralos (its dual-hit passive applies). */
+	static boolean isTonalzticsOfRalosCharged(int weaponItemId)
+	{
+		return weaponItemId == TONALZTICS_OF_RALOS_CHARGED;
+	}
+
 	// ==== Blowpipe (loads darts internally, ignores worn ammo) ============================
 
 	/**

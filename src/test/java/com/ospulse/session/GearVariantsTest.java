@@ -224,4 +224,21 @@ public class GearVariantsTest
 		org.junit.Assert.assertFalse(GearVariants.isBlowpipe(861)); // Magic shortbow
 		org.junit.Assert.assertFalse(GearVariants.isBlowpipe(-1)); // empty slot
 	}
+
+	// ==== Tonalztics of Ralos (charged dual-hit passive) =================================
+
+	@Test
+	public void isTonalzticsOfRalosCharged_chargedId_returnsTrue()
+	{
+		// Id verified against the bundled equipment_index.min.json 2026-07-26:
+		// both 28919 and 28922 share the display name "Tonalztics of ralos".
+		org.junit.Assert.assertTrue(GearVariants.isTonalzticsOfRalosCharged(28922));
+	}
+
+	@Test
+	public void isTonalzticsOfRalosCharged_unchargedId_returnsFalse()
+	{
+		org.junit.Assert.assertFalse(GearVariants.isTonalzticsOfRalosCharged(28919));
+		org.junit.Assert.assertFalse(GearVariants.isTonalzticsOfRalosCharged(-1)); // empty slot
+	}
 }

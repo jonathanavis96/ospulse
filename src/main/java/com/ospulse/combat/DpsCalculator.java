@@ -371,6 +371,13 @@ public final class DpsCalculator {
 
         TargetDamage damage = applyTargetDamageRules(maxHit, requirement, gear, CombatStyle.RANGED, weaponId);
         maxHit = damage.visibleMaxHit();
+        // Charged Tonalztics of Ralos: two full, independent damage rolls per
+        // attack (neither halved) — bypasses the generic finish() entirely,
+        // same shape as finishFang/finishTwinflame; see TonalzticsDualHit.
+        if (gear.tonalzticsOfRalosCharged()) {
+            return TonalzticsDualHit.finish(damage.uncapped, damage.cap, damage.mode, attackRoll, defenceRoll,
+                    weaponSpeedTicks, target.hitpoints());
+        }
         return finish(damage, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints(), false);
     }
 

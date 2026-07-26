@@ -186,6 +186,7 @@ public final class GearMapper
 		builder.twinflameStaff(GearVariants.isTwinflameStaff(weaponItemId));
 		builder.harmonisedNightmareStaff(GearVariants.isHarmonisedNightmareStaff(weaponItemId));
 		builder.poweredStaff(GearVariants.poweredStaffFor(weaponItemId));
+		builder.tonalzticsOfRalosCharged(GearVariants.isTonalzticsOfRalosCharged(weaponItemId));
 		builder.tome(GearVariants.tomeFor(slotItemId(equippedItemIds, SLOT_SHIELD)));
 		builder.voidSet(GearVariants.voidSetFor(
 			slotItemId(equippedItemIds, SLOT_HEAD),
