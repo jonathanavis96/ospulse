@@ -305,7 +305,7 @@ public final class GeReconciler implements GeAttributions
 					break;
 				case SELLING:
 				case SOLD:
-					long matched = applySell(slot, itemId, incremental, pricePerItem);
+					long matched = applySell(slot, itemId, incremental, pricePerItem, incrementalGp);
 					// The collectable proceeds are the gp actually transacted (a
 					// sell can fill ABOVE the offer price) minus the per-item
 					// tax.
@@ -440,7 +440,7 @@ public final class GeReconciler implements GeAttributions
 		basis.qty = newQty;
 	}
 
-	private long applySell(int slot, int itemId, long qty, long pricePerItem)
+	private long applySell(int slot, int itemId, long qty, long pricePerItem, long incrementalGp)
 	{
 		CostBasis basis = costBasis.get(itemId);
 		if (basis == null || basis.qty <= 0)
@@ -456,8 +456,16 @@ public final class GeReconciler implements GeAttributions
 		// Only the quantity actually bought via the GE counts as a flip.
 		long matched = Math.min(qty, basis.qty);
 
-		// The seller nets the sale price minus the GE's per-item sales tax.
-		long netProceedsPerItem = pricePerItem - saleTaxPerItem(itemId, pricePerItem);
+		// The realized price is what the GE actually paid, not the offer's
+		// listed (minimum) price — a sell can fill ABOVE that price, exactly
+		// like the collectable-proceeds calc just above this call at the call
+		// site. Falling back to pricePerItem only when a zero incrementalGp
+		// means no real gp movement is known yet (mirrors every other
+		// incrementalGp > 0 ? ... : ... fallback in this class).
+		long actualPricePerItem = incrementalGp > 0 ? incrementalGp / qty : pricePerItem;
+
+		// The seller nets the actual sale price minus the GE's per-item sales tax.
+		long netProceedsPerItem = actualPricePerItem - saleTaxPerItem(itemId, actualPricePerItem);
 		long delta = (netProceedsPerItem - basis.avgUnitCost) * matched;
 		realizedPnl += delta;
 

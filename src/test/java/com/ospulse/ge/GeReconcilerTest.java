@@ -42,6 +42,36 @@ public class GeReconcilerTest
 		assertEquals(1_760_000L, reconciler.realizedPnl());
 	}
 
+	/**
+	 * Bot-review finding (P2): a sell offer's {@code pricePerItem} is the
+	 * LISTED (minimum) price, but the GE can clear it at a genuinely higher
+	 * price — {@code gpTransacted} carries the actual proceeds (see the
+	 * {@code onOfferUpdate} comment "a sell can fill ABOVE the offer price").
+	 * {@link GeReconciler#applySell} must derive the realized delta and tax
+	 * from the actual incremental proceeds, not the stale listed price.
+	 */
+	@Test
+	public void sellFillingAboveTheListedPriceRealisesActualProceeds()
+	{
+		// Buy 10 whips at 1,000,000 each.
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+
+		// Sell offer LISTS 1,000,000/ea (its minimum), but the GE actually
+		// clears it at 1,200,000/ea — gpTransacted (12,000,000 for 10) is the
+		// real proceeds, not quantityTransacted * pricePerItem (10,000,000).
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_000_000L, 2000L);
+
+		// Same arithmetic as buyThenSellRealisesPnl (1,200,000/ea net of 2% tax
+		// = 1,176,000; (1,176,000-1,000,000)*10 = 1,760,000 profit) — using the
+		// listed price instead would compute a LOSS here, flipping the sign.
+		assertEquals("realized P&L must reflect actual proceeds, not the listed price",
+			1_760_000L, reconciler.realizedPnl());
+		assertEquals("the slot figure must match too",
+			OptionalLong.of(1_760_000L), reconciler.slotRealizedPnl(1));
+	}
+
 	@Test
 	public void resetClearsRealisedPnlCostBasisAndAttribution()
 	{

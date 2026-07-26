@@ -47,9 +47,12 @@ import net.runelite.client.game.ItemStats;
 import java.util.EnumSet;
 
 import java.lang.reflect.Type;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -653,7 +656,7 @@ public class SessionTracker implements SessionService
 			MovementSignals signals = pendingSignals.build();
 			pendingSignals = MovementSignals.builder();
 			engine.update(current, geReconciler, signals, ts);
-			attributeDiffLoot(signals, engine.lastUpdateDiffLoot());
+			attributeDiffLoot(ts, signals, engine.lastUpdateDiffLoot());
 		}
 		publish(buildSnapshot(current, ts, commit));
 	}
@@ -1348,6 +1351,40 @@ public class SessionTracker implements SessionService
 	}
 
 	/**
+	 * How long an unmatched, sourced loot receipt stays eligible to net against
+	 * a later tick's inventory diff (see {@link #outstandingReceipts}). An
+	 * ordinary ground drop is picked up on foot, which takes at least one tick
+	 * and often several more — but a dropped item stays private to (and
+	 * pickup-able by) the player who earned it for roughly a minute in live
+	 * OSRS. This window is comfortably inside that "still plausibly the same
+	 * physical drop" period, while short enough that it cannot silently net
+	 * out a genuinely new, unrelated appearance of the same item id much later
+	 * in the session.
+	 */
+	private static final long OUTSTANDING_RECEIPT_WINDOW_MS = 20_000L;
+
+	/** One not-yet-matched slice of a sourced receipt, aging toward expiry. */
+	private static final class OutstandingReceipt
+	{
+		long quantity;
+		final long tsMs;
+
+		OutstandingReceipt(long quantity, long tsMs)
+		{
+			this.quantity = quantity;
+			this.tsMs = tsMs;
+		}
+	}
+
+	/**
+	 * Sourced receipts ({@link com.ospulse.session.LootReceipt#source} != null)
+	 * not yet matched by an inventory diff, keyed by canonical item id and kept
+	 * oldest-first so a later tick's pickup can still net against a receipt
+	 * booked several ticks earlier. See {@link #attributeDiffLoot}.
+	 */
+	private final Map<Integer, Deque<OutstandingReceipt>> outstandingReceipts = new HashMap<>();
+
+	/**
 	 * Feeds this tick's inventory-diff loot into the per-source feed, so the feed
 	 * reports what the player's inventory actually did rather than only what
 	 * RuneLite's Loot Tracker chose to announce. Trigger-agnostic by construction:
@@ -1356,10 +1393,22 @@ public class SessionTracker implements SessionService
 	 *
 	 * <p><b>Why this cannot double-count.</b> An ordinary NPC kill is seen twice —
 	 * {@link #onLootReceived} already booked its feed row, and the engine's diff
-	 * then books the same items again as its LOOT residue. So each appearance is
-	 * netted against the quantity this tick's receipts already booked, and only
-	 * the shortfall is added. A kill nets to zero and adds nothing; a nest that
-	 * fired no event nets against nothing and is added in full.
+	 * (whichever tick it eventually lands on) books the same items again as LOOT
+	 * residue. So each appearance is netted against the quantity a receipt has
+	 * already booked, and only the shortfall is added. A kill nets to zero and
+	 * adds nothing; a nest that fired no event nets against nothing and is added
+	 * in full.
+	 *
+	 * <p><b>Why netting cannot be same-tick-only.</b> RuneLite's {@code
+	 * LootReceived} for an ordinary NPC kill fires as soon as the loot is known
+	 * (at the kill), not when the player later walks over and picks it up — the
+	 * inventory diff for that pickup can land several ticks after the receipt.
+	 * A receipt that isn't matched on its own tick is therefore not stale; it is
+	 * parked in {@link #outstandingReceipts} and stays eligible to net against
+	 * the diff whenever the pickup actually happens, up to {@link
+	 * #OUTSTANDING_RECEIPT_WINDOW_MS}. Past that window it is dropped: either it
+	 * was never picked up (looted by someone else, despawned) or matching it
+	 * this late would risk swallowing a genuinely new, unrelated appearance.
 	 *
 	 * <p>Netting is per-quantity on the canonical item id, NOT all-or-nothing on an
 	 * exact (id, quantity, unitValue) tuple. Two reasons. A tick can carry both a
@@ -1378,21 +1427,27 @@ public class SessionTracker implements SessionService
 	 * touched this feed, so netting against it would silently swallow a genuine
 	 * full-barrel overflow catch that did land in the inventory.
 	 */
-	private void attributeDiffLoot(MovementSignals signals, List<com.ospulse.session.DiffLoot> diffLoot)
+	private void attributeDiffLoot(long ts, MovementSignals signals, List<com.ospulse.session.DiffLoot> diffLoot)
 	{
-		if (diffLoot.isEmpty())
-		{
-			return;
-		}
+		pruneExpiredOutstandingReceipts(ts);
 
-		Map<Integer, Long> receipted = new HashMap<>();
+		// Fold this tick's sourced receipts into the outstanding pool BEFORE
+		// netting below, so a same-tick kill+pickup still nets in full (as
+		// before); a receipt with no diff this tick simply joins the pool and
+		// waits for whichever later tick the pickup actually lands on.
 		for (com.ospulse.session.LootReceipt r : signals.lootReceipts())
 		{
 			if (r.source == null)
 			{
 				continue;
 			}
-			receipted.merge(r.itemId, r.quantity, Long::sum);
+			outstandingReceipts.computeIfAbsent(r.itemId, k -> new ArrayDeque<>())
+				.addLast(new OutstandingReceipt(r.quantity, ts));
+		}
+
+		if (diffLoot.isEmpty())
+		{
+			return;
 		}
 
 		// One SourceAgg for the whole tick: the key must stay stable (it is the
@@ -1401,14 +1456,7 @@ public class SessionTracker implements SessionService
 		SourceAgg agg = null;
 		for (com.ospulse.session.DiffLoot d : diffLoot)
 		{
-			long remaining = d.quantity;
-			long alreadyBooked = receipted.getOrDefault(d.itemId, 0L);
-			if (alreadyBooked > 0)
-			{
-				long netted = Math.min(remaining, alreadyBooked);
-				receipted.put(d.itemId, alreadyBooked - netted);
-				remaining -= netted;
-			}
+			long remaining = nettAgainstOutstandingReceipts(d.itemId, d.quantity);
 			if (remaining <= 0)
 			{
 				continue;
@@ -1420,6 +1468,60 @@ public class SessionTracker implements SessionService
 				agg.lastSeq = ++lootSeq;
 			}
 			mergeItem(agg.items, d.itemId, d.name, remaining, d.unitValue);
+		}
+	}
+
+	/**
+	 * Nets {@code quantity} of {@code itemId} against the oldest outstanding
+	 * receipts first (FIFO), consuming/removing entries as they're used up.
+	 * Returns whatever quantity is left unmatched — the genuine, never-receipted
+	 * remainder that must still land in the feed.
+	 */
+	private long nettAgainstOutstandingReceipts(int itemId, long quantity)
+	{
+		Deque<OutstandingReceipt> pending = outstandingReceipts.get(itemId);
+		if (pending == null)
+		{
+			return quantity;
+		}
+		long remaining = quantity;
+		while (remaining > 0 && !pending.isEmpty())
+		{
+			OutstandingReceipt head = pending.peekFirst();
+			long netted = Math.min(remaining, head.quantity);
+			head.quantity -= netted;
+			remaining -= netted;
+			if (head.quantity <= 0)
+			{
+				pending.pollFirst();
+			}
+		}
+		if (pending.isEmpty())
+		{
+			outstandingReceipts.remove(itemId);
+		}
+		return remaining;
+	}
+
+	/**
+	 * Drops outstanding receipts older than {@link #OUTSTANDING_RECEIPT_WINDOW_MS}
+	 * so an item that was never picked up (looted by someone else, despawned)
+	 * cannot sit around indefinitely and wrongly net out an unrelated later find.
+	 */
+	private void pruneExpiredOutstandingReceipts(long ts)
+	{
+		Iterator<Map.Entry<Integer, Deque<OutstandingReceipt>>> it = outstandingReceipts.entrySet().iterator();
+		while (it.hasNext())
+		{
+			Deque<OutstandingReceipt> pending = it.next().getValue();
+			while (!pending.isEmpty() && ts - pending.peekFirst().tsMs > OUTSTANDING_RECEIPT_WINDOW_MS)
+			{
+				pending.pollFirst();
+			}
+			if (pending.isEmpty())
+			{
+				it.remove();
+			}
 		}
 	}
 

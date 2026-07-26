@@ -3879,6 +3879,39 @@ public class SessionEngineTest
 		assertIdentity("mid-episode nest", s);
 	}
 
+	/**
+	 * Bot-review finding (P1): an appearance with NO {@code LootReceived} at
+	 * all (the unannounced-bird-nest / auto-search seam this branch is meant
+	 * to surface — see {@code SessionTrackerTest
+	 * .unattributedInventoryAppearLandsInTheFeedUnderTheUnattributedSource})
+	 * that lands while an episode is open has no receipt to vouch for it, so
+	 * {@code claimReceipt} returns 0 and the WHOLE appearance is classified as
+	 * manufactured craft output — unlike {@link
+	 * #midEpisodeLootIsSubtractedFromTheCraftMargin}, which only works because
+	 * that test's nest DOES carry a receipt. Here there is none.
+	 */
+	@Test
+	public void unannouncedNestDuringAnOpenEpisodeIsMisclassifiedAsCraftOutput()
+	{
+		WealthSnapshot initial = snap(10_080_050L, herbloreInputs(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// No LootReceived signal at all — unlike midEpisodeLootIsSubtractedFromTheCraftMargin.
+		Map<Integer, ItemStack> after = items(
+			new ItemStack(TOADFLAX_UNF, "Toadflax potion(unf)", 10L, 6_000L),
+			new ItemStack(BIRD_NEST, "Bird nest", 1L, 80_000L));
+		WealthSnapshot crafted = snap(10_140_000L, after, 0L, false, 1_000L);
+		engine.update(crafted, (GeAttributions) null, crafting(), 1_000L);
+
+		SessionSnapshot s = engine.snapshot(crafted, 0L, Collections.emptyMap(), 0L, 1_000L);
+		assertEquals("an unreceipted nest picked up mid-episode must still be loot",
+			80_000L, s.getLootValue());
+		boolean nestReachedDiffLoot = engine.lastUpdateDiffLoot().stream()
+			.anyMatch(d -> d.itemId == BIRD_NEST);
+		assertTrue("the unreceipted nest must still reach the diff-loot feed pipeline",
+			nestReachedDiffLoot);
+	}
+
 	@Test
 	public void craftInFlightBooksNoTransientLoss()
 	{

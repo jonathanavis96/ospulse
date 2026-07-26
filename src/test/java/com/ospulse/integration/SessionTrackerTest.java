@@ -253,6 +253,45 @@ public class SessionTrackerTest
 	}
 
 	/**
+	 * Bot-review finding (P1): RuneLite's {@code LootReceived} for an ordinary
+	 * ground drop fires when the NPC dies (the drop appears), while the
+	 * inventory diff is only observed on whatever later tick the player
+	 * actually walks over and picks it up — the two events are NOT guaranteed
+	 * to land on the same tick the way {@link
+	 * #aKillWithAMatchingLootReceivedIsAttributedToTheNpcExactlyOnce} assumes.
+	 * The per-tick netting map in {@link SessionTracker#attributeDiffLoot} is
+	 * rebuilt fresh from each tick's own {@code MovementSignals}, so a receipt
+	 * booked on tick 1 cannot net against a diff that only appears on tick 2 —
+	 * the delayed pickup would double-count as {@code Inventory (unattributed)}
+	 * on top of the row {@code onLootReceived} already booked under the NPC.
+	 */
+	@Test
+	public void aDelayedPickupOfAnEarlierGroundDropDoesNotDoubleCountItInTheFeed()
+	{
+		priceItem(BONES_ID, "Bones", (int) BONES_UNIT);
+
+		// Tick 1: the NPC dies and LootReceived fires immediately — nothing has
+		// reached the inventory yet, so this tick's diff is empty.
+		tracker.onLootReceived("Goblin", 1, Collections.singletonList(
+			new net.runelite.client.game.ItemStack(BONES_ID, 3)));
+		engineReportsDiffLoot(Collections.<DiffLoot>emptyList());
+		tracker.onTick();
+
+		// Tick 2 (several ticks later in the real client): the player walks
+		// over and picks up the same drop. No LootReceived fires this tick.
+		engineReportsDiffLoot(Collections.singletonList(
+			new DiffLoot(BONES_ID, "Bones", 3L, BONES_UNIT)));
+		tracker.onTick();
+
+		SourceLoot goblin = sourceNamed("Goblin");
+		assertNotNull(goblin);
+		assertEquals("the kill is still worth exactly 3 bones, not 6",
+			3 * BONES_UNIT, goblin.getTotalValue());
+		assertNull("the delayed pickup of the SAME drop must not also land as unattributed",
+			sourceNamed(SessionTracker.UNATTRIBUTED_LOOT_SOURCE));
+	}
+
+	/**
 	 * A BANK-id container change drives the eager refresh path without involving
 	 * the fish-barrel inventory/equipment diff (which only handles INVENTORY /
 	 * EQUIPMENT ids).

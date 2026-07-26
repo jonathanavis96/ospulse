@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -623,6 +624,30 @@ public final class SessionEngine
 	}
 
 	private final List<PendingEpisodeInput> pendingEpisodeInputs = new ArrayList<>();
+
+	/**
+	 * An unvouched (no {@code LootReceived}) appearance during an open episode,
+	 * held for resolution until this update's vanishes (this tick's own episode
+	 * inputs) are fully known — see the budget-capped resolution in {@link
+	 * #update}. Classifying it the instant it's seen, using only {@code
+	 * episodeOpen} as the gate, swallowed anything landing in the episode's
+	 * idle tail (or alongside an unrelated conversion) as phantom craft output
+	 * with no charged input to justify it — e.g. an unannounced bird nest
+	 * picked up while a herblore/fletching/etc. episode happens to be open.
+	 */
+	private static final class ManufacturedCandidate
+	{
+		final Swing swing;
+		/** Quantity not vouched for by a receipt (may be less than swing.quantity, which the vouched portion already reduced). */
+		final long quantity;
+
+		ManufacturedCandidate(Swing swing, long quantity)
+		{
+			this.swing = swing;
+			this.quantity = quantity;
+		}
+	}
+
 	/** True while a production episode is open — see {@link ProductionActivity}. */
 	private boolean episodeOpen;
 	/** When production XP/animation was last seen; drives the idle close. */
@@ -2021,6 +2046,9 @@ public final class SessionEngine
 		}
 
 		long episodeOutput = 0L;
+		// Unvouched episode appears, resolved AFTER the vanish loop below once
+		// this update's own inputs are known — see ManufacturedCandidate.
+		List<ManufacturedCandidate> manufacturedCandidates = new ArrayList<>();
 
 		for (Swing a : appeared)
 		{
@@ -2218,25 +2246,24 @@ public final class SessionEngine
 
 			if (a.quantity > 0 && episodeOpen)
 			{
-				// Inside an episode, an appear NOTHING reported is a manufactured
-				// output, not loot — the same idiom as PURCHASE above: a
-				// net-worth item the player already paid for, here in herbs
-				// rather than coins. Crediting it as loot at full GE value while
-				// its inputs cost nothing is exactly how Profit came to floor at
-				// zero. A receipt-matched appear falls through to the loot path
-				// below, which is what keeps a mid-craft bird nest in the feed
-				// AND out of the craft margin: the episode is charged
-				// (tracked change − loot booked), so a nest that lifts both
-				// sides equally contributes nothing to the margin.
+				// Inside an episode, an appear NOTHING reported is a CANDIDATE
+				// manufactured output, not automatically one — the same idiom as
+				// PURCHASE above: a net-worth item the player already paid for,
+				// here in herbs rather than coins. A receipt-matched appear falls
+				// through to the loot path below, which is what keeps a
+				// mid-craft bird nest in the feed AND out of the craft margin.
+				//
+				// The unvouched remainder is NOT booked yet: whether it is
+				// genuinely funded by a charged input can only be judged once
+				// this update's own vanishes are known too (a same-tick craft's
+				// input hasn't been processed yet at this point in the method) —
+				// see the budget-capped resolution after the vanish loop below.
 				long vouched = claimReceipt(unclaimedReceipts, a.itemId, a.quantity);
 				long manufactured = a.quantity - vouched;
 				if (manufactured > 0)
 				{
-					long outputValue = manufactured * a.unitValue;
-					episodeOutput += outputValue;
+					manufacturedCandidates.add(new ManufacturedCandidate(a, manufactured));
 					a.quantity -= manufactured;
-					logAttribution(a.itemId, a.name, manufactured, outputValue,
-						"CRAFT(episode output; made, not looted)");
 				}
 			}
 
@@ -2474,6 +2501,66 @@ public final class SessionEngine
 					v.fullSwing, charge, v.hadBasis, v.basisQuantity, v.basisTotalCost, tsMs);
 				pending.reversedLootQty = reversedLootQty;
 				newPendingVanished.add(pending);
+			}
+		}
+
+		// Resolve deferred unvouched episode appears now that this update's
+		// vanishes (this tick's own PendingEpisodeInputs, added just above) are
+		// fully known. An appearance can only be genuine craft output up to the
+		// value of input actually charged and still awaiting one — the P1 bug
+		// this guards against is an unreceipted appear (an unannounced bird
+		// nest, or an older ground drop picked up) landing during the episode's
+		// open/idle-tail window with NOTHING backing it, yet being credited as
+		// manufactured anyway. Candidates are resolved smallest-total-value
+		// first: a bulk recipe output (many cheap units) is far likelier to be
+		// the genuine conversion than a single high-value item coincidentally
+		// landing the same tick, so it gets first claim on the budget; whatever
+		// the budget can't cover falls through as ordinary loot instead of
+		// being swallowed as phantom craft output. This is a bounded,
+		// deterministic proxy for true recipe correlation (matching a specific
+		// output to the specific inputs it was made from), not a substitute for
+		// it — recipe correlation would be a materially larger change.
+		if (!manufacturedCandidates.isEmpty())
+		{
+			long budget = 0L;
+			for (PendingEpisodeInput p : pendingEpisodeInputs)
+			{
+				budget += p.value;
+			}
+			manufacturedCandidates.sort(
+				Comparator.comparingLong(c -> c.quantity * c.swing.unitValue));
+			for (ManufacturedCandidate c : manufacturedCandidates)
+			{
+				long candidateValue = c.quantity * c.swing.unitValue;
+				long claimableValue = Math.min(candidateValue, budget);
+				long creditedQty = c.swing.unitValue > 0
+					? Math.min(c.quantity, claimableValue / c.swing.unitValue)
+					: c.quantity;
+				if (creditedQty > 0)
+				{
+					long outputValue = creditedQty * c.swing.unitValue;
+					episodeOutput += outputValue;
+					budget -= outputValue;
+					logAttribution(c.swing.itemId, c.swing.name, creditedQty, outputValue,
+						"CRAFT(episode output; made, not looted)");
+				}
+				long unfunded = c.quantity - creditedQty;
+				if (unfunded > 0)
+				{
+					// No charged input left to explain this: it cannot be a
+					// manufactured output, whatever episodeOpen says. Book it as
+					// ordinary loot — same as the fallback path below.
+					long lootValue = unfunded * c.swing.unitValue;
+					addLoot(new LootEntry(c.swing.itemId, c.swing.name, unfunded, lootValue, tsMs));
+					lootLedger.recordLoot(c.swing.itemId, unfunded, c.swing.unitValue);
+					lootRecorded += lootValue;
+					logAttribution(c.swing.itemId, c.swing.name, unfunded, lootValue,
+						"LOOT(unreceipted episode appear beyond the charged-input budget)");
+					lastDiffLoot.add(new DiffLoot(c.swing.itemId, c.swing.name, unfunded, c.swing.unitValue));
+					newPendingLooted.add(new PendingSwing(c.swing.itemId, unfunded, c.swing.unitValue,
+						c.swing.fullSwing, false, c.swing.hadBasis, c.swing.basisQuantity,
+						c.swing.basisTotalCost, tsMs));
+				}
 			}
 		}
 
