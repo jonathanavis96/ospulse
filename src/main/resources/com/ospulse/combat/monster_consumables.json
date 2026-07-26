@@ -1,0 +1,32 @@
+{
+  "reminders": [
+    {
+      "monsters": ["Zulrah"],
+      "note": "Zulrah poisons you on every hit — bring antivenom(+). A ring of suffering (ri) or ring of recoil chips some retaliation damage back."
+    },
+    {
+      "monsters": ["Vorkath"],
+      "note": "Vorkath breathes dragonfire (Protect from Magic plus an antifire potion covers it, no shield needed) and poisons you during the acid phase — bring antivenom(+). A dragonfire shield/ward or anti-dragon shield still helps if you'd rather not rely on potion doses.",
+      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
+    },
+    {
+      "monsters": [
+        "Red dragon", "Baby red dragon", "Brutal red dragon",
+        "Blue dragon", "Baby blue dragon", "Brutal blue dragon",
+        "Green dragon", "Baby green dragon", "Brutal green dragon",
+        "Black dragon", "Baby black dragon", "Brutal black dragon", "King Black Dragon",
+        "Lava dragon", "Frost dragon", "Reanimated dragon"
+      ],
+      "note": "Breathes dragonfire — Protect from Magic plus an antifire (or extended antifire) potion covers it without needing a shield; a dragonfire shield/ward or anti-dragon shield works too.",
+      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
+    },
+    {
+      "monsters": [
+        "Bronze dragon", "Iron dragon", "Steel dragon", "Steel dragon (Level 246 (Task only))",
+        "Mithril dragon", "Adamant dragon", "Rune dragon"
+      ],
+      "note": "Metal dragons' dragonfire pierces Protect from Magic — a dragonfire shield/ward or a super antifire potion is mandatory here, not just a prayer.",
+      "equipmentItemIds": [11283, 11284, 22002, 22003]
+    }
+  ]
+}
