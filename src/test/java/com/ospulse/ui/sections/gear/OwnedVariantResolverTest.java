@@ -1,6 +1,7 @@
 package com.ospulse.ui.sections.gear;
 
 import com.ospulse.combat.EquipmentIndexRepository;
+import com.ospulse.combat.EquipmentStatsRepository;
 
 import org.junit.Test;
 
@@ -11,6 +12,8 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Pure unit tests for {@link OwnedVariantResolver} against the REAL bundled
@@ -23,6 +26,11 @@ import static org.junit.Assert.assertEquals;
  */
 public class OwnedVariantResolverTest
 {
+	/** 4-tick bow; byte-identical bonuses to {@link #LONGBOW}, no equip requirement on either. */
+	private static final int SHORTBOW = 841;
+	/** 6-tick bow — same bonuses, same (absent) requirements, slower. */
+	private static final int LONGBOW = 839;
+
 	static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
 	private static final EquipmentIndexRepository INDEX = EquipmentIndexRepository.getInstance();
@@ -128,5 +136,528 @@ public class OwnedVariantResolverTest
 	public void plainFormId_nonVariantName_returnsNull()
 	{
 		assertEquals(null, OwnedVariantResolver.plainFormId(INDEX, MASORI_MASK));
+	}
+
+	// Imbued saradomin cape (deadman) 29617 <-> Imbued saradomin cape 24248/21791 —
+	// a Deadman Mode reward duplicate, combat-stat-identical to the real,
+	// non-mode-locked item (see equipment_stats.min.json: both amagic+15/
+	// dmagic+15/mdmg+20) BUT NOT requirement-identical: 24248
+	// (MA2_SARADOMIN_CAPE_TROUVER) has no recorded equip requirement, while
+	// 21791 (MA2_SARADOMIN_CAPE) requires magic 75 — matching 29617's own
+	// requirement (see equipment_requirements.min.json). Ids verified via
+	// javap -constants on net.runelite.api.gameval.ItemID (runelite-api jar
+	// on this project's classpath): DEADMAN_MA2_SARADOMIN_CAPE=29617,
+	// MA2_SARADOMIN_CAPE_TROUVER=24248, MA2_SARADOMIN_CAPE=21791.
+	// GearSection.restrictedItemIds() always excludes 29617 itself from optimiser
+	// candidates (mode-locked, regardless of ownership) — issue #11 Stage 3.
+	//
+	// Codex review (P2, post-commit 0623533): the ORIGINAL version of this test
+	// asserted plainFormId(29617) == INDEX.idForName("Imbued saradomin cape"),
+	// which happens to be 24248 (first in file order) — that assertion encoded
+	// the very bug it should have caught: stats-only "homogeneous" comparison
+	// picked file order and silently dropped the magic-75 level gate. Fixed to
+	// assert the specific, requirement-matching id (21791), not whatever
+	// idForName's single-id-per-name pick happens to return.
+	private static final int IMBUED_SARADOMIN_CAPE_DEADMAN = 29617;
+	private static final int IMBUED_SARADOMIN_CAPE_REAL_UNGATED_DUPLICATE = 24248;
+	private static final int IMBUED_SARADOMIN_CAPE_REAL_MAGIC75 = 21791;
+
+	@Test
+	public void plainFormId_deadmanSuffix_resolvesToRealNonModeLockedCounterpart()
+	{
+		assertEquals("owning the deadman saradomin cape (requires magic 75) must credit the "
+				+ "requirement-MATCHING real cape (21791), not the ungated duplicate (24248) that "
+				+ "file order would pick — that would silently bypass the level gate",
+			Integer.valueOf(IMBUED_SARADOMIN_CAPE_REAL_MAGIC75),
+			OwnedVariantResolver.plainFormId(INDEX, IMBUED_SARADOMIN_CAPE_DEADMAN));
+	}
+
+	@Test
+	public void plainFormId_deadmanSuffix_neverCreditsRequirementMismatchedDuplicate()
+	{
+		Integer resolved = OwnedVariantResolver.plainFormId(INDEX, IMBUED_SARADOMIN_CAPE_DEADMAN);
+		assertTrue("must not resolve to the ungated duplicate (24248) merely because it shares "
+				+ "identical combat stats with the requirement-matching one",
+			resolved != null && resolved != IMBUED_SARADOMIN_CAPE_REAL_UNGATED_DUPLICATE);
+	}
+
+	@Test
+	public void preferOwnedVariant_ownedDeadmanCape_resolvesFromRealCounterpart()
+	{
+		int resolved = OwnedVariantResolver.preferOwnedVariant(INDEX, IMBUED_SARADOMIN_CAPE_REAL_MAGIC75,
+			owned(IMBUED_SARADOMIN_CAPE_DEADMAN), null);
+		assertEquals("owning the deadman-mode duplicate must resolve display back to it, exactly like "
+				+ "the (f)/(i) suffixes already do",
+			IMBUED_SARADOMIN_CAPE_DEADMAN, resolved);
+	}
+
+	// Same shape as the saradomin cape, for the other two Deadman god capes — each has an
+	// ungated reward duplicate and a magic-75 real counterpart, combat-stat-identical to
+	// each other. Ids verified via javap -constants on net.runelite.api.gameval.ItemID:
+	// DEADMAN_MA2_GUTHIX_CAPE=29615, MA2_GUTHIX_CAPE_TROUVER=24249 (no requirement),
+	// MA2_GUTHIX_CAPE=21793 (magic 75); DEADMAN_MA2_ZAMORAK_CAPE=29613,
+	// MA2_ZAMORAK_CAPE_TROUVER=24250 (no requirement), MA2_ZAMORAK_CAPE=21795 (magic 75) —
+	// cross-checked against equipment_requirements.min.json.
+	private static final int IMBUED_GUTHIX_CAPE_DEADMAN = 29615;
+	private static final int IMBUED_GUTHIX_CAPE_REAL_MAGIC75 = 21793;
+	private static final int IMBUED_ZAMORAK_CAPE_DEADMAN = 29613;
+	private static final int IMBUED_ZAMORAK_CAPE_REAL_MAGIC75 = 21795;
+
+	@Test
+	public void plainFormId_deadmanGuthixCape_creditsRequirementMatchingRealCounterpart()
+	{
+		assertEquals("owning the deadman guthix cape (requires magic 75) must credit the "
+				+ "requirement-matching real cape (21793), not the ungated duplicate (24249)",
+			Integer.valueOf(IMBUED_GUTHIX_CAPE_REAL_MAGIC75),
+			OwnedVariantResolver.plainFormId(INDEX, IMBUED_GUTHIX_CAPE_DEADMAN));
+	}
+
+	@Test
+	public void plainFormId_deadmanZamorakCape_creditsRequirementMatchingRealCounterpart()
+	{
+		assertEquals("owning the deadman zamorak cape (requires magic 75) must credit the "
+				+ "requirement-matching real cape (21795), not the ungated duplicate (24250)",
+			Integer.valueOf(IMBUED_ZAMORAK_CAPE_REAL_MAGIC75),
+			OwnedVariantResolver.plainFormId(INDEX, IMBUED_ZAMORAK_CAPE_DEADMAN));
+	}
+
+	// Dark bow (deadman) 29611 requires ranged 60. Its plain-name group "Dark bow" has FIVE
+	// ids, all combat-stat-identical (arange 95, everything else 0): 12766/12765/12768/12767
+	// (recolour reward variants, no recorded requirement) and 11235 (the real weapon,
+	// ranged 60 — matching 29611's own requirement). File order in equipment_index.min.json
+	// puts 12766 first, so the old stats-only comparison would have credited an ungated
+	// recolour. Ids verified via javap -constants: DEADMAN_DARKBOW=29611, DARKBOW_BLUE=12766,
+	// DARKBOW_GREEN=12765, DARKBOW=11235, DARKBOW_WHITE=12768, DARKBOW_YELLOW=12767.
+	private static final int DARK_BOW_DEADMAN = 29611;
+	private static final int DARK_BOW_REAL_RANGED60 = 11235;
+	private static final int DARK_BOW_UNGATED_RECOLOUR_FIRST_IN_FILE_ORDER = 12766;
+
+	@Test
+	public void plainFormId_deadmanDarkBow_creditsRequirementMatchingRealCounterpart()
+	{
+		assertEquals("owning the deadman dark bow (requires ranged 60) must credit the real, "
+				+ "requirement-matching weapon (11235), not an ungated recolour",
+			Integer.valueOf(DARK_BOW_REAL_RANGED60),
+			OwnedVariantResolver.plainFormId(INDEX, DARK_BOW_DEADMAN));
+	}
+
+	@Test
+	public void plainFormId_deadmanDarkBow_neverCreditsFirstInFileOrderRecolour()
+	{
+		Integer resolved = OwnedVariantResolver.plainFormId(INDEX, DARK_BOW_DEADMAN);
+		assertTrue("must not resolve to the ungated recolour (12766) merely because it is first "
+				+ "in file order among the five combat-stat-identical \"Dark bow\" ids",
+			resolved != null && resolved != DARK_BOW_UNGATED_RECOLOUR_FIRST_IN_FILE_ORDER);
+	}
+
+	// ==================================================================================
+	// P1 follow-up (code review on issue #11 Stage 3): Deadman crystal armour has an
+	// ACTIVE id (real combat stats) and an INACTIVE id (all-zero stats, cosmetically
+	// deactivated) that share the SAME plain "Crystal body"/"Crystal helm"/"Crystal
+	// legs" name — a genuinely different-item name collision, unlike every other
+	// (f)/(i)/(deadman) case in the bundled data, where same-named ids are always
+	// stat-identical duplicates (charge levels, reward sources). The original
+	// deadmanSuffix_everyBundledMatch_hasAStatIdenticalPlainCounterpart check above
+	// only asserted "at least one stat-identical id exists in the group" — true even
+	// when idForName's first-file-order pick resolves to the WRONG (different-stats)
+	// member of that same group, which is exactly what happened here. Ids verified
+	// against the decompiled net.runelite.api.gameval.ItemID constants in the
+	// runelite-api jar on this project's classpath (javap -constants):
+	// CRYSTAL_HELMET(_INACTIVE) 23971/23973, CRYSTAL_CHESTPLATE(_INACTIVE) 23975/23977,
+	// CRYSTAL_PLATELEGS(_INACTIVE) 23979/23981, and their _DEADMAN/_INACTIVE_DEADMAN
+	// twins 33031/33033, 33023/33025, 33027/33029.
+	// ==================================================================================
+
+	private static final int CRYSTAL_HELM_ACTIVE = 23971;
+	private static final int CRYSTAL_HELM_INACTIVE = 23973;
+	private static final int CRYSTAL_HELM_DEADMAN_ACTIVE = 33031;
+	private static final int CRYSTAL_HELM_DEADMAN_INACTIVE = 33033;
+
+	private static final int CRYSTAL_BODY_ACTIVE = 23975;
+	private static final int CRYSTAL_BODY_INACTIVE = 23977;
+	private static final int CRYSTAL_BODY_DEADMAN_ACTIVE = 33023;
+	private static final int CRYSTAL_BODY_DEADMAN_INACTIVE = 33025;
+
+	private static final int CRYSTAL_LEGS_ACTIVE = 23979;
+	private static final int CRYSTAL_LEGS_INACTIVE = 23981;
+	private static final int CRYSTAL_LEGS_DEADMAN_ACTIVE = 33027;
+	private static final int CRYSTAL_LEGS_DEADMAN_INACTIVE = 33029;
+
+	@Test
+	public void plainFormId_deadmanCrystalBody_inactiveNeverCreditsActivePlainId()
+	{
+		assertEquals("owning the zero-stat inactive deadman body must credit the INACTIVE plain id, "
+				+ "never the fully-statted active one",
+			Integer.valueOf(CRYSTAL_BODY_INACTIVE),
+			OwnedVariantResolver.plainFormId(INDEX, CRYSTAL_BODY_DEADMAN_INACTIVE));
+	}
+
+	@Test
+	public void plainFormId_deadmanCrystalBody_activeCreditsActivePlainId()
+	{
+		assertEquals("owning the real-stat active deadman body must credit the ACTIVE plain id",
+			Integer.valueOf(CRYSTAL_BODY_ACTIVE),
+			OwnedVariantResolver.plainFormId(INDEX, CRYSTAL_BODY_DEADMAN_ACTIVE));
+	}
+
+	@Test
+	public void plainFormId_deadmanCrystalHelm_inactiveNeverCreditsActivePlainId()
+	{
+		assertEquals(Integer.valueOf(CRYSTAL_HELM_INACTIVE),
+			OwnedVariantResolver.plainFormId(INDEX, CRYSTAL_HELM_DEADMAN_INACTIVE));
+	}
+
+	@Test
+	public void plainFormId_deadmanCrystalHelm_activeCreditsActivePlainId()
+	{
+		assertEquals(Integer.valueOf(CRYSTAL_HELM_ACTIVE),
+			OwnedVariantResolver.plainFormId(INDEX, CRYSTAL_HELM_DEADMAN_ACTIVE));
+	}
+
+	@Test
+	public void plainFormId_deadmanCrystalLegs_inactiveNeverCreditsActivePlainId()
+	{
+		assertEquals(Integer.valueOf(CRYSTAL_LEGS_INACTIVE),
+			OwnedVariantResolver.plainFormId(INDEX, CRYSTAL_LEGS_DEADMAN_INACTIVE));
+	}
+
+	@Test
+	public void plainFormId_deadmanCrystalLegs_activeCreditsActivePlainId()
+	{
+		assertEquals(Integer.valueOf(CRYSTAL_LEGS_ACTIVE),
+			OwnedVariantResolver.plainFormId(INDEX, CRYSTAL_LEGS_DEADMAN_ACTIVE));
+	}
+
+	/**
+	 * The reverse-display half of the same defect: a recommendation actually
+	 * calculated off the ACTIVE plain id must never be displayed as the
+	 * owned zero-stat INACTIVE deadman piece, even though they share a name.
+	 */
+	@Test
+	public void preferOwnedVariant_ownedInactiveDeadmanCrystalBody_neverDisplayedForActiveResult()
+	{
+		int resolved = OwnedVariantResolver.preferOwnedVariant(INDEX, CRYSTAL_BODY_ACTIVE,
+			owned(CRYSTAL_BODY_DEADMAN_INACTIVE), null);
+		assertEquals("a result calculated off the ACTIVE plain id must stay the active id — the owned "
+				+ "INACTIVE deadman duplicate has different (zero) stats and must not be substituted",
+			CRYSTAL_BODY_ACTIVE, resolved);
+	}
+
+	/** Companion: the ACTIVE deadman duplicate DOES correctly substitute for an active-id result. */
+	@Test
+	public void preferOwnedVariant_ownedActiveDeadmanCrystalBody_displayedForActiveResult()
+	{
+		int resolved = OwnedVariantResolver.preferOwnedVariant(INDEX, CRYSTAL_BODY_ACTIVE,
+			owned(CRYSTAL_BODY_DEADMAN_ACTIVE), null);
+		assertEquals(CRYSTAL_BODY_DEADMAN_ACTIVE, resolved);
+	}
+
+	/** And the INACTIVE deadman duplicate correctly substitutes for an inactive-id result. */
+	@Test
+	public void preferOwnedVariant_ownedInactiveDeadmanCrystalBody_displayedForInactiveResult()
+	{
+		int resolved = OwnedVariantResolver.preferOwnedVariant(INDEX, CRYSTAL_BODY_INACTIVE,
+			owned(CRYSTAL_BODY_DEADMAN_INACTIVE), null);
+		assertEquals(CRYSTAL_BODY_DEADMAN_INACTIVE, resolved);
+	}
+
+	/**
+	 * Strengthened regression (replaces the existence-only check that missed this
+	 * P1): for EVERY suffix in {@link OwnedVariantResolver#SUFFIXES} and every
+	 * bundled item whose name ends in it, asserts what {@link
+	 * OwnedVariantResolver#plainFormId} actually RETURNS, not merely that some
+	 * stat-identical candidate exists somewhere in the name group.
+	 *
+	 * <p>The real invariant is conditional, not a blanket equality: most
+	 * suffixes mean "this variant SUPERSEDES (better stats than) its plain
+	 * form" (Masori mask (f) has strictly better defensive bonuses than plain
+	 * Masori mask — see {@code plainFormId_resolvesVariantToPlain}'s fixture),
+	 * so requiring the resolved id's stats to equal the variant's own would be
+	 * wrong for every (f)/(i) case in the bundled data. The property that MUST
+	 * hold universally is: when a plain name resolves to more than one id AND
+	 * those ids are NOT all stat-identical AND equip-requirement-identical to
+	 * each other (a genuine same-name collision between different items —
+	 * Deadman crystal armour differs in stats; Deadman god capes and Dark bow
+	 * differ ONLY in equip requirement while being combat-stat-identical, see
+	 * the Codex P2 follow-up section below), {@code plainFormId} must resolve
+	 * to the specific id matching the variant's own stats AND requirements, or
+	 * {@code null} if none matches — never an arbitrary/first-position pick.
+	 * When the plain name's ids ARE all stat- and requirement-identical (the
+	 * common case), any pick is safe and unconstrained.
+	 */
+	@Test
+	public void plainFormId_everySuffix_resolvesCorrectlyForEveryHeterogeneousNameCollision()
+	{
+		EquipmentStatsRepository stats = EquipmentStatsRepository.getInstance();
+		com.ospulse.combat.EquipmentRequirementsRepository requirements =
+			com.ospulse.combat.EquipmentRequirementsRepository.getInstance();
+		Map<String, java.util.List<Integer>> idsByName = new HashMap<>();
+		for (Integer id : INDEX.allItemIds())
+		{
+			EquipmentIndexRepository.Entry entry = INDEX.entryFor(id);
+			if (entry != null)
+			{
+				idsByName.computeIfAbsent(entry.name(), n -> new java.util.ArrayList<>()).add(id);
+			}
+		}
+
+		int heterogeneousGroupsChecked = 0;
+		int variantsChecked = 0;
+		for (String suffix : OwnedVariantResolver.SUFFIXES)
+		{
+			for (Map.Entry<String, java.util.List<Integer>> e : idsByName.entrySet())
+			{
+				String name = e.getKey();
+				if (!name.endsWith(suffix))
+				{
+					continue;
+				}
+				String plainName = name.substring(0, name.length() - suffix.length());
+				java.util.List<Integer> plainIds = idsByName.get(plainName);
+				if (plainIds == null)
+				{
+					continue; // no indexed plain form at all — plainFormId must return null, checked separately below
+				}
+				boolean heterogeneous = !(allSameStats(stats, plainIds) && allSameRequirements(requirements, plainIds));
+
+				for (Integer variantId : e.getValue())
+				{
+					variantsChecked++;
+					Integer resolved = OwnedVariantResolver.plainFormId(INDEX, variantId);
+					if (!heterogeneous)
+					{
+						// Safe by construction: any pick is stat- and requirement-identical to every
+						// other, so the only requirement is that SOME real plain id was returned
+						// (never null when one exists).
+						assertTrue("\"" + name + "\" (" + variantId + "): a homogeneous plain-name group "
+								+ "must still resolve to a real member, not null",
+							plainIds.contains(resolved));
+						continue;
+					}
+					heterogeneousGroupsChecked++;
+					// Heterogeneous: the resolved id (if any) MUST match the variant's own stats
+					// AND its own equip requirements exactly.
+					if (resolved != null)
+					{
+						assertTrue("\"" + name + "\" (" + variantId + ") resolved to " + resolved
+								+ ", whose stats do not match the variant's own — a heterogeneous name "
+								+ "collision must only resolve to a stat-matching member, or null",
+							sameStats(stats.statsFor(variantId), stats.statsFor(resolved)));
+						assertTrue("\"" + name + "\" (" + variantId + ") resolved to " + resolved
+								+ ", whose equip requirements do not match the variant's own — a "
+								+ "heterogeneous name collision must never bypass the level gate",
+							sameRequirements(requirements, variantId, resolved));
+					}
+				}
+			}
+		}
+		assertTrue("fixture sanity: at least one variant must exist for a SUFFIXES entry", variantsChecked > 0);
+		assertTrue("fixture sanity: this check must actually exercise a heterogeneous name collision "
+				+ "(Deadman crystal armour and the Deadman god capes/Dark bow) — otherwise it never "
+				+ "tests the property it exists for",
+			heterogeneousGroupsChecked > 0);
+	}
+
+	/**
+	 * Attack speed is part of stat equivalence, not a footnote to it: it goes
+	 * straight into the optimiser's {@code SlotStats} via {@code
+	 * BundledSlotStatsLookup}, so two ids that are interchangeable on every
+	 * bonus and requirement but attack at different speeds are NOT
+	 * interchangeable for DPS.
+	 *
+	 * <p>No currently bundled {@code SUFFIXES} group exercises this — every
+	 * variant/plain pair that matches on the 14 bonus fields also matches on
+	 * speed — so the property is asserted against the plainest real pair in
+	 * the data that does: <b>Shortbow (841) and Longbow (839)</b> carry
+	 * byte-identical bonuses and identical (absent) requirements and differ
+	 * ONLY in speed, 4 ticks against 6. Under a speed-blind comparison those
+	 * two are "the same item", which is precisely how a future data refresh
+	 * could sneak a fabricated-DPS credit past the resolver.
+	 */
+	@Test
+	public void sameStats_countsAttackSpeed_soAShortbowNeverCreditsALongbow()
+	{
+		EquipmentStatsRepository stats = EquipmentStatsRepository.getInstance();
+		EquipmentStatsRepository.Stats shortbow = stats.statsFor(SHORTBOW);
+		EquipmentStatsRepository.Stats longbow = stats.statsFor(LONGBOW);
+		// Fixture sanity: if a data refresh ever makes these two differ in a
+		// BONUS too, this test would still pass while no longer testing speed
+		// at all — so pin the shape it depends on, not just the verdict.
+		assertTrue("fixture sanity: both bows must be present in the bundled stats",
+			shortbow != null && longbow != null);
+		assertEquals("fixture sanity: the pair must agree on ranged attack", longbow.arange(), shortbow.arange());
+		assertEquals("fixture sanity: the pair must agree on ranged strength", longbow.rstr(), shortbow.rstr());
+		assertTrue("fixture sanity: the pair must actually DIFFER in attack speed, or this proves nothing",
+			shortbow.aspeed() != longbow.aspeed());
+
+		assertTrue("an id is always equivalent to itself", OwnedVariantResolver.sameStatsForTest(SHORTBOW, SHORTBOW));
+		assertFalse("a 4-tick Shortbow and a 6-tick Longbow must never compare as equivalent — owning one "
+				+ "would otherwise credit the other and report DPS the player cannot achieve",
+			OwnedVariantResolver.sameStatsForTest(SHORTBOW, LONGBOW));
+	}
+
+	/** True when every id in {@code ids} shares identical equip requirements (absent counts as empty). */
+	private static boolean allSameRequirements(com.ospulse.combat.EquipmentRequirementsRepository requirements,
+		java.util.List<Integer> ids)
+	{
+		for (Integer id : ids)
+		{
+			if (!sameRequirements(requirements, ids.get(0), id))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/** Requirement-map equality for two item ids, treating an absent map as empty (matches production). */
+	private static boolean sameRequirements(com.ospulse.combat.EquipmentRequirementsRepository requirements,
+		int itemIdA, int itemIdB)
+	{
+		Map<String, Integer> a = requirements.requirementsFor(itemIdA);
+		Map<String, Integer> b = requirements.requirementsFor(itemIdB);
+		Map<String, Integer> normalizedA = a == null ? Collections.emptyMap() : a;
+		Map<String, Integer> normalizedB = b == null ? Collections.emptyMap() : b;
+		return normalizedA.equals(normalizedB);
+	}
+
+	// ==================================================================================
+	// P2 follow-up (missed credit, not over-credit): "Toxic staff (deadman)" strips to
+	// "Toxic staff", which has NO indexed entry at all — unlike every other SUFFIXES
+	// case, the real item lives under a genuinely DIFFERENT name, "Toxic staff of the
+	// dead". A full survey of every SUFFIXES-suffixed name in the bundled
+	// equipment_index.min.json (every " (f)"/" (i)"/" (deadman)" entry, checked whether
+	// its stripped name resolves to ANY indexed id) found this is the ONLY such case —
+	// so OwnedVariantResolver.UNINDEXED_PLAIN_NAME_ALIASES is a single curated entry,
+	// not a general rule. Ids verified against net.runelite.api.gameval.ItemID
+	// (javap -constants on the runelite-api jar on this project's classpath):
+	// TOXIC_SOTD_DEADMAN=33035, TOXIC_SOTD_CHARGED_DEADMAN=33036, TOXIC_SOTD=12902,
+	// TOXIC_SOTD_CHARGED=12904. Like Deadman crystal armour, the two real ids are NOT
+	// stat-identical (equipment_stats.min.json: 12902 amagic +17, 12904 amagic +25 —
+	// 33035/33036 match those exactly), and are in the OPPOSITE file-order pair-up
+	// (33036/12904 both happen to be first in file order, 33035/12902 both second) —
+	// so a naive "first candidate wins" resolution would accidentally get the charged
+	// pair right while silently over-crediting the UNCHARGED deadman staff (33035) with
+	// the CHARGED real item (12904). The two tests below discriminate exactly that.
+	// ==================================================================================
+
+	private static final int TOXIC_STAFF_DEADMAN_UNCHARGED = 33035;
+	private static final int TOXIC_STAFF_DEADMAN_CHARGED = 33036;
+	private static final int TOXIC_STAFF_OF_THE_DEAD_UNCHARGED = 12902;
+	private static final int TOXIC_STAFF_OF_THE_DEAD_CHARGED = 12904;
+
+	@Test
+	public void plainFormId_deadmanToxicStaffUncharged_creditsUnchargedRealCounterpart()
+	{
+		assertEquals("owning the uncharged deadman toxic staff must credit the uncharged real "
+				+ "\"Toxic staff of the dead\" (12902), even though \"Toxic staff\" itself has no indexed entry",
+			Integer.valueOf(TOXIC_STAFF_OF_THE_DEAD_UNCHARGED),
+			OwnedVariantResolver.plainFormId(INDEX, TOXIC_STAFF_DEADMAN_UNCHARGED));
+	}
+
+	@Test
+	public void plainFormId_deadmanToxicStaffCharged_creditsChargedRealCounterpart()
+	{
+		assertEquals("owning the charged deadman toxic staff must credit the charged real "
+				+ "\"Toxic staff of the dead\" (12904)",
+			Integer.valueOf(TOXIC_STAFF_OF_THE_DEAD_CHARGED),
+			OwnedVariantResolver.plainFormId(INDEX, TOXIC_STAFF_DEADMAN_CHARGED));
+	}
+
+	/**
+	 * Guard against over-credit: the uncharged deadman staff (33035) must never
+	 * resolve to the CHARGED real item (12904) — which is what a naive
+	 * "first-in-file-order" pick would return, since 12904 happens to be first
+	 * for the "Toxic staff of the dead" name group. Existence of a same-name
+	 * candidate is not enough; the SPECIFIC stat-matching one must be chosen.
+	 * (The two tests above already assert the specific expected id, which
+	 * inherently rules out 12904 for 33035 — this test states that guard
+	 * explicitly as a not-equals, so a future refactor that starts picking
+	 * "any same-name candidate" cannot silently pass by returning the wrong id.)
+	 */
+	@Test
+	public void plainFormId_deadmanToxicStaffUncharged_neverCreditsChargedCounterpart()
+	{
+		Integer resolved = OwnedVariantResolver.plainFormId(INDEX, TOXIC_STAFF_DEADMAN_UNCHARGED);
+		assertTrue("must resolve to the uncharged id (12902), not the charged one (12904) that "
+				+ "would be picked first in file order",
+			resolved != null && resolved != TOXIC_STAFF_OF_THE_DEAD_CHARGED);
+	}
+
+	/**
+	 * The alias table has to work in BOTH directions. {@code plainFormId}
+	 * reads it forwards, so owning 33035 credits 12902 — but the reverse
+	 * display lookup appends a suffix to the item's OWN name, looking for
+	 * "Toxic staff of the dead (deadman)", which does not exist. Without the
+	 * reverse hop the credited plain id is what the swap row, preview and
+	 * bank highlight all name, even though the player holds only the deadman
+	 * staff: the ownership map says "you have this" and every surface points
+	 * at something that is not in the bank.
+	 */
+	@Test
+	public void preferOwnedVariant_aliasedPlainName_resolvesBackToTheHeldDeadmanStaff()
+	{
+		assertEquals("owning the uncharged deadman staff must display as 33035, not the credited "
+				+ "12902 the player has no copy of",
+			TOXIC_STAFF_DEADMAN_UNCHARGED,
+			OwnedVariantResolver.preferOwnedVariant(INDEX, TOXIC_STAFF_OF_THE_DEAD_UNCHARGED,
+				owned(TOXIC_STAFF_DEADMAN_UNCHARGED), null));
+
+		assertEquals("and the charged pair resolves independently",
+			TOXIC_STAFF_DEADMAN_CHARGED,
+			OwnedVariantResolver.preferOwnedVariant(INDEX, TOXIC_STAFF_OF_THE_DEAD_CHARGED,
+				owned(TOXIC_STAFF_DEADMAN_CHARGED), null));
+	}
+
+	/**
+	 * Widening the NAME lookup must not widen the MATCH: the charge split is
+	 * still decided on stats. Holding only the uncharged deadman staff must
+	 * never display for a charged recommendation (amagic +17 against +25) —
+	 * that would report DPS the player cannot reach, which is exactly what
+	 * the heterogeneous-group rule exists to prevent.
+	 */
+	@Test
+	public void preferOwnedVariant_aliasedPlainName_neverCrossesTheChargeSplit()
+	{
+		assertEquals("the uncharged deadman staff must not be substituted for a CHARGED result",
+			TOXIC_STAFF_OF_THE_DEAD_CHARGED,
+			OwnedVariantResolver.preferOwnedVariant(INDEX, TOXIC_STAFF_OF_THE_DEAD_CHARGED,
+				owned(TOXIC_STAFF_DEADMAN_UNCHARGED), null));
+	}
+
+	private static boolean allSameStats(EquipmentStatsRepository stats, java.util.List<Integer> ids)
+	{
+		EquipmentStatsRepository.Stats first = stats.statsFor(ids.get(0));
+		for (Integer id : ids)
+		{
+			if (!sameStats(first, stats.statsFor(id)))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Deliberately an INDEPENDENT re-implementation of production's
+	 * equivalence rule (not a call into it), so the whole-dataset regressions
+	 * above have a real oracle rather than a tautology — but it must encode
+	 * the SAME rule, including attack speed, which is a direct DPS input via
+	 * {@code BundledSlotStatsLookup}. See
+	 * {@link #sameStats_countsAttackSpeed_soAShortbowNeverCreditsALongbow}.
+	 */
+	private static boolean sameStats(EquipmentStatsRepository.Stats a, EquipmentStatsRepository.Stats b)
+	{
+		if (a == null || b == null)
+		{
+			return a == b;
+		}
+		return a.astab() == b.astab() && a.aslash() == b.aslash() && a.acrush() == b.acrush()
+			&& a.amagic() == b.amagic() && a.arange() == b.arange()
+			&& a.dstab() == b.dstab() && a.dslash() == b.dslash() && a.dcrush() == b.dcrush()
+			&& a.dmagic() == b.dmagic() && a.drange() == b.drange()
+			&& a.str() == b.str() && a.rstr() == b.rstr()
+			&& a.mdmg() == b.mdmg() && a.prayer() == b.prayer()
+			&& a.aspeed() == b.aspeed();
 	}
 }

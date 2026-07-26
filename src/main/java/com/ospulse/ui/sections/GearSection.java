@@ -38,9 +38,12 @@ import com.ospulse.ui.WidthTrackingPanel;
 import com.ospulse.ui.sections.gear.CoinPileBadge;
 import com.ospulse.ui.sections.gear.DpsFormat;
 import com.ospulse.ui.sections.gear.GpFormat;
+import com.ospulse.ui.sections.gear.HeldItemIds;
 import com.ospulse.ui.sections.gear.OwnedVariantResolver;
+import com.ospulse.ui.sections.gear.RiskCreditPolicy;
 import com.ospulse.ui.sections.gear.RoundedButton;
 import com.ospulse.ui.sections.gear.StyleGrid;
+import com.ospulse.ui.sections.gear.VariantCreditSources;
 import com.ospulse.wealth.WealthSnapshot;
 
 import net.runelite.client.config.ConfigManager;
@@ -1433,12 +1436,13 @@ public final class GearSection extends CollapsibleSection
 	{
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
+		java.util.Set<Integer> heldIds = HeldItemIds.from(lastWealth, lastGear, index);
 		java.util.Map<Integer, Integer> map = new java.util.LinkedHashMap<>();
 		for (GearOptimizer.SlotChoice choice : result.loadout())
 		{
 			if (choice.itemId() > 0)
 			{
-				map.put(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds));
+				map.put(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds, heldIds));
 			}
 		}
 		return map;
@@ -4019,7 +4023,7 @@ public final class GearSection extends CollapsibleSection
 				if (index.entryFor(stack.getId()) != null)
 				{
 					prices.merge(stack.getId(), Math.max(0L, stack.getUnitValue()), Math::max);
-					addVariantPlainForm(prices, index, stack.getId());
+					addVariantPlainForm(prices, index, stack.getId(), excludedItemIds);
 				}
 			}
 		}
@@ -4034,7 +4038,7 @@ public final class GearSection extends CollapsibleSection
 				if (id > 0 && index.entryFor(id) != null)
 				{
 					prices.putIfAbsent(id, 0L);
-					addVariantPlainForm(prices, index, id);
+					addVariantPlainForm(prices, index, id, excludedItemIds);
 				}
 			}
 		}
@@ -4046,10 +4050,29 @@ public final class GearSection extends CollapsibleSection
 	 * {@link OwnedVariantResolver#SUFFIXES}, marks the plain (suffix-stripped)
 	 * form's item id owned at price 0 too — see {@link #ownedPriceMap}'s
 	 * javadoc for why.
+	 *
+	 * <p><b>An EXCLUDED variant credits nothing.</b> The credit's whole
+	 * justification is that the player effectively has the plain item because
+	 * they hold the variant — but "exclude from suggestions" withdraws the
+	 * variant from every path that could put it in a loadout, so the plain
+	 * counterpart stops being backed by anything. Crediting it anyway lets the
+	 * optimiser recommend, at zero spend, an item that is not in the bank, and
+	 * points the bank highlighter at an id that cannot be there — the exclusion
+	 * would have manufactured a free item out of nothing.
+	 *
+	 * <p>This is the same rule {@link OwnedVariantResolver#preferOwnedVariant}
+	 * and {@link VariantCreditSources} already apply, at the layer that grants
+	 * the credit rather than the layers that read it. It is the load-bearing
+	 * one: dropping the credit here means the plain form is simply not owned,
+	 * so a budgeted search prices it as the genuine purchase it would be.
 	 */
 	private static void addVariantPlainForm(java.util.Map<Integer, Long> prices, EquipmentIndexRepository index,
-		int ownedItemId)
+		int ownedItemId, java.util.Set<Integer> excludedItemIds)
 	{
+		if (excludedItemIds != null && excludedItemIds.contains(ownedItemId))
+		{
+			return;
+		}
 		Integer plainId = OwnedVariantResolver.plainFormId(index, ownedItemId);
 		if (plainId != null)
 		{
@@ -4651,6 +4674,32 @@ public final class GearSection extends CollapsibleSection
 			.onSlayerTask(onSlayerTaskToggle.isSelected())
 			.magicPotionVariant(magicPotionVariantForCalc());
 
+		java.util.Map<Integer, Integer> creditSources =
+			new java.util.HashMap<>(VariantCreditSources.from(lastWealth, lastGear,
+				EquipmentIndexRepository.getInstance(), excludedItemIds));
+		// A credit collapses "use the held variant" and "buy an ordinary copy"
+		// onto one item id, which the optimiser's per-slot candidates (bare
+		// ints) cannot tell apart. Where that costs the cap its only safe
+		// option, the credit is withdrawn so the counterpart behaves as the
+		// ordinary purchase it would be — see RiskCreditPolicy for why each
+		// condition is required. Risk values are read UNremapped here: the
+		// request's own source reports the variant's value for both ids, which
+		// would make the comparison vacuous.
+		long expensiveThreshold = resolvedExpensiveThreshold();
+		int expensiveAllowance = resolvedExpensiveCount();
+		java.util.Set<Integer> withdrawnCredits = RiskCreditPolicy.withdrawnForSaferPurchase(
+			creditSources,
+			id -> riskValues.getOrDefault((int) id, 0L),
+			id -> priceSource.priceFor((int) id),
+			GearOptimizer.expensiveCapActive(expensiveThreshold, expensiveAllowance),
+			expensiveAllowance, expensiveThreshold, budget);
+		java.util.Set<Integer> ownedIdsForSearch = ownedPrices.keySet();
+		if (!withdrawnCredits.isEmpty())
+		{
+			creditSources.keySet().removeAll(withdrawnCredits);
+			ownedIdsForSearch = new java.util.LinkedHashSet<>(ownedPrices.keySet());
+			ownedIdsForSearch.removeAll(withdrawnCredits);
+		}
 		java.util.Set<Integer> exclusions = new java.util.LinkedHashSet<>(excludedItemIds);
 		exclusions.addAll(restrictedItemIds());
 		if (hideUnprotectableItemsPref())
@@ -4682,7 +4731,7 @@ public final class GearSection extends CollapsibleSection
 		return GearOptimizer.Request
 			.builder(liveIds, target, template)
 			.budget(budget)
-			.owned(ownedPrices.keySet())
+			.owned(ownedIdsForSearch)
 			// Retained for any other budget-side consumer/back-compat, but no
 			// longer consulted by the expensive-item risk cap — riskValueSource
 			// below owns that job exclusively now (see
@@ -4700,7 +4749,22 @@ public final class GearSection extends CollapsibleSection
 			// (no resolver, e.g. a headless owned-only search) leaves the cap
 			// falling back to priceSource unchanged (see
 			// GearOptimizer.Request.Builder#riskValueSource).
-			.riskValueSource(riskValues.isEmpty() ? null : id -> riskValues.getOrDefault(id, 0L))
+			// The cap must price what the player is actually told to RISK, and
+			// for a credited plain id that is the held variant, not the
+			// counterpart the ownership map invented (see
+			// VariantCreditSources). A tradeable cosmetic can be worth a
+			// different amount from its ordinary form, and with a threshold
+			// between the two the cap would otherwise count the wrong item's
+			// gp and let a wilderness search break the user's own limit. The
+			// variant's own value wins; the credited id's value is the
+			// fallback for a variant the resolver did not price, so an
+			// unpriced variant can never silently drop the slot to 0.
+			.riskValueSource(lastRiskValueSource = riskValues.isEmpty() ? null : id ->
+			{
+				Integer source = creditSources.get(id);
+				Long variantRisk = source == null ? null : riskValues.get(source);
+				return variantRisk != null ? variantRisk : riskValues.getOrDefault(id, 0L);
+			})
 			.expensiveItemCount(resolvedExpensiveCount())
 			.expensiveItemThreshold(resolvedExpensiveThreshold())
 			// Items #6e/#6g: anchor the search to the requested damage type,
@@ -4888,14 +4952,32 @@ public final class GearSection extends CollapsibleSection
 		optimizerSwapList.setVisible(visible);
 	}
 
-	/** True if the optimiser's proposed loadout differs from the currently worn gear in at least one slot. */
+	/**
+	 * True if the optimiser's proposed loadout differs from the currently worn
+	 * gear in at least one slot.
+	 *
+	 * <p><b>The comparison is against the RESOLVED id, not the raw choice.</b>
+	 * When a mode-locked variant is already WORN rather than banked, the
+	 * optimiser is forced to pick its credited plain counterpart (the variant
+	 * itself is excluded from every search), and {@link
+	 * #resolvedChoiceItemId} maps that straight back to the worn id. Comparing
+	 * the raw choice would see live 29617 against choice 21791, call it a
+	 * change, and report an upgrade that is really the item already on the
+	 * player's back. Every live-vs-suggestion comparison — here, {@link
+	 * #renderOptimizerSwapList}'s skip and {@link
+	 * #applyOptimizerResultToOverride}'s — must therefore resolve first, or
+	 * they disagree with what the panel actually shows.
+	 */
 	private boolean hasAnySlotChange(GearOptimizer.Result result)
 	{
 		int[] liveIds = lastGear == null ? new int[GearSnapshot.EQUIPMENT_SLOT_COUNT] : lastGear.equippedItemIds();
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
+		java.util.Set<Integer> heldIds = HeldItemIds.from(lastWealth, lastGear, index);
 		for (GearOptimizer.SlotChoice choice : result.loadout())
 		{
 			int liveId = choice.slotOrdinal() < liveIds.length ? liveIds[choice.slotOrdinal()] : -1;
-			if (liveId != choice.itemId())
+			if (liveId != resolvedChoiceItemId(index, choice, ownedIds, heldIds))
 			{
 				return true;
 			}
@@ -4926,17 +5008,21 @@ public final class GearSection extends CollapsibleSection
 		// variant (e.g. "Masori mask (f)"), not the plain name — buildSwapRow
 		// needs the owned-item pool to make that reverse lookup.
 		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
+		java.util.Set<Integer> heldIds = HeldItemIds.from(lastWealth, lastGear, index);
 		boolean anyRow = false;
 		for (GearOptimizer.SlotChoice choice : result.loadout())
 		{
+			// Resolve BEFORE comparing — see hasAnySlotChange: a worn mode-locked
+			// variant resolves back to itself, and comparing the raw choice would
+			// render a 29617 -> 29617 self-swap row.
+			int resolvedId = resolvedChoiceItemId(index, choice, ownedIds, heldIds);
 			int liveId = choice.slotOrdinal() < liveIds.length ? liveIds[choice.slotOrdinal()] : -1;
-			if (liveId == choice.itemId())
+			if (liveId == resolvedId)
 			{
 				continue; // unchanged — nothing to report for this slot
 			}
 			anyRow = true;
-			optimizerSwapList.add(buildSwapRow(index, choice.slotOrdinal(), liveId,
-				resolvedChoiceItemId(index, choice, ownedIds), choice));
+			optimizerSwapList.add(buildSwapRow(index, choice.slotOrdinal(), liveId, resolvedId, choice));
 			optimizerSwapList.add(Box.createRigidArea(new Dimension(0, 2)));
 		}
 		if (!anyRow)
@@ -4961,13 +5047,53 @@ public final class GearSection extends CollapsibleSection
 	 * #excludedItemIds} (Codex finding #2): if the player excluded their own
 	 * owned variant, the plain id is shown/applied as-is rather than
 	 * resurrecting the excluded item under a different row.
+	 *
+	 * <p><b>What "resolved" means when a mode-locked variant is the source of
+	 * the credit</b> (issue #11 Stage 3; supersedes an earlier attempt that
+	 * unioned {@link #restrictedItemIds()} into the never-substitute set).
+	 * These two rules look like they conflict and do not:
+	 * <ul>
+	 *   <li>A mode-locked id ("(deadman)"/"(bh)"/"(lms)"/"(beta)") is never
+	 *   an optimiser CANDIDATE — {@link #buildOptimizerRequest} excludes
+	 *   every one of them from every search regardless of ownership, and
+	 *   {@code GearSectionGearPoolTest
+	 *   #deadmanNamedItem_isNeverSuggestedByTheOptimizer} locks that in.
+	 *   Nothing here weakens it: the optimiser still cannot pick, score, or
+	 *   recommend one.</li>
+	 *   <li>Once ownership of such a variant has CREDITED its plain
+	 *   counterpart (the entire point of adding " (deadman)" to {@link
+	 *   OwnedVariantResolver#SUFFIXES}), the display must name the item the
+	 *   player actually holds. The credited plain id is not in their bank —
+	 *   {@link #addVariantPlainForm} invented it at price 0 — so showing it
+	 *   tells the player to equip something they do not own, and arms the
+	 *   bank highlight on an id that cannot be there while missing the one
+	 *   that is.</li>
+	 * </ul>
+	 * Blocking the substitution satisfied the first rule by breaking the
+	 * second, which is the strictly worse trade: the recommendation stays
+	 * correct either way (the ids are stat- and requirement-identical — that
+	 * is what {@link OwnedVariantResolver} verifies before crediting at all),
+	 * so the only thing at stake is whether the player is pointed at the
+	 * right physical item. Credit and display must agree; if a mode-locked
+	 * variant is not a usable stand-in it should never have been credited in
+	 * the first place, and that decision lives in {@code SUFFIXES}, not here.
+	 *
+	 * <p>{@code heldItemIds} keeps the earlier fix's real kernel: a
+	 * substitution only ever happens for a choice the player does NOT
+	 * physically hold. If the optimiser picked an id that is genuinely in
+	 * the bank or already worn, that id is returned untouched, so an owned
+	 * plain form can never be swapped out for a mode-locked look-alike the
+	 * player also happens to own. See {@link HeldItemIds} for why the
+	 * ownership map alone cannot answer that.
 	 */
 	private int resolvedChoiceItemId(EquipmentIndexRepository index, GearOptimizer.SlotChoice choice,
-		java.util.Map<Integer, Long> ownedIds)
+		java.util.Map<Integer, Long> ownedIds, java.util.Set<Integer> heldItemIds)
 	{
-		return choice.owned()
-			? OwnedVariantResolver.preferOwnedVariant(index, choice.itemId(), ownedIds, excludedItemIds)
-			: choice.itemId();
+		if (!choice.owned() || heldItemIds.contains(choice.itemId()))
+		{
+			return choice.itemId();
+		}
+		return OwnedVariantResolver.preferOwnedVariant(index, choice.itemId(), ownedIds, excludedItemIds);
 	}
 
 	/**
@@ -5212,15 +5338,20 @@ public final class GearSection extends CollapsibleSection
 		// item than the row the user actually clicked "Apply" on.
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
+		java.util.Set<Integer> heldIds = HeldItemIds.from(lastWealth, lastGear, index);
 		LoadoutOverride next = LoadoutOverride.empty();
 		for (GearOptimizer.SlotChoice choice : lastOptimizerResult.loadout())
 		{
+			// Resolve BEFORE comparing — see hasAnySlotChange: a worn mode-locked
+			// variant resolves back to itself, and comparing the raw choice would
+			// preview a redundant override of the item already equipped.
+			int resolvedId = resolvedChoiceItemId(index, choice, ownedIds, heldIds);
 			int liveId = choice.slotOrdinal() < liveIds.length ? liveIds[choice.slotOrdinal()] : -1;
-			if (liveId == choice.itemId())
+			if (liveId == resolvedId)
 			{
 				continue; // unchanged — nothing to preview for this slot
 			}
-			next = next.withSlot(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds));
+			next = next.withSlot(choice.slotOrdinal(), resolvedId);
 		}
 		// B9-3: a two-handed weapon frees the shield slot. The optimiser empties
 		// the shield internally, but empty slots aren't listed in loadout(), so
@@ -5845,6 +5976,37 @@ public final class GearSection extends CollapsibleSection
 	GearOptimizer.Result lastOptimizerResultForTest()
 	{
 		return lastOptimizerResult;
+	}
+
+	/**
+	 * The risk source composed into the most recent {@link
+	 * #buildOptimizerRequest} — captured purely so a test can assert what the
+	 * expensive-item cap would actually charge for an id, which is otherwise
+	 * only observable through a full de-risk search.
+	 */
+	private GearOptimizer.PriceSource lastRiskValueSource;
+
+	/** Test seam: see {@link #lastRiskValueSource}. */
+	GearOptimizer.PriceSource lastRiskValueSourceForTest()
+	{
+		return lastRiskValueSource;
+	}
+
+	/** Test seam: {@link #hasAnySlotChange} — the "No upgrade found" verdict. */
+	boolean hasAnySlotChangeForTest(GearOptimizer.Result result)
+	{
+		return hasAnySlotChange(result);
+	}
+
+	/**
+	 * Test seam: the slot-&gt;item-id map the bank highlighter is actually
+	 * armed with — see {@link #optimizerLoadoutSlotMap}. Distinct from the
+	 * swap row and the applied preview only in which surface it feeds; all
+	 * three must agree, which is what makes it worth asserting separately.
+	 */
+	java.util.Map<Integer, Integer> optimizerLoadoutSlotMapForTest(GearOptimizer.Result result)
+	{
+		return optimizerLoadoutSlotMap(result);
 	}
 
 	/**

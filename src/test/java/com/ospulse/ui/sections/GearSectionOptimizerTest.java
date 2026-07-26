@@ -861,4 +861,225 @@ public class GearSectionOptimizerTest
 			assertEquals(1, section.optimizerSwapRowCountForTest());
 		});
 	}
+
+	// Imbued saradomin cape (deadman) 29617 -> credited plain 21791. A tradeable
+	// cosmetic can be worth a DIFFERENT amount from its ordinary counterpart, and
+	// the expensive-item cap prices the id the optimiser retains — the credited
+	// plain one — while the panel tells the player to wear the deadman cape.
+	private static final int SARADOMIN_CAPE_DEADMAN = 29617;
+	private static final int SARADOMIN_CAPE_PLAIN = 21791;
+
+	/**
+	 * The expensive-item cap must charge for the item the player is actually
+	 * told to RISK. Owning only the deadman cape credits the plain id at price
+	 * 0 (`addVariantPlainForm`), and the optimiser keeps that plain id in the
+	 * loadout — so `capRiskValueOf` looked it up and counted the ORDINARY
+	 * cape's gp, not the cosmetic the display resolves to and the player will
+	 * lose on death. With the user's threshold between the two values, a
+	 * wilderness/PvP search silently breaks their own expensive-item limit.
+	 *
+	 * <p>Asserted on the composed risk source rather than through a full
+	 * de-risk search, because that is the exact function the cap calls and it
+	 * makes the failure unambiguous.
+	 */
+	@Test
+	public void creditedPlainId_isRiskPricedAtTheHeldVariantsValue()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> riskValues = new java.util.HashMap<>();
+			riskValues.put(SARADOMIN_CAPE_DEADMAN, 40_000_000L);
+			riskValues.put(SARADOMIN_CAPE_PLAIN, 1_000L);
+
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(SARADOMIN_CAPE_DEADMAN, "Imbued saradomin cape (deadman)", 1, 40_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null,
+				(ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(
+					java.util.Map.of(), java.util.Set.of(), riskValues, java.util.Set.of())));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.PriceSource risk = section.lastRiskValueSourceForTest();
+			assertTrue("the risk source must be wired when the resolver supplies risk data", risk != null);
+			assertEquals("the credited plain cape must be risk-priced at the HELD deadman cape's value, "
+					+ "not the ordinary cape's — the player risks what they actually wear",
+				40_000_000L, risk.priceFor(SARADOMIN_CAPE_PLAIN));
+			assertEquals("an id with no credit behind it still prices itself",
+				40_000_000L, risk.priceFor(SARADOMIN_CAPE_DEADMAN));
+		});
+	}
+
+	/**
+	 * Companion to the test above, and the rule the credit map has to share
+	 * with the display: an EXCLUDED variant is never reverse-resolved, so the
+	 * panel and preview keep telling the player to use the plain item — and
+	 * the cap must therefore price the plain item, the one actually equipped.
+	 * Charging the excluded variant's risk enforces the limit against gear the
+	 * player has told the panel not to use, rejecting a valid setup or waving
+	 * through an over-threshold one depending on which side of the threshold
+	 * the two values land.
+	 */
+	@Test
+	public void excludedVariant_leavesTheCreditedPlainItemPricedAsItself()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> riskValues = new java.util.HashMap<>();
+			riskValues.put(SARADOMIN_CAPE_DEADMAN, 40_000_000L);
+			riskValues.put(SARADOMIN_CAPE_PLAIN, 1_000L);
+
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(SARADOMIN_CAPE_DEADMAN, "Imbued saradomin cape (deadman)", 1, 40_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null,
+				(ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(
+					java.util.Map.of(), java.util.Set.of(), riskValues, java.util.Set.of())));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+			section.excludeItemFromSuggestionsForTest(SARADOMIN_CAPE_DEADMAN);
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.PriceSource risk = section.lastRiskValueSourceForTest();
+			assertTrue("the risk source must be wired when the resolver supplies risk data", risk != null);
+			assertEquals("an excluded variant is never displayed, so its credit must not price the plain "
+					+ "item the player will actually equip",
+				1_000L, risk.priceFor(SARADOMIN_CAPE_PLAIN));
+		});
+	}
+
+	/**
+	 * The load-bearing layer of the same rule, one below the two tests above.
+	 * The credit's justification is that the player effectively HAS the plain
+	 * item because they hold the variant — so excluding the variant withdraws
+	 * the backing and the credit must go with it. Otherwise the exclusion
+	 * manufactures a free item out of nothing: the optimiser recommends the
+	 * plain cape at zero spend when the bank contains no cape at all, and the
+	 * highlighter points at an id that cannot be there.
+	 *
+	 * <p>Asserted on the ownership map itself, since that is where the credit
+	 * is granted and every downstream surface reads it.
+	 */
+	@Test
+	public void excludedVariant_grantsNoSyntheticOwnershipOfThePlainItem()
+	{
+		onEdt(() ->
+		{
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(SARADOMIN_CAPE_DEADMAN, "Imbued saradomin cape (deadman)", 1, 40_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+
+			assertTrue("fixture sanity: the credit must exist BEFORE the exclusion, or the test proves "
+					+ "nothing about withdrawing it",
+				section.ownedPriceMapForTest().containsKey(SARADOMIN_CAPE_PLAIN));
+
+			section.excludeItemFromSuggestionsForTest(SARADOMIN_CAPE_DEADMAN);
+
+			assertTrue("excluding the only backing variant must withdraw the synthetic credit — the plain "
+					+ "cape is in no bank and must not be free",
+				!section.ownedPriceMapForTest().containsKey(SARADOMIN_CAPE_PLAIN));
+			assertTrue("the excluded variant itself is still genuinely owned; exclusion means "
+					+ "\"never suggest\", not \"pretend it is gone\"",
+				section.ownedPriceMapForTest().containsKey(SARADOMIN_CAPE_DEADMAN));
+		});
+	}
+
+	/**
+	 * The wiring for {@link com.ospulse.ui.sections.gear.RiskCreditPolicy} —
+	 * the policy's own guards are unit-tested, this proves it actually reaches
+	 * the search. Holding only the deadman cape credits the plain id as owned
+	 * and free, and the credit makes it inherit the variant's 40M risk; with a
+	 * 10M threshold and no expensive items allowed, that single candidate is
+	 * owned-but-over-cap and the optimiser can only drop the slot. Withdrawing
+	 * the credit restores the alternative the budget can actually afford: buy
+	 * an ordinary cape at 2M, risking 1M.
+	 */
+	@Test
+	public void riskyHeldVariant_lettingTheOrdinaryCounterpartBeBoughtInstead()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> riskValues = new java.util.HashMap<>();
+			riskValues.put(SARADOMIN_CAPE_DEADMAN, 40_000_000L);
+			riskValues.put(SARADOMIN_CAPE_PLAIN, 1_000_000L);
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(SARADOMIN_CAPE_PLAIN, 2_000_000L);
+
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(SARADOMIN_CAPE_DEADMAN, "Imbued saradomin cape (deadman)", 1, 40_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null,
+				(ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(
+					prices, java.util.Set.of(), riskValues, java.util.Set.of())));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+			section.setBudgetTextForTest("5M");
+			section.setExpensiveThresholdTextForTest("10M");
+			section.setExpensiveCountTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.PriceSource risk = section.lastRiskValueSourceForTest();
+			assertTrue("the risk source must be wired", risk != null);
+			assertEquals("with the credit withdrawn the counterpart prices itself again, or the cap would "
+					+ "still see the variant's risk and the purchase would be pointless",
+				1_000_000L, risk.priceFor(SARADOMIN_CAPE_PLAIN));
+		});
+	}
+
+	/**
+	 * The boundary where the optimiser's cap stops being able to bind at all:
+	 * an allowance covering every one of the 11 SEARCHABLE slots. The credit
+	 * must survive it, since withdrawing to satisfy a constraint that cannot
+	 * bind would spend the player's budget on a plain copy for nothing.
+	 *
+	 * <p><b>What actually makes this pass today is the allowance guard</b>
+	 * (11 &gt; 0), not the shared activation predicate — reverting
+	 * {@code GearOptimizer.expensiveCapActive} back to a 14-equipment-slot
+	 * lookalike leaves this green, and that is worth stating rather than
+	 * implying the test proves more than it does. The shared predicate is
+	 * kept because the two definitions genuinely disagree for an allowance of
+	 * 11-13, so a duplicated copy would start lying the moment the allowance
+	 * guard is ever loosened. One definition, in the class that owns the cap.
+	 */
+	@Test
+	public void allowanceCoveringEverySearchableSlot_leavesTheCreditAlone()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> riskValues = new java.util.HashMap<>();
+			riskValues.put(SARADOMIN_CAPE_DEADMAN, 40_000_000L);
+			riskValues.put(SARADOMIN_CAPE_PLAIN, 1_000_000L);
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(SARADOMIN_CAPE_PLAIN, 2_000_000L);
+
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(SARADOMIN_CAPE_DEADMAN, "Imbued saradomin cape (deadman)", 1, 40_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null,
+				(ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(
+					prices, java.util.Set.of(), riskValues, java.util.Set.of())));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+			section.setBudgetTextForTest("5M");
+			section.setExpensiveThresholdTextForTest("100k");
+			// 11 == GearOptimizer.SEARCHABLE_SLOTS.length: the cap cannot bind.
+			section.setExpensiveCountTextForTest("11");
+			section.runOptimizerSyncForTest();
+
+			assertEquals("with the cap unable to bind, the credit must stand — the plain id still reports "
+					+ "the held variant's risk because it is still credited, not bought",
+				40_000_000L, section.lastRiskValueSourceForTest().priceFor(SARADOMIN_CAPE_PLAIN));
+		});
+	}
 }
