@@ -156,6 +156,12 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 		this.resetCallback = resetCallback == null ? () -> {} : resetCallback;
 	}
 
+	/** Pass-through to {@link GearSection#refreshIronmanOwnedOnlyMode} — see {@code OSPulsePlugin#onConfigChanged} (issue #11 P2 fix). */
+	public void refreshIronmanOwnedOnlyMode()
+	{
+		gearSection.refreshIronmanOwnedOnlyMode();
+	}
+
 	/** Pass-through to {@link GearSection#setBankHighlighter} — the panel doesn't otherwise know about bank tags. */
 	public void setBankHighlighter(com.ospulse.integration.BankRecommendationHighlighter bankHighlighter)
 	{

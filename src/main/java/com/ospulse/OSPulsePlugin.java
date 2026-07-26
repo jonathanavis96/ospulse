@@ -259,6 +259,7 @@ public class OSPulsePlugin extends Plugin
 		{
 			tracker.onLogin();
 		}
+		armPendingIronmanAutoDetectIfLoggedIn();
 
 		log.debug("OSPulse plugin started");
 	}
@@ -313,7 +314,7 @@ public class OSPulsePlugin extends Plugin
 		{
 			case LOGGED_IN:
 				tracker.onLogin();
-				pendingIronmanAutoDetect = true;
+				armPendingIronmanAutoDetectIfLoggedIn();
 				break;
 			case LOGIN_SCREEN:
 			case HOPPING:
@@ -366,6 +367,27 @@ public class OSPulsePlugin extends Plugin
 		}
 
 		tracker.onTick();
+	}
+
+	/**
+	 * Arms {@link #pendingIronmanAutoDetect} if the client is already logged
+	 * in — shared by {@link #startUp()} (plugin enabled while already
+	 * logged in, which fires no {@code LOGGED_IN} {@link GameStateChanged})
+	 * and {@link #onGameStateChanged}'s own LOGGED_IN case, so the two paths
+	 * cannot drift (issue #11 P2 fix).
+	 */
+	void armPendingIronmanAutoDetectIfLoggedIn()
+	{
+		if (client.getGameState() == GameState.LOGGED_IN)
+		{
+			pendingIronmanAutoDetect = true;
+		}
+	}
+
+	/** Test seam: {@link #pendingIronmanAutoDetect}'s current value. */
+	boolean pendingIronmanAutoDetectForTest()
+	{
+		return pendingIronmanAutoDetect;
 	}
 
 	/**
@@ -536,6 +558,15 @@ public class OSPulsePlugin extends Plugin
 		if (key != null && key.startsWith("show") && key.endsWith("Section"))
 		{
 			SwingUtilities.invokeLater(panel::applySectionVisibility);
+		}
+
+		// Ironman owned-only mode (issue #11 P2 fix): a post-construction
+		// change — either the auto-detect's own first-tick write or a manual
+		// toggle in this same settings panel — must recompute the affected
+		// GearSection visibility live, same as the show*Section keys above.
+		if (IRONMAN_OWNED_ONLY_KEY.equals(key))
+		{
+			SwingUtilities.invokeLater(panel::refreshIronmanOwnedOnlyMode);
 		}
 	}
 

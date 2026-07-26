@@ -1363,17 +1363,9 @@ public final class GearSection extends CollapsibleSection
 		excludedItemsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		excludedHeading = PanelWidgets.emptyRowLabel(excludedHeadingText());
 		excludedHeading.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		excludedHeading.setToolTipText("Items you've excluded from optimiser suggestions — click a ✕ to stop "
-			+ "excluding one. Click this heading to collapse/expand the list.");
+		excludedHeading.setToolTipText("Excluded items — click a ✕ to remove one; click here to collapse/expand.");
 		excludedHeading.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-		excludedHeading.addMouseListener(new MouseAdapter()
-		{
-			@Override
-			public void mousePressed(MouseEvent e)
-			{
-				toggleExcludedItemsCollapsed();
-			}
-		});
+		installRowPressListener(excludedHeading, this::toggleExcludedItemsCollapsed);
 		excludedItemsPanel.add(excludedHeading);
 
 		excludedSearchField = new IconTextField();
@@ -4746,6 +4738,14 @@ public final class GearSection extends CollapsibleSection
 		optimizerSwapList.setVisible(visible);
 	}
 
+	/** Re-applies ironman owned-only mode after a post-construction config change (issue #11 P2 fix) — setVisible only, no rebuild. */
+	public void refreshIronmanOwnedOnlyMode()
+	{
+		budgetRiskRow.setVisible(OwnedOnlyMode.upgradeUiVisible(ironmanOwnedOnlyPref()));
+		updateBudgetDisplay();
+		setUpgradeStatRowsVisible(OwnedOnlyMode.upgradeStatRowsVisible(ironmanOwnedOnlyPref(), lastOptimizerResult));
+	}
+
 	/** True if the optimiser's proposed loadout differs from the currently worn gear in at least one slot. */
 	private boolean hasAnySlotChange(GearOptimizer.Result result)
 	{
@@ -6278,7 +6278,7 @@ public final class GearSection extends CollapsibleSection
 	 * click anywhere in the row always fires the action exactly once (each
 	 * press is dispatched to exactly one component).
 	 */
-	private static void installRowPressListener(JPanel row, Runnable action, JLabel... children)
+	private static void installRowPressListener(Component row, Runnable action, JLabel... children)
 	{
 		MouseAdapter press = new MouseAdapter()
 		{

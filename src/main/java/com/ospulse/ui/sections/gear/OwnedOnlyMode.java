@@ -1,5 +1,7 @@
 package com.ospulse.ui.sections.gear;
 
+import com.ospulse.combat.optimizer.GearOptimizer;
+
 /**
  * Pure decision logic for the ironman "owned gear only" optimiser mode
  * (issue #11). An ironman can't buy anything, so the upgrade-oriented UI
@@ -55,5 +57,11 @@ public final class OwnedOnlyMode
 	public static boolean upgradeStatRowsVisible(boolean ownedOnly, boolean hasUsableResult)
 	{
 		return hasUsableResult && !ownedOnly;
+	}
+
+	/** {@link #upgradeStatRowsVisible(boolean, boolean)}, deriving "has a usable result" from a nullable optimiser result — {@code null} or a {@code null} style means not usable. */
+	public static boolean upgradeStatRowsVisible(boolean ownedOnly, GearOptimizer.Result result)
+	{
+		return upgradeStatRowsVisible(ownedOnly, result != null && result.style() != null);
 	}
 }

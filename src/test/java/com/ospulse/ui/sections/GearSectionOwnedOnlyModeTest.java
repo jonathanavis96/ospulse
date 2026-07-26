@@ -267,4 +267,84 @@ public class GearSectionOwnedOnlyModeTest
 			assertTrue(section.findBestSetupGridButtonForTest().isVisible());
 		});
 	}
+
+	// ---------------------------------------- P2 fix: reacts after construction
+
+	@Test
+	public void configChangedAfterConstruction_offToOn_hidesUpgradeUiWithoutRebuild()
+	{
+		onEdt(() ->
+		{
+			ConfigManager configManager = mockConfigManager("false");
+			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
+
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(section);
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			assertTrue("sanity: upgrade UI visible before the config change",
+				section.budgetRiskRowVisibleForTest());
+			assertTrue(section.optimizerDpsRowVisibleForTest());
+
+			// P2 fix: the panel used to only compute this once, at
+			// construction — refreshIronmanOwnedOnlyMode is the new live
+			// recompute hook a config-change listener calls. Same JLabel/
+			// JPanel objects throughout (final fields, never reassigned), so
+			// this can only ever setVisible on them, never rebuild.
+			Mockito.when(configManager.getConfiguration(com.ospulse.OSPulseConfig.GROUP, "ironmanOwnedOnly"))
+				.thenReturn("true");
+			section.refreshIronmanOwnedOnlyMode();
+
+			assertFalse("budget/risk row must hide once the config flips on, with no rebuild needed",
+				section.budgetRiskRowVisibleForTest());
+			assertFalse(section.optimizerDpsRowVisibleForTest());
+			assertFalse(section.optimizerDeltaRowVisibleForTest());
+			assertFalse(section.optimizerSpendRowVisibleForTest());
+			assertFalse(section.optimizerDpsPerGpRowVisibleForTest());
+			assertFalse(section.optimizerSwapListVisibleForTest());
+
+			assertTrue("'Optimised for' must stay visible", section.optimizerStyleRowVisibleForTest());
+			assertTrue("the heading must stay visible", section.optimizerHeadingVisibleForTest());
+			assertTrue("the style selector must stay visible", section.optimizerStyleSelectorVisibleForTest());
+			assertTrue("Find Best must stay visible", section.findBestSetupGridButtonForTest().isVisible());
+		});
+	}
+
+	@Test
+	public void configChangedAfterConstruction_onToOff_restoresUpgradeUiAndStoredBudget()
+	{
+		onEdt(() ->
+		{
+			ConfigManager configManager = mockConfigManager("true");
+			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
+
+			section.setBudgetTextForTest("50");
+			section.setBudgetUnitMillionsForTest(true);
+			assertEquals("sanity: still forced to 0 while on", 0L, section.resolvedBudgetForTest());
+
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(section);
+			section.runOptimizerSyncForTest();
+
+			assertFalse(section.budgetRiskRowVisibleForTest());
+			assertFalse(section.optimizerDpsRowVisibleForTest());
+
+			Mockito.when(configManager.getConfiguration(com.ospulse.OSPulseConfig.GROUP, "ironmanOwnedOnly"))
+				.thenReturn("false");
+			section.refreshIronmanOwnedOnlyMode();
+
+			assertTrue("budget/risk row must return once the config flips off",
+				section.budgetRiskRowVisibleForTest());
+			assertTrue(section.optimizerDpsRowVisibleForTest());
+			assertTrue(section.optimizerDeltaRowVisibleForTest());
+			assertTrue(section.optimizerSpendRowVisibleForTest());
+			assertTrue(section.optimizerDpsPerGpRowVisibleForTest());
+			assertTrue(section.optimizerSwapListVisibleForTest());
+
+			assertEquals("the stored 50M budget must be restored, not left forced at 0",
+				50_000_000L, section.resolvedBudgetForTest());
+			assertEquals(50_000_000L, section.storedBudgetForTest());
+		});
+	}
 }
