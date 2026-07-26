@@ -42,6 +42,7 @@ import com.ospulse.ui.sections.gear.CombatStyleLabel;
 import com.ospulse.ui.sections.gear.DpsFormat;
 import com.ospulse.ui.sections.gear.GpFormat;
 import com.ospulse.ui.sections.gear.ItemEligibility;
+import com.ospulse.ui.sections.gear.OwnedOnlyMandatoryOverrideGate;
 import com.ospulse.ui.sections.gear.OwnedOnlyMode;
 import com.ospulse.ui.sections.gear.OwnedVariantResolver;
 import com.ospulse.ui.sections.gear.RoundedButton;
@@ -285,6 +286,21 @@ public final class GearSection extends CollapsibleSection
 	 * change mirror).
 	 */
 	private boolean lastKnownIronmanOwnedOnlyPref;
+	/**
+	 * P1-B fix (Codex finding on PR #19, {@code GearSection.java:4843}):
+	 * bumped every OFF-&gt;ON owned-only transition in {@link
+	 * #refreshIronmanOwnedOnlyMode()}. Every optimiser search captures this
+	 * value at launch (before price resolution / the {@code SwingWorker}
+	 * background hop); the result is only ever installed via {@link
+	 * #onOptimizerResult} if the captured value still matches this field when
+	 * the result comes back. A search launched under the previous (possibly
+	 * nonzero) budget that is still in flight when the mode flips ON — so
+	 * {@link #lastOptimizerResult} is still {@code null} and the existing
+	 * {@code lastOptimizerResult != null} guard above has nothing to clear —
+	 * is exactly the gap this closes: its eventually-arriving result is
+	 * simply dropped rather than installed/auto-previewed/bank-highlighted.
+	 */
+	private int optimizerGeneration;
 	/** Nullable collaborator wired post-construction by {@link com.ospulse.ui.OSPulsePanel#setBankHighlighter} — see {@link #setBankHighlighter}. */
 	private com.ospulse.integration.BankRecommendationHighlighter bankHighlighter;
 	private final WeaponCategoryRepository weaponRepo = WeaponCategoryRepository.getInstance();
@@ -461,6 +477,23 @@ public final class GearSection extends CollapsibleSection
 	 * rest of the time.
 	 */
 	private final JLabel optimizerNoUsableWeaponLabel;
+	/**
+	 * P1-A fix (Codex finding on PR #19, {@code GearSection.java:4602}):
+	 * single, large, clearly-visible line shown INSTEAD OF the five stat rows
+	 * + swap list — mirrors {@link #optimizerNoUsableWeaponLabel}'s shape —
+	 * when owned-only mode is on and the selected target has a mandatory
+	 * {@link MonsterGearOverride} the player owns neither the primary item
+	 * nor any accepted substitute for (e.g. Rune dragons without Insulated
+	 * boots). The earlier fix for this finding only disclosed the gap via
+	 * {@link #updateGearOverrideNote()}'s advisory line; Codex correctly
+	 * escalated that as insufficient, since disclosure elsewhere on the panel
+	 * does not stop the loadout/auto-preview/bank-highlight from recommending
+	 * gear the player cannot actually equip in the one mode that exists to
+	 * promise otherwise. See {@link #onOptimizerResult} for where this is
+	 * decided, and {@link com.ospulse.ui.sections.gear.OwnedOnlyMandatoryOverrideGate}
+	 * for the pure decision logic.
+	 */
+	private final JLabel optimizerOwnedOnlyBlockedLabel;
 	private final JButton applyOptimizerResultButton;
 	private final JButton clearOptimizerPreviewButton;
 	/** Small "Find best" button left of the helmet slot in the gear grid — mirrors {@link #findBestSetupButton} (item #7b). */
@@ -1328,6 +1361,17 @@ public final class GearSection extends CollapsibleSection
 		optimizerNoUsableWeaponLabel.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
 		optimizerNoUsableWeaponLabel.setVisible(false);
 		optimizerResultPanel.add(optimizerNoUsableWeaponLabel);
+		optimizerResultPanel.add(Box.createRigidArea(new Dimension(0, 4)));
+
+		// P1-A fix: same big, unmissable single-message shape as the
+		// no-usable-weapon line above, shown instead of a normal result when
+		// owned-only mode blocks the recommendation outright — see
+		// onOptimizerResult.
+		optimizerOwnedOnlyBlockedLabel = PanelWidgets.emptyRowLabel("");
+		optimizerOwnedOnlyBlockedLabel.setFont(FontManager.getRunescapeBoldFont().deriveFont(java.awt.Font.BOLD, 14f));
+		optimizerOwnedOnlyBlockedLabel.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
+		optimizerOwnedOnlyBlockedLabel.setVisible(false);
+		optimizerResultPanel.add(optimizerOwnedOnlyBlockedLabel);
 		optimizerResultPanel.add(Box.createRigidArea(new Dimension(0, 4)));
 
 		// B8-4: preview is now applied automatically whenever a usable result
@@ -4339,14 +4383,22 @@ public final class GearSection extends CollapsibleSection
 		});
 	}
 
-	/** Runs {@link GearOptimizer} off the EDT for the currently selected style and publishes the result back via {@link #onOptimizerResult}. */
+	/**
+	 * Runs {@link GearOptimizer} off the EDT for the currently selected style
+	 * and publishes the result back via {@link #onOptimizerResult}.
+	 *
+	 * <p>P1-B fix: {@link #optimizerGeneration} is captured HERE, before
+	 * price resolution (which may hop async) even begins — see {@link
+	 * #installOptimizerResultIfCurrent}.
+	 */
 	private void runOptimizer()
 	{
+		int generation = optimizerGeneration;
 		withResolvedPrices((budget, ownedPrices, priceSource, riskValues, needsProtection) ->
 		{
 			lastOptimizerNeedsProtection = needsProtection;
 			runOptimizerSearch(buildOptimizerRequest(budget, ownedPrices, priceSource, riskValues, needsProtection,
-				optimizerConstraint()));
+				optimizerConstraint()), generation);
 		});
 	}
 
@@ -4360,9 +4412,14 @@ public final class GearSection extends CollapsibleSection
 	 * Unlike {@link #runOptimizer}, this is deliberately NOT used by the toggle/
 	 * exclude-item/style-selector re-runs — those stay single-style so they
 	 * stay responsive.
+	 *
+	 * <p>P1-B fix: {@link #optimizerGeneration} is captured HERE, before
+	 * price resolution (which may hop async) even begins — see {@link
+	 * #applyRankedStyleResultsIfCurrent}.
 	 */
 	private void runOptimizerAndRankStyles()
 	{
+		int generation = optimizerGeneration;
 		withResolvedPrices((budget, ownedPrices, priceSource, riskValues, needsProtection) ->
 		{
 			lastOptimizerNeedsProtection = needsProtection;
@@ -4392,7 +4449,7 @@ public final class GearSection extends CollapsibleSection
 				{
 					try
 					{
-						applyRankedStyleResults(get(), selected);
+						applyRankedStyleResultsIfCurrent(get(), selected, generation);
 					}
 					catch (java.util.concurrent.ExecutionException | InterruptedException e)
 					{
@@ -4471,6 +4528,31 @@ public final class GearSection extends CollapsibleSection
 		}
 		onOptimizerResult(displayResult);
 		reorderSelectorsByDps(results);
+	}
+
+	/**
+	 * P1-B fix: gates {@link #applyRankedStyleResults} — which reorders the
+	 * style selector AND installs a result via {@link #onOptimizerResult} —
+	 * behind the {@link #optimizerGeneration} this all-styles search was
+	 * launched under (captured by {@link #runOptimizerAndRankStyles} /
+	 * {@link #runOptimizerAndRankStylesSyncForTest} before price resolution
+	 * began). A mismatch means owned-only mode flipped OFF-&gt;ON while this
+	 * search was still in flight (see {@link #refreshIronmanOwnedOnlyMode});
+	 * {@code results} is dropped entirely rather than installed or used to
+	 * reorder the selector. The "Find best setup" buttons are still
+	 * re-enabled either way — a stale drop must not leave them stuck
+	 * disabled.
+	 */
+	private void applyRankedStyleResultsIfCurrent(java.util.Map<CombatStyle, GearOptimizer.Result> results,
+		CombatStyle selected, int generation)
+	{
+		if (generation != optimizerGeneration)
+		{
+			findBestSetupButton.setEnabled(true);
+			findBestSetupGridButton.setEnabled(true);
+			return;
+		}
+		applyRankedStyleResults(results, selected);
 	}
 
 	/**
@@ -4629,8 +4711,14 @@ public final class GearSection extends CollapsibleSection
 			.build();
 	}
 
-	/** Runs the given request off the EDT via {@code SwingWorker} and publishes the result back via {@link #onOptimizerResult}. */
-	private void runOptimizerSearch(GearOptimizer.Request request)
+	/**
+	 * Runs the given request off the EDT via {@code SwingWorker} and
+	 * publishes the result back via {@link #onOptimizerResult} — unless
+	 * {@code generation} (the {@link #optimizerGeneration} this search was
+	 * launched under — see {@link #runOptimizer}) has since gone stale (P1-B
+	 * fix), in which case {@link #installOptimizerResultIfCurrent} drops it.
+	 */
+	private void runOptimizerSearch(GearOptimizer.Request request, int generation)
 	{
 		new javax.swing.SwingWorker<GearOptimizer.Result, Void>()
 		{
@@ -4645,7 +4733,7 @@ public final class GearSection extends CollapsibleSection
 			{
 				try
 				{
-					onOptimizerResult(get());
+					installOptimizerResultIfCurrent(get(), generation);
 				}
 				catch (java.util.concurrent.ExecutionException | InterruptedException e)
 				{
@@ -4657,11 +4745,54 @@ public final class GearSection extends CollapsibleSection
 		}.execute();
 	}
 
+	/**
+	 * P1-B fix: installs {@code result} via {@link #onOptimizerResult}
+	 * unless the search that produced it was launched under a since-stale
+	 * {@link #optimizerGeneration} — i.e. owned-only mode flipped OFF-&gt;ON
+	 * (see {@link #refreshIronmanOwnedOnlyMode}) while price resolution or
+	 * the background {@code SwingWorker} was still running. A stale result
+	 * is dropped entirely: never installed into {@link #lastOptimizerResult},
+	 * never auto-previewed, never used to arm the bank highlight. The "Find
+	 * best setup" buttons are still re-enabled either way — a stale drop
+	 * must not leave them stuck disabled.
+	 */
+	private void installOptimizerResultIfCurrent(GearOptimizer.Result result, int generation)
+	{
+		if (generation != optimizerGeneration)
+		{
+			findBestSetupButton.setEnabled(true);
+			findBestSetupGridButton.setEnabled(true);
+			return;
+		}
+		onOptimizerResult(result);
+	}
+
 	/** Renders a completed {@link GearOptimizer.Result} — called on the EDT by the {@code SwingWorker} above. */
 	private void onOptimizerResult(GearOptimizer.Result result)
 	{
 		findBestSetupButton.setEnabled(true);
 		findBestSetupGridButton.setEnabled(true);
+
+		// P1-A fix: a mandatory monster-gear override the player owns
+		// neither the primary item nor any accepted substitute for is
+		// force-included/force-equipped by GearOptimizer regardless of
+		// budget (see ItemEligibility#mandatoryOverrideItemIds and
+		// GearOptimizer's applyForcedIncludes) — that is correct in every
+		// other mode, but owned-only mode's entire guarantee is that every
+		// recommendation is something the player owns, so `result` here
+		// must never be installed/auto-previewed/bank-highlighted in that
+		// case. Checked ahead of `result` entirely (not derived from it):
+		// the block is a property of the target + ownership, independent of
+		// whatever loadout the optimiser happened to compute around the
+		// forced item.
+		java.util.Optional<MonsterGearOverride> blockingOverride = OwnedOnlyMandatoryOverrideGate.blockingOverride(
+			ironmanOwnedOnlyPref(), selectedMonster, ownedPriceMap().keySet());
+		if (blockingOverride.isPresent())
+		{
+			renderOwnedOnlyBlockedState(blockingOverride.get());
+			return;
+		}
+
 		lastOptimizerResult = result;
 
 		CombatStyle constraint = optimizerConstraint();
@@ -4833,13 +4964,33 @@ public final class GearSection extends CollapsibleSection
 	 * optimiser-applied preview/highlight" in one clean, already-tested step,
 	 * leaving the readout showing the player's real worn gear — never a
 	 * half-torn-down state.
+	 *
+	 * <p>P1-B fix (Codex finding on PR #19, {@code GearSection.java:4843}):
+	 * the {@code lastOptimizerResult != null} guard above only clears a
+	 * result that has already LANDED. A search launched under the previous
+	 * (possibly nonzero) budget — price resolution still in flight, or the
+	 * {@code SwingWorker} still running in the background — has {@link
+	 * #lastOptimizerResult} still {@code null} at the exact moment this
+	 * method runs, so nothing was invalidated; that search then reaches
+	 * {@link #onOptimizerResult} moments later and installs its unowned
+	 * result anyway, auto-applying the preview and arming the bank
+	 * highlight. {@link #optimizerGeneration} closes that gap: it is bumped
+	 * unconditionally on every OFF-&gt;ON transition (not gated on a result
+	 * already existing), every search captures it at launch, and {@link
+	 * #onOptimizerResult} is only ever reached for a captured value that
+	 * still matches — see the call sites that capture {@code
+	 * optimizerGeneration} (e.g. {@link #runOptimizer}).
 	 */
 	public void refreshIronmanOwnedOnlyMode()
 	{
 		boolean ownedOnly = ironmanOwnedOnlyPref();
-		if (ownedOnly && !lastKnownIronmanOwnedOnlyPref && lastOptimizerResult != null)
+		if (ownedOnly && !lastKnownIronmanOwnedOnlyPref)
 		{
-			resetAllOverrides();
+			optimizerGeneration++;
+			if (lastOptimizerResult != null)
+			{
+				resetAllOverrides();
+			}
 		}
 		lastKnownIronmanOwnedOnlyPref = ownedOnly;
 
@@ -4942,6 +5093,44 @@ public final class GearSection extends CollapsibleSection
 	private void renderNoUsableWeaponSwapMessage(CombatStyle constraint)
 	{
 		optimizerSwapList.removeAll();
+	}
+
+	/**
+	 * P1-A fix: the explicit "cannot recommend" state {@link
+	 * #onOptimizerResult} switches to when {@link
+	 * OwnedOnlyMandatoryOverrideGate#blockingOverride} finds owned-only mode
+	 * cannot satisfy a target's mandatory gear override. Mirrors the
+	 * pre-existing no-usable-weapon path exactly: the five upgrade stat rows
+	 * and swap list hide, a single big error-coloured line takes their place,
+	 * the bank highlight clears, and no what-if preview is applied — nothing
+	 * from {@code result} is ever installed. Any PREVIOUS preview/override
+	 * (e.g. from a different target searched just before this one) is
+	 * dropped too, so a stale preview can never linger under a blocked
+	 * message.
+	 */
+	private void renderOwnedOnlyBlockedState(MonsterGearOverride blockingOverride)
+	{
+		lastOptimizerResult = null;
+		override = LoadoutOverride.empty();
+		optimizerStatusLabel.setVisible(false);
+		setOptimizerStyleRowVisible(false);
+		setUpgradeStatRowsVisible(false);
+		optimizerNoUsableWeaponLabel.setVisible(false);
+		optimizerSwapList.removeAll();
+		optimizerOwnedOnlyBlockedLabel.setText("Cannot recommend a loadout vs " + selectedMonster.name() + ": "
+			+ blockingOverride.itemName() + " (" + slotDisplayName(blockingOverride.slot())
+			+ ") is required and you don't own it — " + blockingOverride.reason());
+		optimizerOwnedOnlyBlockedLabel.setVisible(true);
+		clearOptimizerPreviewButton.setVisible(false);
+		if (bankHighlighter != null)
+		{
+			bankHighlighter.clear();
+		}
+		optimizerResultPanel.setVisible(true);
+		optimizerResultPanel.revalidate();
+		body().revalidate();
+		body().repaint();
+		updateGearGrid(lastGear);
 	}
 
 	/**
@@ -5807,6 +5996,27 @@ public final class GearSection extends CollapsibleSection
 		return lastOptimizerResult;
 	}
 
+	/** Test seam: the current owned-only search generation token — see {@link #optimizerGeneration} (P1-B fix). */
+	int optimizerGenerationForTest()
+	{
+		return optimizerGeneration;
+	}
+
+	/**
+	 * Test seam exercising the P1-B generation-token gate directly: simulates
+	 * a search's result finally landing stamped with {@code generation},
+	 * exactly as {@link #installOptimizerResultIfCurrent} does for the real
+	 * async {@code SwingWorker} paths (real end-to-end async timing isn't
+	 * reproducible deterministically in a headless test, so this drives the
+	 * same install-or-drop decision directly with a caller-chosen generation
+	 * captured before an intervening {@link #refreshIronmanOwnedOnlyMode}
+	 * OFF-&gt;ON flip).
+	 */
+	void installOptimizerResultForTest(GearOptimizer.Result result, int generation)
+	{
+		installOptimizerResultIfCurrent(result, generation);
+	}
+
 	/**
 	 * Test seam: forces a synchronous {@link #updateGearGrid} refresh (e.g.
 	 * right after picking a target) without needing to also drive the
@@ -6070,6 +6280,18 @@ public final class GearSection extends CollapsibleSection
 	String optimizerStatusTextForTest()
 	{
 		return optimizerStatusLabel.getText();
+	}
+
+	/** Test seam: P1-A's owned-only "cannot recommend" line — visible/non-empty only when {@link OwnedOnlyMandatoryOverrideGate#blockingOverride} blocked the last result. */
+	boolean optimizerOwnedOnlyBlockedVisibleForTest()
+	{
+		return optimizerOwnedOnlyBlockedLabel.isVisible();
+	}
+
+	/** @see #optimizerOwnedOnlyBlockedVisibleForTest() */
+	String optimizerOwnedOnlyBlockedTextForTest()
+	{
+		return optimizerOwnedOnlyBlockedLabel.getText();
 	}
 
 	/** Number of rows currently in the suggested-swaps list (item #6c: one row per changed slot, or one "no changes" row). */

@@ -1,6 +1,7 @@
 package com.ospulse.ui.sections;
 
 import com.ospulse.combat.EquipmentStats;
+import com.ospulse.combat.optimizer.GearOptimizer;
 import com.ospulse.combat.optimizer.LoadoutOverride;
 import com.ospulse.combat.optimizer.WhatIfLoadout;
 import com.ospulse.integration.BankRecommendationHighlighter;
@@ -24,6 +25,7 @@ import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -445,6 +447,88 @@ public class GearSectionOwnedOnlyModeTest
 
 			assertTrue("a result computed while owned-only was already on must survive an unrelated refresh",
 				section.lastOptimizerResultForTest() != null);
+		});
+	}
+
+	// ------------------------- P1-B: in-flight search invalidated on OFF->ON
+
+	/**
+	 * Codex P1 finding on PR #19 ({@code GearSection.java:4843}, "Invalidate
+	 * searches started before owned-only activation"): a search launched
+	 * under the previous (possibly nonzero) budget that is STILL IN FLIGHT
+	 * when owned-only mode flips OFF-&gt;ON — so {@link
+	 * GearSection#lastOptimizerResultForTest()} is still {@code null} at the
+	 * moment of the flip, meaning the {@code lastOptimizerResult != null}
+	 * guard covered by {@link #refreshIronmanOwnedOnlyMode_offToOnWithStaleResult_clearsResultOverrideAndBankHighlight}
+	 * has nothing to clear — must never install its eventually-arriving
+	 * result. {@code GearSection#refreshIronmanOwnedOnlyMode()} now bumps a
+	 * generation token unconditionally on the OFF-&gt;ON transition; real
+	 * search launches capture it up front (before price resolution/the
+	 * {@code SwingWorker} hop), so a result stamped with a since-stale
+	 * generation is dropped instead of installed/auto-previewed/bank-
+	 * highlighted.
+	 *
+	 * <p>Real end-to-end async timing isn't reproducible deterministically
+	 * in a headless test, so this drives the install-or-drop decision
+	 * directly via {@code installOptimizerResultForTest} with a generation
+	 * captured BEFORE the flip — exactly what {@code
+	 * installOptimizerResultIfCurrent} is handed for the real async paths.
+	 */
+	@Test
+	public void staleSearchGeneration_capturedBeforeOffToOnFlip_isNeverInstalled()
+	{
+		onEdt(() ->
+		{
+			ConfigManager configManager = mockConfigManager("false");
+			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
+			BankRecommendationHighlighter bankHighlighter = Mockito.mock(BankRecommendationHighlighter.class);
+			section.setBankHighlighter(bankHighlighter);
+
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(DRAGON_SCIMITAR, "Dragon scimitar", 1, 100_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+			section.setBudgetTextForTest("0");
+
+			// Capture the generation an in-flight search would have been
+			// stamped with, and a real usable result to stand in for it —
+			// runOptimizerSyncForTest() here mirrors exactly what the
+			// in-flight search would eventually compute (a real Bronze
+			// sword -> Dragon scimitar upgrade), all while the generation
+			// token hasn't moved yet.
+			int staleGeneration = section.optimizerGenerationForTest();
+			section.runOptimizerSyncForTest();
+			GearOptimizer.Result staleResult = section.lastOptimizerResultForTest();
+			assertTrue("sanity: a real usable result exists to stand in for the in-flight search",
+				staleResult != null && staleResult.style() != null);
+
+			// Simulate the search NOT having landed yet at flip time —
+			// mirrors the real race, where price resolution/the SwingWorker
+			// is still running when the flip happens — without touching the
+			// generation token itself.
+			section.clickResetAllForTest();
+			assertNull("sanity: nothing installed yet — mirrors the in-flight race",
+				section.lastOptimizerResultForTest());
+			Mockito.clearInvocations(bankHighlighter);
+
+			// The mode flips ON while that search is (simulated) still in
+			// flight — lastOptimizerResult is null here, so the pre-existing
+			// guard alone would have had nothing to clear (the exact bug).
+			Mockito.when(configManager.getRSProfileConfiguration(com.ospulse.OSPulseConfig.GROUP, "ironmanOwnedOnly"))
+				.thenReturn("true");
+			section.refreshIronmanOwnedOnlyMode();
+
+			// The stale search's result finally "lands", stamped with the
+			// generation captured before the flip.
+			section.installOptimizerResultForTest(staleResult, staleGeneration);
+
+			assertNull("a result from before the OFF->ON flip must never be installed",
+				section.lastOptimizerResultForTest());
+			assertTrue("no what-if override may be auto-applied from a stale result",
+				section.overrideForTest().isEmpty());
+			Mockito.verify(bankHighlighter, Mockito.never()).showInBank(Mockito.anyMap());
 		});
 	}
 }
