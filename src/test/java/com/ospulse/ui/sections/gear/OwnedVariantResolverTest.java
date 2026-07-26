@@ -584,6 +584,47 @@ public class OwnedVariantResolverTest
 			resolved != null && resolved != TOXIC_STAFF_OF_THE_DEAD_CHARGED);
 	}
 
+	/**
+	 * The alias table has to work in BOTH directions. {@code plainFormId}
+	 * reads it forwards, so owning 33035 credits 12902 — but the reverse
+	 * display lookup appends a suffix to the item's OWN name, looking for
+	 * "Toxic staff of the dead (deadman)", which does not exist. Without the
+	 * reverse hop the credited plain id is what the swap row, preview and
+	 * bank highlight all name, even though the player holds only the deadman
+	 * staff: the ownership map says "you have this" and every surface points
+	 * at something that is not in the bank.
+	 */
+	@Test
+	public void preferOwnedVariant_aliasedPlainName_resolvesBackToTheHeldDeadmanStaff()
+	{
+		assertEquals("owning the uncharged deadman staff must display as 33035, not the credited "
+				+ "12902 the player has no copy of",
+			TOXIC_STAFF_DEADMAN_UNCHARGED,
+			OwnedVariantResolver.preferOwnedVariant(INDEX, TOXIC_STAFF_OF_THE_DEAD_UNCHARGED,
+				owned(TOXIC_STAFF_DEADMAN_UNCHARGED), null));
+
+		assertEquals("and the charged pair resolves independently",
+			TOXIC_STAFF_DEADMAN_CHARGED,
+			OwnedVariantResolver.preferOwnedVariant(INDEX, TOXIC_STAFF_OF_THE_DEAD_CHARGED,
+				owned(TOXIC_STAFF_DEADMAN_CHARGED), null));
+	}
+
+	/**
+	 * Widening the NAME lookup must not widen the MATCH: the charge split is
+	 * still decided on stats. Holding only the uncharged deadman staff must
+	 * never display for a charged recommendation (amagic +17 against +25) —
+	 * that would report DPS the player cannot reach, which is exactly what
+	 * the heterogeneous-group rule exists to prevent.
+	 */
+	@Test
+	public void preferOwnedVariant_aliasedPlainName_neverCrossesTheChargeSplit()
+	{
+		assertEquals("the uncharged deadman staff must not be substituted for a CHARGED result",
+			TOXIC_STAFF_OF_THE_DEAD_CHARGED,
+			OwnedVariantResolver.preferOwnedVariant(INDEX, TOXIC_STAFF_OF_THE_DEAD_CHARGED,
+				owned(TOXIC_STAFF_DEADMAN_UNCHARGED), null));
+	}
+
 	private static boolean allSameStats(EquipmentStatsRepository stats, java.util.List<Integer> ids)
 	{
 		EquipmentStatsRepository.Stats first = stats.statsFor(ids.get(0));

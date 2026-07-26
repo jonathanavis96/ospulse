@@ -207,32 +207,75 @@ public final class OwnedVariantResolver
 		{
 			return itemId;
 		}
-		String name = entry.name();
 		EquipmentStatsRepository.Stats itemStats = EquipmentStatsRepository.getInstance().statsFor(itemId);
-		for (String suffix : SUFFIXES)
+		for (String baseName : variantBaseNamesFor(entry.name()))
 		{
-			List<Integer> variantIds = index.idsForName(name + suffix);
-			if (variantIds.isEmpty())
+			for (String suffix : SUFFIXES)
 			{
-				continue;
-			}
-			boolean homogeneous = isHomogeneous(variantIds);
-			for (Integer variantId : variantIds)
-			{
-				if (!ownedIds.containsKey(variantId)
-					|| (excludedItemIds != null && excludedItemIds.contains(variantId)))
+				List<Integer> variantIds = index.idsForName(baseName + suffix);
+				if (variantIds.isEmpty())
 				{
 					continue;
 				}
-				if (homogeneous
-					|| (sameStats(itemStats, EquipmentStatsRepository.getInstance().statsFor(variantId))
-						&& sameRequirements(itemId, variantId)))
+				boolean homogeneous = isHomogeneous(variantIds);
+				for (Integer variantId : variantIds)
 				{
-					return variantId;
+					if (!ownedIds.containsKey(variantId)
+						|| (excludedItemIds != null && excludedItemIds.contains(variantId)))
+					{
+						continue;
+					}
+					if (homogeneous
+						|| (sameStats(itemStats, EquipmentStatsRepository.getInstance().statsFor(variantId))
+							&& sameRequirements(itemId, variantId)))
+					{
+						return variantId;
+					}
 				}
 			}
 		}
 		return itemId;
+	}
+
+	/**
+	 * Every name a variant of {@code indexedName} could be filed under: the
+	 * item's own name first, then any {@link #UNINDEXED_PLAIN_NAME_ALIASES}
+	 * key that maps ONTO it.
+	 *
+	 * <p><b>The alias table has to work in both directions</b>, or the
+	 * credit it enables has no matching display. {@link #plainFormId} reads
+	 * it forwards: "Toxic staff (deadman)" strips to the unindexed "Toxic
+	 * staff", which the table redirects to the real "Toxic staff of the
+	 * dead", crediting 12902/12904. {@link #preferOwnedVariant} then has to
+	 * come back the other way — and appending a suffix to the item's OWN
+	 * name looks for "Toxic staff of the dead (deadman)", which does not
+	 * exist. Without the reverse hop the credited plain id is displayed and
+	 * highlighted even though the player holds only 33035/33036, which is
+	 * the same class of defect as crediting an id and then naming a
+	 * different one (see {@code GearSection#resolvedChoiceItemId}): the
+	 * ownership map says "you have this" and every surface points at
+	 * something that is not in the bank.
+	 *
+	 * <p>Only the NAME lookup is widened. The stat/requirement match still
+	 * decides which id is substituted, which is what keeps the charged and
+	 * uncharged staffs apart — 33035 ↔ 12902 (amagic +17) and 33036 ↔ 12904
+	 * (amagic +25) — since that name group is heterogeneous and therefore
+	 * requires an exact match rather than file order.
+	 */
+	private static List<String> variantBaseNamesFor(String indexedName)
+	{
+		List<String> names = new java.util.ArrayList<>(2);
+		names.add(indexedName);
+		for (Map.Entry<String, String> alias : UNINDEXED_PLAIN_NAME_ALIASES.entrySet())
+		{
+			if (alias.getValue().equalsIgnoreCase(indexedName))
+			{
+				// The key is already lowercase and idsForName is
+				// case-insensitive, so no display-case reconstruction is needed.
+				names.add(alias.getKey());
+			}
+		}
+		return names;
 	}
 
 	/**
