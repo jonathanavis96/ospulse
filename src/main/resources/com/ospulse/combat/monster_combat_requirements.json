@@ -8,7 +8,7 @@
       "note": "Only leaf-bladed weapons, broad ammo, or Magic Dart can harm it. Magic is greyed because Magic Dart can't be detected, but the spell still works."
     },
     {
-      "monsters": ["Aviansie", "Kree'arra", "Flight Kilisa", "Wingman Skree", "Flockleader Geerin", "Armadylean guard"],
+      "monsters": ["Aviansie", "Kree'arra", "Flight Kilisa", "Wingman Skree", "Flockleader Geerin", "Armadylean guard", "Dawn"],
       "type": "WEAPON_GATE",
       "allowedStyles": ["RANGED", "MAGIC"],
       "allowedItemIds": [3190, 3192, 3194, 3196, 3198, 3200, 3202, 3204, 6599, 23849, 23850, 23851, 23895, 23896, 23897, 23987, 28049, 29796, 10146, 10147, 10148, 10149, 28834],
@@ -39,10 +39,53 @@
       "note": "Finish with an ice cooler at low HP."
     },
     {
-      "monsters": ["Zygomite", "Mutated Zygomite", "Ancient Zygomite"],
+      "monsters": ["Zygomite", "Ancient Zygomite"],
       "type": "FINISHER",
       "finisherItemIds": [7421],
       "note": "Finish with fungicide spray once its HP is low (about 8 or below)."
+    },
+    {
+      "monsters": ["Zulrah"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["RANGED", "MAGIC"],
+      "allowedItemIds": [3190, 3192, 3194, 3196, 3198, 3200, 3202, 3204, 6599, 23849, 23850, 23851, 23895, 23896, 23897, 23987, 28049, 29796],
+      "note": "Zulrah sits across the water — only a halberd has the reach to melee it, so a whip or scimitar cannot connect at all."
+    },
+    {
+      "monsters": ["Kraken"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["RANGED", "MAGIC"],
+      "note": "The kraken stays submerged and cannot be reached by melee at all, not even with a halberd."
+    },
+    {
+      "monsters": ["Cave kraken"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["RANGED", "MAGIC"],
+      "note": "Cave krakens cannot be meleed — a halberd technically reaches, but deals no damage."
+    },
+    {
+      "monsters": ["The Leviathan"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["RANGED", "MAGIC"],
+      "note": "Melee attacks cannot reach the Leviathan — use ranged or magic."
+    },
+    {
+      "monsters": ["Tekton"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["STAB", "SLASH", "CRUSH", "MAGIC"],
+      "note": "Tekton is immune to ranged. Magic works but takes 80% reduced damage, so melee is far better."
+    },
+    {
+      "monsters": ["Tumeken's Warden (Active)"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["RANGED"],
+      "note": "While active this warden protects against melee and magic — only ranged will damage it."
+    },
+    {
+      "monsters": ["Elidinis' Warden (Active)"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["MAGIC"],
+      "note": "While active this warden protects against melee and ranged — only magic will damage it."
     }
   ]
 }

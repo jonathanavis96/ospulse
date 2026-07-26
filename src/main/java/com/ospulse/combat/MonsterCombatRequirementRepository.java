@@ -8,6 +8,7 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -141,6 +142,25 @@ public final class MonsterCombatRequirementRepository {
         }
         // The picker hands us dataset names like "Kurask (Normal)" — fall back to the base name.
         return Optional.ofNullable(byLowercaseMonsterName.get(MonsterNameKey.baseName(monsterName)));
+    }
+
+    /**
+     * Every curated key, lowercased, exactly as stored in the lookup map. Exposed so
+     * the data-integrity test can assert each one still resolves against the bundled
+     * monster data — a typo here silently disables a gate rather than failing loudly.
+     */
+    Set<String> curatedKeys() {
+        return Collections.unmodifiableSet(byLowercaseMonsterName.keySet());
+    }
+
+    /** Every curated entry, for dataset-wide integrity checks. */
+    Collection<MonsterCombatRequirement> allRequirements() {
+        return Collections.unmodifiableCollection(byLowercaseMonsterName.values());
+    }
+
+    /** Exposes the name normalisation {@link #forMonster} falls back to. */
+    static String baseNameOf(String monsterName) {
+        return MonsterNameKey.baseName(monsterName);
     }
 
     /** Internal Gson deserialisation shape mirroring {@code monster_combat_requirements.json}'s top-level object. */
