@@ -24,17 +24,24 @@ name, exactly like its two siblings.
 {
   "reminders": [
     {
-      "monsters": ["Zulrah"],
-      "note": "Zulrah poisons you on every hit — bring antivenom(+). A ring of suffering (ri) or ring of recoil chips some retaliation damage back."
+      "monsters": ["Some monster"],
+      "note": "What the monster does to you, then what to bring for it."
     },
     {
-      "monsters": ["Vorkath"],
-      "note": "Vorkath's dragonfire is stronger than a normal dragon's: a shield only gives full protection when paired with a super antifire potion, and two-handed setups can reduce the damage but never fully block it, even with Protect from Magic and a super antifire potion. His venomous dragonfire, part of the normal attack rotation, can poison you — bring antivenom(+).",
-      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
+      "monsters": ["Another monster", "Another monster (Phase 2)"],
+      "note": "Reminders may name several monsters. Prose is the payload.",
+      "equipmentItemIds": [1540, 11283]
     }
   ]
 }
 ```
+
+⚠ **This example is deliberately schema-only — it does not quote real advice text.**
+An earlier version reproduced the live Zulrah and Vorkath notes here, and both went
+stale the moment those notes were corrected, leaving the README teaching exactly the
+wrong mechanics it had been fixed to remove. Illustrate the *fields* here; the live
+wording belongs in the JSON alone, where it has one source of truth.
+
 
 - `monsters`: display name(s) this reminder applies to. Matching is **exact
   first, then base name** — see `MonsterConsumablesRepository#forMonster`,
