@@ -319,4 +319,59 @@ public class GearVariantsTest
 		assertEquals(com.ospulse.combat.RevenantWeapon.NONE, GearVariants.revenantWeaponFor(4151)); // Abyssal whip
 		assertEquals(com.ospulse.combat.RevenantWeapon.NONE, GearVariants.revenantWeaponFor(-1));
 	}
+
+	// ==== Crystal armour set + crystal bow / Bow of Faerdhinen ============================
+
+	@Test
+	public void isActiveCrystalArmourSet_fullActiveBasicTier_returnsTrue()
+	{
+		org.junit.Assert.assertTrue(GearVariants.isActiveCrystalArmourSet(23886, 23889, 23892)); // basic tier
+	}
+
+	@Test
+	public void isActiveCrystalArmourSet_mixedActiveTiers_stillReturnsTrue()
+	{
+		// Mixed tiers (e.g. perfected helm + basic body + attuned legs) - the
+		// wiki does not require matching tiers, only that each piece is active.
+		org.junit.Assert.assertTrue(GearVariants.isActiveCrystalArmourSet(23888, 23889, 23893));
+	}
+
+	@Test
+	public void isActiveCrystalArmourSet_oneInactivePiece_returnsFalse()
+	{
+		// Id 23973 is the INACTIVE (all-zero-stat) "Crystal helm" companion id
+		// - the exact prior P1-class trap this mechanic must not repeat.
+		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalArmourSet(23973, 23889, 23892));
+	}
+
+	@Test
+	public void isActiveCrystalArmourSet_missingPiece_returnsFalse()
+	{
+		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalArmourSet(-1, 23889, 23892));
+	}
+
+	@Test
+	public void isActiveCrystalBowOrFaerdhinen_chargedBowOfFaerdhinen_returnsTrue()
+	{
+		org.junit.Assert.assertTrue(GearVariants.isActiveCrystalBowOrFaerdhinen(25865));
+	}
+
+	@Test
+	public void isActiveCrystalBowOrFaerdhinen_unchargedBowOfFaerdhinen_returnsFalse()
+	{
+		// Id 25862 is the UNCHARGED (all-zero-stat) Bow of Faerdhinen.
+		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalBowOrFaerdhinen(25862));
+	}
+
+	@Test
+	public void isActiveCrystalBowOrFaerdhinen_plainCrystalBow_returnsTrue()
+	{
+		org.junit.Assert.assertTrue(GearVariants.isActiveCrystalBowOrFaerdhinen(23901)); // Crystal bow (basic)
+	}
+
+	@Test
+	public void isActiveCrystalBowOrFaerdhinen_nonCrystalWeapon_returnsFalse()
+	{
+		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalBowOrFaerdhinen(861)); // Magic shortbow
+	}
 }

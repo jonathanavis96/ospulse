@@ -420,6 +420,16 @@ public final class DpsCalculator {
             attackRoll = (int) revenant.accuracyMult().applyFloor(attackRoll);
         }
 
+        // Crystal armour set (full ACTIVE helm+body+legs) + an ACTIVE Crystal
+        // bow/Bow of Faerdhinen: a conditional weapon+armour combo, not baked
+        // into per-piece stats — +15% damage/+30% accuracy, its own separate
+        // multiplicative step (see EquipmentStats#crystalSetBonusActive /
+        // GearVariants for the active/inactive-piece distinction).
+        if (gear.crystalSetBonusActive()) {
+            maxHit = (int) new Fraction(23, 20).applyFloor(maxHit); // +15%
+            attackRoll = (int) new Fraction(13, 10).applyFloor(attackRoll); // +30%
+        }
+
         int defenceRoll = CombatMath.npcDefenceRoll(target.defenceLevel(), target.drange());
 
         // Rapid attack style reduces the weapon's attack speed by 1 tick.

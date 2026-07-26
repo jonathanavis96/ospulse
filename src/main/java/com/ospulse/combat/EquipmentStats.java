@@ -42,6 +42,7 @@ public final class EquipmentStats {
     private final boolean colossalBlade;
     private final KerisPartisan kerisPartisan;
     private final RevenantWeapon revenantWeapon;
+    private final boolean crystalSetBonusActive;
 
     private EquipmentStats(Builder b) {
         this.astab = b.astab;
@@ -76,6 +77,7 @@ public final class EquipmentStats {
         this.colossalBlade = b.colossalBlade;
         this.kerisPartisan = b.kerisPartisan;
         this.revenantWeapon = b.revenantWeapon;
+        this.crystalSetBonusActive = b.crystalSetBonusActive;
     }
 
     public int astab() {
@@ -274,6 +276,20 @@ public final class EquipmentStats {
         return revenantWeapon;
     }
 
+    /**
+     * True when the loadout wears the full ACTIVE Crystal armour set (head +
+     * body + legs) AND wields an ACTIVE Crystal bow / Bow of Faerdhinen
+     * variant — the conditional weapon+armour combo's +15% damage/+30%
+     * accuracy applies to ranged attacks; see {@link
+     * com.ospulse.session.GearVariants#isActiveCrystalArmourSet}/{@link
+     * com.ospulse.session.GearVariants#isActiveCrystalBowOrFaerdhinen} for
+     * how this is resolved (both computed once by {@code GearMapper}, since
+     * it is the only place with access to every relevant slot).
+     */
+    public boolean crystalSetBonusActive() {
+        return crystalSetBonusActive;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -311,6 +327,7 @@ public final class EquipmentStats {
         private boolean colossalBlade;
         private KerisPartisan kerisPartisan = KerisPartisan.NONE;
         private RevenantWeapon revenantWeapon = RevenantWeapon.NONE;
+        private boolean crystalSetBonusActive;
 
         private Builder() {
         }
@@ -430,6 +447,11 @@ public final class EquipmentStats {
 
         public Builder revenantWeapon(RevenantWeapon value) {
             this.revenantWeapon = value;
+            return this;
+        }
+
+        public Builder crystalSetBonusActive(boolean value) {
+            this.crystalSetBonusActive = value;
             return this;
         }
 

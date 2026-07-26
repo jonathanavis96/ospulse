@@ -566,6 +566,85 @@ public final class GearVariants
 		return REVENANT_WEAPON_IDS.getOrDefault(weaponItemId, RevenantWeapon.NONE);
 	}
 
+	// ==== Crystal armour set + crystal bow / Bow of Faerdhinen set effect =================
+
+	/**
+	 * ACTIVE (charged, fully-statted) Crystal helm ids only — verified
+	 * against the bundled {@code equipment_stats.min.json} 2026-07-26 by
+	 * checking every combat-bonus field is nonzero: basic/attuned/perfected
+	 * (23886-23888), the pre-rework single "Crystal helm" (23971), the
+	 * "beta" leftover (25495), and each of the seven Elf clan cosmetic
+	 * recolours that got an armour reskin — Hefin/Ithell/Iorwerth/
+	 * Trahaearn/Cadarn/Crwys/Amlodd (27705/27717/27729/27741/27753/27765/
+	 * 27777) plus the deadman-mode cosmetic (33031). Meilyr has NO armour
+	 * recolour in the bundled data (only a weapon one) — verified, not
+	 * assumed. The INACTIVE (uncharged/broken, all-zero-stat) counterpart of
+	 * every one of these — a SEPARATE id sharing the identical display name
+	 * — is deliberately EXCLUDED: crediting a zero-stat inactive piece with
+	 * the active set bonus is exactly the prior P1-class defect the design
+	 * spec warns about for this mechanic.
+	 */
+	private static final Set<Integer> ACTIVE_CRYSTAL_HELM = setOf(
+		23886, 23887, 23888, 23971, 25495,
+		27705, 27717, 27729, 27741, 27753, 27765, 27777, 33031
+	);
+
+	/** ACTIVE Crystal body ids — same provenance/exclusion note as {@link #ACTIVE_CRYSTAL_HELM}. */
+	private static final Set<Integer> ACTIVE_CRYSTAL_BODY = setOf(
+		23889, 23890, 23891, 23975, 25496,
+		27697, 27709, 27721, 27733, 27745, 27757, 27769, 33023
+	);
+
+	/** ACTIVE Crystal legs ids — same provenance/exclusion note as {@link #ACTIVE_CRYSTAL_HELM}. */
+	private static final Set<Integer> ACTIVE_CRYSTAL_LEGS = setOf(
+		23892, 23893, 23894, 23979, 25497,
+		27701, 27713, 27725, 27737, 27749, 27761, 27773, 33027
+	);
+
+	/**
+	 * ACTIVE (charged) Crystal bow AND Bow of Faerdhinen ids — verified the
+	 * same way as the armour pieces: basic/attuned/perfected Crystal bow
+	 * (23901-23903), the pre-rework single "Crystal bow" (23983), charged
+	 * Bow of Faerdhinen (25865) and every one of its "(c)" cosmetic
+	 * recolours (25867 plain, 25884 Ithell, 25886 Iorwerth, 25888 Trahaearn,
+	 * 25890 Cadarn, 25892 Crwys, 25894 Meilyr, 25896 Amlodd, 33021 deadman).
+	 * The UNCHARGED Bow of Faerdhinen (25862, all-zero stats) is deliberately
+	 * EXCLUDED — same "don't credit the inactive piece" reasoning.
+	 */
+	private static final Set<Integer> ACTIVE_CRYSTAL_BOW = setOf(
+		23901, 23902, 23903, 23983,
+		25865, 25867, 25884, 25886, 25888, 25890, 25892, 25894, 25896, 33021
+	);
+
+	/**
+	 * True when the HEAD/BODY/LEGS slots all carry an ACTIVE Crystal armour
+	 * piece — the "full armour set" half of the §9f condition; see {@link
+	 * #isActiveCrystalBowOrFaerdhinen} for the weapon half. Both must hold
+	 * for the set's +15% damage/+30% accuracy bonus to apply (see {@code
+	 * DpsCalculator#computeRanged}).
+	 *
+	 * <p><b>Modelled as all-or-nothing</b>, mirroring {@link VoidSet}'s own
+	 * all-or-nothing precedent — the OSRS Wiki documents the 30%/15% total
+	 * as a sum of PER-PIECE contributions (helm 5%/2.5%, body 15%/7.5%, legs
+	 * 10%/5%), so a partial set (e.g. body+legs but no helm) technically
+	 * grants a partial bonus in-game. That per-piece partial credit is NOT
+	 * modelled here — only the full-set case the design spec explicitly
+	 * calls out ("Full set: +15% damage/+30% accuracy") — a disclosed,
+	 * deliberate simplification, not an oversight.
+	 */
+	public static boolean isActiveCrystalArmourSet(int headItemId, int bodyItemId, int legsItemId)
+	{
+		return ACTIVE_CRYSTAL_HELM.contains(headItemId)
+			&& ACTIVE_CRYSTAL_BODY.contains(bodyItemId)
+			&& ACTIVE_CRYSTAL_LEGS.contains(legsItemId);
+	}
+
+	/** True when the worn weapon is an ACTIVE Crystal bow or Bow of Faerdhinen variant. */
+	public static boolean isActiveCrystalBowOrFaerdhinen(int weaponItemId)
+	{
+		return ACTIVE_CRYSTAL_BOW.contains(weaponItemId);
+	}
+
 	// ==== Blowpipe (loads darts internally, ignores worn ammo) ============================
 
 	/**

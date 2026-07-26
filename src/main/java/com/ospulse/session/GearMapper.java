@@ -191,6 +191,11 @@ public final class GearMapper
 		builder.colossalBlade(GearVariants.isColossalBlade(weaponItemId));
 		builder.kerisPartisan(GearVariants.kerisPartisanFor(weaponItemId));
 		builder.revenantWeapon(GearVariants.revenantWeaponFor(weaponItemId));
+		builder.crystalSetBonusActive(GearVariants.isActiveCrystalBowOrFaerdhinen(weaponItemId)
+			&& GearVariants.isActiveCrystalArmourSet(
+				slotItemId(equippedItemIds, SLOT_HEAD),
+				slotItemId(equippedItemIds, SLOT_BODY),
+				slotItemId(equippedItemIds, SLOT_LEGS)));
 		builder.tome(GearVariants.tomeFor(slotItemId(equippedItemIds, SLOT_SHIELD)));
 		builder.voidSet(GearVariants.voidSetFor(
 			slotItemId(equippedItemIds, SLOT_HEAD),
