@@ -42,6 +42,7 @@ import com.ospulse.ui.sections.gear.HeldItemIds;
 import com.ospulse.ui.sections.gear.OwnedVariantResolver;
 import com.ospulse.ui.sections.gear.RoundedButton;
 import com.ospulse.ui.sections.gear.StyleGrid;
+import com.ospulse.ui.sections.gear.VariantCreditSources;
 import com.ospulse.wealth.WealthSnapshot;
 
 import net.runelite.client.config.ConfigManager;
@@ -4653,6 +4654,8 @@ public final class GearSection extends CollapsibleSection
 			.onSlayerTask(onSlayerTaskToggle.isSelected())
 			.magicPotionVariant(magicPotionVariantForCalc());
 
+		java.util.Map<Integer, Integer> creditSources =
+			VariantCreditSources.from(lastWealth, lastGear, EquipmentIndexRepository.getInstance());
 		java.util.Set<Integer> exclusions = new java.util.LinkedHashSet<>(excludedItemIds);
 		exclusions.addAll(restrictedItemIds());
 		if (hideUnprotectableItemsPref())
@@ -4702,7 +4705,22 @@ public final class GearSection extends CollapsibleSection
 			// (no resolver, e.g. a headless owned-only search) leaves the cap
 			// falling back to priceSource unchanged (see
 			// GearOptimizer.Request.Builder#riskValueSource).
-			.riskValueSource(riskValues.isEmpty() ? null : id -> riskValues.getOrDefault(id, 0L))
+			// The cap must price what the player is actually told to RISK, and
+			// for a credited plain id that is the held variant, not the
+			// counterpart the ownership map invented (see
+			// VariantCreditSources). A tradeable cosmetic can be worth a
+			// different amount from its ordinary form, and with a threshold
+			// between the two the cap would otherwise count the wrong item's
+			// gp and let a wilderness search break the user's own limit. The
+			// variant's own value wins; the credited id's value is the
+			// fallback for a variant the resolver did not price, so an
+			// unpriced variant can never silently drop the slot to 0.
+			.riskValueSource(lastRiskValueSource = riskValues.isEmpty() ? null : id ->
+			{
+				Integer source = creditSources.get(id);
+				Long variantRisk = source == null ? null : riskValues.get(source);
+				return variantRisk != null ? variantRisk : riskValues.getOrDefault(id, 0L);
+			})
 			.expensiveItemCount(resolvedExpensiveCount())
 			.expensiveItemThreshold(resolvedExpensiveThreshold())
 			// Items #6e/#6g: anchor the search to the requested damage type,
@@ -5914,6 +5932,20 @@ public final class GearSection extends CollapsibleSection
 	GearOptimizer.Result lastOptimizerResultForTest()
 	{
 		return lastOptimizerResult;
+	}
+
+	/**
+	 * The risk source composed into the most recent {@link
+	 * #buildOptimizerRequest} — captured purely so a test can assert what the
+	 * expensive-item cap would actually charge for an id, which is otherwise
+	 * only observable through a full de-risk search.
+	 */
+	private GearOptimizer.PriceSource lastRiskValueSource;
+
+	/** Test seam: see {@link #lastRiskValueSource}. */
+	GearOptimizer.PriceSource lastRiskValueSourceForTest()
+	{
+		return lastRiskValueSource;
 	}
 
 	/** Test seam: {@link #hasAnySlotChange} — the "No upgrade found" verdict. */

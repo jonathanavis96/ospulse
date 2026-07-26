@@ -861,4 +861,55 @@ public class GearSectionOptimizerTest
 			assertEquals(1, section.optimizerSwapRowCountForTest());
 		});
 	}
+
+	// Imbued saradomin cape (deadman) 29617 -> credited plain 21791. A tradeable
+	// cosmetic can be worth a DIFFERENT amount from its ordinary counterpart, and
+	// the expensive-item cap prices the id the optimiser retains — the credited
+	// plain one — while the panel tells the player to wear the deadman cape.
+	private static final int SARADOMIN_CAPE_DEADMAN = 29617;
+	private static final int SARADOMIN_CAPE_PLAIN = 21791;
+
+	/**
+	 * The expensive-item cap must charge for the item the player is actually
+	 * told to RISK. Owning only the deadman cape credits the plain id at price
+	 * 0 (`addVariantPlainForm`), and the optimiser keeps that plain id in the
+	 * loadout — so `capRiskValueOf` looked it up and counted the ORDINARY
+	 * cape's gp, not the cosmetic the display resolves to and the player will
+	 * lose on death. With the user's threshold between the two values, a
+	 * wilderness/PvP search silently breaks their own expensive-item limit.
+	 *
+	 * <p>Asserted on the composed risk source rather than through a full
+	 * de-risk search, because that is the exact function the cap calls and it
+	 * makes the failure unambiguous.
+	 */
+	@Test
+	public void creditedPlainId_isRiskPricedAtTheHeldVariantsValue()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> riskValues = new java.util.HashMap<>();
+			riskValues.put(SARADOMIN_CAPE_DEADMAN, 40_000_000L);
+			riskValues.put(SARADOMIN_CAPE_PLAIN, 1_000L);
+
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(SARADOMIN_CAPE_DEADMAN, "Imbued saradomin cape (deadman)", 1, 40_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null,
+				(ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(
+					java.util.Map.of(), java.util.Set.of(), riskValues, java.util.Set.of())));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.PriceSource risk = section.lastRiskValueSourceForTest();
+			assertTrue("the risk source must be wired when the resolver supplies risk data", risk != null);
+			assertEquals("the credited plain cape must be risk-priced at the HELD deadman cape's value, "
+					+ "not the ordinary cape's — the player risks what they actually wear",
+				40_000_000L, risk.priceFor(SARADOMIN_CAPE_PLAIN));
+			assertEquals("an id with no credit behind it still prices itself",
+				40_000_000L, risk.priceFor(SARADOMIN_CAPE_DEADMAN));
+		});
+	}
 }
