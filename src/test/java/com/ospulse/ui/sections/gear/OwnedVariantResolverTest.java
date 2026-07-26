@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -25,6 +26,11 @@ import static org.junit.Assert.assertTrue;
  */
 public class OwnedVariantResolverTest
 {
+	/** 4-tick bow; byte-identical bonuses to {@link #LONGBOW}, no equip requirement on either. */
+	private static final int SHORTBOW = 841;
+	/** 6-tick bow — same bonuses, same (absent) requirements, slower. */
+	private static final int LONGBOW = 839;
+
 	static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
 	private static final EquipmentIndexRepository INDEX = EquipmentIndexRepository.getInstance();
@@ -452,6 +458,44 @@ public class OwnedVariantResolverTest
 			heterogeneousGroupsChecked > 0);
 	}
 
+	/**
+	 * Attack speed is part of stat equivalence, not a footnote to it: it goes
+	 * straight into the optimiser's {@code SlotStats} via {@code
+	 * BundledSlotStatsLookup}, so two ids that are interchangeable on every
+	 * bonus and requirement but attack at different speeds are NOT
+	 * interchangeable for DPS.
+	 *
+	 * <p>No currently bundled {@code SUFFIXES} group exercises this — every
+	 * variant/plain pair that matches on the 14 bonus fields also matches on
+	 * speed — so the property is asserted against the plainest real pair in
+	 * the data that does: <b>Shortbow (841) and Longbow (839)</b> carry
+	 * byte-identical bonuses and identical (absent) requirements and differ
+	 * ONLY in speed, 4 ticks against 6. Under a speed-blind comparison those
+	 * two are "the same item", which is precisely how a future data refresh
+	 * could sneak a fabricated-DPS credit past the resolver.
+	 */
+	@Test
+	public void sameStats_countsAttackSpeed_soAShortbowNeverCreditsALongbow()
+	{
+		EquipmentStatsRepository stats = EquipmentStatsRepository.getInstance();
+		EquipmentStatsRepository.Stats shortbow = stats.statsFor(SHORTBOW);
+		EquipmentStatsRepository.Stats longbow = stats.statsFor(LONGBOW);
+		// Fixture sanity: if a data refresh ever makes these two differ in a
+		// BONUS too, this test would still pass while no longer testing speed
+		// at all — so pin the shape it depends on, not just the verdict.
+		assertTrue("fixture sanity: both bows must be present in the bundled stats",
+			shortbow != null && longbow != null);
+		assertEquals("fixture sanity: the pair must agree on ranged attack", longbow.arange(), shortbow.arange());
+		assertEquals("fixture sanity: the pair must agree on ranged strength", longbow.rstr(), shortbow.rstr());
+		assertTrue("fixture sanity: the pair must actually DIFFER in attack speed, or this proves nothing",
+			shortbow.aspeed() != longbow.aspeed());
+
+		assertTrue("an id is always equivalent to itself", OwnedVariantResolver.sameStatsForTest(SHORTBOW, SHORTBOW));
+		assertFalse("a 4-tick Shortbow and a 6-tick Longbow must never compare as equivalent — owning one "
+				+ "would otherwise credit the other and report DPS the player cannot achieve",
+			OwnedVariantResolver.sameStatsForTest(SHORTBOW, LONGBOW));
+	}
+
 	/** True when every id in {@code ids} shares identical equip requirements (absent counts as empty). */
 	private static boolean allSameRequirements(com.ospulse.combat.EquipmentRequirementsRepository requirements,
 		java.util.List<Integer> ids)
@@ -553,6 +597,14 @@ public class OwnedVariantResolverTest
 		return true;
 	}
 
+	/**
+	 * Deliberately an INDEPENDENT re-implementation of production's
+	 * equivalence rule (not a call into it), so the whole-dataset regressions
+	 * above have a real oracle rather than a tautology — but it must encode
+	 * the SAME rule, including attack speed, which is a direct DPS input via
+	 * {@code BundledSlotStatsLookup}. See
+	 * {@link #sameStats_countsAttackSpeed_soAShortbowNeverCreditsALongbow}.
+	 */
 	private static boolean sameStats(EquipmentStatsRepository.Stats a, EquipmentStatsRepository.Stats b)
 	{
 		if (a == null || b == null)
@@ -564,6 +616,7 @@ public class OwnedVariantResolverTest
 			&& a.dstab() == b.dstab() && a.dslash() == b.dslash() && a.dcrush() == b.dcrush()
 			&& a.dmagic() == b.dmagic() && a.drange() == b.drange()
 			&& a.str() == b.str() && a.rstr() == b.rstr()
-			&& a.mdmg() == b.mdmg() && a.prayer() == b.prayer();
+			&& a.mdmg() == b.mdmg() && a.prayer() == b.prayer()
+			&& a.aspeed() == b.aspeed();
 	}
 }

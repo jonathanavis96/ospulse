@@ -38,6 +38,7 @@ import com.ospulse.ui.WidthTrackingPanel;
 import com.ospulse.ui.sections.gear.CoinPileBadge;
 import com.ospulse.ui.sections.gear.DpsFormat;
 import com.ospulse.ui.sections.gear.GpFormat;
+import com.ospulse.ui.sections.gear.HeldItemIds;
 import com.ospulse.ui.sections.gear.OwnedVariantResolver;
 import com.ospulse.ui.sections.gear.RoundedButton;
 import com.ospulse.ui.sections.gear.StyleGrid;
@@ -1433,13 +1434,13 @@ public final class GearSection extends CollapsibleSection
 	{
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
-		java.util.Set<Integer> restrictedIds = restrictedItemIds();
+		java.util.Set<Integer> heldIds = HeldItemIds.from(lastWealth, lastGear, index);
 		java.util.Map<Integer, Integer> map = new java.util.LinkedHashMap<>();
 		for (GearOptimizer.SlotChoice choice : result.loadout())
 		{
 			if (choice.itemId() > 0)
 			{
-				map.put(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds, restrictedIds));
+				map.put(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds, heldIds));
 			}
 		}
 		return map;
@@ -4927,7 +4928,7 @@ public final class GearSection extends CollapsibleSection
 		// variant (e.g. "Masori mask (f)"), not the plain name — buildSwapRow
 		// needs the owned-item pool to make that reverse lookup.
 		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
-		java.util.Set<Integer> restrictedIds = restrictedItemIds();
+		java.util.Set<Integer> heldIds = HeldItemIds.from(lastWealth, lastGear, index);
 		boolean anyRow = false;
 		for (GearOptimizer.SlotChoice choice : result.loadout())
 		{
@@ -4938,7 +4939,7 @@ public final class GearSection extends CollapsibleSection
 			}
 			anyRow = true;
 			optimizerSwapList.add(buildSwapRow(index, choice.slotOrdinal(), liveId,
-				resolvedChoiceItemId(index, choice, ownedIds, restrictedIds), choice));
+				resolvedChoiceItemId(index, choice, ownedIds, heldIds), choice));
 			optimizerSwapList.add(Box.createRigidArea(new Dimension(0, 2)));
 		}
 		if (!anyRow)
@@ -4964,35 +4965,52 @@ public final class GearSection extends CollapsibleSection
 	 * owned variant, the plain id is shown/applied as-is rather than
 	 * resurrecting the excluded item under a different row.
 	 *
-	 * <p><b>P1 follow-up (issue #11 Stage 3):</b> {@code restrictedItemIds}
-	 * (the caller's fresh {@link #restrictedItemIds()} snapshot — Deadman/BH/
-	 * LMS/beta/Gauntlet-only ids) is unioned with {@link #excludedItemIds}
-	 * for this call only, mirroring exactly how {@link #buildOptimizerRequest}
-	 * builds the optimiser's OWN exclude set. Making the deadman-suffix
-	 * ownership credit work (see {@link OwnedVariantResolver#SUFFIXES}) means
-	 * the optimiser can now legitimately select a plain counterpart that
-	 * credit came from — without this, {@code preferOwnedVariant} would map
-	 * that selection straight back to the mode-locked deadman id for
-	 * display, resurrecting exactly the item {@code restrictedItemIds()}
-	 * exists to keep the optimiser from ever suggesting (regardless of
-	 * ownership — see {@code GearSectionGearPoolTest
-	 * #deadmanNamedItem_isNeverSuggestedByTheOptimizer}). The two sets stay
-	 * conceptually and structurally separate everywhere else — {@code
-	 * excludedItemIds} is still the sole persisted, user-managed set;
-	 * {@code restrictedItemIds()} is still computed fresh and never
-	 * persisted — only this one local, ephemeral union is built, purely to
-	 * answer "must never be substituted here."
+	 * <p><b>What "resolved" means when a mode-locked variant is the source of
+	 * the credit</b> (issue #11 Stage 3; supersedes an earlier attempt that
+	 * unioned {@link #restrictedItemIds()} into the never-substitute set).
+	 * These two rules look like they conflict and do not:
+	 * <ul>
+	 *   <li>A mode-locked id ("(deadman)"/"(bh)"/"(lms)"/"(beta)") is never
+	 *   an optimiser CANDIDATE — {@link #buildOptimizerRequest} excludes
+	 *   every one of them from every search regardless of ownership, and
+	 *   {@code GearSectionGearPoolTest
+	 *   #deadmanNamedItem_isNeverSuggestedByTheOptimizer} locks that in.
+	 *   Nothing here weakens it: the optimiser still cannot pick, score, or
+	 *   recommend one.</li>
+	 *   <li>Once ownership of such a variant has CREDITED its plain
+	 *   counterpart (the entire point of adding " (deadman)" to {@link
+	 *   OwnedVariantResolver#SUFFIXES}), the display must name the item the
+	 *   player actually holds. The credited plain id is not in their bank —
+	 *   {@link #addVariantPlainForm} invented it at price 0 — so showing it
+	 *   tells the player to equip something they do not own, and arms the
+	 *   bank highlight on an id that cannot be there while missing the one
+	 *   that is.</li>
+	 * </ul>
+	 * Blocking the substitution satisfied the first rule by breaking the
+	 * second, which is the strictly worse trade: the recommendation stays
+	 * correct either way (the ids are stat- and requirement-identical — that
+	 * is what {@link OwnedVariantResolver} verifies before crediting at all),
+	 * so the only thing at stake is whether the player is pointed at the
+	 * right physical item. Credit and display must agree; if a mode-locked
+	 * variant is not a usable stand-in it should never have been credited in
+	 * the first place, and that decision lives in {@code SUFFIXES}, not here.
+	 *
+	 * <p>{@code heldItemIds} keeps the earlier fix's real kernel: a
+	 * substitution only ever happens for a choice the player does NOT
+	 * physically hold. If the optimiser picked an id that is genuinely in
+	 * the bank or already worn, that id is returned untouched, so an owned
+	 * plain form can never be swapped out for a mode-locked look-alike the
+	 * player also happens to own. See {@link HeldItemIds} for why the
+	 * ownership map alone cannot answer that.
 	 */
 	private int resolvedChoiceItemId(EquipmentIndexRepository index, GearOptimizer.SlotChoice choice,
-		java.util.Map<Integer, Long> ownedIds, java.util.Set<Integer> restrictedItemIds)
+		java.util.Map<Integer, Long> ownedIds, java.util.Set<Integer> heldItemIds)
 	{
-		if (!choice.owned())
+		if (!choice.owned() || heldItemIds.contains(choice.itemId()))
 		{
 			return choice.itemId();
 		}
-		java.util.Set<Integer> neverSubstitute = new java.util.LinkedHashSet<>(excludedItemIds);
-		neverSubstitute.addAll(restrictedItemIds);
-		return OwnedVariantResolver.preferOwnedVariant(index, choice.itemId(), ownedIds, neverSubstitute);
+		return OwnedVariantResolver.preferOwnedVariant(index, choice.itemId(), ownedIds, excludedItemIds);
 	}
 
 	/**
@@ -5237,7 +5255,7 @@ public final class GearSection extends CollapsibleSection
 		// item than the row the user actually clicked "Apply" on.
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
-		java.util.Set<Integer> restrictedIds = restrictedItemIds();
+		java.util.Set<Integer> heldIds = HeldItemIds.from(lastWealth, lastGear, index);
 		LoadoutOverride next = LoadoutOverride.empty();
 		for (GearOptimizer.SlotChoice choice : lastOptimizerResult.loadout())
 		{
@@ -5246,7 +5264,7 @@ public final class GearSection extends CollapsibleSection
 			{
 				continue; // unchanged — nothing to preview for this slot
 			}
-			next = next.withSlot(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds, restrictedIds));
+			next = next.withSlot(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds, heldIds));
 		}
 		// B9-3: a two-handed weapon frees the shield slot. The optimiser empties
 		// the shield internally, but empty slots aren't listed in loadout(), so
@@ -5871,6 +5889,17 @@ public final class GearSection extends CollapsibleSection
 	GearOptimizer.Result lastOptimizerResultForTest()
 	{
 		return lastOptimizerResult;
+	}
+
+	/**
+	 * Test seam: the slot-&gt;item-id map the bank highlighter is actually
+	 * armed with — see {@link #optimizerLoadoutSlotMap}. Distinct from the
+	 * swap row and the applied preview only in which surface it feeds; all
+	 * three must agree, which is what makes it worth asserting separately.
+	 */
+	java.util.Map<Integer, Integer> optimizerLoadoutSlotMapForTest(GearOptimizer.Result result)
+	{
+		return optimizerLoadoutSlotMap(result);
 	}
 
 	/**

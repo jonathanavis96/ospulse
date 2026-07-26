@@ -300,7 +300,35 @@ public final class OwnedVariantResolver
 		return true;
 	}
 
-	/** Every combat-relevant field equal (both {@code null} counts as equal; one {@code null} does not). */
+	/**
+	 * Every field {@link EquipmentStatsRepository.Stats} models equal (both
+	 * {@code null} counts as equal; one {@code null} does not) — the 14
+	 * bonus fields AND {@link EquipmentStatsRepository.Stats#aspeed()}.
+	 *
+	 * <p><b>Attack speed is part of equivalence, not a bonus footnote.</b>
+	 * {@code BundledSlotStatsLookup} feeds {@code aspeed} straight into the
+	 * optimiser's {@code SlotStats}, so it is a direct DPS input: two ids
+	 * with byte-identical bonuses and identical requirements but different
+	 * weapon speeds are NOT interchangeable, and treating them as
+	 * "homogeneous" (or as an exact match in {@link #resolveByStatMatch})
+	 * would let ownership of a slower variant credit a faster counterpart
+	 * and produce a DPS figure the player cannot actually achieve — the
+	 * exact class of over-credit this whole resolver exists to prevent.
+	 *
+	 * <p>On the currently bundled data this changes no outcome: across all
+	 * 84 name groups reachable by a {@link #SUFFIXES} strip, no group's
+	 * homogeneity verdict flips when speed is included, and no
+	 * variant/plain pair matches on the 14 bonus fields and requirements
+	 * while differing in speed (checked including the {@link
+	 * #UNINDEXED_PLAIN_NAME_ALIASES} pair — Toxic staff 33035/33036 vs
+	 * 12902/12904 — and every god cape/Dark bow deadman pair). It is a
+	 * guard against a future data refresh introducing such a pair
+	 * silently, which the previous comparison could not have caught.
+	 *
+	 * <p>The stat rows carry a 16th entry the repository deliberately does
+	 * not model (attack range: -1 for melee, 3-13 for ranged/magic). It is
+	 * not a DPS input in this engine and is not compared here.
+	 */
 	private static boolean sameStats(EquipmentStatsRepository.Stats a, EquipmentStatsRepository.Stats b)
 	{
 		if (a == null || b == null)
@@ -312,7 +340,20 @@ public final class OwnedVariantResolver
 			&& a.dstab() == b.dstab() && a.dslash() == b.dslash() && a.dcrush() == b.dcrush()
 			&& a.dmagic() == b.dmagic() && a.drange() == b.drange()
 			&& a.str() == b.str() && a.rstr() == b.rstr()
-			&& a.mdmg() == b.mdmg() && a.prayer() == b.prayer();
+			&& a.mdmg() == b.mdmg() && a.prayer() == b.prayer()
+			&& a.aspeed() == b.aspeed();
+	}
+
+	/**
+	 * Test seam for {@link #sameStats} on two real bundled item ids — the
+	 * comparison is data-driven and its attack-speed term changes no outcome
+	 * on the currently shipped variant groups, so the only way to assert it
+	 * at all is against a pair that genuinely exercises it.
+	 */
+	static boolean sameStatsForTest(int itemIdA, int itemIdB)
+	{
+		EquipmentStatsRepository repo = EquipmentStatsRepository.getInstance();
+		return sameStats(repo.statsFor(itemIdA), repo.statsFor(itemIdB));
 	}
 
 	/**

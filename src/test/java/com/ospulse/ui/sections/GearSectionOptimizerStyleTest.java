@@ -97,6 +97,12 @@ public class GearSectionOptimizerStyleTest
 	// credits the real, non-mode-locked "Imbued saradomin cape" via OwnedVariantResolver.
 	private static final int TRIDENT_OF_THE_SEAS = 11905;
 	private static final int IMBUED_SARADOMIN_CAPE_DEADMAN = 29617;
+	/**
+	 * The ordinary counterpart 29617's ownership credits — the magic-75-gated
+	 * id, not the ungated same-named duplicate 24248 (see
+	 * {@code OwnedVariantResolver.resolveByStatMatch}).
+	 */
+	private static final int IMBUED_SARADOMIN_CAPE_PLAIN = 21791;
 	private static final int CAPE_SLOT = 1;
 
 	private static int[] loadout(int weaponId)
@@ -511,15 +517,28 @@ public class GearSectionOptimizerStyleTest
 	 * applied preview / bank highlight exactly the item the optimiser
 	 * correctly refused to ever suggest directly.
 	 *
-	 * <p>Structurally this mirrors {@link
-	 * #excludedOwnedVariant_doesNotReappearInSuggestions} above (same choke
-	 * point, same "fall back to the plain id, don't resurrect the excluded
-	 * owned variant" shape) — except the exclusion here is {@code
-	 * restrictedItemIds()}'s unconditional mode-lock, not a user's manual
-	 * exclude-from-suggestions action.
+	 * <p><b>That reading was wrong, and this test now asserts the opposite
+	 * (see {@code GearSection#resolvedChoiceItemId}).</b> Blocking the
+	 * substitution left the player holding ONLY the deadman cape while every
+	 * display surface named the plain id — an item that is not in their bank,
+	 * because {@code addVariantPlainForm} invented it at price 0 purely to
+	 * make the credit work. The swap row then said "equip Imbued saradomin
+	 * cape" for a cape they do not have, and the bank highlight armed on an
+	 * id that cannot be in the bank while missing the one that is.
+	 *
+	 * <p>The mode-lock's actual guarantee is about the SEARCH, and it is
+	 * untouched: the optimiser still never picks, scores or recommends a
+	 * mode-locked id ({@code GearSectionGearPoolTest
+	 * #deadmanNamedItem_isNeverSuggestedByTheOptimizer}), which this test
+	 * re-asserts below. Once the credit has already been granted, naming the
+	 * physical item the player owns is the only display that is not a lie —
+	 * and the two ids are stat- and requirement-identical by construction, so
+	 * the recommendation itself is unchanged either way. See {@link
+	 * #ownedPlainAndDeadmanCape_prefersTheGenuinelyHeldPlainId} for the
+	 * kernel of the original P1 that IS still enforced.
 	 */
 	@Test
-	public void ownedDeadmanCapeCredit_neverReverseSubstitutesTheModeLockedId()
+	public void ownedDeadmanCapeCredit_resolvesEveryDisplaySurfaceToTheHeldVariant()
 	{
 		onEdt(() ->
 		{
@@ -550,16 +569,65 @@ public class GearSectionOptimizerStyleTest
 
 			String swapTooltip = findSwapTooltipStartingWith(section, "Imbued saradomin cape");
 			assertTrue("a swap row must exist for the cape slot: " + swapTooltip, swapTooltip != null);
-			assertFalse("the mode-locked deadman variant must NEVER reappear in the swap row: " + swapTooltip,
+			assertTrue("the swap row must name the cape the player actually holds, not the credited plain id "
+					+ "they have no copy of: " + swapTooltip,
 				swapTooltip.contains("(deadman)"));
 
 			section.clickApplyOptimizerResultForTest();
 			int appliedCapeId = section.overrideForTest().itemIdFor(CAPE_SLOT);
-			assertFalse("the applied preview must never equip the mode-locked deadman id",
-				appliedCapeId == IMBUED_SARADOMIN_CAPE_DEADMAN);
-			assertEquals("the applied preview must equip exactly the plain id the optimiser chose, "
-					+ "matching the row (Codex finding #1's consistency guarantee)",
-				capeChoiceId, appliedCapeId);
+			assertEquals("the applied preview must equip the held deadman id, matching the row "
+					+ "(Codex finding #1's consistency guarantee — every surface resolves identically)",
+				IMBUED_SARADOMIN_CAPE_DEADMAN, appliedCapeId);
+			assertEquals("the bank highlight must point at the same held id, or it highlights nothing at all",
+				IMBUED_SARADOMIN_CAPE_DEADMAN,
+				(int) section.optimizerLoadoutSlotMapForTest(section.lastOptimizerResultForTest()).get(CAPE_SLOT));
+		});
+	}
+
+	/**
+	 * The kernel of the original P1, still enforced: a substitution only ever
+	 * happens for a choice the player does NOT physically hold. Here they own
+	 * the plain "Imbued saradomin cape" outright AND the mode-locked deadman
+	 * copy; the optimiser picks the plain id it can legitimately recommend,
+	 * and the display must leave it alone rather than swapping in the
+	 * look-alike the optimiser is forbidden to suggest. Without the
+	 * {@code heldItemIds} guard in {@code GearSection#resolvedChoiceItemId},
+	 * {@code preferOwnedVariant} would happily return the deadman id here,
+	 * since it is an owned, non-excluded, stat-identical variant.
+	 */
+	@Test
+	public void ownedPlainAndDeadmanCape_prefersTheGenuinelyHeldPlainId()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(TRIDENT_OF_THE_SEAS)),
+				wealthWith(IMBUED_SARADOMIN_CAPE_DEADMAN, IMBUED_SARADOMIN_CAPE_PLAIN)));
+			pickCerberus(section);
+			section.clickOptimizerStyleForTest(CombatStyle.MAGIC);
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			int capeChoiceId = -1;
+			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
+			{
+				if (choice.slotOrdinal() == CAPE_SLOT)
+				{
+					capeChoiceId = choice.itemId();
+				}
+			}
+			assertEquals("the optimiser must pick the plain cape the player genuinely holds",
+				IMBUED_SARADOMIN_CAPE_PLAIN, capeChoiceId);
+
+			String swapTooltip = findSwapTooltipStartingWith(section, "Imbued saradomin cape");
+			assertTrue("a swap row must exist for the cape slot: " + swapTooltip, swapTooltip != null);
+			assertFalse("a genuinely-held plain id must never be swapped out for the mode-locked "
+					+ "look-alike: " + swapTooltip,
+				swapTooltip.contains("(deadman)"));
+
+			section.clickApplyOptimizerResultForTest();
+			assertEquals("the applied preview must equip the genuinely-held plain id",
+				IMBUED_SARADOMIN_CAPE_PLAIN, section.overrideForTest().itemIdFor(CAPE_SLOT));
 		});
 	}
 
