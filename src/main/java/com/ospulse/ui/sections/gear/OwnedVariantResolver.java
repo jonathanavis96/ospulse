@@ -3,7 +3,9 @@ package com.ospulse.ui.sections.gear;
 import com.ospulse.combat.EquipmentIndexRepository;
 import com.ospulse.combat.EquipmentStatsRepository;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -73,6 +75,32 @@ public final class OwnedVariantResolver
 	 */
 	public static final String[] SUFFIXES = { " (f)", " (i)", " (deadman)" };
 
+	/**
+	 * Curated alias for a suffix-stripped plain name that has NO indexed entry
+	 * at all under its own name, but still has a stat-matching counterpart
+	 * under a genuinely DIFFERENT display name (every other suffix case —
+	 * see {@link #SUFFIXES} — already lands on the right name once stripped,
+	 * so this table is the exception, not the rule).
+	 *
+	 * <p><b>"Toxic staff (deadman)"</b> (ids 33035/33036, {@code
+	 * net.runelite.api.gameval.ItemID.TOXIC_SOTD_DEADMAN}/{@code
+	 * _CHARGED_DEADMAN}) strips to "Toxic staff", which isn't indexed under
+	 * any id in the bundled {@code equipment_index.min.json} — the real item
+	 * is named "Toxic staff of the dead" (12902 uncharged/12904 charged,
+	 * {@code ItemID.TOXIC_SOTD}/{@code _CHARGED}), whose two ids are NOT
+	 * stat-identical (uncharged amagic +17 vs. charged amagic +25 in {@code
+	 * equipment_stats.min.json}) but exactly stat-match 33035/33036
+	 * respectively — the same heterogeneous-name-collision shape as Deadman
+	 * crystal armour, just with the collision landing on a different name
+	 * than a plain suffix-strip finds. A survey of every {@link #SUFFIXES}
+	 * suffix across the entire bundled index (see {@code
+	 * OwnedVariantResolverTest}) found this is the ONLY suffix-stripped name
+	 * with zero indexed entries, so a single curated alias is used here
+	 * rather than a general renaming rule.
+	 */
+	private static final Map<String, String> UNINDEXED_PLAIN_NAME_ALIASES =
+		Collections.singletonMap("toxic staff", "Toxic staff of the dead");
+
 	private OwnedVariantResolver()
 	{
 	}
@@ -80,8 +108,9 @@ public final class OwnedVariantResolver
 	/**
 	 * The plain (suffix-stripped) form's item id for {@code variantItemId}, or
 	 * {@code null} if the item isn't indexed, its name doesn't end in a known
-	 * variant suffix, the plain form itself isn't indexed, or the plain name
-	 * resolves to more than one stat-DIFFERENT id and none of them matches
+	 * variant suffix, neither the plain form nor its {@link
+	 * #UNINDEXED_PLAIN_NAME_ALIASES} counterpart is indexed, or the resolved
+	 * name maps to more than one stat-DIFFERENT id and none of them matches
 	 * {@code variantItemId}'s own stats (see class javadoc) — crediting
 	 * nothing is safer than guessing which one the player can actually reach.
 	 */
@@ -98,7 +127,16 @@ public final class OwnedVariantResolver
 			if (name.regionMatches(true, name.length() - suffix.length(), suffix, 0, suffix.length()))
 			{
 				String plainName = name.substring(0, name.length() - suffix.length());
-				return resolveByStatMatch(index, index.idsForName(plainName), variantItemId);
+				List<Integer> candidates = index.idsForName(plainName);
+				if (candidates.isEmpty())
+				{
+					String alias = UNINDEXED_PLAIN_NAME_ALIASES.get(plainName.toLowerCase(Locale.ROOT));
+					if (alias != null)
+					{
+						candidates = index.idsForName(alias);
+					}
+				}
+				return resolveByStatMatch(index, candidates, variantItemId);
 			}
 		}
 		return null;

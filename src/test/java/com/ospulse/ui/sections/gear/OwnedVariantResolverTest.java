@@ -353,6 +353,69 @@ public class OwnedVariantResolverTest
 			heterogeneousGroupsChecked > 0);
 	}
 
+	// ==================================================================================
+	// P2 follow-up (missed credit, not over-credit): "Toxic staff (deadman)" strips to
+	// "Toxic staff", which has NO indexed entry at all — unlike every other SUFFIXES
+	// case, the real item lives under a genuinely DIFFERENT name, "Toxic staff of the
+	// dead". A full survey of every SUFFIXES-suffixed name in the bundled
+	// equipment_index.min.json (every " (f)"/" (i)"/" (deadman)" entry, checked whether
+	// its stripped name resolves to ANY indexed id) found this is the ONLY such case —
+	// so OwnedVariantResolver.UNINDEXED_PLAIN_NAME_ALIASES is a single curated entry,
+	// not a general rule. Ids verified against net.runelite.api.gameval.ItemID
+	// (javap -constants on the runelite-api jar on this project's classpath):
+	// TOXIC_SOTD_DEADMAN=33035, TOXIC_SOTD_CHARGED_DEADMAN=33036, TOXIC_SOTD=12902,
+	// TOXIC_SOTD_CHARGED=12904. Like Deadman crystal armour, the two real ids are NOT
+	// stat-identical (equipment_stats.min.json: 12902 amagic +17, 12904 amagic +25 —
+	// 33035/33036 match those exactly), and are in the OPPOSITE file-order pair-up
+	// (33036/12904 both happen to be first in file order, 33035/12902 both second) —
+	// so a naive "first candidate wins" resolution would accidentally get the charged
+	// pair right while silently over-crediting the UNCHARGED deadman staff (33035) with
+	// the CHARGED real item (12904). The two tests below discriminate exactly that.
+	// ==================================================================================
+
+	private static final int TOXIC_STAFF_DEADMAN_UNCHARGED = 33035;
+	private static final int TOXIC_STAFF_DEADMAN_CHARGED = 33036;
+	private static final int TOXIC_STAFF_OF_THE_DEAD_UNCHARGED = 12902;
+	private static final int TOXIC_STAFF_OF_THE_DEAD_CHARGED = 12904;
+
+	@Test
+	public void plainFormId_deadmanToxicStaffUncharged_creditsUnchargedRealCounterpart()
+	{
+		assertEquals("owning the uncharged deadman toxic staff must credit the uncharged real "
+				+ "\"Toxic staff of the dead\" (12902), even though \"Toxic staff\" itself has no indexed entry",
+			Integer.valueOf(TOXIC_STAFF_OF_THE_DEAD_UNCHARGED),
+			OwnedVariantResolver.plainFormId(INDEX, TOXIC_STAFF_DEADMAN_UNCHARGED));
+	}
+
+	@Test
+	public void plainFormId_deadmanToxicStaffCharged_creditsChargedRealCounterpart()
+	{
+		assertEquals("owning the charged deadman toxic staff must credit the charged real "
+				+ "\"Toxic staff of the dead\" (12904)",
+			Integer.valueOf(TOXIC_STAFF_OF_THE_DEAD_CHARGED),
+			OwnedVariantResolver.plainFormId(INDEX, TOXIC_STAFF_DEADMAN_CHARGED));
+	}
+
+	/**
+	 * Guard against over-credit: the uncharged deadman staff (33035) must never
+	 * resolve to the CHARGED real item (12904) — which is what a naive
+	 * "first-in-file-order" pick would return, since 12904 happens to be first
+	 * for the "Toxic staff of the dead" name group. Existence of a same-name
+	 * candidate is not enough; the SPECIFIC stat-matching one must be chosen.
+	 * (The two tests above already assert the specific expected id, which
+	 * inherently rules out 12904 for 33035 — this test states that guard
+	 * explicitly as a not-equals, so a future refactor that starts picking
+	 * "any same-name candidate" cannot silently pass by returning the wrong id.)
+	 */
+	@Test
+	public void plainFormId_deadmanToxicStaffUncharged_neverCreditsChargedCounterpart()
+	{
+		Integer resolved = OwnedVariantResolver.plainFormId(INDEX, TOXIC_STAFF_DEADMAN_UNCHARGED);
+		assertTrue("must resolve to the uncharged id (12902), not the charged one (12904) that "
+				+ "would be picked first in file order",
+			resolved != null && resolved != TOXIC_STAFF_OF_THE_DEAD_CHARGED);
+	}
+
 	private static boolean allSameStats(EquipmentStatsRepository stats, java.util.List<Integer> ids)
 	{
 		EquipmentStatsRepository.Stats first = stats.statsFor(ids.get(0));
