@@ -93,4 +93,81 @@ public class MonsterConsumablesRepositoryTest
 		assertFalse("the curated dataset is empty — did it fail to parse?",
 			MonsterConsumablesRepository.getInstance().curatedKeys().isEmpty());
 	}
+
+	/**
+	 * Round-2 poison/venom entries recovered after the first pass's research
+	 * file was found to have been truncated before its poison/venom table.
+	 * All four Alchemical Hydra phase names are keyed explicitly (not relying
+	 * on a shared base) and every one must resolve to the same reminder.
+	 */
+	@Test public void alchemicalHydra_everyPhaseResolvesToTheVenomReminder()
+	{
+		MonsterConsumablesRepository repo = MonsterConsumablesRepository.getInstance();
+		String[] phases = {
+			"Alchemical Hydra (Electric)", "Alchemical Hydra (Extinguished)",
+			"Alchemical Hydra (Fire)", "Alchemical Hydra (Serpentine)"
+		};
+		for (String phase : phases)
+		{
+			Optional<MonsterConsumablesReminder> r = repo.forMonster(phase);
+			assertTrue(phase + " must resolve", r.isPresent());
+			assertTrue(phase + "'s note must mention antivenom+",
+				r.get().note().toLowerCase(java.util.Locale.ROOT).contains("antivenom+"));
+			assertTrue(phase + "'s reminder is text-only", r.get().equipmentItemIds().isEmpty());
+		}
+	}
+
+	/**
+	 * Abyssal Sire's four phase names are the nested-parenthetical trap:
+	 * "(Phase 1)"/"(Phase 2)" strip to a shared base via
+	 * {@code MonsterNameKey.baseName}, but "(Phase 3 (stage 1))"/"(stage 2))"
+	 * do NOT (the regex can't strip nested parens), so every phase is keyed
+	 * explicitly rather than relying on any fallback. {@code
+	 * "Tentacle (Abyssal Sire)"} is a different bundled monster and must
+	 * never match.
+	 */
+	@Test public void abyssalSire_everyPhaseResolvesButTheTentacleDoesNot()
+	{
+		MonsterConsumablesRepository repo = MonsterConsumablesRepository.getInstance();
+		String[] phases = {
+			"Abyssal Sire (Phase 1)", "Abyssal Sire (Phase 2)",
+			"Abyssal Sire (Phase 3 (stage 1))", "Abyssal Sire (Phase 3 (stage 2))"
+		};
+		for (String phase : phases)
+		{
+			assertTrue(phase + " must resolve", repo.forMonster(phase).isPresent());
+		}
+		assertFalse("Tentacle (Abyssal Sire) is a different monster and must not match",
+			repo.forMonster("Tentacle (Abyssal Sire)").isPresent());
+	}
+
+	@Test public void krilTsutsaroth_warnsPoisonPiercesProtectFromMelee()
+	{
+		Optional<MonsterConsumablesReminder> r =
+			MonsterConsumablesRepository.getInstance().forMonster("K'ril Tsutsaroth");
+		assertTrue(r.isPresent());
+		assertTrue(r.get().note().contains("Protect from Melee"));
+		assertTrue(r.get().equipmentItemIds().isEmpty());
+	}
+
+	/** Nex's Smoke-phase poison reminder must not leak onto the visually-similar Blood Reaver in her chamber. */
+	@Test public void nex_hasAReminder_butBloodReaverInHerChamberDoesNot()
+	{
+		MonsterConsumablesRepository repo = MonsterConsumablesRepository.getInstance();
+		Optional<MonsterConsumablesReminder> nex = repo.forMonster("Nex");
+		assertTrue(nex.isPresent());
+		assertTrue(nex.get().note().toLowerCase(java.util.Locale.ROOT).contains("smoke"));
+
+		assertFalse("Blood Reaver (Nex's chamber) is a different monster and must not match Nex's reminder",
+			repo.forMonster("Blood Reaver (Nex's chamber)").isPresent());
+	}
+
+	/** Cerberus's note must put the hazard on the tunnel-spider approach, not the boss herself. */
+	@Test public void cerberus_notePlacesTheHazardOnTheApproachNotTheBoss()
+	{
+		Optional<MonsterConsumablesReminder> r = MonsterConsumablesRepository.getInstance().forMonster("Cerberus");
+		assertTrue(r.isPresent());
+		assertTrue(r.get().note().contains("Cerberus herself does not poison you"));
+		assertTrue(r.get().equipmentItemIds().isEmpty());
+	}
 }

@@ -12,11 +12,12 @@ should the player bring/wear that isn't about DPS ranking at all."
 **Why this can't be derived from the bundled cache**: the monster schema's
 only relevant field is the `attributes` array, and its `DRAGON` tag fires on
 94 monsters including Hydra, Alchemical Hydra, Drake, Wyrm, the Fossil Island
-wyverns, Great Olm and The Hueycoatl — none of which breathe dragonfire. There
-is no poison/venom field of any kind. A rule keyed on `attributes` would be
-wrong on both false positives and the total absence of a poison signal, so
-every entry here is hand-curated by exact/base monster name, exactly like its
-two siblings.
+wyverns, Great Olm and The Hueycoatl — none of which breathe dragonfire (the
+Alchemical Hydra ships its own entry below, but for its poison, not its
+`DRAGON` tag). There is no poison/venom field of any kind. A rule keyed on
+`attributes` would be wrong on both false positives and the total absence of
+a poison signal, so every entry here is hand-curated by exact/base monster
+name, exactly like its two siblings.
 
 ## Shape
 ```json
@@ -71,6 +72,11 @@ actually clears verification.
    (Task only))"`) that `MonsterNameKey.baseName`'s single-non-nested-group
    regex cannot strip, so that exact string must be listed alongside the
    plain `"Steel dragon"` base key or it silently falls through unmatched.
+   `"Abyssal Sire (Phase 3 (stage 1))"` / `"(Phase 3 (stage 2))"` are the
+   same trap the other way round: `"Abyssal Sire (Phase 1)"` and
+   `"(Phase 2)"` DO strip to `"abyssal sire"` and would resolve via base-name
+   fallback, but the two `(stage N)` phases do not, so all four phase names
+   are listed explicitly rather than relying on any fallback at all.
 2. Look any equipment ids up in `equipment_index.min.json` (or
    `EquipmentIndexRepository.idForName`) — never guess from the wiki.
    `MonsterConsumablesDataTest` enforces this over the whole file.
@@ -105,13 +111,10 @@ row in `equipment_stats.min.json`), so it too is prose-only.
   Taloned / Skeletal)** — their icy breath needs an elemental/mind/dragonfire/
   ancient-wyvern SHIELD, a defensive-gear requirement that belongs in
   `monster_gear_overrides.json`, not this consumables-only file.
-- **Cerberus** — an antifire reminder was investigated but is sourced to a
-  single social-media post with no published magnitude (LOW confidence);
-  dropped rather than shipped on an unverifiable source. An antipoison
-  reminder for the tunnel spiders on Cerberus's approach (not the boss
-  itself) was also considered but is not yet backed by a verified source in
-  this repo's research; add it once one exists, worded to make clear the
-  hazard is the approach, not Cerberus.
+- **Cerberus antifire** — investigated and dropped: its only source was a
+  single 2021 social-media post with no published magnitude (LOW
+  confidence). Cerberus's own **antipoison** reminder ships below — this
+  exclusion is for the antifire claim specifically, not the boss as a whole.
 
 ## Starter data (round 1) — the three cases the reporter actually named
 
@@ -119,3 +122,36 @@ Zulrah (venom), Vorkath (dragonfire + acid-phase venom), and chromatic/brutal/
 baby/lava/frost/reanimated dragons plus the metal-dragon tier (dragonfire).
 Deliberately nothing speculative beyond these — the dataset grows by request
 and by verification, matching how `monster_gear_overrides.json` was built.
+
+## Starter data (round 2) — poison/venom entries recovered from a truncated research file
+
+The first pass's research file was truncated before it reached the poison/
+venom table its own author's report described, which is why these were
+invisible round 1 (Cerberus, K'ril, Nex, Abyssal Sire weren't even in the
+file to be curated from) and why the Alchemical Hydra appeared only as a
+dragonfire *exclusion* rather than also getting its own poison entry. Added
+once the gap was found and the monster names + wording were re-verified
+directly against `monsters.min.json.gz`:
+
+- **Alchemical Hydra** (`(Electric)` / `(Extinguished)` / `(Fire)` /
+  `(Serpentine)`) — its poison phase is venom-tier and escalates; plain
+  antipoison only knocks it back to poison, it doesn't cure it. Bring
+  antivenom+.
+- **Abyssal Sire** (`(Phase 1)` / `(Phase 2)` / `(Phase 3 (stage 1))` /
+  `(Phase 3 (stage 2))`) — poison fumes in phase 1 start at 8 damage and
+  keep ticking. Bring antipoison. `"Tentacle (Abyssal Sire)"` is a
+  different bundled monster and is deliberately NOT included here.
+- **K'ril Tsutsaroth** — melee poisons from 16 damage and lands even through
+  Protect from Melee. Bring antidote++ or a sanfew serum.
+- **Nex** — her Smoke phase (Smoke Rush + smoke clouds) can poison. Bring
+  antipoison or antidote++. `"Blood Reaver (Nex's chamber)"` is a different
+  monster in the same encounter and must not match this entry — covered by
+  a repository test.
+- **Cerberus** — antipoison for the tunnel-spider walk in; Cerberus herself
+  does not poison you. Worded deliberately to put the hazard on the
+  approach, not the boss, because that is what the evidence supports.
+
+All five are prose-only: every item involved (antivenom+, antipoison,
+antidote++, sanfew serum) is an inventory consumable, so none has a
+verifiable equipment id — `equipmentItemIds` is correctly absent from all
+five, not an oversight.
