@@ -44,6 +44,7 @@ import com.ospulse.ui.sections.gear.GpFormat;
 import com.ospulse.ui.sections.gear.ItemEligibility;
 import com.ospulse.ui.sections.gear.OwnedOnlyMandatoryOverrideGate;
 import com.ospulse.ui.sections.gear.OwnedOnlyMode;
+import com.ospulse.ui.sections.gear.OwnedOnlyResultOwnershipGate;
 import com.ospulse.ui.sections.gear.OwnedVariantResolver;
 import com.ospulse.ui.sections.gear.RoundedButton;
 import com.ospulse.ui.sections.gear.StyleGrid;
@@ -4785,11 +4786,51 @@ public final class GearSection extends CollapsibleSection
 		// the block is a property of the target + ownership, independent of
 		// whatever loadout the optimiser happened to compute around the
 		// forced item.
+		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
 		java.util.Optional<MonsterGearOverride> blockingOverride = OwnedOnlyMandatoryOverrideGate.blockingOverride(
-			ironmanOwnedOnlyPref(), selectedMonster, ownedPriceMap().keySet());
+			ironmanOwnedOnlyPref(), selectedMonster, ownedIds.keySet());
 		if (blockingOverride.isPresent())
 		{
-			renderOwnedOnlyBlockedState(blockingOverride.get());
+			MonsterGearOverride blocking = blockingOverride.get();
+			renderOwnedOnlyBlockedState("Cannot recommend a loadout vs " + selectedMonster.name() + ": "
+				+ blocking.itemName() + " (" + slotDisplayName(blocking.slot())
+				+ ") is required and you don't own it — " + blocking.reason());
+			return;
+		}
+		// P2-B fix (Codex finding on PR #19, GearSection.java:5123, "Hide the
+		// blocked message before rendering a later result"): every path below
+		// this point renders a NON-blocked outcome (a normal loadout, an
+		// unchanged-loadout "no upgrade", or the no-usable-weapon state) — hide
+		// the "cannot recommend" label here, the single place every one of
+		// those paths already passes through, so a later successful/no-usable-
+		// weapon result can never leave the earlier blocked target's message
+		// lingering underneath it.
+		optimizerOwnedOnlyBlockedLabel.setVisible(false);
+
+		// P2-A fix (half 1, Codex finding on PR #19, GearSection.java:4789,
+		// "Revalidate every recommended item against current ownership"): the
+		// mandatory-override gate above only covers a MonsterGearOverride's
+		// forced item — an ORDINARY loadout choice the optimiser picked from
+		// the ownedPrices snapshot captured when the search launched (see
+		// withResolvedPrices) can go stale by the time this callback lands,
+		// e.g. the player sells it while price resolution/the background
+		// SwingWorker was still running. Re-check every RESOLVED id (via
+		// optimizerLoadoutSlotMap -> resolvedChoiceItemId, the single choke
+		// point everything downstream of `result` actually shows/applies)
+		// against ownedIds — a LIVE read taken just above, not the stale
+		// snapshot the optimiser searched against — before installing,
+		// previewing, or bank-highlighting anything from `result`.
+		java.util.Optional<java.util.Map.Entry<Integer, Integer>> unownedEntry = OwnedOnlyResultOwnershipGate
+			.firstUnownedEntry(ironmanOwnedOnlyPref(), optimizerLoadoutSlotMap(result), ownedIds.keySet());
+		if (unownedEntry.isPresent())
+		{
+			int unownedSlot = unownedEntry.get().getKey();
+			int unownedItemId = unownedEntry.get().getValue();
+			String unownedSlotName = unownedSlot >= 0 && unownedSlot < SLOT_NAMES.length
+				&& !SLOT_NAMES[unownedSlot].isEmpty() ? SLOT_NAMES[unownedSlot] : ("Slot " + unownedSlot);
+			renderOwnedOnlyBlockedState("Cannot recommend a loadout vs " + selectedMonster.name() + ": "
+				+ itemDisplayName(EquipmentIndexRepository.getInstance(), unownedItemId) + " (" + unownedSlotName
+				+ ") is no longer owned.");
 			return;
 		}
 
@@ -5099,16 +5140,18 @@ public final class GearSection extends CollapsibleSection
 	 * P1-A fix: the explicit "cannot recommend" state {@link
 	 * #onOptimizerResult} switches to when {@link
 	 * OwnedOnlyMandatoryOverrideGate#blockingOverride} finds owned-only mode
-	 * cannot satisfy a target's mandatory gear override. Mirrors the
-	 * pre-existing no-usable-weapon path exactly: the five upgrade stat rows
-	 * and swap list hide, a single big error-coloured line takes their place,
-	 * the bank highlight clears, and no what-if preview is applied — nothing
-	 * from {@code result} is ever installed. Any PREVIOUS preview/override
-	 * (e.g. from a different target searched just before this one) is
-	 * dropped too, so a stale preview can never linger under a blocked
-	 * message.
+	 * cannot satisfy a target's mandatory gear override, OR (P2-A half 1 fix)
+	 * when {@link OwnedOnlyResultOwnershipGate} finds an ORDINARY resolved
+	 * loadout id is no longer owned. Mirrors the pre-existing no-usable-weapon
+	 * path exactly: the five upgrade stat rows and swap list hide, a single
+	 * big error-coloured line (the caller-supplied {@code message}) takes
+	 * their place, the bank highlight clears, and no what-if preview is
+	 * applied — nothing from {@code result} is ever installed. Any PREVIOUS
+	 * preview/override (e.g. from a different target searched just before
+	 * this one) is dropped too, so a stale preview can never linger under a
+	 * blocked message.
 	 */
-	private void renderOwnedOnlyBlockedState(MonsterGearOverride blockingOverride)
+	private void renderOwnedOnlyBlockedState(String message)
 	{
 		lastOptimizerResult = null;
 		override = LoadoutOverride.empty();
@@ -5117,9 +5160,7 @@ public final class GearSection extends CollapsibleSection
 		setUpgradeStatRowsVisible(false);
 		optimizerNoUsableWeaponLabel.setVisible(false);
 		optimizerSwapList.removeAll();
-		optimizerOwnedOnlyBlockedLabel.setText("Cannot recommend a loadout vs " + selectedMonster.name() + ": "
-			+ blockingOverride.itemName() + " (" + slotDisplayName(blockingOverride.slot())
-			+ ") is required and you don't own it — " + blockingOverride.reason());
+		optimizerOwnedOnlyBlockedLabel.setText(message);
 		optimizerOwnedOnlyBlockedLabel.setVisible(true);
 		clearOptimizerPreviewButton.setVisible(false);
 		if (bankHighlighter != null)
@@ -5428,6 +5469,7 @@ public final class GearSection extends CollapsibleSection
 		lastGear = snapshot.getGear();
 		lastWealth = snapshot.getWealth();
 		autoToggleSlayerFromGear();
+		invalidateStaleOwnedOnlyResult();
 		// Finding 4 fix: re-rank before regridding — see applyOverride()'s
 		// comment. Matters here too: a live gear change (e.g. the player
 		// swaps weapon in-game) must not leave a newly-valid weapon crossed
@@ -5435,6 +5477,48 @@ public final class GearSection extends CollapsibleSection
 		rankAndRender();
 		updateGearGrid(lastGear);
 		refreshSummary();
+	}
+
+	/**
+	 * P2-A fix (half 2, Codex finding on PR #19, {@code
+	 * GearSection.java:4789}, "Revalidate every recommended item against
+	 * current ownership"): {@code apply(SessionSnapshot)} above refreshes
+	 * {@link #lastWealth} on every wealth snapshot without ever re-checking
+	 * whatever owned-only result is currently installed — a result that WAS
+	 * fully owned when {@link #onOptimizerResult} installed it (see that
+	 * method's own P2-A half-1 check) can still go stale afterwards if the
+	 * player then drops, sells, or otherwise loses one of its items, and
+	 * nothing was clearing it: {@code lastWealth} just silently moved on
+	 * underneath a preview/bank-highlight the mode's guarantee says must
+	 * never point at an unowned item.
+	 *
+	 * <p>Deliberately a TARGETED check, not a blanket invalidate on every
+	 * call: wealth snapshots arrive frequently (any gear/inventory/bank
+	 * change), so unconditionally clearing {@link #lastOptimizerResult} here
+	 * would flicker the panel and throw away still-valid results on every
+	 * unrelated update. Only actually invalidate when a resolved loadout id
+	 * of the CURRENTLY installed result is no longer owned — otherwise a
+	 * no-op, same as every other {@code apply()} call.
+	 *
+	 * <p>Reuses {@link #resetAllOverrides()} — the same "revert to worn gear"
+	 * path {@link #refreshIronmanOwnedOnlyMode()} already uses on its
+	 * OFF-&gt;ON transition — rather than re-rendering a blocked message: this
+	 * fires mid-session behind a routine wealth update, not a user-initiated
+	 * search, so silently falling back to the player's real worn gear (what
+	 * they're actually equipped with right now) is the least surprising
+	 * outcome, exactly like the OFF-&gt;ON case.
+	 */
+	private void invalidateStaleOwnedOnlyResult()
+	{
+		if (lastOptimizerResult == null || !ironmanOwnedOnlyPref())
+		{
+			return;
+		}
+		if (OwnedOnlyResultOwnershipGate.firstUnownedEntry(true,
+			optimizerLoadoutSlotMap(lastOptimizerResult), ownedPriceMap().keySet()).isPresent())
+		{
+			resetAllOverrides();
+		}
 	}
 
 	/**
@@ -5994,6 +6078,20 @@ public final class GearSection extends CollapsibleSection
 	GearOptimizer.Result lastOptimizerResultForTest()
 	{
 		return lastOptimizerResult;
+	}
+
+	/**
+	 * Test seam: the RESOLVED slot-&gt;item-id map (see {@link
+	 * #resolvedChoiceItemId}'s javadoc — the single choke point everything
+	 * the panel actually shows/applies goes through) for an arbitrary result,
+	 * e.g. one captured via {@link #lastOptimizerResultForTest()} before a
+	 * simulated ownership change — lets a test assert on the exact ids the
+	 * P2-A ownership re-check (see {@link OwnedOnlyResultOwnershipGate})
+	 * validates, not the raw un-resolved {@code GearOptimizer.SlotChoice} ids.
+	 */
+	java.util.Map<Integer, Integer> optimizerLoadoutSlotMapForTest(GearOptimizer.Result result)
+	{
+		return optimizerLoadoutSlotMap(result);
 	}
 
 	/** Test seam: the current owned-only search generation token — see {@link #optimizerGeneration} (P1-B fix). */
