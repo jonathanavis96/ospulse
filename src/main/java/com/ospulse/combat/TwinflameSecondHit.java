@@ -30,7 +30,7 @@ package com.ospulse.combat;
  * general — e.g. rolls of 1, 2, 3 and 4 all floor {@code 0.4*d} to 0, 0, 1,
  * and 1 respectively, not a smooth 0.4x scaling. The only correct way to get
  * the exact expectation is to sum {@code floor(0.4*d) * P(d)} over the same
- * discrete per-attack damage distribution {@code CombatMath
+ * discrete per-attack damage distribution {@code DamageDistribution
  * .averageDamagePerAttack} uses: a landed hit rolls uniform {@code 0..maxHit}
  * with a rolled 0 bumped to 1 (so {@code P(1) = 2/(maxHit+1)}, {@code P(d) =
  * 1/(maxHit+1)} for {@code d} in {@code 2..maxHit}). A short direct
@@ -99,8 +99,8 @@ final class TwinflameSecondHit {
      *
      * <p>The 40%-of-first-hit rule reads off the DISPLAYED first hit, i.e.
      * the value AFTER any re-roll — so this sums {@code floor(0.4*v) * P(v)}
-     * over {@link CombatMath#rerolledHitsplatDistribution}'s {@code 0..cap}
-     * array (the same one {@link CombatMath#rerolledExpectedOverkill} uses),
+     * over {@link DamageDistribution#rerolledHitsplatDistribution}'s {@code 0..cap}
+     * array (the same one {@link DamageDistribution#rerolledExpectedOverkill} uses),
      * NOT over the raw {@code 0..uncappedMaxHit} roll the uncapped {@link
      * #secondHitAverage} enumerates. Using the raw roll here would be the
      * exact "REROLL is just a clamp with extra steps" mistake this whole
@@ -110,7 +110,7 @@ final class TwinflameSecondHit {
      * delegates to {@link #secondHitAverage} against the true max hit.
      * {@code cap <= 0}: every outcome (including the bumped 1) re-rolls into
      * the single value {@code {0}}, so the second hit is always {@code 0} —
-     * matching {@link CombatMath#rerolledAverageDamagePerAttack}'s own
+     * matching {@link DamageDistribution#rerolledAverageDamagePerAttack}'s own
      * {@code cap <= 0} guard.
      */
     static double rerolledSecondHitAverage(double hitChance, int uncappedMaxHit, int cap) {
@@ -120,7 +120,7 @@ final class TwinflameSecondHit {
         if (cap <= 0) {
             return 0.0;
         }
-        double[] p = CombatMath.rerolledHitsplatDistribution(uncappedMaxHit, cap);
+        double[] p = DamageDistribution.rerolledHitsplatDistribution(uncappedMaxHit, cap);
         double sum = 0.0;
         for (int v = 0; v <= cap; v++) {
             sum += p[v] * ((2 * v) / 5);
@@ -140,7 +140,7 @@ final class TwinflameSecondHit {
      * cycles, the first and second hitsplat are treated as landing TOGETHER:
      * each attack cycle removes {@code d + floor(0.4*d)} hitpoints (for a
      * landed roll {@code d}), or 0 on a miss. This is the same discrete
-     * dynamic-programme recurrence {@code CombatMath.expectedOverkill} uses,
+     * dynamic-programme recurrence {@code DamageDistribution.expectedOverkill} uses,
      * generalised so a single successful attack can remove more than {@code
      * maxHit} hitpoints (up to {@code maxHit + floor(0.4*maxHit)}).
      *
@@ -206,9 +206,9 @@ final class TwinflameSecondHit {
      * RE-ROLLS each hitsplat above a cap back into {@code 0..cap} — same
      * combined-hitsplat model as {@link #combinedExpectedOverkill}/{@link
      * #cappedCombinedExpectedOverkill}, but over {@link
-     * CombatMath#rerolledHitsplatDistribution}'s zero-aware {@code 0..cap}
+     * DamageDistribution#rerolledHitsplatDistribution}'s zero-aware {@code 0..cap}
      * array (the one {@link #rerolledSecondHitAverage} and {@link
-     * CombatMath#rerolledExpectedOverkill} also consume), rather than a raw
+     * DamageDistribution#rerolledExpectedOverkill} also consume), rather than a raw
      * enumeration of the {@code 0..uncappedMaxHit} roll.
      *
      * <p><b>The zero-mass trap:</b> under REROLL, {@code P(0)} is genuinely
@@ -217,9 +217,9 @@ final class TwinflameSecondHit {
      * #combinedExpectedOverkill}/{@link #cappedCombinedExpectedOverkill}
      * would put {@code over[h]} on its own right-hand side via the
      * {@code v = 0} term ({@code over[h - 0]}). This delegates to {@link
-     * CombatMath#overkillFromExplicitDistribution(double[], int[], int)}
+     * DamageDistribution#overkillFromExplicitDistribution(double[], int[], int)}
      * instead, which conditions on a state-changing (non-zero-value)
-     * outcome exactly as {@link CombatMath#rerolledExpectedOverkill} does —
+     * outcome exactly as {@link DamageDistribution#rerolledExpectedOverkill} does —
      * the two must not, and here cannot, disagree on that convention, since
      * both ultimately call the same method.
      *
@@ -236,11 +236,11 @@ final class TwinflameSecondHit {
         if (cap <= 0 || targetHitpoints <= 0 || uncappedMaxHit <= 0) {
             return 0.0;
         }
-        double[] p = CombatMath.rerolledHitsplatDistribution(uncappedMaxHit, cap);
+        double[] p = DamageDistribution.rerolledHitsplatDistribution(uncappedMaxHit, cap);
         int[] combined = new int[cap + 1];
         for (int v = 0; v <= cap; v++) {
             combined[v] = v + ((2 * v) / 5);
         }
-        return CombatMath.overkillFromExplicitDistribution(p, combined, targetHitpoints);
+        return DamageDistribution.overkillFromExplicitDistribution(p, combined, targetHitpoints);
     }
 }

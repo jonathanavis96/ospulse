@@ -320,16 +320,16 @@ public class TargetDamageRuleTest {
     public void cappedAverageReducesToTheUncappedFormulaWhenCapEqualsMax() {
         for (int max : new int[]{1, 4, 9, 40, 99}) {
             assertEquals("cap == max must be a no-op for max=" + max,
-                CombatMath.averageDamagePerAttack(1.0, max),
-                CombatMath.cappedAverageDamagePerAttack(1.0, max, max), 1e-12);
+                DamageDistribution.averageDamagePerAttack(1.0, max),
+                DamageDistribution.cappedAverageDamagePerAttack(1.0, max, max), 1e-12);
         }
     }
 
     /** A cap above the max cannot bind. */
     @Test
     public void aCapAboveTheMaxIsANoOp() {
-        assertEquals(CombatMath.averageDamagePerAttack(1.0, 10),
-            CombatMath.cappedAverageDamagePerAttack(1.0, 10, 50), 1e-12);
+        assertEquals(DamageDistribution.averageDamagePerAttack(1.0, 10),
+            DamageDistribution.cappedAverageDamagePerAttack(1.0, 10, 50), 1e-12);
     }
 
     /**
@@ -338,8 +338,8 @@ public class TargetDamageRuleTest {
      */
     @Test
     public void cappedAverageBeatsNaivelyClampingTheMaxHit() {
-        double naive = CombatMath.averageDamagePerAttack(1.0, 4);          // ~2.2
-        double correct = CombatMath.cappedAverageDamagePerAttack(1.0, 40, 4);
+        double naive = DamageDistribution.averageDamagePerAttack(1.0, 4);          // ~2.2
+        double correct = DamageDistribution.cappedAverageDamagePerAttack(1.0, 40, 4);
         assertTrue("a cap of 4 against an uncapped max of 40 should average close to 4, not 2",
             correct > naive * 1.5);
         assertTrue("but it can never exceed the cap itself", correct <= 4.0);
@@ -352,14 +352,14 @@ public class TargetDamageRuleTest {
      */
     @Test
     public void cappedAverageMatchesTheClosedForm() {
-        assertEquals(155.0 / 41.0, CombatMath.cappedAverageDamagePerAttack(1.0, 40, 4), 1e-12);
+        assertEquals(155.0 / 41.0, DamageDistribution.cappedAverageDamagePerAttack(1.0, 40, 4), 1e-12);
     }
 
     /** Hit chance scales the whole thing linearly. */
     @Test
     public void cappedAverageScalesWithHitChance() {
-        assertEquals(0.5 * CombatMath.cappedAverageDamagePerAttack(1.0, 40, 4),
-            CombatMath.cappedAverageDamagePerAttack(0.5, 40, 4), 1e-12);
+        assertEquals(0.5 * DamageDistribution.cappedAverageDamagePerAttack(1.0, 40, 4),
+            DamageDistribution.cappedAverageDamagePerAttack(0.5, 40, 4), 1e-12);
     }
 
     // ---- capped overkill -----------------------------------------------------------------
@@ -370,15 +370,15 @@ public class TargetDamageRuleTest {
     public void cappedOverkillReducesToTheUniformVersionWhenCapEqualsMax() {
         for (int max : new int[]{1, 4, 9, 40}) {
             assertEquals("cap == max must be a no-op for max=" + max,
-                CombatMath.expectedOverkill(max, 60),
-                CombatMath.cappedExpectedOverkill(max, max, 60), 1e-12);
+                DamageDistribution.expectedOverkill(max, 60),
+                DamageDistribution.cappedExpectedOverkill(max, max, 60), 1e-12);
         }
     }
 
     @Test
     public void aCapAboveTheMaxIsANoOpForOverkill() {
-        assertEquals(CombatMath.expectedOverkill(10, 60),
-            CombatMath.cappedExpectedOverkill(10, 50, 60), 1e-12);
+        assertEquals(DamageDistribution.expectedOverkill(10, 60),
+            DamageDistribution.cappedExpectedOverkill(10, 50, 60), 1e-12);
     }
 
     /**
@@ -387,8 +387,8 @@ public class TargetDamageRuleTest {
      */
     @Test
     public void cappedOverkillExceedsTheNaivelyClampedValue() {
-        double naive = CombatMath.expectedOverkill(4, 60);
-        double correct = CombatMath.cappedExpectedOverkill(40, 4, 60);
+        double naive = DamageDistribution.expectedOverkill(4, 60);
+        double correct = DamageDistribution.cappedExpectedOverkill(40, 4, 60);
         assertTrue("mass piled on the cap makes the killing blow overshoot more often",
             correct > naive);
     }
@@ -396,7 +396,7 @@ public class TargetDamageRuleTest {
     /** A cap of 1 puts the entire distribution on 1, so a kill can never overshoot. */
     @Test
     public void aCapOfOneCanNeverOverkill() {
-        assertEquals(0.0, CombatMath.cappedExpectedOverkill(40, 1, 60), 1e-12);
+        assertEquals(0.0, DamageDistribution.cappedExpectedOverkill(40, 1, 60), 1e-12);
     }
 
     /** The shipped dataset must match the wiki rule, not just the model. */
@@ -452,7 +452,7 @@ public class TargetDamageRuleTest {
                 }
                 assertEquals("max=" + max + " cap=" + cap,
                     bruteForceCappedFang(max, cap),
-                    CombatMath.cappedFangAverageDamagePerAttack(1.0, max, cap), 1e-12);
+                    DamageDistribution.cappedFangAverageDamagePerAttack(1.0, max, cap), 1e-12);
             }
         }
     }
@@ -462,8 +462,8 @@ public class TargetDamageRuleTest {
     public void cappedFangReducesToTheUncappedFangFormulaWhenTheCapCannotBind() {
         for (int max : new int[]{20, 40, 99}) {
             assertEquals("cap above the shrunk max must be a no-op for max=" + max,
-                CombatMath.fangAverageDamagePerAttack(1.0, max),
-                CombatMath.cappedFangAverageDamagePerAttack(1.0, max, max), 1e-12);
+                DamageDistribution.fangAverageDamagePerAttack(1.0, max),
+                DamageDistribution.cappedFangAverageDamagePerAttack(1.0, max, max), 1e-12);
         }
     }
 
@@ -475,8 +475,8 @@ public class TargetDamageRuleTest {
      */
     @Test
     public void cappedFangDoesNotShrinkTheCapItself() {
-        double correct = CombatMath.cappedFangAverageDamagePerAttack(1.0, 40, 4);
-        double wrong = CombatMath.fangAverageDamagePerAttack(1.0, 4); // ~2.2, the old path
+        double correct = DamageDistribution.cappedFangAverageDamagePerAttack(1.0, 40, 4);
+        double wrong = DamageDistribution.fangAverageDamagePerAttack(1.0, 4); // ~2.2, the old path
         assertEquals("every hit in a 6..34 roll caps at 4", 4.0, correct, 1e-12);
         assertTrue("the capped-fang formula must not reproduce the shrink-the-cap result",
             correct > wrong + 1.0);
@@ -485,8 +485,8 @@ public class TargetDamageRuleTest {
     /** Below the shrunk minimum every hit caps, so the average is exactly the cap. */
     @Test
     public void cappedFangIsFlatWhenTheCapIsBelowTheShrunkMinimum() {
-        assertEquals(3.0, CombatMath.cappedFangAverageDamagePerAttack(1.0, 99, 3), 1e-12);
-        assertEquals(1.5, CombatMath.cappedFangAverageDamagePerAttack(0.5, 99, 3), 1e-12);
+        assertEquals(3.0, DamageDistribution.cappedFangAverageDamagePerAttack(1.0, 99, 3), 1e-12);
+        assertEquals(1.5, DamageDistribution.cappedFangAverageDamagePerAttack(0.5, 99, 3), 1e-12);
     }
 
     /**
@@ -544,7 +544,7 @@ public class TargetDamageRuleTest {
                 for (int hp : new int[]{1, 7, 55, 200}) {
                     assertEquals("max=" + max + " cap=" + cap + " hp=" + hp,
                         bruteForceOverkill(cappedFangDistribution(max, cap), hp),
-                        CombatMath.cappedFangExpectedOverkill(max, cap, hp), 1e-9);
+                        DamageDistribution.cappedFangExpectedOverkill(max, cap, hp), 1e-9);
                 }
             }
         }
@@ -558,9 +558,9 @@ public class TargetDamageRuleTest {
     @Test
     public void cappedFangOverkillIsDeterministicWhenEveryRollExceedsTheCap() {
         int hp = 50; // 50 = 12 hits of 4 plus 2, so the killing blow wastes 2
-        assertEquals(2.0, CombatMath.cappedFangExpectedOverkill(40, 4, hp), 1e-9);
+        assertEquals(2.0, DamageDistribution.cappedFangExpectedOverkill(40, 4, hp), 1e-9);
         assertTrue("the generic capped model must not agree — that is the defect",
-            Math.abs(CombatMath.cappedExpectedOverkill(40, 4, hp) - 2.0) > 1e-6);
+            Math.abs(DamageDistribution.cappedExpectedOverkill(40, 4, hp) - 2.0) > 1e-6);
     }
 
     /** Overkill and average damage must come from the same distribution end-to-end. */
@@ -583,7 +583,7 @@ public class TargetDamageRuleTest {
         DpsResult r = DpsCalculator.compute(fangGear, regressionPlayer(), CombatStyle.STAB, tail, 26219);
 
         assertEquals("overkill must come from the fang's own capped distribution",
-            CombatMath.cappedFangExpectedOverkill(20, 4, 50), r.overkillPerKill(), 1e-9);
+            DamageDistribution.cappedFangExpectedOverkill(20, 4, 50), r.overkillPerKill(), 1e-9);
         assertEquals("and TTK must be derived from that same overkill",
             (50 + r.overkillPerKill()) / r.dps(), r.ttkSeconds(), 1e-9);
     }
@@ -615,10 +615,10 @@ public class TargetDamageRuleTest {
 
             assertEquals("the readout shows the cap as the max hit", 4, r.maxHit());
             assertEquals(name + ": must use the capped compressed roll",
-                CombatMath.cappedFangAverageDamagePerAttack(r.accuracy(), 20, 4),
+                DamageDistribution.cappedFangAverageDamagePerAttack(r.accuracy(), 20, 4),
                 r.avgHit(), 1e-12);
             assertTrue(name + ": must not reproduce the shrink-the-cap average",
-                r.avgHit() > CombatMath.fangAverageDamagePerAttack(r.accuracy(), 4) + 1.0);
+                r.avgHit() > DamageDistribution.fangAverageDamagePerAttack(r.accuracy(), 4) + 1.0);
 
             if (previous >= 0) {
                 assertEquals("both tail records must cap identically", previous, r.avgHit(), 1e-12);
