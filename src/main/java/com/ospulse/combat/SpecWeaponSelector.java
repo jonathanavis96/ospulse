@@ -2,6 +2,7 @@ package com.ospulse.combat;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -10,10 +11,21 @@ import java.util.Set;
  * current target, per the design spec §8 "Selection rule" (director decision
  * — implemented exactly as specified below, not redesigned):
  * <pre>
- * 1. Filter to owned ({@link SpecWeapon#isOwned}) and legal
- *    ({@link MonsterCombatRequirement#permitsWeapon}) — so a monster with a
- *    melee gate (e.g. Zulrah) never gets a melee spec suggested, falling out
- *    of the existing combat-requirement work for free.
+ * 1. Filter to owned ({@link SpecWeapon#isOwned}), NOT excluded ({@link
+ *    SpecWeapon#isExcluded} — the panel's user-facing "Exclude from
+ *    suggestions" action, same as any ordinary optimiser candidate),
+ *    equippable at the player's current levels ({@link
+ *    EquipmentRequirementsRepository#canEquip} — owning an item never
+ *    implies meeting its equip requirements), and legal ({@link
+ *    MonsterCombatRequirement#permitsWeapon}/{@link
+ *    MonsterCombatRequirement#permitsAmmo} — a ranged spec that fires WORN
+ *    ammo must also have the player's actual worn ammo satisfy an
+ *    ammo-gated target; {@code permitsWeapon} alone deliberately accepts a
+ *    worn-ammo-capable weapon type without checking which ammo is actually
+ *    loaded) — so a monster with a melee gate (e.g. Zulrah) never gets a
+ *    melee spec suggested, and an ammo-gated target (e.g. Kurask) never
+ *    gets a ranged spec suggested unless the player's actual arrows/bolts
+ *    qualify, falling out of the existing combat-requirement work for free.
  * 2. If the target's Defence is high enough to matter
  *    ({@link #HIGH_DEFENCE_THRESHOLD}) and a {@link SpecRole#DEFENCE_DRAIN}
  *    spec is owned+legal, recommend the best-scoring one of those.
@@ -80,12 +92,55 @@ public final class SpecWeaponSelector {
         DpsResult probe(SpecWeapon weapon);
     }
 
-    /** See the class javadoc for the exact rule; {@link Optional#empty()} when nothing owned+legal qualifies. */
+    /**
+     * Convenience overload for a caller with no exclusions, no equip-level
+     * data, and no worn ammo to validate (e.g. a test exercising only the
+     * role/threshold/ownership/legality logic) — equivalent to calling the
+     * full overload with an empty exclusion set, an empty level map (which
+     * {@link EquipmentRequirementsRepository#canEquip} treats as "don't
+     * over-filter"), and no worn ammo id.
+     */
     public static Optional<SpecWeaponRecommendation> select(Monster target, MonsterCombatRequirement requirement,
                                                               Set<Integer> ownedItemIds, DpsProbe probe) {
+        return select(target, requirement, ownedItemIds, java.util.Collections.emptySet(),
+                java.util.Collections.emptyMap(), -1, probe);
+    }
+
+    /**
+     * See the class javadoc for the exact rule; {@link Optional#empty()} when
+     * nothing owned+legal qualifies.
+     *
+     * @param excludedItemIds   the panel's "Exclude from suggestions" set
+     *                          (plus any other standing exclusion the caller
+     *                          folds in, e.g. {@code
+     *                          ItemEligibility.restrictedItemIds()}) — same
+     *                          seam {@code GearOptimizer.Request.exclude}
+     *                          reads, not a second copy.
+     * @param playerBaseLevels  the player's base skill levels (lowercase
+     *                          skill-name keys, e.g. {@code "attack"}), fed
+     *                          straight to {@link
+     *                          EquipmentRequirementsRepository#canEquip} —
+     *                          the SAME map {@code GearOptimizer.Request}'s
+     *                          {@code playerBaseLevels} carries.
+     * @param wornAmmoItemId    the player's currently effective worn ammo
+     *                          item id (or {@code <= 0} for none), used only
+     *                          for a candidate whose style is {@link
+     *                          CombatStyle#RANGED} and which fires worn ammo
+     *                          (see {@link AmmoCompatibility#consumedClass})
+     *                          — {@link MonsterCombatRequirement#permitsAmmo}
+     *                          is the ONLY thing that can tell "Zaryte
+     *                          crossbow, but the ammo gate needs broad
+     *                          bolts and I'm not wearing any" apart from a
+     *                          legitimately unrestricted target.
+     */
+    public static Optional<SpecWeaponRecommendation> select(Monster target, MonsterCombatRequirement requirement,
+                                                              Set<Integer> ownedItemIds, Set<Integer> excludedItemIds,
+                                                              Map<String, Integer> playerBaseLevels, int wornAmmoItemId,
+                                                              DpsProbe probe) {
         if (target == null || ownedItemIds == null || probe == null) {
             return Optional.empty();
         }
+        Set<Integer> exclusions = excludedItemIds == null ? java.util.Collections.emptySet() : excludedItemIds;
         List<SpecWeapon> eligible = new ArrayList<>();
         for (SpecWeapon weapon : SpecWeapon.CATALOG) {
             if (weapon.role() == SpecRole.UTILITY) {
@@ -94,9 +149,26 @@ public final class SpecWeaponSelector {
             if (!weapon.isOwned(ownedItemIds)) {
                 continue;
             }
+            if (weapon.isExcluded(exclusions)) {
+                continue; // "Exclude from suggestions" — same rule an ordinary candidate obeys.
+            }
+            if (!EquipmentRequirementsRepository.getInstance().canEquip(weapon.itemId(), playerBaseLevels)) {
+                continue; // owning it is not the same as meeting its equip requirements.
+            }
             boolean weaponUsesWornAmmo = AmmoCompatibility.consumedClass(weapon.itemId()) != null;
-            if (requirement != null && !requirement.permitsWeapon(weapon.itemId(), weapon.style(), weaponUsesWornAmmo)) {
-                continue;
+            if (requirement != null) {
+                if (!requirement.permitsWeapon(weapon.itemId(), weapon.style(), weaponUsesWornAmmo)) {
+                    continue;
+                }
+                if (weapon.style() == CombatStyle.RANGED && weaponUsesWornAmmo
+                        && !requirement.permitsAmmo(wornAmmoItemId, weapon.style())) {
+                    // permitsWeapon() alone accepts any worn-ammo-capable
+                    // ranged weapon on an ammo-gated target (e.g. Kurask) —
+                    // it can't know WHICH ammo is actually loaded. A weapon
+                    // that fires its own ammo (blowpipe) never reaches this
+                    // branch: weaponUsesWornAmmo is false for it.
+                    continue;
+                }
             }
             eligible.add(weapon);
         }

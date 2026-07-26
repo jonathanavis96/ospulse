@@ -74,7 +74,6 @@ public class SpecWeaponSelectorTest {
         assertEquals(DRAGON_CLAWS, rec.get().itemId());
     }
 
-    /** Faithful reading of the literal rule (see class javadoc): HEAL is catalogued but never selected. */
     /** Round-2 director decision (step 5 fallback): HEAL is recommended when it is the only owned+legal spec at all. */
     @Test
     public void healRoleIsSelectedAsAFallbackWhenItIsTheOnlyOwnedSpec() {
@@ -189,5 +188,156 @@ public class SpecWeaponSelectorTest {
                 monsterWithDefence(50), null, owned, fixedProbe(byId));
         assertTrue(rec.isPresent());
         assertEquals(DRAGON_CLAWS, rec.get().itemId());
+    }
+
+    // ---- PR #25 finding 1: ownership does not imply equippability -----------------------
+
+    /**
+     * Voidwaker requires 75 Attack (verified against {@code
+     * equipment_requirements.min.json}). Owning one at a lower Attack level
+     * must not surface it — {@link EquipmentRequirementsRepository#canEquip}
+     * is the exact seam {@code GearOptimizer} already uses for this, not a
+     * second requirements table.
+     */
+    @Test
+    public void equipLevelRequirementIsEnforcedEvenWhenOwned() {
+        int voidwaker = 27690;
+        assertEquals("test assumes Voidwaker's real requirement — if this fails the bundled data changed",
+                Integer.valueOf(75), EquipmentRequirementsRepository.getInstance().requirementsFor(voidwaker).get("attack"));
+
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(voidwaker));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(voidwaker, result(40, 0.6));
+        java.util.Map<String, Integer> tooLowAttack = Collections.singletonMap("attack", 60);
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), null, owned, Collections.emptySet(), tooLowAttack, -1, fixedProbe(byId));
+        assertFalse("60 Attack cannot equip a 75-Attack Voidwaker", rec.isPresent());
+    }
+
+    /** Same setup as above, but with a level that DOES meet the requirement — proves the gate isn't just always rejecting. */
+    @Test
+    public void equipLevelRequirementAllowsTheWeaponOnceMet() {
+        int voidwaker = 27690;
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(voidwaker));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(voidwaker, result(40, 0.6));
+        java.util.Map<String, Integer> sufficientAttack = Collections.singletonMap("attack", 75);
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), null, owned, Collections.emptySet(), sufficientAttack, -1, fixedProbe(byId));
+        assertTrue(rec.isPresent());
+        assertEquals(voidwaker, rec.get().itemId());
+    }
+
+    // ---- PR #25 finding 2: ranged specs need worn-ammo validation ------------------------
+
+    /**
+     * A Kurask/Turoth-shaped gate (real shape, from {@code
+     * monster_combat_requirements.json}: leaf-bladed weapons, broad ammo
+     * (both broad arrows AND broad bolts), or Magic Dart): no
+     * broadly-allowed style, a small leaf-bladed-weapon exception list, and
+     * a broad-ammo allowlist. {@code permitsWeapon} alone accepts ANY
+     * worn-ammo-firing ranged weapon here (it can't see which ammo is
+     * actually loaded) — {@code permitsAmmo} is what actually enforces
+     * "broad ammo only".
+     */
+    private static MonsterCombatRequirement kuraskShapedAmmoGate() {
+        int broadArrows = 4160;
+        int broadBolts = 11875;
+        int leafBladedSword = 4158;
+        return MonsterCombatRequirement.weaponGate(
+                new HashSet<>(java.util.Arrays.asList(leafBladedSword)),
+                new HashSet<>(java.util.Arrays.asList(broadArrows, broadBolts)),
+                Collections.emptySet(),
+                "Only leaf-bladed weapons, broad ammo, or Magic Dart can harm it.");
+    }
+
+    /** Magic shortbow (861) — a DAMAGE-role RANGED spec that fires worn ammo (ARROW class), unlike the UTILITY-role Zaryte crossbow. */
+    private static final int MAGIC_SHORTBOW = 861;
+
+    @Test
+    public void rangedSpecOwningWrongWornAmmoIsNotRecommended() {
+        int regularArrow = 893; // "Rune arrow" — not in the gate's allowedAmmoIds
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(MAGIC_SHORTBOW));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(MAGIC_SHORTBOW, result(90, 0.99));
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), kuraskShapedAmmoGate(), owned, Collections.emptySet(),
+                Collections.emptyMap(), regularArrow, fixedProbe(byId));
+        assertFalse("permitsWeapon() alone would accept this — permitsAmmo() must reject the non-broad arrow",
+                rec.isPresent());
+    }
+
+    @Test
+    public void rangedSpecWithCorrectBroadAmmoIsRecommended() {
+        int broadArrows = 4160; // matches kuraskShapedAmmoGate()'s allowedAmmoIds
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(MAGIC_SHORTBOW));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(MAGIC_SHORTBOW, result(90, 0.99));
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), kuraskShapedAmmoGate(), owned, Collections.emptySet(),
+                Collections.emptyMap(), broadArrows, fixedProbe(byId));
+        assertTrue(rec.isPresent());
+        assertEquals(MAGIC_SHORTBOW, rec.get().itemId());
+    }
+
+    /** A self-supplying ranged weapon (no worn ammo) is unaffected by the ammo gate either way — it was already excluded by permitsWeapon. */
+    @Test
+    public void selfSupplyingRangedSpecIgnoresWornAmmoValidation() {
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(TOXIC_BLOWPIPE));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(TOXIC_BLOWPIPE, result(90, 0.99));
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), kuraskShapedAmmoGate(), owned, Collections.emptySet(),
+                Collections.emptyMap(), -1, fixedProbe(byId));
+        assertFalse("a dart-firing blowpipe cannot hit a broad-ammo-gated target regardless of worn ammo",
+                rec.isPresent());
+    }
+
+    // ---- PR #25 finding 4: "Exclude from suggestions" must be honoured -------------------
+
+    /**
+     * Excluding the higher-scoring owned spec must remove it from
+     * consideration entirely (not just demote it) and let the next-best
+     * owned+legal spec take over — the exact two-part assertion the
+     * "Exclude from suggestions" feature (shipped stage 4, reporter's
+     * explicit request) already guarantees for ordinary optimiser
+     * candidates via {@code GearOptimizer.Request.exclude}.
+     */
+    @Test
+    public void excludedSpecIsRemovedAndADifferentSpecIsChosenInstead() {
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(DRAGON_CLAWS, DRAGON_DAGGER));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        // Dragon claws would clearly win on damage/cost if not excluded.
+        byId.put(DRAGON_CLAWS, result(90, 0.95));
+        byId.put(DRAGON_DAGGER, result(20, 0.5));
+
+        Optional<SpecWeaponRecommendation> unexcluded = SpecWeaponSelector.select(
+                monsterWithDefence(50), null, owned, Collections.emptySet(), Collections.emptyMap(), -1, fixedProbe(byId));
+        assertEquals("sanity check: claws must win before exclusion", DRAGON_CLAWS, unexcluded.get().itemId());
+
+        Set<Integer> excluded = new HashSet<>(java.util.Arrays.asList(DRAGON_CLAWS));
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), null, owned, excluded, Collections.emptyMap(), -1, fixedProbe(byId));
+        assertTrue(rec.isPresent());
+        assertEquals("excluding claws must let dagger take over, not just leave nothing recommended",
+                DRAGON_DAGGER, rec.get().itemId());
+    }
+
+    /** Excluding a cosmetic recolour (alias id) excludes the whole weapon, mirroring {@link #ownedAliasIdCountsAsOwnership}. */
+    @Test
+    public void excludingAnAliasIdExcludesTheWholeWeapon() {
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(DRAGON_CLAWS));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(DRAGON_CLAWS, result(40, 0.6));
+        Set<Integer> excludedByAlias = new HashSet<>(java.util.Arrays.asList(28039)); // Dragon claws (or)
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), null, owned, excludedByAlias, Collections.emptyMap(), -1, fixedProbe(byId));
+        assertFalse(rec.isPresent());
     }
 }

@@ -154,6 +154,26 @@ public final class SpecWeapon {
         return false;
     }
 
+    /**
+     * True if {@code excludedItemIds} (the panel's "Exclude from suggestions"
+     * set — see {@code GearSection#excludedItemIds}, shipped in stage 4 at
+     * the reporter's explicit request) contains this weapon's canonical id
+     * or any of {@link #ownedAliasIds()} — mirrors {@link #isOwned}'s
+     * alias-symmetry so excluding a cosmetic recolour excludes the whole
+     * weapon, the same as it would for an ordinary optimiser candidate.
+     */
+    public boolean isExcluded(Set<Integer> excludedItemIds) {
+        if (excludedItemIds.contains(itemId)) {
+            return true;
+        }
+        for (int alias : ownedAliasIds) {
+            if (excludedItemIds.contains(alias)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Expected damage dealt by ONE use of this special, given the generic pipeline's (hitChance, maxHit) for {@link #style()}. */
     double expectedDamagePerUse(double hitChance, int maxHit) {
         return damageModel.expectedDamagePerUse(hitChance, maxHit);
