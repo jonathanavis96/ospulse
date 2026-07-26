@@ -1,6 +1,7 @@
 package com.ospulse.ui.sections.gear;
 
 import com.ospulse.combat.EquipmentIndexRepository;
+import com.ospulse.combat.EquipmentStatsRepository;
 
 import org.junit.Test;
 
@@ -11,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Pure unit tests for {@link OwnedVariantResolver} against the REAL bundled
@@ -128,5 +130,106 @@ public class OwnedVariantResolverTest
 	public void plainFormId_nonVariantName_returnsNull()
 	{
 		assertEquals(null, OwnedVariantResolver.plainFormId(INDEX, MASORI_MASK));
+	}
+
+	// Imbued saradomin cape (deadman) 29617 <-> Imbued saradomin cape 24248/21791 —
+	// a Deadman Mode reward duplicate, stat-identical to the real, non-mode-locked
+	// item (see equipment_stats.min.json: both amagic+15/dmagic+15/mdmg+20).
+	// GearSection.restrictedItemIds() always excludes 29617 itself from optimiser
+	// candidates (mode-locked, regardless of ownership) — issue #11 Stage 3.
+	private static final int IMBUED_SARADOMIN_CAPE_DEADMAN = 29617;
+
+	@Test
+	public void plainFormId_deadmanSuffix_resolvesToRealNonModeLockedCounterpart()
+	{
+		Integer expected = INDEX.idForName("Imbued saradomin cape");
+		assertEquals(expected, OwnedVariantResolver.plainFormId(INDEX, IMBUED_SARADOMIN_CAPE_DEADMAN));
+	}
+
+	@Test
+	public void preferOwnedVariant_ownedDeadmanCape_resolvesFromRealCounterpart()
+	{
+		int realImbuedSaradominCape = INDEX.idForName("Imbued saradomin cape");
+		int resolved = OwnedVariantResolver.preferOwnedVariant(INDEX, realImbuedSaradominCape,
+			owned(IMBUED_SARADOMIN_CAPE_DEADMAN), null);
+		assertEquals("owning the deadman-mode duplicate must resolve display back to it, exactly like "
+				+ "the (f)/(i) suffixes already do",
+			IMBUED_SARADOMIN_CAPE_DEADMAN, resolved);
+	}
+
+	/**
+	 * Guards against a false match before/after adding " (deadman)" to {@link
+	 * OwnedVariantResolver#SUFFIXES}: since suffix matching is purely
+	 * string-based, an unrelated item whose OWN (non-superseding) display
+	 * name happened to end in " (deadman)" would silently mis-resolve.
+	 * Scans every bundled item: for each name ending in " (deadman)" whose
+	 * plain (suffix-stripped) name IS indexed, at least one id sharing that
+	 * plain name must have byte-identical stats to the deadman-suffixed
+	 * item — i.e. it really is a stat-for-stat reward duplicate, not some
+	 * unrelated lower/higher-tier item that would be wrongly cross-mapped.
+	 * (A plain name that resolves to NO indexed id, e.g. "Toxic staff", is
+	 * fine — {@link OwnedVariantResolver#plainFormId} returns null for
+	 * those, so nothing is cross-mapped at all.)
+	 */
+	@Test
+	public void deadmanSuffix_everyBundledMatch_hasAStatIdenticalPlainCounterpart()
+	{
+		EquipmentStatsRepository stats = EquipmentStatsRepository.getInstance();
+		Map<String, java.util.List<Integer>> idsByName = new HashMap<>();
+		for (Integer id : INDEX.allItemIds())
+		{
+			EquipmentIndexRepository.Entry entry = INDEX.entryFor(id);
+			if (entry != null)
+			{
+				idsByName.computeIfAbsent(entry.name(), n -> new java.util.ArrayList<>()).add(id);
+			}
+		}
+
+		int checked = 0;
+		for (Map.Entry<String, java.util.List<Integer>> e : idsByName.entrySet())
+		{
+			String name = e.getKey();
+			if (!name.endsWith(" (deadman)"))
+			{
+				continue;
+			}
+			String plainName = name.substring(0, name.length() - " (deadman)".length());
+			java.util.List<Integer> plainIds = idsByName.get(plainName);
+			if (plainIds == null)
+			{
+				continue; // no indexed plain form (e.g. "Toxic staff") — plainFormId returns null, nothing to mis-resolve
+			}
+			int deadmanId = e.getValue().get(0);
+			EquipmentStatsRepository.Stats deadmanStats = stats.statsFor(deadmanId);
+			boolean anyIdentical = false;
+			for (Integer plainId : plainIds)
+			{
+				if (sameStats(deadmanStats, stats.statsFor(plainId)))
+				{
+					anyIdentical = true;
+					break;
+				}
+			}
+			assertTrue("\"" + name + "\" (" + deadmanId + ") must have a stat-identical plain-name counterpart "
+					+ "among " + plainIds + " — otherwise adding \" (deadman)\" to SUFFIXES would cross-map "
+					+ "ownership to a genuinely different item",
+				anyIdentical);
+			checked++;
+		}
+		assertTrue("fixture sanity: at least one \" (deadman)\" item must exist in the bundled index", checked > 0);
+	}
+
+	private static boolean sameStats(EquipmentStatsRepository.Stats a, EquipmentStatsRepository.Stats b)
+	{
+		if (a == null || b == null)
+		{
+			return a == b;
+		}
+		return a.astab() == b.astab() && a.aslash() == b.aslash() && a.acrush() == b.acrush()
+			&& a.amagic() == b.amagic() && a.arange() == b.arange()
+			&& a.dstab() == b.dstab() && a.dslash() == b.dslash() && a.dcrush() == b.dcrush()
+			&& a.dmagic() == b.dmagic() && a.drange() == b.drange()
+			&& a.str() == b.str() && a.rstr() == b.rstr()
+			&& a.mdmg() == b.mdmg() && a.prayer() == b.prayer();
 	}
 }

@@ -25,8 +25,20 @@ import java.util.Set;
  */
 public final class OwnedVariantResolver
 {
-	/** Space-prefixed variant suffixes, as they appear at the end of an {@link EquipmentIndexRepository.Entry#name()}. */
-	public static final String[] SUFFIXES = { " (f)", " (i)" };
+	/**
+	 * Space-prefixed variant suffixes, as they appear at the end of an
+	 * {@link EquipmentIndexRepository.Entry#name()}. " (deadman)" covers
+	 * Deadman Mode reward duplicates (e.g. "Imbued saradomin cape
+	 * (deadman)") that are stat-identical to a real, non-mode-locked
+	 * counterpart item (see the spot-check in {@code OwnedVariantResolverTest}
+	 * confirming every " (deadman)"-suffixed bundled item's plain form, where
+	 * indexed, matches its stats) — {@code GearSection.restrictedItemIds()}
+	 * always excludes the "(deadman)" id itself from optimiser candidates
+	 * (by design, regardless of ownership), so without this suffix, owning
+	 * one never credits the player with owning its real, recommendable
+	 * counterpart, and the optimiser falls back to a worse candidate.
+	 */
+	public static final String[] SUFFIXES = { " (f)", " (i)", " (deadman)" };
 
 	private OwnedVariantResolver()
 	{
