@@ -36,6 +36,7 @@ import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
 import com.ospulse.ui.WidthTrackingPanel;
 import com.ospulse.ui.sections.gear.CoinPileBadge;
+import com.ospulse.ui.sections.gear.DpsFormat;
 import com.ospulse.ui.sections.gear.GpFormat;
 import com.ospulse.ui.sections.gear.OwnedVariantResolver;
 import com.ospulse.ui.sections.gear.RoundedButton;
@@ -2331,85 +2332,7 @@ public final class GearSection extends CollapsibleSection
 			return "-";
 		}
 		return result == null ? name
-			: "<html>" + escapeHtml(name) + " &middot; " + dpsFragment(result.dps()) + "</html>";
-	}
-
-	/**
-	 * Renders a DPS value as an HTML fragment that resists the "1.98 read as
-	 * 198" misread — a real report, since a woodcutting felling axe legitimately
-	 * does ~2 DPS. Price-tag style: the whole-number part is unbolded in the
-	 * given colour, and the decimal point plus the fractional digits are
-	 * dimmed and half-size, so the magnitude reads at a glance and the
-	 * decimals visibly recede. Delegates to {@link CentFormat} so every
-	 * "cent" number in the panel (gp values, DPS, accuracy, avg hit, TTK,
-	 * overkill — "cent" meaning the fractional/decimal part, by analogy
-	 * with money cents) shares the exact same treatment.
-	 */
-	private static String dpsFragment(double dps)
-	{
-		return CentFormat.fragment(formatDps(dps));
-	}
-
-	/**
-	 * {@link #dpsFragment(double)}, but with an explicit integer/decimal
-	 * colour pairing — used by the "vs worn"/optimizer delta rows so a
-	 * green (upgrade) or red (downgrade) comparison dims its decimals in the
-	 * matching hue instead of the default grey.
-	 */
-	private static String dpsFragment(double dps, String intColor, String decimalColor)
-	{
-		return CentFormat.fragment(formatDps(dps), intColor, decimalColor);
-	}
-
-	/**
-	 * {@link #dpsFragment(double)}, but with the integer in {@code intColor}
-	 * and the decimal dimmed to match it (see {@link CentFormat#fragment(String, String)}) —
-	 * used by a highlighted/best row whose label foreground isn't the
-	 * default white, so the number's own colour has to agree with the row
-	 * instead of hard-coding white (an explicit HTML {@code <font color>}
-	 * always wins over the label's {@code setForeground}).
-	 */
-	private static String dpsFragment(double dps, String intColor)
-	{
-		return CentFormat.fragment(formatDps(dps), intColor);
-	}
-
-	private static String formatDps(double dps)
-	{
-		return String.format(Locale.ROOT, "%.2f", dps);
-	}
-
-	/**
-	 * {@link #dpsFragment(double)} coloured to match a "vs worn"/optimizer
-	 * delta's sign — green (with a dull-green decimal) for an upgrade, red
-	 * (dull-red decimal) for a downgrade, or the plain white/grey default
-	 * when the delta is effectively zero. {@code delta} is shared across
-	 * both the "before" and "after" values in a single comparison row so
-	 * they always render in the same colour.
-	 */
-	private static String deltaDpsFragment(double dps, double delta)
-	{
-		if (delta > 1e-9)
-		{
-			return dpsFragment(dps, CentFormat.GREEN, CentFormat.GREEN_DIM);
-		}
-		if (delta < -1e-9)
-		{
-			return dpsFragment(dps, CentFormat.RED, CentFormat.RED_DIM);
-		}
-		return dpsFragment(dps);
-	}
-
-	/** {@link #dpsFragment(double)} as a standalone HTML label string. */
-	private static String dpsHtml(double dps)
-	{
-		return "<html>" + dpsFragment(dps) + "</html>";
-	}
-
-	/** {@link #dpsFragment(double, String)} as a standalone HTML label string. */
-	private static String dpsHtml(double dps, String intColor)
-	{
-		return "<html>" + dpsFragment(dps, intColor) + "</html>";
+			: "<html>" + escapeHtml(name) + " &middot; " + DpsFormat.fragment(result.dps()) + "</html>";
 	}
 
 	private void setPrimarySecondary(String primary, String secondary)
@@ -3537,8 +3460,8 @@ public final class GearSection extends CollapsibleSection
 		java.awt.Color color = delta > 1e-9 ? DELTA_UP_COLOR
 			: delta < -1e-9 ? DELTA_DOWN_COLOR : java.awt.Color.WHITE;
 		whatIfDeltaValue.setForeground(color);
-		whatIfDeltaValue.setText("<html>" + deltaDpsFragment(baselineDps, delta) + " -> "
-			+ deltaDpsFragment(lastDps, delta) + "</html>");
+		whatIfDeltaValue.setText("<html>" + DpsFormat.deltaFragment(baselineDps, delta) + " -> "
+			+ DpsFormat.deltaFragment(lastDps, delta) + "</html>");
 		whatIfRow.setVisible(true);
 	}
 
@@ -4857,7 +4780,7 @@ public final class GearSection extends CollapsibleSection
 			optimizerStatusLabel.setVisible(false);
 		}
 
-		optimizerResultDps.setText(dpsHtml(result.dps().dps()));
+		optimizerResultDps.setText(DpsFormat.html(result.dps().dps()));
 		double delta = result.deltaDps();
 		// Item #6b: no literal triangle glyph — "owned-only DPS -> best-found
 		// DPS", the whole readout coloured green (upgrade) / red (downgrade),
@@ -4866,8 +4789,8 @@ public final class GearSection extends CollapsibleSection
 		java.awt.Color deltaColor = delta > 1e-9 ? DELTA_UP_COLOR
 			: delta < -1e-9 ? DELTA_DOWN_COLOR : java.awt.Color.WHITE;
 		optimizerResultDelta.setForeground(deltaColor);
-		optimizerResultDelta.setText("<html>" + deltaDpsFragment(result.ownedOnlyDps(), delta) + " -> "
-			+ deltaDpsFragment(result.dps().dps(), delta) + "</html>");
+		optimizerResultDelta.setText("<html>" + DpsFormat.deltaFragment(result.ownedOnlyDps(), delta) + " -> "
+			+ DpsFormat.deltaFragment(result.dps().dps(), delta) + "</html>");
 		optimizerResultSpend.setText(formatGp(result.totalSpend()));
 		optimizerResultDpsPerGp.setText(result.totalSpend() > 0
 			? String.format(Locale.ROOT, "%.6f", result.dpsPerGp())
@@ -5399,7 +5322,7 @@ public final class GearSection extends CollapsibleSection
 		accuracyValue.setText(CentFormat.html(String.format(Locale.ROOT, "%.1f%%", result.accuracy() * 100.0)));
 		avgHitValue.setText(CentFormat.html(String.format(Locale.ROOT, "%.2f", result.avgHit())));
 		lastDps = result.dps();
-		dpsValue.setText(dpsHtml(lastDps));
+		dpsValue.setText(DpsFormat.html(lastDps));
 		ttkValue.setText(CentFormat.html(formatTtk(result.ttkSeconds())));
 		overkillValue.setText(CentFormat.html(String.format(Locale.ROOT, "%.1f", result.overkillPerKill())));
 		baseEstimateNote.setVisible(result.baseEstimate());
@@ -6510,7 +6433,7 @@ public final class GearSection extends CollapsibleSection
 			}
 
 			JLabel dps = new JLabel(result == null ? "—"
-				: best ? dpsHtml(result.dps(), BRAND_ORANGE_HEX) : dpsHtml(result.dps()));
+				: best ? DpsFormat.html(result.dps(), BRAND_ORANGE_HEX) : DpsFormat.html(result.dps()));
 			dps.setFont(FontManager.getRunescapeSmallFont());
 			dps.setForeground(best ? ColorScheme.BRAND_ORANGE : java.awt.Color.WHITE);
 			dps.setToolTipText("DPS autocasting this spell");
@@ -6579,7 +6502,7 @@ public final class GearSection extends CollapsibleSection
 			name.setToolTipText(style.name() + " (" + typeLabel(style.type()) + ")");
 
 			JLabel dps = new JLabel(result == null ? "—"
-				: best ? dpsHtml(result.dps(), BRAND_ORANGE_HEX) : dpsHtml(result.dps()));
+				: best ? DpsFormat.html(result.dps(), BRAND_ORANGE_HEX) : DpsFormat.html(result.dps()));
 			dps.setFont(FontManager.getRunescapeSmallFont());
 			dps.setForeground(best ? ColorScheme.BRAND_ORANGE : java.awt.Color.WHITE);
 			dps.setToolTipText("DPS with this attack style");
