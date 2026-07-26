@@ -992,4 +992,47 @@ public class GearSectionOptimizerTest
 				section.ownedPriceMapForTest().containsKey(SARADOMIN_CAPE_DEADMAN));
 		});
 	}
+
+	/**
+	 * The wiring for {@link com.ospulse.ui.sections.gear.RiskCreditPolicy} —
+	 * the policy's own guards are unit-tested, this proves it actually reaches
+	 * the search. Holding only the deadman cape credits the plain id as owned
+	 * and free, and the credit makes it inherit the variant's 40M risk; with a
+	 * 10M threshold and no expensive items allowed, that single candidate is
+	 * owned-but-over-cap and the optimiser can only drop the slot. Withdrawing
+	 * the credit restores the alternative the budget can actually afford: buy
+	 * an ordinary cape at 2M, risking 1M.
+	 */
+	@Test
+	public void riskyHeldVariant_lettingTheOrdinaryCounterpartBeBoughtInstead()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> riskValues = new java.util.HashMap<>();
+			riskValues.put(SARADOMIN_CAPE_DEADMAN, 40_000_000L);
+			riskValues.put(SARADOMIN_CAPE_PLAIN, 1_000_000L);
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(SARADOMIN_CAPE_PLAIN, 2_000_000L);
+
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(SARADOMIN_CAPE_DEADMAN, "Imbued saradomin cape (deadman)", 1, 40_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null,
+				(ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(
+					prices, java.util.Set.of(), riskValues, java.util.Set.of())));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+			section.setBudgetTextForTest("5M");
+			section.setExpensiveThresholdTextForTest("10M");
+			section.setExpensiveCountTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.PriceSource risk = section.lastRiskValueSourceForTest();
+			assertTrue("the risk source must be wired", risk != null);
+			assertEquals("with the credit withdrawn the counterpart prices itself again, or the cap would "
+					+ "still see the variant's risk and the purchase would be pointless",
+				1_000_000L, risk.priceFor(SARADOMIN_CAPE_PLAIN));
+		});
+	}
 }

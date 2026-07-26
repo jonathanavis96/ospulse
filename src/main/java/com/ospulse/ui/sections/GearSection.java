@@ -40,6 +40,7 @@ import com.ospulse.ui.sections.gear.DpsFormat;
 import com.ospulse.ui.sections.gear.GpFormat;
 import com.ospulse.ui.sections.gear.HeldItemIds;
 import com.ospulse.ui.sections.gear.OwnedVariantResolver;
+import com.ospulse.ui.sections.gear.RiskCreditPolicy;
 import com.ospulse.ui.sections.gear.RoundedButton;
 import com.ospulse.ui.sections.gear.StyleGrid;
 import com.ospulse.ui.sections.gear.VariantCreditSources;
@@ -4674,7 +4675,31 @@ public final class GearSection extends CollapsibleSection
 			.magicPotionVariant(magicPotionVariantForCalc());
 
 		java.util.Map<Integer, Integer> creditSources =
-			VariantCreditSources.from(lastWealth, lastGear, EquipmentIndexRepository.getInstance(), excludedItemIds);
+			new java.util.HashMap<>(VariantCreditSources.from(lastWealth, lastGear,
+				EquipmentIndexRepository.getInstance(), excludedItemIds));
+		// A credit collapses "use the held variant" and "buy an ordinary copy"
+		// onto one item id, which the optimiser's per-slot candidates (bare
+		// ints) cannot tell apart. Where that costs the cap its only safe
+		// option, the credit is withdrawn so the counterpart behaves as the
+		// ordinary purchase it would be — see RiskCreditPolicy for why each
+		// condition is required. Risk values are read UNremapped here: the
+		// request's own source reports the variant's value for both ids, which
+		// would make the comparison vacuous.
+		long expensiveThreshold = resolvedExpensiveThreshold();
+		boolean capActive = expensiveThreshold > 0
+			&& resolvedExpensiveCount() < GearSnapshot.EQUIPMENT_SLOT_COUNT;
+		java.util.Set<Integer> withdrawnCredits = RiskCreditPolicy.withdrawnForSaferPurchase(
+			creditSources,
+			id -> riskValues.getOrDefault((int) id, 0L),
+			id -> priceSource.priceFor((int) id),
+			capActive, expensiveThreshold, budget);
+		java.util.Set<Integer> ownedIdsForSearch = ownedPrices.keySet();
+		if (!withdrawnCredits.isEmpty())
+		{
+			creditSources.keySet().removeAll(withdrawnCredits);
+			ownedIdsForSearch = new java.util.LinkedHashSet<>(ownedPrices.keySet());
+			ownedIdsForSearch.removeAll(withdrawnCredits);
+		}
 		java.util.Set<Integer> exclusions = new java.util.LinkedHashSet<>(excludedItemIds);
 		exclusions.addAll(restrictedItemIds());
 		if (hideUnprotectableItemsPref())
@@ -4706,7 +4731,7 @@ public final class GearSection extends CollapsibleSection
 		return GearOptimizer.Request
 			.builder(liveIds, target, template)
 			.budget(budget)
-			.owned(ownedPrices.keySet())
+			.owned(ownedIdsForSearch)
 			// Retained for any other budget-side consumer/back-compat, but no
 			// longer consulted by the expensive-item risk cap — riskValueSource
 			// below owns that job exclusively now (see
