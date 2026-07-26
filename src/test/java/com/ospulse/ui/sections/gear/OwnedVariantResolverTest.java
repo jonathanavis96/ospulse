@@ -157,22 +157,140 @@ public class OwnedVariantResolverTest
 			IMBUED_SARADOMIN_CAPE_DEADMAN, resolved);
 	}
 
+	// ==================================================================================
+	// P1 follow-up (code review on issue #11 Stage 3): Deadman crystal armour has an
+	// ACTIVE id (real combat stats) and an INACTIVE id (all-zero stats, cosmetically
+	// deactivated) that share the SAME plain "Crystal body"/"Crystal helm"/"Crystal
+	// legs" name — a genuinely different-item name collision, unlike every other
+	// (f)/(i)/(deadman) case in the bundled data, where same-named ids are always
+	// stat-identical duplicates (charge levels, reward sources). The original
+	// deadmanSuffix_everyBundledMatch_hasAStatIdenticalPlainCounterpart check above
+	// only asserted "at least one stat-identical id exists in the group" — true even
+	// when idForName's first-file-order pick resolves to the WRONG (different-stats)
+	// member of that same group, which is exactly what happened here. Ids verified
+	// against the decompiled net.runelite.api.gameval.ItemID constants in the
+	// runelite-api jar on this project's classpath (javap -constants):
+	// CRYSTAL_HELMET(_INACTIVE) 23971/23973, CRYSTAL_CHESTPLATE(_INACTIVE) 23975/23977,
+	// CRYSTAL_PLATELEGS(_INACTIVE) 23979/23981, and their _DEADMAN/_INACTIVE_DEADMAN
+	// twins 33031/33033, 33023/33025, 33027/33029.
+	// ==================================================================================
+
+	private static final int CRYSTAL_HELM_ACTIVE = 23971;
+	private static final int CRYSTAL_HELM_INACTIVE = 23973;
+	private static final int CRYSTAL_HELM_DEADMAN_ACTIVE = 33031;
+	private static final int CRYSTAL_HELM_DEADMAN_INACTIVE = 33033;
+
+	private static final int CRYSTAL_BODY_ACTIVE = 23975;
+	private static final int CRYSTAL_BODY_INACTIVE = 23977;
+	private static final int CRYSTAL_BODY_DEADMAN_ACTIVE = 33023;
+	private static final int CRYSTAL_BODY_DEADMAN_INACTIVE = 33025;
+
+	private static final int CRYSTAL_LEGS_ACTIVE = 23979;
+	private static final int CRYSTAL_LEGS_INACTIVE = 23981;
+	private static final int CRYSTAL_LEGS_DEADMAN_ACTIVE = 33027;
+	private static final int CRYSTAL_LEGS_DEADMAN_INACTIVE = 33029;
+
+	@Test
+	public void plainFormId_deadmanCrystalBody_inactiveNeverCreditsActivePlainId()
+	{
+		assertEquals("owning the zero-stat inactive deadman body must credit the INACTIVE plain id, "
+				+ "never the fully-statted active one",
+			Integer.valueOf(CRYSTAL_BODY_INACTIVE),
+			OwnedVariantResolver.plainFormId(INDEX, CRYSTAL_BODY_DEADMAN_INACTIVE));
+	}
+
+	@Test
+	public void plainFormId_deadmanCrystalBody_activeCreditsActivePlainId()
+	{
+		assertEquals("owning the real-stat active deadman body must credit the ACTIVE plain id",
+			Integer.valueOf(CRYSTAL_BODY_ACTIVE),
+			OwnedVariantResolver.plainFormId(INDEX, CRYSTAL_BODY_DEADMAN_ACTIVE));
+	}
+
+	@Test
+	public void plainFormId_deadmanCrystalHelm_inactiveNeverCreditsActivePlainId()
+	{
+		assertEquals(Integer.valueOf(CRYSTAL_HELM_INACTIVE),
+			OwnedVariantResolver.plainFormId(INDEX, CRYSTAL_HELM_DEADMAN_INACTIVE));
+	}
+
+	@Test
+	public void plainFormId_deadmanCrystalHelm_activeCreditsActivePlainId()
+	{
+		assertEquals(Integer.valueOf(CRYSTAL_HELM_ACTIVE),
+			OwnedVariantResolver.plainFormId(INDEX, CRYSTAL_HELM_DEADMAN_ACTIVE));
+	}
+
+	@Test
+	public void plainFormId_deadmanCrystalLegs_inactiveNeverCreditsActivePlainId()
+	{
+		assertEquals(Integer.valueOf(CRYSTAL_LEGS_INACTIVE),
+			OwnedVariantResolver.plainFormId(INDEX, CRYSTAL_LEGS_DEADMAN_INACTIVE));
+	}
+
+	@Test
+	public void plainFormId_deadmanCrystalLegs_activeCreditsActivePlainId()
+	{
+		assertEquals(Integer.valueOf(CRYSTAL_LEGS_ACTIVE),
+			OwnedVariantResolver.plainFormId(INDEX, CRYSTAL_LEGS_DEADMAN_ACTIVE));
+	}
+
 	/**
-	 * Guards against a false match before/after adding " (deadman)" to {@link
-	 * OwnedVariantResolver#SUFFIXES}: since suffix matching is purely
-	 * string-based, an unrelated item whose OWN (non-superseding) display
-	 * name happened to end in " (deadman)" would silently mis-resolve.
-	 * Scans every bundled item: for each name ending in " (deadman)" whose
-	 * plain (suffix-stripped) name IS indexed, at least one id sharing that
-	 * plain name must have byte-identical stats to the deadman-suffixed
-	 * item — i.e. it really is a stat-for-stat reward duplicate, not some
-	 * unrelated lower/higher-tier item that would be wrongly cross-mapped.
-	 * (A plain name that resolves to NO indexed id, e.g. "Toxic staff", is
-	 * fine — {@link OwnedVariantResolver#plainFormId} returns null for
-	 * those, so nothing is cross-mapped at all.)
+	 * The reverse-display half of the same defect: a recommendation actually
+	 * calculated off the ACTIVE plain id must never be displayed as the
+	 * owned zero-stat INACTIVE deadman piece, even though they share a name.
 	 */
 	@Test
-	public void deadmanSuffix_everyBundledMatch_hasAStatIdenticalPlainCounterpart()
+	public void preferOwnedVariant_ownedInactiveDeadmanCrystalBody_neverDisplayedForActiveResult()
+	{
+		int resolved = OwnedVariantResolver.preferOwnedVariant(INDEX, CRYSTAL_BODY_ACTIVE,
+			owned(CRYSTAL_BODY_DEADMAN_INACTIVE), null);
+		assertEquals("a result calculated off the ACTIVE plain id must stay the active id — the owned "
+				+ "INACTIVE deadman duplicate has different (zero) stats and must not be substituted",
+			CRYSTAL_BODY_ACTIVE, resolved);
+	}
+
+	/** Companion: the ACTIVE deadman duplicate DOES correctly substitute for an active-id result. */
+	@Test
+	public void preferOwnedVariant_ownedActiveDeadmanCrystalBody_displayedForActiveResult()
+	{
+		int resolved = OwnedVariantResolver.preferOwnedVariant(INDEX, CRYSTAL_BODY_ACTIVE,
+			owned(CRYSTAL_BODY_DEADMAN_ACTIVE), null);
+		assertEquals(CRYSTAL_BODY_DEADMAN_ACTIVE, resolved);
+	}
+
+	/** And the INACTIVE deadman duplicate correctly substitutes for an inactive-id result. */
+	@Test
+	public void preferOwnedVariant_ownedInactiveDeadmanCrystalBody_displayedForInactiveResult()
+	{
+		int resolved = OwnedVariantResolver.preferOwnedVariant(INDEX, CRYSTAL_BODY_INACTIVE,
+			owned(CRYSTAL_BODY_DEADMAN_INACTIVE), null);
+		assertEquals(CRYSTAL_BODY_DEADMAN_INACTIVE, resolved);
+	}
+
+	/**
+	 * Strengthened regression (replaces the existence-only check that missed this
+	 * P1): for EVERY suffix in {@link OwnedVariantResolver#SUFFIXES} and every
+	 * bundled item whose name ends in it, asserts what {@link
+	 * OwnedVariantResolver#plainFormId} actually RETURNS, not merely that some
+	 * stat-identical candidate exists somewhere in the name group.
+	 *
+	 * <p>The real invariant is conditional, not a blanket equality: most
+	 * suffixes mean "this variant SUPERSEDES (better stats than) its plain
+	 * form" (Masori mask (f) has strictly better defensive bonuses than plain
+	 * Masori mask — see {@code plainFormId_resolvesVariantToPlain}'s fixture),
+	 * so requiring the resolved id's stats to equal the variant's own would be
+	 * wrong for every (f)/(i) case in the bundled data. The property that MUST
+	 * hold universally is: when a plain name resolves to more than one id AND
+	 * those ids are NOT all stat-identical to each other (a genuine same-name
+	 * collision between different items — currently only Deadman crystal
+	 * armour), {@code plainFormId} must resolve to the specific id matching the
+	 * variant's own stats, or {@code null} if none matches — never an
+	 * arbitrary/first-position pick. When the plain name's ids ARE all
+	 * stat-identical (the common case), any pick is safe and unconstrained.
+	 */
+	@Test
+	public void plainFormId_everySuffix_resolvesCorrectlyForEveryHeterogeneousNameCollision()
 	{
 		EquipmentStatsRepository stats = EquipmentStatsRepository.getInstance();
 		Map<String, java.util.List<Integer>> idsByName = new HashMap<>();
@@ -185,38 +303,67 @@ public class OwnedVariantResolverTest
 			}
 		}
 
-		int checked = 0;
-		for (Map.Entry<String, java.util.List<Integer>> e : idsByName.entrySet())
+		int heterogeneousGroupsChecked = 0;
+		int variantsChecked = 0;
+		for (String suffix : OwnedVariantResolver.SUFFIXES)
 		{
-			String name = e.getKey();
-			if (!name.endsWith(" (deadman)"))
+			for (Map.Entry<String, java.util.List<Integer>> e : idsByName.entrySet())
 			{
-				continue;
-			}
-			String plainName = name.substring(0, name.length() - " (deadman)".length());
-			java.util.List<Integer> plainIds = idsByName.get(plainName);
-			if (plainIds == null)
-			{
-				continue; // no indexed plain form (e.g. "Toxic staff") — plainFormId returns null, nothing to mis-resolve
-			}
-			int deadmanId = e.getValue().get(0);
-			EquipmentStatsRepository.Stats deadmanStats = stats.statsFor(deadmanId);
-			boolean anyIdentical = false;
-			for (Integer plainId : plainIds)
-			{
-				if (sameStats(deadmanStats, stats.statsFor(plainId)))
+				String name = e.getKey();
+				if (!name.endsWith(suffix))
 				{
-					anyIdentical = true;
-					break;
+					continue;
+				}
+				String plainName = name.substring(0, name.length() - suffix.length());
+				java.util.List<Integer> plainIds = idsByName.get(plainName);
+				if (plainIds == null)
+				{
+					continue; // no indexed plain form at all — plainFormId must return null, checked separately below
+				}
+				boolean heterogeneous = !allSameStats(stats, plainIds);
+
+				for (Integer variantId : e.getValue())
+				{
+					variantsChecked++;
+					Integer resolved = OwnedVariantResolver.plainFormId(INDEX, variantId);
+					if (!heterogeneous)
+					{
+						// Safe by construction: any pick is stat-identical to every other, so the only
+						// requirement is that SOME real plain id was returned (never null when one exists).
+						assertTrue("\"" + name + "\" (" + variantId + "): a stat-homogeneous plain-name group "
+								+ "must still resolve to a real member, not null",
+							plainIds.contains(resolved));
+						continue;
+					}
+					heterogeneousGroupsChecked++;
+					// Heterogeneous: the resolved id (if any) MUST match the variant's own stats exactly.
+					if (resolved != null)
+					{
+						assertTrue("\"" + name + "\" (" + variantId + ") resolved to " + resolved
+								+ ", whose stats do not match the variant's own — a heterogeneous name "
+								+ "collision must only resolve to a stat-matching member, or null",
+							sameStats(stats.statsFor(variantId), stats.statsFor(resolved)));
+					}
 				}
 			}
-			assertTrue("\"" + name + "\" (" + deadmanId + ") must have a stat-identical plain-name counterpart "
-					+ "among " + plainIds + " — otherwise adding \" (deadman)\" to SUFFIXES would cross-map "
-					+ "ownership to a genuinely different item",
-				anyIdentical);
-			checked++;
 		}
-		assertTrue("fixture sanity: at least one \" (deadman)\" item must exist in the bundled index", checked > 0);
+		assertTrue("fixture sanity: at least one variant must exist for a SUFFIXES entry", variantsChecked > 0);
+		assertTrue("fixture sanity: this check must actually exercise a heterogeneous name collision "
+				+ "(Deadman crystal armour) — otherwise it never tests the property it exists for",
+			heterogeneousGroupsChecked > 0);
+	}
+
+	private static boolean allSameStats(EquipmentStatsRepository stats, java.util.List<Integer> ids)
+	{
+		EquipmentStatsRepository.Stats first = stats.statsFor(ids.get(0));
+		for (Integer id : ids)
+		{
+			if (!sameStats(first, stats.statsFor(id)))
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private static boolean sameStats(EquipmentStatsRepository.Stats a, EquipmentStatsRepository.Stats b)
