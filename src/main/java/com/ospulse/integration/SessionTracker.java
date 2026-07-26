@@ -12,6 +12,7 @@ import com.ospulse.model.ItemStack;
 import com.ospulse.session.GearMapper;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.MovementSignals;
+import com.ospulse.session.ProductionActivity;
 import com.ospulse.session.SessionEngine;
 import com.ospulse.session.SessionListener;
 import com.ospulse.session.SessionService;
@@ -101,6 +102,31 @@ public class SessionTracker implements SessionService
 	 */
 	private final Map<String, SourceAgg> lootBySource = new LinkedHashMap<>();
 
+	/**
+	 * Feed key for loot RuneLite reported but could not name (a {@code
+	 * LootReceived} with an empty source).
+	 */
+	public static final String UNKNOWN_LOOT_SOURCE = "Unknown";
+
+	/**
+	 * Feed key for loot the inventory diff found that NOTHING reported — the
+	 * player's wealth demonstrably rose and the engine booked it as Loot, but no
+	 * {@code LootReceived} named a producer for it. A bird nest searched by an
+	 * auto mechanism is the motivating case: RuneLite's Loot Tracker only
+	 * snapshots off the "Search" menu click, so any other trigger produces loot
+	 * with no event at all, and the feed used to show nothing.
+	 *
+	 * <p>Deliberately NOT {@link #UNKNOWN_LOOT_SOURCE}: that key means "RuneLite
+	 * told us about a drop but not its name", this one means "RuneLite never told
+	 * us at all". Merging them would hide which of the two happened.
+	 *
+	 * <p>Must stay a STABLE CONSTANT and never collide with a real NPC name:
+	 * {@code LootSection} derives the persisted collapse/pause/reset/hide identity
+	 * key from the source string ({@code "loot:" + source}), so a per-tick-unique
+	 * key would spawn a new group with fresh UI state on every search.
+	 */
+	public static final String UNATTRIBUTED_LOOT_SOURCE = "Inventory (unattributed)";
+
 	private static final class SourceAgg
 	{
 		long count;
@@ -127,6 +153,14 @@ public class SessionTracker implements SessionService
 	 * there).
 	 */
 	private MovementSignals.Builder pendingSignals = MovementSignals.builder();
+
+	/**
+	 * The local player's current animation id ({@code -1} = none), kept as
+	 * live state rather than a per-tick event because a bulk craft holds a
+	 * single animation across many ticks. Read once per commit in
+	 * {@link #refresh}. See {@code com.ospulse.OSPulsePlugin#onAnimationChanged}.
+	 */
+	private int currentAnimationId = -1;
 
 	/** Last bank value observed (live or restored from the persisted cache). */
 	private volatile long lastKnownBankValue = 0L;
@@ -319,7 +353,7 @@ public class SessionTracker implements SessionService
 			return;
 		}
 
-		String key = (source == null || source.isEmpty()) ? "Unknown" : source;
+		String key = (source == null || source.isEmpty()) ? UNKNOWN_LOOT_SOURCE : source;
 		SourceAgg agg = lootBySource.computeIfAbsent(key, k -> new SourceAgg());
 		agg.count += Math.max(1, amount);
 		agg.lastSeq = ++lootSeq;
@@ -334,7 +368,11 @@ public class SessionTracker implements SessionService
 			long unit = valuation.unitValue(it.getId());
 			String name = valuation.name(it.getId());
 			mergeItem(agg.items, canonicalId, name, it.getQuantity(), unit);
-			pendingSignals.lootReceived(new com.ospulse.session.LootReceipt(canonicalId, it.getQuantity(), unit));
+			// Carry `key` (not the raw source) so the diff correlation on the tick
+			// commit attributes a matched appearance to exactly the group this
+			// event just booked it under.
+			pendingSignals.lootReceived(
+				new com.ospulse.session.LootReceipt(canonicalId, it.getQuantity(), unit, false, key));
 		}
 
 		// Accumulate the receipt now, preview immediately, but let onTick commit it
@@ -375,6 +413,15 @@ public class SessionTracker implements SessionService
 		pendingSignals.died(true);
 	}
 
+	/**
+	 * Records the local player's current animation id ({@code -1} = none). See
+	 * {@code com.ospulse.OSPulsePlugin#onAnimationChanged}.
+	 */
+	public void onAnimationChanged(int animationId)
+	{
+		this.currentAnimationId = animationId;
+	}
+
 	public void onStatChanged(Skill skill, int xp)
 	{
 		if (skill == null || skill == Skill.OVERALL)
@@ -382,6 +429,13 @@ public class SessionTracker implements SessionService
 			return;
 		}
 		xpTracker.update(skill.name(), xp);
+		if (xp > 0 && ProductionActivity.isProductionSkill(skill.name()))
+		{
+			// One half of the episode trigger — see ProductionActivity. The other
+			// half (animation) is read per-tick in #refresh, and is the half that
+			// catches herblore's zero-XP unf-making step, which never reaches here.
+			pendingSignals.productionXp();
+		}
 		if (skill == Skill.COOKING && xp > 0)
 		{
 			// Each Cooking StatChanged fire (real xp gain) may correspond to an
@@ -467,6 +521,13 @@ public class SessionTracker implements SessionService
 		long ts = System.currentTimeMillis();
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
+		// Round-2 bot-review Finding A: a receipt still pending when the panel's
+		// reset button is hit must not survive into the fresh session — its
+		// source row in lootBySource is gone (cleared above), but the stale
+		// entry would still be sitting in the FIFO pool, ready to net out a
+		// perfectly genuine post-reset pickup and silently drop it from the
+		// fresh session's feed. See #bootstrapSession for the other clearing site.
+		outstandingReceipts.clear();
 		geReconciler.reset();
 		// Restore the GE cost-basis ledger immediately after the reset, mirroring
 		// bootstrapSession — a manual "reset session" must not wipe the cost basis
@@ -518,6 +579,11 @@ public class SessionTracker implements SessionService
 		loadBankCache();
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
+		// Round-2 bot-review Finding A: same rationale as resetSession() — a
+		// genuine login must not carry a stale pre-login receipt forward to
+		// silently swallow a fresh-session pickup that happens to land within
+		// OUTSTANDING_RECEIPT_WINDOW_MS of it.
+		outstandingReceipts.clear();
 		geReconciler.reset();
 		// Restore the GE cost-basis ledger immediately after the reset, so a buy
 		// made in an earlier session (before this relog/login) still has its
@@ -583,12 +649,22 @@ public class SessionTracker implements SessionService
 			// Keep the engine's verbose-diagnostics flag current so the config
 			// toggle takes effect live (no restart) for the per-update log.
 			engine.setVerboseDiagnostics(config.verboseDiagnostics());
+			// The production animation is a per-tick STATE, not an event: it is
+			// read here rather than accumulated in the builder, because
+			// AnimationChanged fires on transitions only and a bulk craft holds
+			// one animation across many ticks — an event-only signal would go
+			// quiet mid-episode and let it idle shut under the player.
+			if (ProductionActivity.isProductionAnimation(currentAnimationId))
+			{
+				pendingSignals.productionAnimation();
+			}
 			// Drain this tick's accumulated Drop/Destroy/Death signals (see
 			// #recordDrop / #recordDestroy / #recordDeath) into the engine, then
 			// reset the builder so the next tick starts empty.
 			MovementSignals signals = pendingSignals.build();
 			pendingSignals = MovementSignals.builder();
 			engine.update(current, geReconciler, signals, ts);
+			attributeDiffLoot(ts, signals, engine.lastUpdateDiffLoot());
 		}
 		publish(buildSnapshot(current, ts, commit));
 	}
@@ -1124,8 +1200,9 @@ public class SessionTracker implements SessionService
 		}
 
 		List<GeOfferView> views = new ArrayList<>();
-		for (GrandExchangeOffer offer : offers)
+		for (int slot = 0; slot < offers.length; slot++)
 		{
+			GrandExchangeOffer offer = offers[slot];
 			if (offer == null)
 			{
 				continue;
@@ -1153,7 +1230,11 @@ public class SessionTracker implements SessionService
 				transacted,
 				price,
 				offer.getSpent(),
-				price * totalQty));
+				price * totalQty,
+				// Absent for a buy offer or a dump (no GE cost basis matched);
+				// present (possibly a small negative, the GE sales tax) for a
+				// genuine flip — see GeReconciler#slotRealizedPnl.
+				geReconciler.slotRealizedPnl(slot)));
 		}
 		return views;
 	}
@@ -1275,6 +1356,120 @@ public class SessionTracker implements SessionService
 			mergeItem(allHoldings, canonicalId, name, amount, unit);
 		}
 		return total;
+	}
+
+	/**
+	 * How long an unmatched, sourced loot receipt stays eligible to net against
+	 * a later tick's inventory diff (see {@link #outstandingReceipts}). An
+	 * ordinary ground drop is picked up on foot, which takes at least one tick
+	 * and often several more — but a dropped item stays private to (and
+	 * pickup-able by) the player who earned it for roughly a minute in live
+	 * OSRS. This window is comfortably inside that "still plausibly the same
+	 * physical drop" period, while short enough that it cannot silently net
+	 * out a genuinely new, unrelated appearance of the same item id much later
+	 * in the session.
+	 */
+	private static final long OUTSTANDING_RECEIPT_WINDOW_MS = 20_000L;
+
+	/**
+	 * Sourced receipts ({@link com.ospulse.session.LootReceipt#source} != null)
+	 * not yet matched by an inventory diff, keyed by canonical item id and kept
+	 * oldest-first so a later tick's pickup can still net against a receipt
+	 * booked several ticks earlier. See {@link #attributeDiffLoot}. The FIFO
+	 * netting/expiry logic itself lives in {@link
+	 * com.ospulse.session.OutstandingReceiptLedger}, shared with {@link
+	 * com.ospulse.session.SessionEngine}'s equivalent cross-tick problem for
+	 * its episode-output crediting (round-2 bot-review Finding C) — this
+	 * tracker's instance is separate (different quantities, different
+	 * clearing points), only the mechanism is shared.
+	 */
+	private final com.ospulse.session.OutstandingReceiptLedger outstandingReceipts =
+		new com.ospulse.session.OutstandingReceiptLedger(OUTSTANDING_RECEIPT_WINDOW_MS);
+
+	/**
+	 * Feeds this tick's inventory-diff loot into the per-source feed, so the feed
+	 * reports what the player's inventory actually did rather than only what
+	 * RuneLite's Loot Tracker chose to announce. Trigger-agnostic by construction:
+	 * it watches the inventory, so it cannot care whether a bird nest was searched
+	 * by a menu click or by anything else.
+	 *
+	 * <p><b>Why this cannot double-count.</b> An ordinary NPC kill is seen twice —
+	 * {@link #onLootReceived} already booked its feed row, and the engine's diff
+	 * (whichever tick it eventually lands on) books the same items again as LOOT
+	 * residue. So each appearance is netted against the quantity a receipt has
+	 * already booked, and only the shortfall is added. A kill nets to zero and
+	 * adds nothing; a nest that fired no event nets against nothing and is added
+	 * in full.
+	 *
+	 * <p><b>Why netting cannot be same-tick-only.</b> RuneLite's {@code
+	 * LootReceived} for an ordinary NPC kill fires as soon as the loot is known
+	 * (at the kill), not when the player later walks over and picks it up — the
+	 * inventory diff for that pickup can land several ticks after the receipt.
+	 * A receipt that isn't matched on its own tick is therefore not stale; it is
+	 * parked in {@link #outstandingReceipts} and stays eligible to net against
+	 * the diff whenever the pickup actually happens, up to {@link
+	 * #OUTSTANDING_RECEIPT_WINDOW_MS}. Past that window it is dropped: either it
+	 * was never picked up (looted by someone else, despawned) or matching it
+	 * this late would risk swallowing a genuinely new, unrelated appearance.
+	 *
+	 * <p>Netting is per-quantity on the canonical item id, NOT all-or-nothing on an
+	 * exact (id, quantity, unitValue) tuple. Two reasons. A tick can carry both a
+	 * receipted kill and an unreceipted search of the same id, so the diff's
+	 * quantity legitimately exceeds the receipt's and the remainder is real; an
+	 * exact-tuple match would fail and book the whole appearance a second time.
+	 * And {@code unitValue} is deliberately out of the key: both sides derive it
+	 * from the same valuation for the same id, so it adds no discrimination within
+	 * a tick, but the receipt is priced at event time and the diff at commit time —
+	 * a price refresh in between would break a tuple match and double-count the
+	 * kill, which is the exact failure this netting exists to prevent.
+	 *
+	 * <p>Only receipts carrying a source ({@link com.ospulse.session.LootReceipt#source})
+	 * net, because those are precisely the ones {@code onLootReceived} booked a
+	 * feed row for. A sourceless receipt (the fish barrel's inferred catches) never
+	 * touched this feed, so netting against it would silently swallow a genuine
+	 * full-barrel overflow catch that did land in the inventory.
+	 */
+	private void attributeDiffLoot(long ts, MovementSignals signals, List<com.ospulse.session.DiffLoot> diffLoot)
+	{
+		outstandingReceipts.pruneExpired(ts);
+
+		// Fold this tick's sourced receipts into the outstanding pool BEFORE
+		// netting below, so a same-tick kill+pickup still nets in full (as
+		// before); a receipt with no diff this tick simply joins the pool and
+		// waits for whichever later tick the pickup actually lands on.
+		for (com.ospulse.session.LootReceipt r : signals.lootReceipts())
+		{
+			if (r.source == null)
+			{
+				continue;
+			}
+			outstandingReceipts.record(r.itemId, r.quantity, ts);
+		}
+
+		if (diffLoot.isEmpty())
+		{
+			return;
+		}
+
+		// One SourceAgg for the whole tick: the key must stay stable (it is the
+		// panel's persisted collapse/hide identity — see UNATTRIBUTED_LOOT_SOURCE),
+		// and the tick counts as a single "drop" no matter how many ids it carried.
+		SourceAgg agg = null;
+		for (com.ospulse.session.DiffLoot d : diffLoot)
+		{
+			long remaining = outstandingReceipts.claim(d.itemId, d.quantity);
+			if (remaining <= 0)
+			{
+				continue;
+			}
+			if (agg == null)
+			{
+				agg = lootBySource.computeIfAbsent(UNATTRIBUTED_LOOT_SOURCE, k -> new SourceAgg());
+				agg.count++;
+				agg.lastSeq = ++lootSeq;
+			}
+			mergeItem(agg.items, d.itemId, d.name, remaining, d.unitValue);
+		}
 	}
 
 	/**

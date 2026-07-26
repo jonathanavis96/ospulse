@@ -15,6 +15,7 @@ import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Player;
 import net.runelite.api.events.ActorDeath;
+import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.GrandExchangeOfferChanged;
@@ -34,6 +35,7 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.banktags.BankTagsPlugin;
+import net.runelite.client.plugins.loottracker.LootTrackerPlugin;
 import net.runelite.client.plugins.loottracker.LootReceived;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
@@ -68,6 +70,12 @@ import java.awt.image.BufferedImage;
 // bound inside the banktags plugin's own injector, so without declaring the
 // dependency they inject as null and the feature silently no-ops.
 @PluginDependency(BankTagsPlugin.class)
+// The loot feed consumes Loot Tracker's LootReceived events to NAME a drop's
+// source; declaring the dependency makes RuneLite start that plugin first so
+// early kills are not missed. A nicety, not a requirement: the feed derives the
+// loot itself from the inventory diff (see SessionTracker#attributeDiffLoot), so
+// with Loot Tracker off the drops still appear, just unnamed.
+@PluginDependency(LootTrackerPlugin.class)
 public class OSPulsePlugin extends Plugin
 {
 	@Inject
@@ -584,6 +592,24 @@ public class OSPulsePlugin extends Plugin
 		if (event.getActor() == client.getLocalPlayer())
 		{
 			tracker.recordDeath();
+		}
+	}
+
+	/**
+	 * Tracks the local player's animation so the engine can open a skilling
+	 * episode from it. Animation is not a nicety here: herblore's unf-making
+	 * step grants no XP at all, so an XP-only trigger would never see the step
+	 * the expensive herb is spent on. See {@code ProductionActivity} for the id
+	 * table — every id resolved from RuneLite's own {@code AnimationID}
+	 * constants and guarded by {@code ProductionAnimationProvenanceTest} — and
+	 * for why a missing id degrades safely.
+	 */
+	@Subscribe
+	public void onAnimationChanged(AnimationChanged event)
+	{
+		if (event.getActor() == client.getLocalPlayer())
+		{
+			tracker.onAnimationChanged(event.getActor().getAnimation());
 		}
 	}
 

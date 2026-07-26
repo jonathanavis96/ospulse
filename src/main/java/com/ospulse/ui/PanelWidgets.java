@@ -268,6 +268,36 @@ public final class PanelWidgets
 	}
 
 	/**
+	 * A "left ........ ±right" row (no icon), like {@link #listRow(String,
+	 * String)} but the right-hand side is a signed gp figure rendered via
+	 * {@link #setSignedGpLabel(JLabel, long)} — green for a gain (or an
+	 * exact-zero result), red for a loss. Exists so per-row dynamic content
+	 * (e.g. one row per active GE offer, rebuilt from scratch on every
+	 * update) can get the same signed-gp treatment as the static stat rows
+	 * without hand-rolling its own colour logic.
+	 */
+	public static JPanel signedListRow(String left, long value)
+	{
+		JPanel row = new JPanel(new BorderLayout());
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setBorder(new EmptyBorder(1, 0, 1, 0));
+		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		JLabel leftLabel = new JLabel(left);
+		leftLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		leftLabel.setFont(FontManager.getRunescapeSmallFont());
+
+		JLabel rightLabel = new JLabel();
+		rightLabel.setFont(FontManager.getRunescapeSmallFont());
+		rightLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+		setSignedGpLabel(rightLabel, value);
+
+		row.add(leftLabel, BorderLayout.WEST);
+		row.add(rightLabel, BorderLayout.EAST);
+		return row;
+	}
+
+	/**
 	 * A list row with the item's sprite left of {@code leftText}, and
 	 * {@code rightText} pinned right. The icon loads asynchronously via
 	 * {@link ItemManager} and repaints when ready.

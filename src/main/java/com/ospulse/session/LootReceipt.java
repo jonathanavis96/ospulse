@@ -16,17 +16,31 @@ public final class LootReceipt
 	 * balance. The same-tick inventory-landing check still applies as a safety net.
 	 */
 	public final boolean storageRouted;
+	/**
+	 * What RuneLite said produced this loot (NPC/boss/activity name), or null
+	 * when the receipt has no source — an inferred receipt (the fish barrel) or
+	 * an event RuneLite raised with an empty source. Carried so a caller
+	 * reconciling the inventory diff against this tick's receipts can tell a
+	 * matched appearance apart from one nothing reported, and name it accordingly.
+	 */
+	public final String source;
 
 	public LootReceipt(int itemId, long quantity, long unitValue)
 	{
-		this(itemId, quantity, unitValue, false);
+		this(itemId, quantity, unitValue, false, null);
 	}
 
 	public LootReceipt(int itemId, long quantity, long unitValue, boolean storageRouted)
+	{
+		this(itemId, quantity, unitValue, storageRouted, null);
+	}
+
+	public LootReceipt(int itemId, long quantity, long unitValue, boolean storageRouted, String source)
 	{
 		this.itemId = itemId;
 		this.quantity = quantity;
 		this.unitValue = unitValue;
 		this.storageRouted = storageRouted;
+		this.source = source;
 	}
 }

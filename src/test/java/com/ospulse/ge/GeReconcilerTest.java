@@ -4,8 +4,11 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Map;
+import java.util.OptionalLong;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class GeReconcilerTest
 {
@@ -37,6 +40,36 @@ public class GeReconcilerTest
 		// Sale nets the price minus 2% GE tax: 1,200,000 - (1,200,000/50=24,000)
 		// = 1,176,000 per whip. (1,176,000 - 1,000,000) * 10 = 1,760,000 profit.
 		assertEquals(1_760_000L, reconciler.realizedPnl());
+	}
+
+	/**
+	 * Bot-review finding (P2): a sell offer's {@code pricePerItem} is the
+	 * LISTED (minimum) price, but the GE can clear it at a genuinely higher
+	 * price — {@code gpTransacted} carries the actual proceeds (see the
+	 * {@code onOfferUpdate} comment "a sell can fill ABOVE the offer price").
+	 * {@link GeReconciler#applySell} must derive the realized delta and tax
+	 * from the actual incremental proceeds, not the stale listed price.
+	 */
+	@Test
+	public void sellFillingAboveTheListedPriceRealisesActualProceeds()
+	{
+		// Buy 10 whips at 1,000,000 each.
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+
+		// Sell offer LISTS 1,000,000/ea (its minimum), but the GE actually
+		// clears it at 1,200,000/ea — gpTransacted (12,000,000 for 10) is the
+		// real proceeds, not quantityTransacted * pricePerItem (10,000,000).
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_000_000L, 2000L);
+
+		// Same arithmetic as buyThenSellRealisesPnl (1,200,000/ea net of 2% tax
+		// = 1,176,000; (1,176,000-1,000,000)*10 = 1,760,000 profit) — using the
+		// listed price instead would compute a LOSS here, flipping the sign.
+		assertEquals("realized P&L must reflect actual proceeds, not the listed price",
+			1_760_000L, reconciler.realizedPnl());
+		assertEquals("the slot figure must match too",
+			OptionalLong.of(1_760_000L), reconciler.slotRealizedPnl(1));
 	}
 
 	@Test
@@ -521,5 +554,196 @@ public class GeReconcilerTest
 			10L, 10L, 12_000_000L, 1_200_000L, 2000L);
 		assertEquals("with restore the weeks-old buy credits its full flip P&L in the new session",
 			1_760_000L, restoredSession.realizedPnl());
+	}
+
+	// ----------------------------------------------- per-slot flip P&L (GE panel signed P&L row)
+
+	@Test
+	public void slotRealizedPnlIsAbsentForAnUntouchedSlot()
+	{
+		// A slot that has never seen an update has no offer at all, let alone a
+		// flip: absent, not zero.
+		assertEquals(OptionalLong.empty(), reconciler.slotRealizedPnl(7));
+	}
+
+	@Test
+	public void slotRealizedPnlIsPositiveWhenFlipSoldAboveCostBasis()
+	{
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 2000L);
+
+		// Same 1,760,000 profit as the global realizedPnl() case, but read off
+		// the selling slot specifically.
+		assertEquals(OptionalLong.of(1_760_000L), reconciler.slotRealizedPnl(1));
+		// The buy slot never sold anything, so it never became a flip.
+		assertEquals(OptionalLong.empty(), reconciler.slotRealizedPnl(0));
+	}
+
+	@Test
+	public void slotRealizedPnlIsNegativeWhenFlipSoldBelowCostBasis()
+	{
+		// Bought at 1.2M, sold at 1.0M: a genuine loss, not just the tax bite.
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 1000L);
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 2000L);
+
+		// Net proceeds/item = 1,000,000 - 20,000 (2% tax) = 980,000;
+		// (980,000 - 1,200,000) * 10 = -2,200,000.
+		assertEquals(OptionalLong.of(-2_200_000L), reconciler.slotRealizedPnl(1));
+	}
+
+	@Test
+	public void slotRealizedPnlIsSmallNegativeWhenSoldAtTheSameListedPriceItWasBoughtAt()
+	{
+		// THE USER'S REPORTED SCENARIO: sold at exactly the price it was bought
+		// at. Today's UI renders this as an alarming full-red "loss"; the only
+		// real loss is the 2% GE sales tax, which should show as a small red
+		// figure, not a big one.
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 2000L);
+
+		// Net proceeds/item = 1,000,000 - 20,000 (2% tax) = 980,000;
+		// (980,000 - 1,000,000) * 10 = -200,000 -- small relative to the 10M
+		// position, and NEGATIVE (not the absent/neutral dump case).
+		OptionalLong pnl = reconciler.slotRealizedPnl(1);
+		assertTrue("must be a flip (present), not a dump", pnl.isPresent());
+		assertEquals(-200_000L, pnl.getAsLong());
+		assertTrue("must be a small loss relative to the 10M position",
+			Math.abs(pnl.getAsLong()) < 1_000_000L);
+	}
+
+	@Test
+	public void slotRealizedPnlIsAbsentForADump()
+	{
+		// Selling with no GE cost basis (looted/bank items) is not a flip: the
+		// slot must report NO P&L at all, distinguishable from a break-even
+		// flip (which would report a present, small-negative value instead).
+		reconciler.onOfferUpdate(0, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 1000L);
+
+		assertFalse("a dump must not be a present P&L, even a zero one",
+			reconciler.slotRealizedPnl(0).isPresent());
+		assertEquals(OptionalLong.empty(), reconciler.slotRealizedPnl(0));
+	}
+
+	@Test
+	public void slotRealizedPnlIsAbsentForABuyOffer()
+	{
+		// Still buying/bought, never sold: nothing to realise yet.
+		reconciler.onOfferUpdate(0, GeOfferState.BUYING, WHIP, "Abyssal whip",
+			10L, 4L, 4_000_000L, 1_000_000L, 1000L);
+		assertEquals(OptionalLong.empty(), reconciler.slotRealizedPnl(0));
+
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1100L);
+		assertEquals(OptionalLong.empty(), reconciler.slotRealizedPnl(0));
+	}
+
+	@Test
+	public void slotRealizedPnlGrowsAsAPartiallyFilledSellOfferFills()
+	{
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+
+		// First partial fill: 4/10 sold at 1.2M.
+		reconciler.onOfferUpdate(1, GeOfferState.SELLING, WHIP, "Abyssal whip",
+			10L, 4L, 4_800_000L, 1_200_000L, 2000L);
+		// Net/item = 1,200,000 - 24,000 (2% tax) = 1,176,000; (1,176,000 -
+		// 1,000,000) * 4 = 704,000.
+		assertEquals(OptionalLong.of(704_000L), reconciler.slotRealizedPnl(1));
+
+		// Fills the rest: 10/10 total.
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 3000L);
+		// The slot's P&L must have grown by the incremental 6 items' worth,
+		// landing on the same total as a one-shot full sell.
+		assertEquals(OptionalLong.of(1_760_000L), reconciler.slotRealizedPnl(1));
+	}
+
+	@Test
+	public void slotRealizedPnlOnlyCountsTheMatchedFlipPortionWhenPartlyDumping()
+	{
+		// Bought 5, but the sell offer is for 10 (5 flipped, 5 dumped in the
+		// same increment): only the matched 5 count toward this slot's P&L.
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			5L, 5L, 5_000_000L, 1_000_000L, 1000L);
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 2000L);
+
+		// (1,176,000 net/item - 1,000,000) * 5 matched = 880,000.
+		assertEquals(OptionalLong.of(880_000L), reconciler.slotRealizedPnl(1));
+	}
+
+	@Test
+	public void slotRealizedPnlResetsWhenSlotIsReusedAfterEmpty()
+	{
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 2000L);
+		assertEquals(OptionalLong.of(1_760_000L), reconciler.slotRealizedPnl(1));
+
+		// Slot 1 is collected and clears...
+		reconciler.onOfferUpdate(1, GeOfferState.EMPTY, 0, null,
+			0L, 0L, 0L, 0L, 3000L);
+		assertEquals("a cleared slot must not keep reporting the prior offer's P&L",
+			OptionalLong.empty(), reconciler.slotRealizedPnl(1));
+
+		// ...and is reused for a brand new BUY offer of a different item: it
+		// must not inherit the previous sell's 1,760,000.
+		int dartId = 811;
+		reconciler.onOfferUpdate(1, GeOfferState.BOUGHT, dartId, "Rune dart",
+			5000L, 5000L, 5000L, 1L, 4000L);
+		assertEquals("a reused slot must not inherit the previous offer's P&L",
+			OptionalLong.empty(), reconciler.slotRealizedPnl(1));
+	}
+
+	@Test
+	public void slotRealizedPnlResetsWhenSlotIsReusedWithoutObservedEmpty()
+	{
+		// Same defensive case as slotReuseWithDifferentItemResetsTracking: the
+		// slot is reused for a new offer without an observed EMPTY event
+		// in-between (quantityTransacted regresses to signal it).
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 2000L);
+		assertEquals(OptionalLong.of(1_760_000L), reconciler.slotRealizedPnl(1));
+
+		// Slot 1 reused for a fresh buy of the same item without an EMPTY:
+		// quantityTransacted regresses from 10 back down to 3.
+		reconciler.onOfferUpdate(1, GeOfferState.BUYING, WHIP, "Abyssal whip",
+			10L, 3L, 3_000_000L, 1_000_000L, 3000L);
+		assertEquals("a reused slot must not inherit the previous offer's P&L",
+			OptionalLong.empty(), reconciler.slotRealizedPnl(1));
+	}
+
+	@Test
+	public void globalRealizedPnlIsUnaffectedByPerSlotTracking()
+	{
+		// Two flips in two different slots: the global total must still be the
+		// plain sum, exactly as before per-slot tracking existed.
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, WHIP, "Abyssal whip",
+			10L, 10L, 12_000_000L, 1_200_000L, 2000L);
+		assertEquals(1_760_000L, reconciler.realizedPnl());
+
+		int dartId = 811;
+		reconciler.onOfferUpdate(2, GeOfferState.BOUGHT, dartId, "Rune dart",
+			100L, 100L, 100_000L, 1_000L, 3000L);
+		reconciler.onOfferUpdate(3, GeOfferState.SOLD, dartId, "Rune dart",
+			100L, 100L, 200_000L, 2_000L, 4000L);
+		// Net/item = 2,000 - 40 (2% tax) = 1,960; profit = (1,960 - 1,000) * 100 = 96,000.
+		assertEquals(1_856_000L, reconciler.realizedPnl());
+
+		// Each slot still reports its own share.
+		assertEquals(OptionalLong.of(1_760_000L), reconciler.slotRealizedPnl(1));
+		assertEquals(OptionalLong.of(96_000L), reconciler.slotRealizedPnl(3));
 	}
 }
