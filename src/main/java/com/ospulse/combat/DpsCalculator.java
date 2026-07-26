@@ -68,7 +68,7 @@ public final class DpsCalculator {
     public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
                                      Monster target, int baseSpellMaxHit, int weaponId) {
         if (style == CombatStyle.MAGIC) {
-            return computeMagic(gear, player, target, baseSpellMaxHit, gear.weaponSpeedTicks(), false, null, weaponId);
+            return computeMagic(gear, player, target, baseSpellMaxHit, gear.weaponSpeedTicks(), false, null, weaponId, false);
         }
         return computeNonMagic(gear, player, style, target, weaponId);
     }
@@ -77,10 +77,11 @@ public final class DpsCalculator {
      * Spell-aware entry point. For {@link CombatStyle#MAGIC}: a worn powered
      * staff (detected on {@code gear}) takes precedence — its built-in spell's
      * max hit is derived from the (boosted) Magic level at the weapon's own
-     * speed; otherwise the given {@link Spell}'s base max hit is cast at the
-     * fixed {@link Spell#CAST_SPEED_TICKS} autocast speed. A {@code null}
-     * spell with no powered staff yields a zero-damage result rather than a
-     * guess.
+     * speed; otherwise the given {@link Spell}'s base max hit is cast at a
+     * weapon-aware speed (see {@link MagicCastSpeed}: the Twinflame staff and
+     * Harmonised nightmare staff override the default {@link
+     * Spell#CAST_SPEED_TICKS}). A {@code null} spell with no powered staff
+     * yields a zero-damage result rather than a guess.
      */
     public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
                                      Monster target, Spell spell) {
@@ -100,12 +101,16 @@ public final class DpsCalculator {
             // Base max hit derives from the boosted level inside computeMagic.
             // Powered staves cast their own built-in "spell" (Magic Dart etc.),
             // which is not a real Spell and carries no element - no weakness bonus.
+            // Twinflame/Harmonised are not powered staves, so this branch never
+            // needs the weapon-aware cast speed or the second-hit passive.
             return computeMagic(gear, player, target, POWERED_STAFF_SENTINEL, gear.weaponSpeedTicks(),
-                    gear.poweredStaff().approximate(), null, weaponId);
+                    gear.poweredStaff().approximate(), null, weaponId, false);
         }
         int baseMaxHit = spell == null ? 0 : spell.baseMaxHit();
         Spell.Element element = spell == null ? null : spell.element();
-        return computeMagic(gear, player, target, baseMaxHit, Spell.CAST_SPEED_TICKS, false, element, weaponId);
+        int castSpeedTicks = MagicCastSpeed.ticksFor(gear.twinflameStaff(), gear.harmonisedNightmareStaff(), spell);
+        boolean twinflameSecondHit = gear.twinflameStaff() && spell != null && spell.twinflameEligible();
+        return computeMagic(gear, player, target, baseMaxHit, castSpeedTicks, false, element, weaponId, twinflameSecondHit);
     }
 
     /** Sentinel meaning "the worn weapon's item id is not known to this caller". */
@@ -307,7 +312,7 @@ public final class DpsCalculator {
 
     private static DpsResult computeMagic(EquipmentStats gear, PlayerCombat player, Monster target,
                                           int baseSpellMaxHit, int castSpeedTicks, boolean approximate,
-                                          Spell.Element spellElement, int weaponId) {
+                                          Spell.Element spellElement, int weaponId, boolean twinflameSecondHit) {
         int boostedMagic = player.assumeBestPotion()
                 ? magicPotionBoostedLevel(player.magicPotionVariant(), player.baseMagic())
                 : player.boostedMagic();
@@ -388,6 +393,9 @@ public final class DpsCalculator {
 
         TargetDamage damage = applyTargetDamageRules(maxHit, target, gear, CombatStyle.MAGIC, weaponId);
         maxHit = damage.visibleMaxHit();
+        if (twinflameSecondHit) {
+            return finishTwinflame(damage, accuracyRoll, defenceRoll, castSpeedTicks, target.hitpoints());
+        }
         return finish(damage, accuracyRoll, defenceRoll, castSpeedTicks, target.hitpoints(), approximate);
     }
 
@@ -613,5 +621,39 @@ public final class DpsCalculator {
                 : CombatMath.expectedOverkill(damage.uncapped, targetHitpoints);
         double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
         return new DpsResult(damage.visibleMaxHit(), hitChance, dps, avgDamage, ttkSeconds, overkill, false);
+    }
+
+    /**
+     * Twinflame staff variant of {@link #finish}: adds the exact expected
+     * second-hit damage (see {@link TwinflameSecondHit} for the derivation
+     * and why {@code E[floor(0.4*D)] != 0.4*E[D]}) to the average damage used
+     * for DPS, and uses {@link TwinflameSecondHit}'s combined-hitsplat model
+     * for overkill/TTK — see that class's javadoc for the explicit modelling
+     * choice and its one documented, negligible simplification (the killing
+     * blow's second hitsplat is still counted in full even when the first
+     * alone would already be lethal).
+     *
+     * <p>Both the average AND the overkill are migrated together here
+     * deliberately: reflecting the second hit in only one of the two would
+     * leave the reported DPS and TTK disagreeing with each other for every
+     * Twinflame-eligible cast.
+     */
+    private static DpsResult finishTwinflame(TargetDamage damage, int attackRoll, int defenceRoll, int castSpeedTicks,
+                                              int targetHitpoints) {
+        int maxHit = damage.visibleMaxHit();
+        double hitChance = CombatMath.hitChance(attackRoll, defenceRoll);
+        double firstHitAvg = damage.isCapped()
+                ? CombatMath.cappedAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap)
+                : CombatMath.averageDamagePerAttack(hitChance, maxHit);
+        double secondHitAvg = damage.isCapped()
+                ? TwinflameSecondHit.cappedSecondHitAverage(hitChance, damage.uncapped, damage.cap)
+                : TwinflameSecondHit.secondHitAverage(hitChance, maxHit);
+        double avgDamage = firstHitAvg + secondHitAvg;
+        double dps = CombatMath.dps(avgDamage, castSpeedTicks);
+        double overkill = damage.isCapped()
+                ? TwinflameSecondHit.cappedCombinedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints)
+                : TwinflameSecondHit.combinedExpectedOverkill(maxHit, targetHitpoints);
+        double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
+        return new DpsResult(maxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, false);
     }
 }
