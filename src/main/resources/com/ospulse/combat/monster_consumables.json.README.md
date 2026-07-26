@@ -237,3 +237,24 @@ Reviewer's finding was REAL. The antivenom recommendation itself was never
 in question — only the attribution — so the note now credits the venomous
 dragonfire (normal rotation) instead of "the acid phase," and no longer
 implies the acid pools poison you.
+
+## Correction (round 5) — Vorkath, two-handed setups
+
+The round-3 wording said a two-handed setup "can reduce the damage but never fully block it".
+Accurate but misleading in effect: it reads as a warning without saying how small the residual is,
+and a player would reasonably infer their bowfa setup is unsafe.
+
+Per the [Dragonfire](https://oldschool.runescape.wiki/w/Dragonfire) damage-reduction table, Vorkath's
+dragonfire maxima are: **80** unprotected, **60** with super antifire alone, **10** with Protect from
+Magic + super antifire, and **0** with any dragonfire-protection shield + super antifire. The green
+and purple breaths take a further **-5** (Mod Ash, 27 Dec 2020), so the venomous breath caps at 5 for
+a two-handed setup.
+
+A max hit of 10 is what the overwhelming majority of Vorkath players accept in order to use a
+two-handed weapon. The note now states both working options with the real numbers and lets the
+player choose, rather than implying only the shield route is viable.
+
+Note also (footnote in the same table): **dragonfire protection does not defend against Vorkath's
+one-hit fireball at all.** No potion or shield choice changes that, so it is deliberately left out of
+a *consumables* reminder - it is a movement problem, not a supply one.
+

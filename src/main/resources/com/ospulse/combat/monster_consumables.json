@@ -6,7 +6,7 @@
     },
     {
       "monsters": ["Vorkath"],
-      "note": "Vorkath's dragonfire is stronger than a normal dragon's: a shield only gives full protection when paired with a super antifire potion, and two-handed setups can reduce the damage but never fully block it, even with Protect from Magic and a super antifire potion. His venomous dragonfire, part of the normal attack rotation, can poison you — bring antivenom(+).",
+      "note": "Vorkath's dragonfire hits 80 unprotected. A dragonfire shield with a super antifire blocks it completely; a two-handed setup with Protect from Magic and a super antifire brings it down to 10, which is what most players run. His venomous dragonfire, part of the normal rotation, can poison you — bring antivenom(+).",
       "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
     },
     {
