@@ -8,8 +8,8 @@ import org.junit.Test;
 
 /**
  * The generic {@code REROLL} damage cap's mean is NOT the same as feeding the
- * cap through the ordinary {@link CombatMath#averageDamagePerAttack}/{@link
- * CombatMath#expectedOverkill}, even though the RE-ROLLED distribution's
+ * cap through the ordinary {@link DamageDistribution#averageDamagePerAttack}/{@link
+ * DamageDistribution#expectedOverkill}, even though the RE-ROLLED distribution's
  * SHAPE is exactly a uniform {@code 0..cap} roll (proved in {@link
  * CombatMathRerollEquivalenceTest}).
  *
@@ -26,7 +26,7 @@ import org.junit.Test;
  * re-rolled formulas were built to avoid one review cycle earlier, just not
  * yet caught on the generic path.
  *
- * <p>{@link CombatMath#rerolledAverageDamagePerAttack}/{@code
+ * <p>{@link DamageDistribution#rerolledAverageDamagePerAttack}/{@code
  * rerolledExpectedOverkill} are the exact, zero-aware replacements, wired
  * into {@link DpsCalculator#finish}'s {@code REROLL} branch.
  */
@@ -60,7 +60,7 @@ public class RerolledDamageBumpTest {
             int cap = pair[1];
             assertEquals("M=" + m + " cap=" + cap,
                 bruteForceRerolledMean(m, cap),
-                CombatMath.rerolledAverageDamagePerAttack(1.0, m, cap) , 1e-12);
+                DamageDistribution.rerolledAverageDamagePerAttack(1.0, m, cap) , 1e-12);
         }
     }
 
@@ -72,15 +72,15 @@ public class RerolledDamageBumpTest {
             int cap = pair[1];
             double expected = cap / 2.0 + 1.0 / (m + 1.0);
             assertEquals("M=" + m + " cap=" + cap,
-                expected, CombatMath.rerolledAverageDamagePerAttack(1.0, m, cap), 1e-12);
+                expected, DamageDistribution.rerolledAverageDamagePerAttack(1.0, m, cap), 1e-12);
         }
     }
 
     /** The naive "just feed the cap through the ordinary formula" bug this method replaces. */
     @Test
     public void isNotTheNaiveOrdinaryFormulaFedTheCap() {
-        double correct = CombatMath.rerolledAverageDamagePerAttack(1.0, 40, 3);
-        double naive = CombatMath.averageDamagePerAttack(1.0, 3); // the bug: bumps the re-roll's own zero
+        double correct = DamageDistribution.rerolledAverageDamagePerAttack(1.0, 40, 3);
+        double naive = DamageDistribution.averageDamagePerAttack(1.0, 3); // the bug: bumps the re-roll's own zero
         assertNotEquals(naive, correct, 1e-9);
         assertTrue("the naive formula overstates the mean by double-applying the bump", naive > correct);
     }
@@ -90,7 +90,7 @@ public class RerolledDamageBumpTest {
     @Test
     public void verzikRangedMagicCapOfThree_mustNotReportOnePointSevenFive() {
         for (int m : new int[]{20, 40, 99, 250}) {
-            double result = CombatMath.rerolledAverageDamagePerAttack(1.0, m, 3);
+            double result = DamageDistribution.rerolledAverageDamagePerAttack(1.0, m, 3);
             assertNotEquals("M=" + m, 1.75, result, 1e-9);
             assertEquals("M=" + m, 1.5 + 1.0 / (m + 1.0), result, 1e-12);
         }
@@ -100,8 +100,8 @@ public class RerolledDamageBumpTest {
 
     @Test
     public void overkillDiffersFromTheNaiveOrdinaryFormula_becauseP0IsPositive() {
-        double correct = CombatMath.rerolledExpectedOverkill(40, 3, 60);
-        double naive = CombatMath.expectedOverkill(3, 60); // bakes in the bump, assumes P(0) == 0
+        double correct = DamageDistribution.rerolledExpectedOverkill(40, 3, 60);
+        double naive = DamageDistribution.expectedOverkill(3, 60); // bakes in the bump, assumes P(0) == 0
         assertNotEquals("a re-rolled hitsplat of 0 is genuine, not folded into 1 the way the ordinary "
                 + "distribution assumes — this must change the overkill, not just the average",
             naive, correct, 1e-6);
@@ -109,8 +109,8 @@ public class RerolledDamageBumpTest {
 
     @Test
     public void overkillCapAtOrAboveMaxHit_reducesToThePlainUncappedOverkill() {
-        assertEquals(CombatMath.expectedOverkill(40, 60), CombatMath.rerolledExpectedOverkill(40, 40, 60), 1e-12);
-        assertEquals(CombatMath.expectedOverkill(40, 60), CombatMath.rerolledExpectedOverkill(40, 100, 60), 1e-12);
+        assertEquals(DamageDistribution.expectedOverkill(40, 60), DamageDistribution.rerolledExpectedOverkill(40, 40, 60), 1e-12);
+        assertEquals(DamageDistribution.expectedOverkill(40, 60), DamageDistribution.rerolledExpectedOverkill(40, 100, 60), 1e-12);
     }
 
     // ---- End-to-end: DpsCalculator's generic REROLL branch uses the new path --------------
@@ -166,11 +166,11 @@ public class RerolledDamageBumpTest {
         assertEquals("cap must actually bind", 3, r.maxHit());
         assertTrue("sanity: true max hit must exceed the cap", control.maxHit() > 3);
 
-        double expectedAvg = CombatMath.rerolledAverageDamagePerAttack(r.accuracy(), control.maxHit(), 3);
+        double expectedAvg = DamageDistribution.rerolledAverageDamagePerAttack(r.accuracy(), control.maxHit(), 3);
         assertEquals(expectedAvg, r.avgHit(), 1e-9);
         assertNotEquals("must not be the naive bumped-cap average", 1.75, r.avgHit(), 1e-6);
 
-        double expectedOverkill = CombatMath.rerolledExpectedOverkill(control.maxHit(), 3, verzikP1().hitpoints());
+        double expectedOverkill = DamageDistribution.rerolledExpectedOverkill(control.maxHit(), 3, verzikP1().hitpoints());
         assertEquals(expectedOverkill, r.overkillPerKill(), 1e-9);
 
         double expectedDps = CombatMath.dps(expectedAvg, 4);
@@ -187,10 +187,10 @@ public class RerolledDamageBumpTest {
         assertEquals("cap must actually bind", 3, r.maxHit());
         assertTrue("sanity: true max hit must exceed the cap", control.maxHit() > 3);
 
-        double expectedAvg = CombatMath.rerolledAverageDamagePerAttack(r.accuracy(), control.maxHit(), 3);
+        double expectedAvg = DamageDistribution.rerolledAverageDamagePerAttack(r.accuracy(), control.maxHit(), 3);
         assertEquals(expectedAvg, r.avgHit(), 1e-9);
 
-        double expectedOverkill = CombatMath.rerolledExpectedOverkill(control.maxHit(), 3, verzikP1().hitpoints());
+        double expectedOverkill = DamageDistribution.rerolledExpectedOverkill(control.maxHit(), 3, verzikP1().hitpoints());
         assertEquals(expectedOverkill, r.overkillPerKill(), 1e-9);
     }
 }

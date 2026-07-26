@@ -51,7 +51,7 @@ public final class DpsResult {
     /**
      * Expected damage wasted on the killing blow (rolled beyond the target's
      * remaining HP), in hitpoints per kill — see
-     * {@code CombatMath.expectedOverkill} for the model.
+     * {@code DamageDistribution.expectedOverkill} for the model.
      */
     public double overkillPerKill() {
         return overkillPerKill;

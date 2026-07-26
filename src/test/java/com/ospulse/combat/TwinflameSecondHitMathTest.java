@@ -54,7 +54,7 @@ public class TwinflameSecondHitMathTest {
         // Exact: hitChance * sum(floor(0.4*d) * P(d)) - these must differ for a hit chance of 1.
         int maxHit = 12;
         double hitChance = 1.0;
-        double naiveShortcut = 0.4 * CombatMath.averageDamagePerAttack(hitChance, maxHit);
+        double naiveShortcut = 0.4 * DamageDistribution.averageDamagePerAttack(hitChance, maxHit);
         double exact = TwinflameSecondHit.secondHitAverage(hitChance, maxHit);
         assertTrue("the floored exact expectation must differ from the naive 0.4x-of-average shortcut",
                 Math.abs(naiveShortcut - exact) > 1e-6);

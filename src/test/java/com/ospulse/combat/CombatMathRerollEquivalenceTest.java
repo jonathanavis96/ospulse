@@ -31,8 +31,8 @@ import org.junit.Test;
  * monster re-rolls — surviving only on values that were never re-rolled, while a
  * re-rolled 0 stays a genuine 0. The real mean is
  * {@code C/2 + 1/(M+1)}, not {@code C/2 + 1/(C+1)}; see
- * {@link CombatMath#rerolledAverageDamagePerAttack} /
- * {@link CombatMath#rerolledExpectedOverkill}, which are what
+ * {@link DamageDistribution#rerolledAverageDamagePerAttack} /
+ * {@link DamageDistribution#rerolledExpectedOverkill}, which are what
  * {@code DpsCalculator} actually calls. The shortcut shipped once on the
  * strength of the result below and was caught in review.
  *
@@ -115,7 +115,7 @@ public class CombatMathRerollEquivalenceTest {
     /**
      * Consequence: since the rerolled distribution is uniform 0..cap, its
      * expectation is the ordinary uniform mean {@code cap/2} — precisely the
-     * value {@link CombatMath#averageDamagePerAttack} uses (up to that
+     * value {@link DamageDistribution#averageDamagePerAttack} uses (up to that
      * method's own separate "rolled 0 becomes 1" correction, which applies
      * identically whether the roll came from a genuine 0..cap weapon or a
      * re-roll into 0..cap — the point this test proves is that the RAW

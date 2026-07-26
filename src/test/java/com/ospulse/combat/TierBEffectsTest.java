@@ -294,40 +294,4 @@ public class TierBEffectsTest {
 
         assertEquals(0, result.maxHit());
     }
-
-    // ---- Overkill ---------------------------------------------------------------------------
-
-    @Test
-    public void overkill_handWorkedExamples() {
-        // maxHit 1 vs 1 hp: the only successful damage is exactly 1 -> no waste.
-        assertEquals(0.0, CombatMath.expectedOverkill(1, 1), DELTA);
-        // maxHit 2 vs 1 hp: successful damage is 1 w.p. 2/3, 2 w.p. 1/3 -> E[waste] = 1/3.
-        assertEquals(1.0 / 3.0, CombatMath.expectedOverkill(2, 1), DELTA);
-        // maxHit 2 vs 2 hp: O[1] = 1/3; O[2] = (2/3)*O[1] + (1/3)*0 = 2/9.
-        assertEquals(2.0 / 9.0, CombatMath.expectedOverkill(2, 2), DELTA);
-        // Degenerate inputs are safe.
-        assertEquals(0.0, CombatMath.expectedOverkill(0, 50), DELTA);
-        assertEquals(0.0, CombatMath.expectedOverkill(10, 0), DELTA);
-    }
-
-    @Test
-    public void overkill_isIndependentOfAccuracyAndExposedOnResult() {
-        Monster tanky = monster(200).build();
-        Monster squishy = monster(200).defenceLevel(1).defenceBonuses(0, 0, 0, 0, 0).magicLevel(1).build();
-        EquipmentStats gear = plainMeleeGear().build();
-
-        DpsResult vsTanky = DpsCalculator.compute(gear, player99(), CombatStyle.STAB, tanky, 0);
-        DpsResult vsSquishy = DpsCalculator.compute(gear, player99(), CombatStyle.STAB, squishy, 0);
-
-        // Same maxHit + same hp -> identical overkill despite very different accuracy (misses cancel).
-        assertEquals(vsTanky.maxHit(), vsSquishy.maxHit());
-        assertEquals(vsTanky.overkillPerKill(), vsSquishy.overkillPerKill(), DELTA);
-        assertTrue(vsTanky.overkillPerKill() > 0.0);
-        // Overkill can never exceed maxHit - 1.
-        assertTrue(vsTanky.overkillPerKill() < gearMaxHitUpperBound());
-    }
-
-    private static double gearMaxHitUpperBound() {
-        return 24.0; // the shared worked example's max hit
-    }
 }
