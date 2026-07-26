@@ -29,7 +29,7 @@ name, exactly like its two siblings.
     },
     {
       "monsters": ["Vorkath"],
-      "note": "Vorkath's dragonfire is stronger than a normal dragon's: a shield only gives full protection when paired with a super antifire potion, and two-handed setups can reduce the damage but never fully block it, even with Protect from Magic and a super antifire potion. He also poisons you during the acid phase, so bring antivenom(+).",
+      "note": "Vorkath's dragonfire is stronger than a normal dragon's: a shield only gives full protection when paired with a super antifire potion, and two-handed setups can reduce the damage but never fully block it, even with Protect from Magic and a super antifire potion. His venomous dragonfire, part of the normal attack rotation, can poison you — bring antivenom(+).",
       "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
     }
   ]
@@ -209,3 +209,31 @@ table's own numbers reproduce exactly: 80 → 60).
   now restored to `equipmentItemIds` (both verified present in
   `equipment_index.min.json`), and the note no longer implies the upgraded
   dragonfire shield/ward or super antifire potion is mandatory.
+
+## Correction (round 4) — Vorkath's venom was attributed to the wrong attack
+
+A second review round on the round-3 Vorkath rewrite flagged that the note's
+"He also poisons you during the acid phase" line misattributed the venom.
+Checked against the OSRS Wiki `Vorkath/Strategies` article (raw wikitext via
+the wiki API, `action=parse&page=Vorkath/Strategies`):
+
+- **What the acid pools actually do**: "Standing on or running over an acid
+  pool will deal up to 10 damage, which Vorkath will
+  [[life leech|leech]] as health." — contact damage plus a Vorkath heal.
+  Nothing in the Rapid Fire/acid-pool attack table row or its surrounding
+  text mentions poison or venom.
+- **Where the venom actually comes from**: "Vorkath is capable of
+  [[Venom|envenoming]] players with its venom dragonfire; as such, bring
+  appropriate venom protection." — and the attack table itself: "Venomous
+  Dragonfire || Inflicts [[venom]] if not immune. Dragonfire protection does
+  negate damage inflicted by this attack, but does not protect against the
+  infliction of venom." The `Vorkath` article's Fight overview confirms this
+  is one of Vorkath's three ordinary dragonfire types cycled through every
+  six regular attacks ("a standard dragonfire, a venomous dragonfire, and a
+  prayer-disabling dragonfire") — part of the normal rotation, not a
+  phase-specific mechanic tied to the acid special attack.
+
+Reviewer's finding was REAL. The antivenom recommendation itself was never
+in question — only the attribution — so the note now credits the venomous
+dragonfire (normal rotation) instead of "the acid phase," and no longer
+implies the acid pools poison you.
