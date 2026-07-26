@@ -1,0 +1,29 @@
+{
+  "monsters": [
+    "Callisto",
+    "Artio",
+    "Venenatis",
+    "Spindel",
+    "Vet'ion (Normal)",
+    "Vet'ion (Enraged)",
+    "Calvar'ion (Normal)",
+    "Calvar'ion (Enraged)",
+    "Chaos Elemental",
+    "Chaos Fanatic",
+    "Crazy archaeologist",
+    "Scorpia",
+    "King Black Dragon",
+    "Revenant cyclops",
+    "Revenant dark beast",
+    "Revenant demon",
+    "Revenant dragon",
+    "Revenant goblin",
+    "Revenant hellhound",
+    "Revenant hobgoblin",
+    "Revenant imp",
+    "Revenant knight",
+    "Revenant maledictus",
+    "Revenant ork",
+    "Revenant pyrefiend"
+  ]
+}

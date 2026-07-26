@@ -5,6 +5,7 @@ import com.ospulse.combat.DragonHunterWeapon;
 import com.ospulse.combat.EquipmentIndexRepository;
 import com.ospulse.combat.KerisPartisan;
 import com.ospulse.combat.PoweredStaff;
+import com.ospulse.combat.RevenantWeapon;
 import com.ospulse.combat.SalveType;
 import com.ospulse.combat.SlayerHeadgear;
 import com.ospulse.combat.Tome;
@@ -535,6 +536,34 @@ public final class GearVariants
 	public static KerisPartisan kerisPartisanFor(int weaponItemId)
 	{
 		return KERIS_PARTISAN_IDS.getOrDefault(weaponItemId, KerisPartisan.NONE);
+	}
+
+	// ==== Revenant weapons (Wilderness-only +50% accuracy/damage) ========================
+
+	/**
+	 * Craw's bow (22547 base / 22550 — same display name, both fully
+	 * statted per the bundled {@code equipment_stats.min.json}), Viggora's
+	 * chainmace (22542 / 22545), Thammaron's sceptre (22552 / 22555) and its
+	 * "(a)" ether-enhanced reskin (27785 / 27788) — all verified against the
+	 * bundled {@code equipment_index.min.json} 2026-07-26.
+	 */
+	private static final Map<Integer, RevenantWeapon> REVENANT_WEAPON_IDS = new HashMap<>();
+	static
+	{
+		REVENANT_WEAPON_IDS.put(22547, RevenantWeapon.CRAWS_BOW);
+		REVENANT_WEAPON_IDS.put(22550, RevenantWeapon.CRAWS_BOW);
+		REVENANT_WEAPON_IDS.put(22542, RevenantWeapon.VIGGORAS_CHAINMACE);
+		REVENANT_WEAPON_IDS.put(22545, RevenantWeapon.VIGGORAS_CHAINMACE);
+		REVENANT_WEAPON_IDS.put(22552, RevenantWeapon.THAMMARONS_SCEPTRE);
+		REVENANT_WEAPON_IDS.put(22555, RevenantWeapon.THAMMARONS_SCEPTRE);
+		REVENANT_WEAPON_IDS.put(27785, RevenantWeapon.THAMMARONS_SCEPTRE);
+		REVENANT_WEAPON_IDS.put(27788, RevenantWeapon.THAMMARONS_SCEPTRE);
+	}
+
+	/** Maps a worn WEAPON-slot item id to its {@link RevenantWeapon} ({@link RevenantWeapon#NONE} if not one). */
+	public static RevenantWeapon revenantWeaponFor(int weaponItemId)
+	{
+		return REVENANT_WEAPON_IDS.getOrDefault(weaponItemId, RevenantWeapon.NONE);
 	}
 
 	// ==== Blowpipe (loads darts internally, ignores worn ammo) ============================

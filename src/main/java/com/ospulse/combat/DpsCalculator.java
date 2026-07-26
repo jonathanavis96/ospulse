@@ -287,6 +287,15 @@ public final class DpsCalculator {
             }
         }
 
+        // Viggora's chainmace (revenant weapon): +50% accuracy AND damage vs
+        // any Wilderness NPC, while charged with ether (assumed — see
+        // RevenantWeapon) — the weapon's own separate multiplicative step.
+        RevenantWeapon revenant = gear.revenantWeapon();
+        if (revenant.appliesTo(style) && WildernessMonsterRepository.getInstance().isWilderness(target.name())) {
+            maxHit = (int) revenant.damageMult().applyFloor(maxHit);
+            attackRoll = (int) revenant.accuracyMult().applyFloor(attackRoll);
+        }
+
         int defenceRoll = CombatMath.npcDefenceRoll(target.defenceLevel(), target.defenceBonus(style));
 
         // Osmumten's fang (and re-skins/cosmetics): two passives, STAB style
@@ -399,6 +408,16 @@ public final class DpsCalculator {
             int dmgPct = CombatMath.twistedBowDamagePercent(target.magicLevel());
             attackRoll = (int) new Fraction(accPct, 100).applyFloor(attackRoll);
             maxHit = (int) new Fraction(dmgPct, 100).applyFloor(maxHit);
+        }
+
+        // Craw's bow (revenant weapon): +50% accuracy AND damage vs any
+        // Wilderness NPC, while charged with ether (assumed — see
+        // RevenantWeapon) — the weapon's own separate multiplicative step,
+        // stacking with everything above (including a folded slayer helm).
+        RevenantWeapon revenant = gear.revenantWeapon();
+        if (revenant.appliesTo(CombatStyle.RANGED) && WildernessMonsterRepository.getInstance().isWilderness(target.name())) {
+            maxHit = (int) revenant.damageMult().applyFloor(maxHit);
+            attackRoll = (int) revenant.accuracyMult().applyFloor(attackRoll);
         }
 
         int defenceRoll = CombatMath.npcDefenceRoll(target.defenceLevel(), target.drange());
@@ -521,6 +540,15 @@ public final class DpsCalculator {
         // / non-elemental casts, so those never receive it.
         if (spellElement != null && gear.tome().boosts(spellElement)) {
             maxHit = (int) new Fraction(11, 10).applyFloor(maxHit);
+        }
+
+        // Thammaron's sceptre (revenant weapon): +50% accuracy AND damage vs
+        // any Wilderness NPC, while charged with ether (assumed — see
+        // RevenantWeapon) — the weapon's own separate multiplicative step.
+        RevenantWeapon revenant = gear.revenantWeapon();
+        if (revenant.appliesTo(CombatStyle.MAGIC) && WildernessMonsterRepository.getInstance().isWilderness(target.name())) {
+            maxHit = (int) revenant.damageMult().applyFloor(maxHit);
+            accuracyRoll = (int) revenant.accuracyMult().applyFloor(accuracyRoll);
         }
 
         TargetDamage damage = applyTargetDamageRules(maxHit, requirement, gear, CombatStyle.MAGIC, weaponId);

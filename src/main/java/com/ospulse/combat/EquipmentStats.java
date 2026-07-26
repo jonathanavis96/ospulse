@@ -41,6 +41,7 @@ public final class EquipmentStats {
     private final boolean scytheOfVitur;
     private final boolean colossalBlade;
     private final KerisPartisan kerisPartisan;
+    private final RevenantWeapon revenantWeapon;
 
     private EquipmentStats(Builder b) {
         this.astab = b.astab;
@@ -74,6 +75,7 @@ public final class EquipmentStats {
         this.scytheOfVitur = b.scytheOfVitur;
         this.colossalBlade = b.colossalBlade;
         this.kerisPartisan = b.kerisPartisan;
+        this.revenantWeapon = b.revenantWeapon;
     }
 
     public int astab() {
@@ -261,6 +263,17 @@ public final class EquipmentStats {
         return kerisPartisan;
     }
 
+    /**
+     * The worn weapon's {@link RevenantWeapon} ({@link RevenantWeapon#NONE}
+     * if not one) — Craw's bow / Viggora's chainmace / Thammaron's sceptre's
+     * +50% accuracy/damage vs any Wilderness NPC; see {@link
+     * DpsCalculator}'s per-style compute methods and {@link
+     * WildernessMonsterRepository}.
+     */
+    public RevenantWeapon revenantWeapon() {
+        return revenantWeapon;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -297,6 +310,7 @@ public final class EquipmentStats {
         private boolean scytheOfVitur;
         private boolean colossalBlade;
         private KerisPartisan kerisPartisan = KerisPartisan.NONE;
+        private RevenantWeapon revenantWeapon = RevenantWeapon.NONE;
 
         private Builder() {
         }
@@ -411,6 +425,11 @@ public final class EquipmentStats {
 
         public Builder kerisPartisan(KerisPartisan value) {
             this.kerisPartisan = value;
+            return this;
+        }
+
+        public Builder revenantWeapon(RevenantWeapon value) {
+            this.revenantWeapon = value;
             return this;
         }
 

@@ -296,4 +296,27 @@ public class GearVariantsTest
 		assertEquals(com.ospulse.combat.KerisPartisan.NONE, GearVariants.kerisPartisanFor(27021)); // Colossal blade
 		assertEquals(com.ospulse.combat.KerisPartisan.NONE, GearVariants.kerisPartisanFor(-1));
 	}
+
+	// ==== Revenant weapons ==================================================================
+
+	@Test
+	public void revenantWeaponFor_allEightIds()
+	{
+		// Ids verified against the bundled equipment_index.min.json 2026-07-26.
+		assertEquals(com.ospulse.combat.RevenantWeapon.CRAWS_BOW, GearVariants.revenantWeaponFor(22547));
+		assertEquals(com.ospulse.combat.RevenantWeapon.CRAWS_BOW, GearVariants.revenantWeaponFor(22550));
+		assertEquals(com.ospulse.combat.RevenantWeapon.VIGGORAS_CHAINMACE, GearVariants.revenantWeaponFor(22542));
+		assertEquals(com.ospulse.combat.RevenantWeapon.VIGGORAS_CHAINMACE, GearVariants.revenantWeaponFor(22545));
+		assertEquals(com.ospulse.combat.RevenantWeapon.THAMMARONS_SCEPTRE, GearVariants.revenantWeaponFor(22552));
+		assertEquals(com.ospulse.combat.RevenantWeapon.THAMMARONS_SCEPTRE, GearVariants.revenantWeaponFor(22555));
+		assertEquals(com.ospulse.combat.RevenantWeapon.THAMMARONS_SCEPTRE, GearVariants.revenantWeaponFor(27785));
+		assertEquals(com.ospulse.combat.RevenantWeapon.THAMMARONS_SCEPTRE, GearVariants.revenantWeaponFor(27788));
+	}
+
+	@Test
+	public void revenantWeaponFor_nonRevenantWeapon_returnsNone()
+	{
+		assertEquals(com.ospulse.combat.RevenantWeapon.NONE, GearVariants.revenantWeaponFor(4151)); // Abyssal whip
+		assertEquals(com.ospulse.combat.RevenantWeapon.NONE, GearVariants.revenantWeaponFor(-1));
+	}
 }
