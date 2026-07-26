@@ -1433,12 +1433,13 @@ public final class GearSection extends CollapsibleSection
 	{
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
+		java.util.Set<Integer> restrictedIds = restrictedItemIds();
 		java.util.Map<Integer, Integer> map = new java.util.LinkedHashMap<>();
 		for (GearOptimizer.SlotChoice choice : result.loadout())
 		{
 			if (choice.itemId() > 0)
 			{
-				map.put(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds));
+				map.put(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds, restrictedIds));
 			}
 		}
 		return map;
@@ -4926,6 +4927,7 @@ public final class GearSection extends CollapsibleSection
 		// variant (e.g. "Masori mask (f)"), not the plain name — buildSwapRow
 		// needs the owned-item pool to make that reverse lookup.
 		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
+		java.util.Set<Integer> restrictedIds = restrictedItemIds();
 		boolean anyRow = false;
 		for (GearOptimizer.SlotChoice choice : result.loadout())
 		{
@@ -4936,7 +4938,7 @@ public final class GearSection extends CollapsibleSection
 			}
 			anyRow = true;
 			optimizerSwapList.add(buildSwapRow(index, choice.slotOrdinal(), liveId,
-				resolvedChoiceItemId(index, choice, ownedIds), choice));
+				resolvedChoiceItemId(index, choice, ownedIds, restrictedIds), choice));
 			optimizerSwapList.add(Box.createRigidArea(new Dimension(0, 2)));
 		}
 		if (!anyRow)
@@ -4961,13 +4963,36 @@ public final class GearSection extends CollapsibleSection
 	 * #excludedItemIds} (Codex finding #2): if the player excluded their own
 	 * owned variant, the plain id is shown/applied as-is rather than
 	 * resurrecting the excluded item under a different row.
+	 *
+	 * <p><b>P1 follow-up (issue #11 Stage 3):</b> {@code restrictedItemIds}
+	 * (the caller's fresh {@link #restrictedItemIds()} snapshot — Deadman/BH/
+	 * LMS/beta/Gauntlet-only ids) is unioned with {@link #excludedItemIds}
+	 * for this call only, mirroring exactly how {@link #buildOptimizerRequest}
+	 * builds the optimiser's OWN exclude set. Making the deadman-suffix
+	 * ownership credit work (see {@link OwnedVariantResolver#SUFFIXES}) means
+	 * the optimiser can now legitimately select a plain counterpart that
+	 * credit came from — without this, {@code preferOwnedVariant} would map
+	 * that selection straight back to the mode-locked deadman id for
+	 * display, resurrecting exactly the item {@code restrictedItemIds()}
+	 * exists to keep the optimiser from ever suggesting (regardless of
+	 * ownership — see {@code GearSectionGearPoolTest
+	 * #deadmanNamedItem_isNeverSuggestedByTheOptimizer}). The two sets stay
+	 * conceptually and structurally separate everywhere else — {@code
+	 * excludedItemIds} is still the sole persisted, user-managed set;
+	 * {@code restrictedItemIds()} is still computed fresh and never
+	 * persisted — only this one local, ephemeral union is built, purely to
+	 * answer "must never be substituted here."
 	 */
 	private int resolvedChoiceItemId(EquipmentIndexRepository index, GearOptimizer.SlotChoice choice,
-		java.util.Map<Integer, Long> ownedIds)
+		java.util.Map<Integer, Long> ownedIds, java.util.Set<Integer> restrictedItemIds)
 	{
-		return choice.owned()
-			? OwnedVariantResolver.preferOwnedVariant(index, choice.itemId(), ownedIds, excludedItemIds)
-			: choice.itemId();
+		if (!choice.owned())
+		{
+			return choice.itemId();
+		}
+		java.util.Set<Integer> neverSubstitute = new java.util.LinkedHashSet<>(excludedItemIds);
+		neverSubstitute.addAll(restrictedItemIds);
+		return OwnedVariantResolver.preferOwnedVariant(index, choice.itemId(), ownedIds, neverSubstitute);
 	}
 
 	/**
@@ -5212,6 +5237,7 @@ public final class GearSection extends CollapsibleSection
 		// item than the row the user actually clicked "Apply" on.
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
+		java.util.Set<Integer> restrictedIds = restrictedItemIds();
 		LoadoutOverride next = LoadoutOverride.empty();
 		for (GearOptimizer.SlotChoice choice : lastOptimizerResult.loadout())
 		{
@@ -5220,7 +5246,7 @@ public final class GearSection extends CollapsibleSection
 			{
 				continue; // unchanged — nothing to preview for this slot
 			}
-			next = next.withSlot(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds));
+			next = next.withSlot(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds, restrictedIds));
 		}
 		// B9-3: a two-handed weapon frees the shield slot. The optimiser empties
 		// the shield internally, but empty slots aren't listed in loadout(), so

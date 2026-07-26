@@ -90,6 +90,15 @@ public class GearSectionOptimizerStyleTest
 	private static final int MASORI_MASK = 27226;       // plain base form the optimiser's ownership map aliases to
 	private static final int MASORI_MASK_F = 27235;     // the actual owned fortified variant
 
+	// P1 (issue #11 Stage 3 follow-up): self-cast magic weapon (no spellbook/rune
+	// plumbing needed, mirrors GearOptimizerOwnedDeadmanCapeTest's fixture) plus the
+	// Deadman-mode Imbued saradomin cape — mode-locked (GearSection.isModeLockedItem),
+	// so restrictedItemIds() always excludes it, yet its ownership legitimately
+	// credits the real, non-mode-locked "Imbued saradomin cape" via OwnedVariantResolver.
+	private static final int TRIDENT_OF_THE_SEAS = 11905;
+	private static final int IMBUED_SARADOMIN_CAPE_DEADMAN = 29617;
+	private static final int CAPE_SLOT = 1;
+
 	private static int[] loadout(int weaponId)
 	{
 		int[] ids = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
@@ -481,6 +490,76 @@ public class GearSectionOptimizerStyleTest
 			section.clickApplyOptimizerResultForTest();
 			assertEquals("the applied preview must match the (plain) row too, not resurrect the excluded variant",
 				MASORI_MASK, section.overrideForTest().itemIdFor(0)); // HEAD
+		});
+	}
+
+	// ------------------------------------------------ P1 (issue #11 Stage 3 follow-up): mode-locked reverse substitution
+
+	/**
+	 * Second P1 on the deadman-suffix fix, a consequence of it rather than a
+	 * pre-existing bug: once owning a "(deadman)" item cross-maps to its
+	 * plain counterpart ({@code OwnedVariantResolver.SUFFIXES}), the
+	 * optimiser can legitimately SELECT that plain counterpart — but {@code
+	 * GearSection#resolvedChoiceItemId} previously passed {@code
+	 * preferOwnedVariant} only the user-managed {@code excludedItemIds}, not
+	 * {@code restrictedItemIds()} (the mode-locked/Gauntlet-only set {@code
+	 * buildOptimizerRequest} always folds into the optimiser's OWN exclude
+	 * set — see {@code GearSectionGearPoolTest
+	 * #deadmanNamedItem_isNeverSuggestedByTheOptimizer}). So the reverse
+	 * display lookup could remap the plain choice straight back to the
+	 * owned-but-mode-locked deadman id, resurrecting under the swap row /
+	 * applied preview / bank highlight exactly the item the optimiser
+	 * correctly refused to ever suggest directly.
+	 *
+	 * <p>Structurally this mirrors {@link
+	 * #excludedOwnedVariant_doesNotReappearInSuggestions} above (same choke
+	 * point, same "fall back to the plain id, don't resurrect the excluded
+	 * owned variant" shape) — except the exclusion here is {@code
+	 * restrictedItemIds()}'s unconditional mode-lock, not a user's manual
+	 * exclude-from-suggestions action.
+	 */
+	@Test
+	public void ownedDeadmanCapeCredit_neverReverseSubstitutesTheModeLockedId()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(TRIDENT_OF_THE_SEAS)), wealthWith(IMBUED_SARADOMIN_CAPE_DEADMAN)));
+			pickCerberus(section);
+			section.clickOptimizerStyleForTest(CombatStyle.MAGIC);
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			int capeChoiceId = -1;
+			boolean capeOwned = false;
+			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
+			{
+				if (choice.slotOrdinal() == CAPE_SLOT)
+				{
+					capeChoiceId = choice.itemId();
+					capeOwned = choice.owned();
+				}
+			}
+			// The optimiser itself must pick the credited PLAIN "Imbued saradomin cape"
+			// id — restrictedItemIds() always excludes the deadman id itself, so the
+			// optimiser can never choose it directly (this much already worked before
+			// this fix, and is not what's under test here).
+			assertTrue("the cape-slot recommendation must be owned via the deadman-suffix credit", capeOwned);
+			assertFalse("the optimiser itself must never choose the mode-locked deadman id directly",
+				capeChoiceId == IMBUED_SARADOMIN_CAPE_DEADMAN);
+
+			String swapTooltip = findSwapTooltipStartingWith(section, "Imbued saradomin cape");
+			assertTrue("a swap row must exist for the cape slot: " + swapTooltip, swapTooltip != null);
+			assertFalse("the mode-locked deadman variant must NEVER reappear in the swap row: " + swapTooltip,
+				swapTooltip.contains("(deadman)"));
+
+			section.clickApplyOptimizerResultForTest();
+			int appliedCapeId = section.overrideForTest().itemIdFor(CAPE_SLOT);
+			assertFalse("the applied preview must never equip the mode-locked deadman id",
+				appliedCapeId == IMBUED_SARADOMIN_CAPE_DEADMAN);
+			assertEquals("the applied preview must equip exactly the plain id the optimiser chose, "
+					+ "matching the row (Codex finding #1's consistency guarantee)",
+				capeChoiceId, appliedCapeId);
 		});
 	}
 
