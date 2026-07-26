@@ -102,6 +102,24 @@
       "maxHitCap": 4,
       "maxHitCapWhenCrushHighest": 9,
       "note": "The tail's scales blunt most damage — max hit is capped at 4 regardless of gear, or 9 if your loadout's highest attack bonus is crush. Both tail records are listed because the broken-tail name nests its parentheses and so never reaches the base-name fallback."
+    },
+    {
+      "monsters": [
+        "Verzik Vitur (Entry mode, Phase 1)",
+        "Verzik Vitur (Normal mode, Phase 1)",
+        "Verzik Vitur (Hard mode, Phase 1)"
+      ],
+      "type": "DAMAGE_CAP",
+      "maxHitCapByStyle": {
+        "STAB": 10,
+        "SLASH": 10,
+        "CRUSH": 10,
+        "RANGED": 3,
+        "MAGIC": 3
+      },
+      "capMode": "REROLL",
+      "allowedItemIds": [22516],
+      "note": "Phase 1 re-rolls any melee hitsplat above 10 down to 0-10, and any ranged or magic hitsplat above 3 down to 0-3. Dawnbringer has no damage cap on this boss at all. Any other weapon also has a much lower chance of hitting, but the wiki publishes no number for that penalty, so it is NOT modelled here — this cap only corrects the damage magnitude, not accuracy."
     }
   ]
 }

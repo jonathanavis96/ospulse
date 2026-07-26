@@ -64,18 +64,43 @@ public final class TargetDamageRule
 
     /**
      * Applies when: {@code req} is non-null and {@code req.type()} is
-     * {@link MonsterCombatRequirement.Type#DAMAGE_CAP}. When it applies:
-     * returns {@code req.maxHitCapWhenCrushHighest()} if that is
-     * non-negative AND the loadout's crush attack bonus is strictly greater
-     * than both its stab and slash attack bonuses, else returns {@code
-     * req.maxHitCap()}. Otherwise (including a {@code null} requirement or
-     * any other type) returns {@code -1} — "no cap".
+     * {@link MonsterCombatRequirement.Type#DAMAGE_CAP}. Otherwise (including
+     * a {@code null} requirement or any other type) returns {@code -1} —
+     * "no cap".
+     *
+     * <p>Resolution order, each step only reached if the previous one
+     * doesn't decide it:
+     * <ol>
+     * <li>{@code weaponId} is in {@code req.allowedItemIds()} — the weapon is
+     * wholly exempt from the cap (e.g. Dawnbringer at Verzik Vitur: "has no
+     * damage cap on the boss"). Returns {@code -1}.</li>
+     * <li>{@code style} has an entry in {@code req.maxHitCapByStyle()} — a
+     * per-style split (e.g. Verzik phase 1: melee 10, ranged/magic 3, one
+     * flat value cannot express this). Returns that value.</li>
+     * <li>Otherwise, the original flat/crush-highest logic: {@code
+     * req.maxHitCapWhenCrushHighest()} if that is non-negative AND the
+     * loadout's crush attack bonus is strictly greater than both its stab
+     * and slash attack bonuses, else {@code req.maxHitCap()}.</li>
+     * </ol>
+     * Every entry with an empty {@code maxHitCapByStyle} and empty {@code
+     * allowedItemIds} (every one shipped before per-style caps existed) is
+     * unaffected — steps 1 and 2 never match and step 3 runs exactly as
+     * before.
      */
-    public static int maxHitCapFor(MonsterCombatRequirement req, EquipmentStats gear)
+    public static int maxHitCapFor(MonsterCombatRequirement req, EquipmentStats gear, CombatStyle style, int weaponId)
     {
         if (req == null || req.type() != MonsterCombatRequirement.Type.DAMAGE_CAP)
         {
             return -1;
+        }
+        if (req.allowedItemIds().contains(weaponId))
+        {
+            return -1;
+        }
+        Integer perStyle = req.maxHitCapByStyle().get(style);
+        if (perStyle != null)
+        {
+            return perStyle;
         }
         if (req.maxHitCapWhenCrushHighest() >= 0
                 && gear.acrush() > gear.astab() && gear.acrush() > gear.aslash())
@@ -83,5 +108,22 @@ public final class TargetDamageRule
             return req.maxHitCapWhenCrushHighest();
         }
         return req.maxHitCap();
+    }
+
+    /**
+     * Which distribution {@link #maxHitCapFor} applies with — see {@link
+     * MonsterCombatRequirement.CapMode}. {@code null} or a non-{@link
+     * MonsterCombatRequirement.Type#DAMAGE_CAP} requirement returns {@link
+     * MonsterCombatRequirement.CapMode#CLAMP} (the neutral default; harmless
+     * since {@link #maxHitCapFor} already returns {@code -1} — "no cap" — for
+     * those cases, so no caller ever acts on this value without a real cap).
+     */
+    public static MonsterCombatRequirement.CapMode capModeFor(MonsterCombatRequirement req)
+    {
+        if (req == null || req.type() != MonsterCombatRequirement.Type.DAMAGE_CAP)
+        {
+            return MonsterCombatRequirement.CapMode.CLAMP;
+        }
+        return req.capMode();
     }
 }

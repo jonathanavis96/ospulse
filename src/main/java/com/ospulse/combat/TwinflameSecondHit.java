@@ -93,6 +93,42 @@ final class TwinflameSecondHit {
     }
 
     /**
+     * Exact expected second-hit damage per attack when a monster RE-ROLLS
+     * each hitsplat above a cap back into {@code 0..cap} (e.g. Verzik Vitur
+     * phase 1), as opposed to {@link #cappedSecondHitAverage}'s clamp.
+     *
+     * <p>The 40%-of-first-hit rule reads off the DISPLAYED first hit, i.e.
+     * the value AFTER any re-roll — so this sums {@code floor(0.4*v) * P(v)}
+     * over {@link CombatMath#rerolledHitsplatDistribution}'s {@code 0..cap}
+     * array (the same one {@link CombatMath#rerolledExpectedOverkill} uses),
+     * NOT over the raw {@code 0..uncappedMaxHit} roll the uncapped {@link
+     * #secondHitAverage} enumerates. Using the raw roll here would be the
+     * exact "REROLL is just a clamp with extra steps" mistake this whole
+     * feature keeps having to guard against elsewhere.
+     *
+     * <p>{@code cap >= uncappedMaxHit}: nothing is ever re-rolled, so this
+     * delegates to {@link #secondHitAverage} against the true max hit.
+     * {@code cap <= 0}: every outcome (including the bumped 1) re-rolls into
+     * the single value {@code {0}}, so the second hit is always {@code 0} —
+     * matching {@link CombatMath#rerolledAverageDamagePerAttack}'s own
+     * {@code cap <= 0} guard.
+     */
+    static double rerolledSecondHitAverage(double hitChance, int uncappedMaxHit, int cap) {
+        if (cap >= uncappedMaxHit) {
+            return secondHitAverage(hitChance, uncappedMaxHit);
+        }
+        if (cap <= 0) {
+            return 0.0;
+        }
+        double[] p = CombatMath.rerolledHitsplatDistribution(uncappedMaxHit, cap);
+        double sum = 0.0;
+        for (int v = 0; v <= cap; v++) {
+            sum += p[v] * ((2 * v) / 5);
+        }
+        return hitChance * sum;
+    }
+
+    /**
      * Expected overkill (damage wasted on the killing blow) for a Twinflame
      * attack, uncapped target.
      *
@@ -163,5 +199,48 @@ final class TwinflameSecondHit {
             over[h] = sum;
         }
         return over[targetHitpoints];
+    }
+
+    /**
+     * Expected overkill for a Twinflame attack against a target that
+     * RE-ROLLS each hitsplat above a cap back into {@code 0..cap} — same
+     * combined-hitsplat model as {@link #combinedExpectedOverkill}/{@link
+     * #cappedCombinedExpectedOverkill}, but over {@link
+     * CombatMath#rerolledHitsplatDistribution}'s zero-aware {@code 0..cap}
+     * array (the one {@link #rerolledSecondHitAverage} and {@link
+     * CombatMath#rerolledExpectedOverkill} also consume), rather than a raw
+     * enumeration of the {@code 0..uncappedMaxHit} roll.
+     *
+     * <p><b>The zero-mass trap:</b> under REROLL, {@code P(0)} is genuinely
+     * positive (a re-rolled zero), and {@code combined(0) = 0}, so the naive
+     * {@code over[h] = sum_v P(v) * (...)} recurrence used by {@link
+     * #combinedExpectedOverkill}/{@link #cappedCombinedExpectedOverkill}
+     * would put {@code over[h]} on its own right-hand side via the
+     * {@code v = 0} term ({@code over[h - 0]}). This delegates to {@link
+     * CombatMath#overkillFromExplicitDistribution(double[], int[], int)}
+     * instead, which conditions on a state-changing (non-zero-value)
+     * outcome exactly as {@link CombatMath#rerolledExpectedOverkill} does —
+     * the two must not, and here cannot, disagree on that convention, since
+     * both ultimately call the same method.
+     *
+     * <p>{@code cap >= uncappedMaxHit}: nothing is ever re-rolled, so this
+     * delegates to {@link #combinedExpectedOverkill} against the true max
+     * hit. {@code cap <= 0}: every outcome re-rolls into the single value
+     * {@code {0}}, so the combined hitsplat is always {@code 0} and there is
+     * never any overkill to speak of.
+     */
+    static double rerolledCombinedExpectedOverkill(int uncappedMaxHit, int cap, int targetHitpoints) {
+        if (cap >= uncappedMaxHit) {
+            return combinedExpectedOverkill(uncappedMaxHit, targetHitpoints);
+        }
+        if (cap <= 0 || targetHitpoints <= 0 || uncappedMaxHit <= 0) {
+            return 0.0;
+        }
+        double[] p = CombatMath.rerolledHitsplatDistribution(uncappedMaxHit, cap);
+        int[] combined = new int[cap + 1];
+        for (int v = 0; v <= cap; v++) {
+            combined[v] = v + ((2 * v) / 5);
+        }
+        return CombatMath.overkillFromExplicitDistribution(p, combined, targetHitpoints);
     }
 }
