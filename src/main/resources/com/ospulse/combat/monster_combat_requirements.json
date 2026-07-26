@@ -39,7 +39,7 @@
       "note": "Finish with an ice cooler at low HP."
     },
     {
-      "monsters": ["Zygomite", "Mutated Zygomite", "Ancient Zygomite"],
+      "monsters": ["Zygomite", "Ancient Zygomite"],
       "type": "FINISHER",
       "finisherItemIds": [7421],
       "note": "Finish with fungicide spray once its HP is low (about 8 or below)."

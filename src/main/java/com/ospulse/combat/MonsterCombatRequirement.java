@@ -45,6 +45,9 @@ public final class MonsterCombatRequirement
     public Type type() { return type; }
     public String note() { return note; }
     public Set<Integer> finisherItemIds() { return Collections.unmodifiableSet(finisherItemIds); }
+    public Set<Integer> allowedItemIds() { return Collections.unmodifiableSet(allowedItemIds); }
+    public Set<Integer> allowedAmmoIds() { return Collections.unmodifiableSet(allowedAmmoIds); }
+    public Set<CombatStyle> allowedStyles() { return Collections.unmodifiableSet(allowedStyles); }
 
     /** Full-attack truth: can this weapon+style+ammo deal damage to the monster? */
     public boolean permits(int weaponId, CombatStyle style, int ammoId)
