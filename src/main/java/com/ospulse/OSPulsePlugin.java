@@ -126,10 +126,15 @@ public class OSPulsePlugin extends Plugin
 	private boolean lastBankOpen;
 
 	/**
-	 * Set on every {@code LOGGED_IN} transition, cleared on the next {@link
-	 * #onGameTick}, which is where {@link #checkIronmanAutoDetect()} actually
-	 * runs — see that method's javadoc for why account state can't be read
-	 * on the LOGGED_IN event itself.
+	 * Set on every {@code LOGGED_IN} transition; {@link #onGameTick} is where
+	 * {@link #checkIronmanAutoDetect()} actually runs (see that method's
+	 * javadoc for why account state can't be read on the LOGGED_IN event
+	 * itself) — but only CLEARS this flag once {@link #checkIronmanAutoDetect()}
+	 * reports it actually ran (P2 fix): if the first post-login tick still
+	 * sees {@code Client.getAccountHash() == -1}, this stays armed and
+	 * {@link #checkIronmanAutoDetect()} is retried on every subsequent tick
+	 * until account state is ready, rather than being silently dropped for
+	 * the whole session.
 	 */
 	private boolean pendingIronmanAutoDetect;
 
@@ -343,8 +348,14 @@ public class OSPulsePlugin extends Plugin
 
 		if (pendingIronmanAutoDetect)
 		{
-			pendingIronmanAutoDetect = false;
-			checkIronmanAutoDetect();
+			// P2 fix: only consumed once checkIronmanAutoDetect() actually ran —
+			// see that method's readiness guard/javadoc. Clearing the flag
+			// unconditionally here (the earlier bug) would silently drop the
+			// only pending attempt for the whole session whenever the FIRST
+			// post-login tick still reported account state as not-yet-ready:
+			// no other event re-arms pendingIronmanAutoDetect until the next
+			// LOGGED_IN transition, so auto-detect would just never run.
+			pendingIronmanAutoDetect = !checkIronmanAutoDetect();
 		}
 
 		// Detect bank open/close transitions before advancing the tracker so the
@@ -422,12 +433,19 @@ public class OSPulsePlugin extends Plugin
 	 * IronmanAutoDetect} for the pure decision logic and {@link
 	 * IronmanOwnedOnlyStore}/{@code com.ospulse.ui.sections.gear.IronmanOwnedOnlyResolver}
 	 * for the full per-account merged-read scheme.
+	 *
+	 * @return {@code false} when the readiness guard below refused to run at
+	 *         all (account state not yet available) — {@link #onGameTick}'s
+	 *         P2 fix uses this to decide whether {@link
+	 *         #pendingIronmanAutoDetect} may be cleared or must stay armed
+	 *         for a retry on the next tick; {@code true} otherwise (the check
+	 *         ran to completion, whatever it decided).
 	 */
-	private void checkIronmanAutoDetect()
+	private boolean checkIronmanAutoDetect()
 	{
 		if (configManager == null || client.getAccountHash() == -1L)
 		{
-			return;
+			return false;
 		}
 
 		String seenMarker = configManager.getRSProfileConfiguration(
@@ -452,6 +470,7 @@ public class OSPulsePlugin extends Plugin
 		// profile switch without a full re-login, e.g. bank PIN or world hop
 		// edge cases RuneLite itself treats as a profile change).
 		ownedOnlyStore.mirrorToClientWide();
+		return true;
 	}
 
 	/** Test seam: runs {@link #checkIronmanAutoDetect()} directly (private, no {@code pendingIronmanAutoDetect} plumbing needed in a test). */

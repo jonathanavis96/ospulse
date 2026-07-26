@@ -172,8 +172,29 @@ public final class ItemEligibility
 	 * be dropped by DPS ranking. A user's explicit slot exclusion still wins
 	 * (an item present in {@code exclusions} is left out of the forced set
 	 * rather than fighting the exclude list).
+	 *
+	 * <p>Outside owned-only mode this always forces the primary {@link
+	 * MonsterGearOverride#itemId()} — an unaffordable force-include there is
+	 * a legitimate purchase suggestion, and the player may simply buy it. In
+	 * owned-only mode it forces whichever id {@link
+	 * OwnedOnlyMandatoryOverrideGate#ownedOnlySatisfyingItemId} says actually
+	 * satisfies the requirement — the owned alternative (e.g. a Slayer
+	 * helmet the player owns for a Dust devil's Facemask requirement) when
+	 * the primary isn't owned, so {@code GearOptimizer.applyForcedIncludes}
+	 * can never force-equip an unowned item that {@link
+	 * OwnedOnlyMandatoryOverrideGate#blockingOverride} agreed the target was
+	 * satisfied for. When neither the primary nor any alternative is owned,
+	 * this still returns the primary — but that case is exactly what {@link
+	 * OwnedOnlyMandatoryOverrideGate#blockingOverride} refuses the target
+	 * for before a result reaches the player, so the unowned id is never
+	 * actually shown/equipped.
+	 *
+	 * @param ownedOnly whether the ironman "owned gear only" mode is active
+	 * @param ownedIds every item id the player currently owns — only
+	 *                  consulted when {@code ownedOnly} is true
 	 */
-	public static Set<Integer> mandatoryOverrideItemIds(Monster target, Set<Integer> exclusions)
+	public static Set<Integer> mandatoryOverrideItemIds(Monster target, Set<Integer> exclusions,
+		boolean ownedOnly, Set<Integer> ownedIds)
 	{
 		if (target == null)
 		{
@@ -182,9 +203,12 @@ public final class ItemEligibility
 		Set<Integer> ids = new LinkedHashSet<>();
 		for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(target.name()))
 		{
-			if (!exclusions.contains(override.itemId()))
+			int id = ownedOnly
+				? OwnedOnlyMandatoryOverrideGate.ownedOnlySatisfyingItemId(override, ownedIds)
+				: override.itemId();
+			if (!exclusions.contains(id))
 			{
-				ids.add(override.itemId());
+				ids.add(id);
 			}
 		}
 		return ids;

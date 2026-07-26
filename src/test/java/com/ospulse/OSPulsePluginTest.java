@@ -1,10 +1,12 @@
 package com.ospulse;
 
+import com.ospulse.integration.SessionTracker;
 import com.ospulse.ui.OSPulsePanel;
 import com.ospulse.ui.sections.gear.IronmanOwnedOnlyStore;
 
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.events.GameTick;
 import net.runelite.api.vars.AccountType;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.events.ConfigChanged;
@@ -60,6 +62,19 @@ public class OSPulsePluginTest
 		setField(plugin, "configManager", configManager);
 		setField(plugin, "ownedOnlyStore", new IronmanOwnedOnlyStore(configManager));
 		setField(plugin, "panel", Mockito.mock(OSPulsePanel.class));
+		return plugin;
+	}
+
+	/**
+	 * {@link #pluginWith} plus a mocked {@link SessionTracker}, needed to
+	 * drive {@link OSPulsePlugin#onGameTick} directly ({@code
+	 * tracker.onTick()} runs unconditionally on every tick) without the
+	 * heavyweight {@code startUp()}.
+	 */
+	private static OSPulsePlugin pluginWithTracker(Client client, ConfigManager configManager) throws Exception
+	{
+		OSPulsePlugin plugin = pluginWith(client, configManager);
+		setField(plugin, "tracker", Mockito.mock(SessionTracker.class));
 		return plugin;
 	}
 
@@ -210,5 +225,73 @@ public class OSPulsePluginTest
 			.setRSProfileConfiguration(Mockito.anyString(), Mockito.anyString(), Mockito.any());
 		Mockito.verify(configManager, Mockito.never())
 			.setConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnlyDefault", true);
+	}
+
+	// ---------------------------- P2 fix: keep auto-detect pending until account state is ready
+
+	/**
+	 * Codex P2 finding on PR #19, {@code OSPulsePlugin.java:347} ("Keep
+	 * auto-detection pending until account state is ready"): if the first
+	 * post-login {@link GameTick} still reports {@code
+	 * Client.getAccountHash() == -1} (account state not yet populated),
+	 * {@code onGameTick} must NOT clear {@code pendingIronmanAutoDetect} —
+	 * the earlier bug cleared it unconditionally before {@code
+	 * checkIronmanAutoDetect()}'s own readiness guard could even run, so no
+	 * later tick in the same session ever retried (nothing else re-arms the
+	 * flag short of another {@code LOGGED_IN} transition), and the ironman
+	 * setting was silently never auto-enabled/mirrored for that session.
+	 */
+	@Test
+	public void onGameTick_accountHashNotYetReady_leavesPendingArmedForRetryOnTheNextTick() throws Exception
+	{
+		Client client = Mockito.mock(Client.class);
+		Mockito.when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+		Mockito.when(client.getAccountHash()).thenReturn(-1L); // account state not populated yet
+
+		ConfigManager configManager = Mockito.mock(ConfigManager.class);
+		OSPulsePlugin plugin = pluginWithTracker(client, configManager);
+		setField(plugin, "pendingIronmanAutoDetect", true);
+
+		plugin.onGameTick(new GameTick());
+
+		assertTrue("pendingIronmanAutoDetect must stay armed when account state isn't ready yet "
+				+ "-- nothing else re-arms it before the next LOGGED_IN transition",
+			plugin.pendingIronmanAutoDetectForTest());
+		// checkIronmanAutoDetect()'s readiness guard must have refused to run at
+		// all -- no bookkeeping write, since it never got past the account-hash check.
+		Mockito.verify(configManager, Mockito.never())
+			.setRSProfileConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnlyAutoDetectSeen", true);
+	}
+
+	/**
+	 * Companion to the test above: once account state IS ready, the tick
+	 * both runs {@code checkIronmanAutoDetect()} to completion and clears
+	 * the pending flag -- the fix must not leave it permanently armed
+	 * either.
+	 */
+	@Test
+	public void onGameTick_accountHashReady_runsTheCheckAndClearsPending() throws Exception
+	{
+		Client client = Mockito.mock(Client.class);
+		Mockito.when(client.getGameState()).thenReturn(GameState.LOGGED_IN);
+		Mockito.when(client.getAccountHash()).thenReturn(123L);
+		Mockito.when(client.getAccountType()).thenReturn(AccountType.IRONMAN);
+
+		ConfigManager configManager = Mockito.mock(ConfigManager.class);
+		Mockito.when(configManager.getRSProfileConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnlyAutoDetectSeen"))
+			.thenReturn(null);
+		Mockito.when(configManager.getRSProfileConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnly"))
+			.thenReturn(null);
+		Mockito.when(configManager.getRSProfileKey()).thenReturn("ironman-profile");
+
+		OSPulsePlugin plugin = pluginWithTracker(client, configManager);
+		setField(plugin, "pendingIronmanAutoDetect", true);
+
+		plugin.onGameTick(new GameTick());
+
+		assertFalse("pendingIronmanAutoDetect must clear once the check actually ran",
+			plugin.pendingIronmanAutoDetectForTest());
+		Mockito.verify(configManager)
+			.setRSProfileConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnlyAutoDetectSeen", true);
 	}
 }

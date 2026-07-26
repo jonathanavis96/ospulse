@@ -40,6 +40,18 @@ import java.util.Set;
  * OwnedOnlyMode} / {@link IronmanOwnedOnlyResolver}'s shape: callers pass in
  * whatever target/ownership inputs they hold rather than this class reaching
  * into private mutable fields.
+ *
+ * <p>{@link #ownedOnlySatisfyingItemId} is the single source of truth for
+ * "which owned id (if any) satisfies this override" — both {@link
+ * #blockingOverride} (should owned-only mode refuse this target outright)
+ * and {@code ItemEligibility#mandatoryOverrideItemIds} (which id owned-only
+ * mode's force-include should actually inject) are derived from it, so the
+ * two questions cannot disagree the way they did before this fix: the gate
+ * accepted an owned alternative (e.g. a Slayer helmet for a Dust devil's
+ * Facemask requirement) as satisfying the requirement and let the result
+ * through, while the force-include path kept injecting the unowned primary
+ * — equipping an item owned-only mode had just promised was never going to
+ * happen.
  */
 public final class OwnedOnlyMandatoryOverrideGate
 {
@@ -70,13 +82,37 @@ public final class OwnedOnlyMandatoryOverrideGate
 		}
 		for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(target.name()))
 		{
-			boolean owned = ownedIds.contains(override.itemId())
-				|| override.alternativeItemIds().stream().anyMatch(ownedIds::contains);
-			if (!owned)
+			if (!ownedIds.contains(ownedOnlySatisfyingItemId(override, ownedIds)))
 			{
 				return Optional.of(override);
 			}
 		}
 		return Optional.empty();
+	}
+
+	/**
+	 * The item id that satisfies {@code override} under owned-only mode given
+	 * {@code ownedIds}: the owned alternative when the primary {@link
+	 * MonsterGearOverride#itemId()} isn't owned but one of {@link
+	 * MonsterGearOverride#alternativeItemIds()} is, otherwise the primary
+	 * itself (whether owned or not — an unowned return here is exactly what
+	 * makes {@link #blockingOverride} refuse the target, and is also what
+	 * {@code ItemEligibility#mandatoryOverrideItemIds} force-includes outside
+	 * owned-only mode, where an unaffordable force-include is a legitimate
+	 * purchase suggestion rather than a broken guarantee).
+	 */
+	static int ownedOnlySatisfyingItemId(MonsterGearOverride override, Set<Integer> ownedIds)
+	{
+		if (!ownedIds.contains(override.itemId()))
+		{
+			for (Integer alternativeId : override.alternativeItemIds())
+			{
+				if (ownedIds.contains(alternativeId))
+				{
+					return alternativeId;
+				}
+			}
+		}
+		return override.itemId();
 	}
 }

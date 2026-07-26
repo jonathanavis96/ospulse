@@ -4681,7 +4681,7 @@ public final class GearSection extends CollapsibleSection
 			// GearOptimizer.expensiveItemCountOf's updated javadoc).
 			.ownedItemPrices(ownedPrices)
 			.exclude(exclusions)
-			.include(ItemEligibility.mandatoryOverrideItemIds(target, exclusions))
+			.include(ItemEligibility.mandatoryOverrideItemIds(target, exclusions, ironmanOwnedOnlyPref(), ownedPrices.keySet()))
 			.priceSource(priceSource)
 			// The expensive-item risk cap's OWN price source: a real gp "risk
 			// value" per item — tradeable = GE price, untradeable = value of
