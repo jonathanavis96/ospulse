@@ -3,18 +3,21 @@ package com.ospulse.combat;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
- * Charged Tonalztics of Ralos (item id 28922) — two full, independent damage
- * rolls per attack, per the OSRS Wiki ("the weapon will hit twice, with two
- * independent damage rolls"); see {@link TonalzticsDualHit}. The uncharged
- * variant (28919) is an ordinary single-roll ranged weapon and must produce
- * byte-identical DPS to a plain ranged weapon of the same stats — the
- * regression this test proves is that {@code tonalzticsOfRalosCharged() ==
- * false} (the default, and the only state {@link
- * com.ospulse.session.GearVariants#isTonalzticsOfRalosCharged} ever returns
- * for anything other than id 28922) never touches {@link DpsCalculator}'s
- * generic path at all.
+ * Charged Tonalztics of Ralos (item id 28922) — two full, INDEPENDENTLY
+ * ACCURACY-ROLLED hits per attack, each dealing 0-75% of the calculated
+ * weapon max hit (NOT 0-100%, per the OSRS Wiki "Multi-hit weapons"
+ * comparison table — see {@link TonalzticsDualHit}'s class javadoc for the
+ * citation and the two prior mis-readings this stage corrects). The
+ * uncharged variant (28919) is an ordinary single-roll ranged weapon and
+ * must produce byte-identical DPS to a plain ranged weapon of the same
+ * stats — the regression this test proves is that {@code
+ * tonalzticsOfRalosCharged() == false} (the default, and the only state
+ * {@link com.ospulse.session.GearVariants#isTonalzticsOfRalosCharged} ever
+ * returns for anything other than id 28922) never touches {@link
+ * DpsCalculator}'s generic path at all.
  */
 public class TonalzticsRalosEffectTest {
     static { BundledGson.set(new com.google.gson.Gson()); }
@@ -48,17 +51,25 @@ public class TonalzticsRalosEffectTest {
     }
 
     @Test
-    public void charged_doublesAverageDamageVersusUncharged() {
+    public void charged_reportsSeventyFivePercentMaxHit_andRoughlyOneAndAHalfTimesTheAverageDamage() {
         DpsResult uncharged = compute(gear().build(), monster());
         DpsResult charged = compute(gear().tonalzticsOfRalosCharged(true).build(), monster());
 
-        // Same accuracy/maxHit (the passive changes NOTHING about the roll
-        // itself, only how many independent rolls happen) - only avgHit/dps
-        // double.
-        assertEquals(uncharged.maxHit(), charged.maxHit());
+        // Accuracy is unaffected by the passive - only the damage side changes.
         assertEquals(uncharged.accuracy(), charged.accuracy(), 1e-12);
-        assertEquals(2.0 * uncharged.avgHit(), charged.avgHit(), 1e-9);
-        assertEquals(2.0 * uncharged.dps(), charged.dps(), 1e-9);
+        // Charged max hit is 75% of the calculated (uncharged) max hit, floored -
+        // the largest a SINGLE hitsplat can now show, not the full weapon max hit.
+        assertEquals((uncharged.maxHit() * 3) / 4, charged.maxHit());
+        assertTrue("charged max hit must be strictly less than the uncharged one "
+                + "(75% < 100%) - this is the exact defect this stage fixes",
+                charged.maxHit() < uncharged.maxHit());
+        // Combined avgHit: two 75%-range hits average out to noticeably MORE
+        // than one full-range hit (roughly 2*0.75 = 1.5x for a large maxHit,
+        // ignoring the small +1/(maxHit+1) bump term) but strictly LESS than
+        // double it - proves neither the old (2x) nor the review's wrong
+        // guess (1x, from halving each hit to 50%) survived.
+        assertTrue(charged.avgHit() > uncharged.avgHit());
+        assertTrue(charged.avgHit() < 2.0 * uncharged.avgHit());
     }
 
     @Test
@@ -85,6 +96,26 @@ public class TonalzticsRalosEffectTest {
         assertEquals(expected.dps(), result.dps(), 1e-9);
         assertEquals(expected.ttkSeconds(), result.ttkSeconds(), 1e-9);
         assertEquals(expected.overkillPerKill(), result.overkillPerKill(), 1e-9);
+    }
+
+    /**
+     * Hard-coded 75% pin at the full DpsCalculator-wiring level (distinct
+     * from {@code TonalzticsDualHitMathTest}'s own unit-level pin on {@link
+     * TonalzticsDualHit#perHitMaxHit}) — independent of any of
+     * TonalzticsDualHit's own arithmetic, so a future refactor cannot
+     * silently re-widen the per-hit range back to 100% (the original
+     * defect) or narrow it to 50% (the review's wrong guess) without this
+     * test catching it end-to-end.
+     */
+    @Test
+    public void charged_maxHit_isExactlySeventyFivePercentOfCalculatedMaxHit_flooredExactly() {
+        EquipmentStats chargedGear = gear().tonalzticsOfRalosCharged(true).build();
+        DpsResult uncharged = compute(gear().build(), monster());
+        DpsResult charged = compute(chargedGear, monster());
+
+        int calculatedMaxHit = uncharged.maxHit();
+        int expectedChargedMaxHit = (int) Math.floor(calculatedMaxHit * 0.75);
+        assertEquals(expectedChargedMaxHit, charged.maxHit());
     }
 
     @Test

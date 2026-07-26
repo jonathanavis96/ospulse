@@ -11,17 +11,25 @@ package com.ospulse.combat;
  * (or larger) target three times, and "each hit will deal 50% less damage
  * (rounded down) than the preceding hit" — so a base max hit {@code M}
  * cascades to {@code M, floor(M/2), floor(floor(M/2)/2)}. Unlike {@code
- * TonalzticsDualHit} (two IDENTICAL independent rolls) this is a genuinely
- * DECAYING cascade, and — cross-checked directly via search against the
- * wiki's own wording ("these attacks' accuracy and strength rolls are rolled
- * independently ... each hit gets its own separate chance to land") — each
- * cascade hit ALSO makes its own independent accuracy roll at the SAME
- * hit chance, not one shared gate for the whole cascade. This does NOT
- * change the average (linearity of expectation makes the shared-vs-
- * independent-accuracy distinction irrelevant to the mean — see {@link
- * #averageDamagePerAttack}) but DOES matter for overkill, which needs the
- * joint distribution of all landed hits together (see {@link
- * #expectedOverkill}).
+ * TonalzticsDualHit} (two IDENTICAL independent rolls, each over a REDUCED
+ * range) this is a genuinely DECAYING cascade over the full range, and is
+ * now confirmed from a source that states it plainly, not merely inferred:
+ * the OSRS Wiki's "Multi-hit weapons" comparison table (2026-07-27,
+ * {@code api.php?action=parse&page=Multi-hit_weapons&prop=wikitext}) —
+ * <pre>
+ * Scythe of vitur —
+ *   "Hits 2x2 monsters twice and 3x3 or larger monsters 3 times...
+ *    The 2nd hit has 1/2 of the base maximum hit, while the 3rd hit
+ *    has 1/4 of the base maximum hit.
+ *    Each hit rolls for accuracy independently."
+ * </pre>
+ * matches exactly what is implemented here: {@code M, M/2, M/4}, each hit
+ * with its OWN independent accuracy roll at the SAME hit chance, not one
+ * shared gate for the whole cascade. This does NOT change the average
+ * (linearity of expectation makes the shared-vs-independent-accuracy
+ * distinction irrelevant to the mean — see {@link #averageDamagePerAttack})
+ * but DOES matter for overkill, which needs the joint distribution of all
+ * landed hits together (see {@link #expectedOverkill}).
  *
  * <p><b>Follows the Osmumten's Fang precedent</b> (bespoke hitChance/average
  * pair bypassing the generic {@code finish()}) per the design spec, rather
