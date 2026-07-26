@@ -22,10 +22,19 @@ import org.junit.Test;
  *      + (M-C)/(M+1) * 1/(C+1)                    [share of the re-rolled mass]
  * </pre>
  * which does not depend on {@code d} at all — so the distribution is
- * uniform over {@code 0..C}, exactly what a plain {@code 0..C} roll would
- * give. This is why {@code CapMode#REROLL} needs no dedicated distribution
- * math: {@code DpsCalculator} implements it as {@code maxHit = min(maxHit, cap)}
- * fed through the ordinary uncapped formulas.
+ * uniform over {@code 0..C}.
+ *
+ * <p><b>This flatness is about the SHAPE only, and does NOT license
+ * implementing {@code CapMode#REROLL} as {@code maxHit = min(maxHit, cap)} fed
+ * through the ordinary formulas.</b> Those carry OSRS's "a rolled 0 becomes 1"
+ * correction, which belongs to the damage roll and therefore applies BEFORE the
+ * monster re-rolls — surviving only on values that were never re-rolled, while a
+ * re-rolled 0 stays a genuine 0. The real mean is
+ * {@code C/2 + 1/(M+1)}, not {@code C/2 + 1/(C+1)}; see
+ * {@link CombatMath#rerolledAverageDamagePerAttack} /
+ * {@link CombatMath#rerolledExpectedOverkill}, which are what
+ * {@code DpsCalculator} actually calls. The shortcut shipped once on the
+ * strength of the result below and was caught in review.
  *
  * <p>This test does NOT hand-encode that closed form and check it is
  * self-consistent (that would prove nothing about the mechanic, only that

@@ -89,14 +89,33 @@ than widening this set.
   - `CLAMP` — the roll stays uniform `0..uncappedMaxHit` and every result above
     the cap lands ON the cap, piling probability mass there. Implemented by
     `CombatMath.cappedAverageDamagePerAttack` / `cappedExpectedOverkill`.
-  - `REROLL` — a hit above the cap is re-rolled uniformly into `0..cap`, which is
-    algebraically identical to a plain uniform `0..cap` roll (the closed form:
-    `P(d) = 1/(M+1) + [(M-cap)/(M+1)]·[1/(cap+1)]`, independent of `d` for every
-    `d` in `0..cap` — proved directly in `CombatMathRerollEquivalenceTest`). So
-    `REROLL` needs **no** new distribution math: `DpsCalculator` implements it as
-    `maxHit = min(maxHit, cap)` fed through the ordinary uncapped path
-    (`CombatMath.averageDamagePerAttack` / `expectedOverkill`) — see
-    `DpsCalculator#applyTargetDamageRules`.
+  - `REROLL` — a hit above the cap is re-rolled uniformly into `0..cap`.
+    Implemented by `CombatMath.rerolledAverageDamagePerAttack` /
+    `rerolledExpectedOverkill`.
+
+    ⚠ **Do NOT collapse this to `maxHit = min(maxHit, cap)` through the ordinary
+    formulas.** Ignoring OSRS's "a rolled 0 becomes 1" correction the re-rolled
+    distribution *is* flat over `0..cap` (`P(d) = 1/(M+1) + [(M-cap)/(M+1)]·[1/(cap+1)]`,
+    independent of `d` — proved from first principles in
+    `CombatMathRerollEquivalenceTest`), and that is exactly what makes the shortcut
+    look safe. But the ordinary formulas *carry* that correction, and **a re-rolled
+    0 is a genuine result that must keep its probability mass.** The bump belongs to
+    the damage roll, so it applies before the monster re-rolls and survives only on
+    values that were never re-rolled:
+
+    ```
+    rerollShare = (M - cap) / ((M + 1)(cap + 1))
+    P(0) = rerollShare
+    P(1) = 2/(M+1) + rerollShare        <- the surviving bump
+    P(v) = 1/(M+1) + rerollShare          for v in 2..cap
+    ```
+
+    giving `E = cap/2 + 1/(M+1)` for `cap >= 1` — keyed to the TRUE max, not
+    `cap/2 + 1/(cap+1)`. At Verzik's ranged/magic cap of 3 the shortcut overstates by
+    ~15% and hands the overkill DP a zero-free distribution, so TTK is wrong too.
+    (At `cap == 0` even the bumped 1 re-rolls away and the true mean is exactly 0;
+    the functions are guarded.) **This shortcut shipped once and was caught in
+    review — the flatness result is about the shape only.**
 
   **Why the split exists:** the OSRS wiki documents these as two different
   in-game mechanics, not a stylistic choice by this codebase. Verzik Vitur phase
