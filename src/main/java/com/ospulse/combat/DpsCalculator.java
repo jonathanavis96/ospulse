@@ -27,11 +27,24 @@ package com.ospulse.combat;
  * hitChance/avgDamage formulas replace the generic ones entirely rather than
  * being a multiplicative step on maxHit/attackRoll — see computeMelee /
  * finishFang / {@link DamageDistribution#fangHitChance} /
- * {@link DamageDistribution#fangAverageDamagePerAttack}). Unknown/unmodelled effects
- * (scythe multi-hit, special
- * attacks, Avarice, Tumeken's 3x gear multiplier, ...) are simply not
- * applied — extend this class (and {@link CombatMath}) to add them, gated
- * behind their own "applies when" predicate.
+ * {@link DamageDistribution#fangAverageDamagePerAttack}). Six further
+ * multi-hit/conditional-bonus mechanics (design spec §9, each behind its own
+ * "applies when" predicate): the Scythe of Vitur family's target-size-scaled
+ * 1-3x cascade (own bespoke hitChance/average pair, see {@link
+ * ScytheCascade}/finishScythe-equivalent bypass in computeMelee), Colossal
+ * blade's flat {@code +2*min(size,5)} max hit, the Keris partisan family's
+ * vs-Kalphite/Scarabite +33% damage(+accuracy for "of breaching")/1-in-51
+ * triple-damage roll (see {@link KerisPartisan}/{@link KerisTripleRoll}),
+ * the charged Tonalztics of Ralos's two full independent damage rolls (see
+ * {@link TonalzticsDualHit}), the revenant weapons' (Craw's bow/Viggora's
+ * chainmace/Thammaron's sceptre) +50% accuracy/damage vs any Wilderness NPC
+ * (see {@link RevenantWeapon}/{@link WildernessMonsterRepository}), and the
+ * Crystal armour set + Crystal bow/Bow of Faerdhinen's +15% damage/+30%
+ * accuracy (see {@code EquipmentStats#crystalSetBonusActive}). Remaining
+ * unmodelled effects (special attacks, Avarice, Tumeken's 3x gear
+ * multiplier, ...) are simply not applied — extend this class (and {@link
+ * CombatMath}/{@link DamageDistribution}) to add them, gated behind their
+ * own "applies when" predicate.
  *
  * <p>Per-target damage-magnitude effects (a curated {@link
  * MonsterCombatRequirement}, resolved once per compute call from {@code
