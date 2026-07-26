@@ -21,14 +21,28 @@ import java.util.Set;
  *    spec, scored by expected damage per use divided by spec-bar cost
  *    ("damage per spec-bar %").
  * 4. {@link SpecRole#UTILITY} specs are never recommended.
+ * 5. Final fallback (round-2 director decision, added after the original
+ *    rule shipped): if neither step 2 nor step 3 produced a recommendation
+ *    — the player owns no applicable {@code DAMAGE} or {@code
+ *    DEFENCE_DRAIN} spec for this target — but does own a {@link
+ *    SpecRole#HEAL} spec, recommend it. Sustain is genuinely incommensurable
+ *    with damage and unknowable at planning time, so it deliberately never
+ *    OUTRANKS steps 2-3; it only fills the gap where they would otherwise
+ *    recommend nothing at all, which is strictly worse when the player is
+ *    holding a Saradomin godsword. Its readout names the effect ("heals 50%
+ *    of damage dealt"), never a DPS number, so it carries no false claim.
  * </pre>
  *
- * <p><b>{@link SpecRole#HEAL} is catalogued but this literal rule never
- * selects it.</b> Steps 2-3 only ever pick from {@code DEFENCE_DRAIN} or
- * {@code DAMAGE}; there is no third branch for {@code HEAL}. That is a
- * faithful reading of the decided rule as written (it is not this class's
- * place to invent a tie-breaker the spec didn't ask for), not an oversight —
- * flagged here, and in the stage-7 report, rather than silently patched.
+ * <p><b>Interpreting "no applicable DEFENCE_DRAIN" for step 5.</b> A
+ * DEFENCE_DRAIN spec that IS owned+legal but whose target doesn't clear
+ * {@link #HIGH_DEFENCE_THRESHOLD} (so step 2 never fires) is treated the
+ * same as "none owned" for step 5's purposes — the rule falls through to
+ * whatever step 3/5 produces rather than recommending a drain the target is
+ * too weak to warrant. This one under-specified cell was not covered by
+ * either of the director's two required HEAL-fallback scenarios (own ONLY
+ * HEAL; own HEAL AND DAMAGE), so it is resolved by the simplest reading
+ * that adds no branch beyond what was asked, stated here rather than left
+ * implicit.
  */
 public final class SpecWeaponSelector {
     private SpecWeaponSelector() {
@@ -96,7 +110,13 @@ public final class SpecWeaponSelector {
                 return Optional.of(drain);
             }
         }
-        return Optional.ofNullable(bestByRole(eligible, SpecRole.DAMAGE, probe));
+        SpecWeaponRecommendation damage = bestByRole(eligible, SpecRole.DAMAGE, probe);
+        if (damage != null) {
+            return Optional.of(damage);
+        }
+        // Step 5 fallback — see class javadoc. Never reached when step 2 or 3
+        // above already returned.
+        return Optional.ofNullable(bestByRole(eligible, SpecRole.HEAL, probe));
     }
 
     private static SpecWeaponRecommendation bestByRole(List<SpecWeapon> eligible, SpecRole role, DpsProbe probe) {

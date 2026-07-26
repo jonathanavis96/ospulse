@@ -75,14 +75,29 @@ public class SpecWeaponSelectorTest {
     }
 
     /** Faithful reading of the literal rule (see class javadoc): HEAL is catalogued but never selected. */
+    /** Round-2 director decision (step 5 fallback): HEAL is recommended when it is the only owned+legal spec at all. */
     @Test
-    public void healRoleIsNeverSelectedEvenWhenItIsTheOnlyOwnedSpec() {
+    public void healRoleIsSelectedAsAFallbackWhenItIsTheOnlyOwnedSpec() {
         Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(SARADOMIN_GODSWORD));
         java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
         byId.put(SARADOMIN_GODSWORD, result(40, 0.8));
         Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
                 monsterWithDefence(50), null, owned, fixedProbe(byId));
-        assertFalse(rec.isPresent());
+        assertTrue(rec.isPresent());
+        assertEquals(SARADOMIN_GODSWORD, rec.get().itemId());
+    }
+
+    /** HEAL is a last resort only — an owned DAMAGE spec always outranks it, never the other way round. */
+    @Test
+    public void healRoleNeverOutranksAnOwnedDamageSpec() {
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(SARADOMIN_GODSWORD, DRAGON_CLAWS));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(SARADOMIN_GODSWORD, result(90, 0.99)); // absurdly high, would win on any damage metric
+        byId.put(DRAGON_CLAWS, result(10, 0.2));
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), null, owned, fixedProbe(byId));
+        assertTrue(rec.isPresent());
+        assertEquals(DRAGON_CLAWS, rec.get().itemId());
     }
 
     @Test
