@@ -113,9 +113,11 @@ public interface OSPulseConfig extends Config
 		name = "Ironman: owned gear only",
 		description = "Restrict Find Best to gear you already own (the budget is forced to 0) and hide "
 			+ "the upgrade-oriented budget/spend UI, so every recommendation is something you can "
-			+ "actually equip right now. Auto-enabled the first time an ironman account is detected; "
-			+ "toggle freely afterwards - turning it off deliberately is remembered and never "
-			+ "silently re-enabled.",
+			+ "actually equip right now. Applies PER ACCOUNT: this box shows and edits the setting for "
+			+ "whichever account is currently logged in, so an ironman alt and a main sharing this "
+			+ "client each keep their own independent choice. Auto-enabled the first time an ironman "
+			+ "account is detected; toggle freely afterwards - turning it off deliberately is remembered "
+			+ "for that account and never silently re-enabled.",
 		position = 5,
 		section = sessionSection
 	)

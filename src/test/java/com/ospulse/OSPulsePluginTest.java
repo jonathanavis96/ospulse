@@ -1,7 +1,13 @@
 package com.ospulse;
 
+import com.ospulse.ui.OSPulsePanel;
+import com.ospulse.ui.sections.gear.IronmanOwnedOnlyStore;
+
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.vars.AccountType;
+import net.runelite.client.config.ConfigManager;
+import net.runelite.client.events.ConfigChanged;
 
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -34,6 +40,39 @@ public class OSPulsePluginTest
 		field.set(plugin, client);
 	}
 
+	private static void setField(OSPulsePlugin plugin, String name, Object value) throws Exception
+	{
+		Field field = OSPulsePlugin.class.getDeclaredField(name);
+		field.setAccessible(true);
+		field.set(plugin, value);
+	}
+
+	/**
+	 * Builds a plugin with just enough reflection-injected state to exercise
+	 * {@code checkIronmanAutoDetect}/{@code onConfigChanged} directly, without
+	 * the heavyweight {@code startUp()} (same rationale as the class javadoc:
+	 * these are plain {@code @Inject} fields with no Guice container here).
+	 */
+	private static OSPulsePlugin pluginWith(Client client, ConfigManager configManager) throws Exception
+	{
+		OSPulsePlugin plugin = new OSPulsePlugin();
+		setClient(plugin, client);
+		setField(plugin, "configManager", configManager);
+		setField(plugin, "ownedOnlyStore", new IronmanOwnedOnlyStore(configManager));
+		setField(plugin, "panel", Mockito.mock(OSPulsePanel.class));
+		return plugin;
+	}
+
+	private static ConfigChanged configChanged(String key, String profile, String newValue)
+	{
+		ConfigChanged event = new ConfigChanged();
+		event.setGroup(OSPulseConfig.GROUP);
+		event.setKey(key);
+		event.setProfile(profile);
+		event.setNewValue(newValue);
+		return event;
+	}
+
 	@Test
 	public void armPendingIronmanAutoDetectIfLoggedIn_arms_whenAlreadyLoggedIn() throws Exception
 	{
@@ -60,5 +99,116 @@ public class OSPulsePluginTest
 		plugin.armPendingIronmanAutoDetectIfLoggedIn();
 
 		assertFalse(plugin.pendingIronmanAutoDetectForTest());
+	}
+
+	// ---------------------------- issue #11 leak fix: per-account writes
+
+	/**
+	 * The core of the leak fix: auto-detect for an ironman account whose
+	 * per-profile value has never been decided must write ONLY the
+	 * per-profile key, never the client-wide {@code @ConfigItem} — asserted
+	 * directly on the {@link ConfigManager} mock interaction (mirrors this
+	 * class's existing idiom of testing plugin-level behaviour via a
+	 * reflection-injected mock rather than the full {@code startUp()}).
+	 */
+	@Test
+	public void checkIronmanAutoDetect_ironmanNeverDecided_writesOnlyThePerProfileKey() throws Exception
+	{
+		Client client = Mockito.mock(Client.class);
+		Mockito.when(client.getAccountHash()).thenReturn(123L);
+		Mockito.when(client.getAccountType()).thenReturn(AccountType.IRONMAN);
+
+		ConfigManager configManager = Mockito.mock(ConfigManager.class);
+		// needsEvaluation: the "already evaluated this profile" marker is unset.
+		Mockito.when(configManager.getRSProfileConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnlyAutoDetectSeen"))
+			.thenReturn(null);
+		// shouldAutoEnable: this account's own per-profile value was never decided.
+		Mockito.when(configManager.getRSProfileConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnly"))
+			.thenReturn(null);
+		Mockito.when(configManager.getRSProfileKey()).thenReturn("ironman-alt-profile");
+
+		OSPulsePlugin plugin = pluginWith(client, configManager);
+		plugin.checkIronmanAutoDetectForTest();
+
+		Mockito.verify(configManager).setRSProfileConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnly", true);
+		Mockito.verify(configManager, Mockito.never())
+			.setConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnly", true);
+	}
+
+	/**
+	 * A genuine user toggle of the client-wide settings-panel checkbox (a
+	 * {@code ConfigChanged} on the key with a {@code null} profile, and not
+	 * matching an armed mirror echo) must persist to BOTH the current
+	 * account's per-profile value and the global default.
+	 */
+	@Test
+	public void onConfigChanged_userToggle_writesBothProfileValueAndGlobalDefault() throws Exception
+	{
+		Client client = Mockito.mock(Client.class);
+		ConfigManager configManager = Mockito.mock(ConfigManager.class);
+		Mockito.when(configManager.getRSProfileKey()).thenReturn("main-profile");
+
+		OSPulsePlugin plugin = pluginWith(client, configManager);
+
+		plugin.onConfigChanged(configChanged("ironmanOwnedOnly", null, "true"));
+
+		Mockito.verify(configManager).setRSProfileConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnly", true);
+		Mockito.verify(configManager).setConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnlyDefault", true);
+	}
+
+	/**
+	 * The mirror's own echo (this plugin's {@code mirrorToClientWide} writing
+	 * the client-wide checkbox, then seeing its own {@code ConfigChanged}
+	 * come back) must write NOTHING — neither the per-profile value nor the
+	 * global default — since it isn't a user action at all.
+	 */
+	@Test
+	public void onConfigChanged_mirrorEcho_writesNeitherProfileNorGlobalDefault() throws Exception
+	{
+		Client client = Mockito.mock(Client.class);
+		ConfigManager configManager = Mockito.mock(ConfigManager.class);
+		Mockito.when(configManager.getRSProfileKey()).thenReturn("main-profile");
+		// resolveEffective() inside mirrorToClientWide: profile value true, current client-wide box false -> a write is needed.
+		Mockito.when(configManager.getRSProfileConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnly"))
+			.thenReturn("true");
+		Mockito.when(configManager.getConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnly"))
+			.thenReturn("false");
+
+		OSPulsePlugin plugin = pluginWith(client, configManager);
+		IronmanOwnedOnlyStore store = new IronmanOwnedOnlyStore(configManager);
+		setField(plugin, "ownedOnlyStore", store);
+		// Arms the echo latch to "true" (a mock ConfigManager doesn't actually
+		// fire ConfigChanged, so this simulates the real write's side effect
+		// deterministically instead of relying on a live event bus).
+		store.mirrorToClientWide();
+
+		plugin.onConfigChanged(configChanged("ironmanOwnedOnly", null, "true"));
+
+		Mockito.verify(configManager, Mockito.never())
+			.setRSProfileConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnly", true);
+		Mockito.verify(configManager, Mockito.never())
+			.setConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnlyDefault", true);
+	}
+
+	/**
+	 * A profile-scoped {@code ConfigChanged} (non-null {@code getProfile()})
+	 * on the key is always our own write (auto-detect, or the profile half of
+	 * a user toggle), never a user toggle of the client-wide checkbox — must
+	 * not trigger a SECOND round of profile/default writes.
+	 */
+	@Test
+	public void onConfigChanged_profileScopedEvent_isNeverTreatedAsAUserToggle() throws Exception
+	{
+		Client client = Mockito.mock(Client.class);
+		ConfigManager configManager = Mockito.mock(ConfigManager.class);
+
+		OSPulsePlugin plugin = pluginWith(client, configManager);
+
+		plugin.onConfigChanged(configChanged("ironmanOwnedOnly", "some-profile-key", "true"));
+
+		Mockito.verify(configManager, Mockito.never())
+			.setRSProfileConfiguration(Mockito.anyString(), Mockito.anyString(), Mockito.any());
+		Mockito.verify(configManager, Mockito.never())
+			.setConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnlyDefault", true);
 	}
 }

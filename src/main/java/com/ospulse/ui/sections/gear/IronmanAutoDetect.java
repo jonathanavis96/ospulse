@@ -11,8 +11,9 @@ package com.ospulse.ui.sections.gear;
  * the decision, never touching any RuneLite API directly (no {@code Client}
  * / {@code ConfigManager}), so it is trivially unit-testable without
  * mocking either. The caller ({@code OSPulsePlugin}) owns the actual reads/
- * writes and the RS-profile-scoped bookkeeping key that gates how often
- * {@link #shouldAutoEnable} is even consulted.
+ * writes (via {@link IronmanOwnedOnlyStore}) and the RS-profile-scoped
+ * bookkeeping key that gates how often {@link #shouldAutoEnable} is even
+ * consulted.
  */
 public final class IronmanAutoDetect
 {
@@ -37,13 +38,19 @@ public final class IronmanAutoDetect
 	}
 
 	/**
-	 * Whether the client-wide {@code ironmanOwnedOnly} flag should be forced
-	 * on. Only ever meaningful when {@link #needsEvaluation} was true for
-	 * this profile, and only ever true when the flag has never been
-	 * explicitly set by anyone ({@code rawOwnedOnlyValue == null} — an
+	 * Whether the {@code ironmanOwnedOnly} flag should be auto-enabled for
+	 * this account. Only ever meaningful when {@link #needsEvaluation} was
+	 * true for this profile, and only ever true when the flag has never been
+	 * explicitly set for THIS account ({@code rawOwnedOnlyValue == null} — an
 	 * explicit {@code "false"} means the user deliberately turned it off and
 	 * must never be silently re-enabled) and the logged-in account is some
 	 * ironman variant.
+	 *
+	 * <p>{@code rawOwnedOnlyValue} is this account's raw PER-PROFILE value
+	 * (see {@link IronmanOwnedOnlyStore#rawProfileValue()}) — per the
+	 * per-account scheme, auto-detect only ever reads/writes the per-profile
+	 * key, never the client-wide {@code @ConfigItem}, so an ironman alt's
+	 * auto-enable can never leak onto a main sharing the same client.
 	 */
 	public static boolean shouldAutoEnable(String rawOwnedOnlyValue, boolean accountIsIronman)
 	{

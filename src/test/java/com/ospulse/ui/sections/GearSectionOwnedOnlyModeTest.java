@@ -3,6 +3,8 @@ package com.ospulse.ui.sections;
 import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.optimizer.LoadoutOverride;
 import com.ospulse.combat.optimizer.WhatIfLoadout;
+import com.ospulse.integration.BankRecommendationHighlighter;
+import com.ospulse.model.ItemStack;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
@@ -16,7 +18,9 @@ import org.mockito.Mockito;
 import javax.swing.ListModel;
 import javax.swing.SwingUtilities;
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -128,10 +132,20 @@ public class GearSectionOwnedOnlyModeTest
 		section.monsterListForTest().setSelectedIndex(index);
 	}
 
+	/**
+	 * Stubs a logged-in account whose PER-PROFILE {@code ironmanOwnedOnly}
+	 * value is {@code rawIronmanOwnedOnly} — {@link GearSection#ironmanOwnedOnlyPref()}
+	 * is now a merged per-account read (issue #11 leak fix) that never
+	 * consults the client-wide {@code ironmanOwnedOnly} key directly, so
+	 * these tests (which only care about the resolved boolean, not the
+	 * profile-vs-global distinction) stub the per-profile path — the most
+	 * direct analogue of "this account's setting is X".
+	 */
 	private static ConfigManager mockConfigManager(String rawIronmanOwnedOnly)
 	{
 		ConfigManager configManager = Mockito.mock(ConfigManager.class);
-		Mockito.when(configManager.getConfiguration(
+		Mockito.when(configManager.getRSProfileKey()).thenReturn("test-profile");
+		Mockito.when(configManager.getRSProfileConfiguration(
 				com.ospulse.OSPulseConfig.GROUP, "ironmanOwnedOnly"))
 			.thenReturn(rawIronmanOwnedOnly);
 		return configManager;
@@ -189,7 +203,7 @@ public class GearSectionOwnedOnlyModeTest
 			// setting) — resolvedBudget() is a LIVE read (see GearSection#ironmanOwnedOnlyPref),
 			// so re-stubbing the mock and re-reading is exactly what a live
 			// config change looks like from GearSection's perspective.
-			Mockito.when(configManager.getConfiguration(com.ospulse.OSPulseConfig.GROUP, "ironmanOwnedOnly"))
+			Mockito.when(configManager.getRSProfileConfiguration(com.ospulse.OSPulseConfig.GROUP, "ironmanOwnedOnly"))
 				.thenReturn("false");
 
 			assertEquals("mode OFF: the stored 50M budget must be restored exactly, unmutated",
@@ -292,7 +306,7 @@ public class GearSectionOwnedOnlyModeTest
 			// recompute hook a config-change listener calls. Same JLabel/
 			// JPanel objects throughout (final fields, never reassigned), so
 			// this can only ever setVisible on them, never rebuild.
-			Mockito.when(configManager.getConfiguration(com.ospulse.OSPulseConfig.GROUP, "ironmanOwnedOnly"))
+			Mockito.when(configManager.getRSProfileConfiguration(com.ospulse.OSPulseConfig.GROUP, "ironmanOwnedOnly"))
 				.thenReturn("true");
 			section.refreshIronmanOwnedOnlyMode();
 
@@ -330,7 +344,7 @@ public class GearSectionOwnedOnlyModeTest
 			assertFalse(section.budgetRiskRowVisibleForTest());
 			assertFalse(section.optimizerDpsRowVisibleForTest());
 
-			Mockito.when(configManager.getConfiguration(com.ospulse.OSPulseConfig.GROUP, "ironmanOwnedOnly"))
+			Mockito.when(configManager.getRSProfileConfiguration(com.ospulse.OSPulseConfig.GROUP, "ironmanOwnedOnly"))
 				.thenReturn("false");
 			section.refreshIronmanOwnedOnlyMode();
 
@@ -345,6 +359,92 @@ public class GearSectionOwnedOnlyModeTest
 			assertEquals("the stored 50M budget must be restored, not left forced at 0",
 				50_000_000L, section.resolvedBudgetForTest());
 			assertEquals(50_000_000L, section.storedBudgetForTest());
+		});
+	}
+
+	// --------------------------------------- stale result clears on OFF->ON
+
+	private static final int DRAGON_SCIMITAR = 4587;
+
+	/**
+	 * Coordinator-flagged Codex/CodeRabbit finding on PR #19: a result found
+	 * while owned-only mode was OFF (here, a real upgrade from a Bronze
+	 * sword to an owned-via-wealth Dragon scimitar) must not silently survive
+	 * an OFF-&gt;ON mode flip — {@link GearSection#refreshIronmanOwnedOnlyMode()}
+	 * must clear the stale result, its auto-applied what-if override/preview,
+	 * AND the bank highlight armed from it, asserting on the actual cleared
+	 * state (not merely that the method ran without throwing).
+	 */
+	@Test
+	public void refreshIronmanOwnedOnlyMode_offToOnWithStaleResult_clearsResultOverrideAndBankHighlight()
+	{
+		onEdt(() ->
+		{
+			ConfigManager configManager = mockConfigManager("false");
+			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
+			BankRecommendationHighlighter bankHighlighter = Mockito.mock(BankRecommendationHighlighter.class);
+			section.setBankHighlighter(bankHighlighter);
+
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(DRAGON_SCIMITAR, "Dragon scimitar", 1, 100_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			// Sanity: a real result/preview exists before the mode flips on —
+			// B8-4's auto-preview already applied it to the what-if override.
+			assertTrue("sanity: a stale result must exist before the flip",
+				section.lastOptimizerResultForTest() != null);
+			assertFalse("sanity: the auto-preview must have applied an override",
+				section.overrideForTest().isEmpty());
+
+			Mockito.when(configManager.getRSProfileConfiguration(com.ospulse.OSPulseConfig.GROUP, "ironmanOwnedOnly"))
+				.thenReturn("true");
+			section.refreshIronmanOwnedOnlyMode();
+
+			assertEquals("the stale optimiser result must be cleared, not just hidden",
+				null, section.lastOptimizerResultForTest());
+			assertTrue("the auto-applied what-if override/preview must be cleared",
+				section.overrideForTest().isEmpty());
+			assertFalse("the stale result panel must be hidden, not left showing unowned gear",
+				section.optimizerResultVisibleForTest());
+			Mockito.verify(bankHighlighter, Mockito.atLeastOnce()).clear();
+		});
+	}
+
+	/**
+	 * A result computed WHILE owned-only mode is already ON is always
+	 * budget-0 (hence always owned-only-safe — see {@code
+	 * OwnedOnlyMode#effectiveBudget}), so an unrelated later refresh call
+	 * (e.g. the RS-profile-change mirror re-triggering) must NOT clear it —
+	 * only the OFF-&gt;ON transition itself is a leak risk. Regression guard
+	 * for {@code GearSection}'s internal "last known owned-only pref"
+	 * tracking gating on the transition rather than "currently on".
+	 */
+	@Test
+	public void refreshIronmanOwnedOnlyMode_alreadyOn_doesNotClearAFreshOwnedOnlySafeResult()
+	{
+		onEdt(() ->
+		{
+			ConfigManager configManager = mockConfigManager("true");
+			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
+
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
+			pickCerberus(section);
+			section.runOptimizerSyncForTest();
+
+			assertTrue("sanity: a result exists, computed while already owned-only",
+				section.lastOptimizerResultForTest() != null);
+
+			// No config change at all — mirrors a later unrelated refresh call
+			// (e.g. RS-profile-change mirroring) with the mode still ON.
+			section.refreshIronmanOwnedOnlyMode();
+
+			assertTrue("a result computed while owned-only was already on must survive an unrelated refresh",
+				section.lastOptimizerResultForTest() != null);
 		});
 	}
 }

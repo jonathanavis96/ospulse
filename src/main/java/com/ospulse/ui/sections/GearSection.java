@@ -274,6 +274,17 @@ public final class GearSection extends CollapsibleSection
 	private final SpriteManager spriteManager;
 	/** {@code null} in tests that don't exercise persistence (see the no-config-manager constructors) — every read/write of it is guarded. */
 	private final ConfigManager configManager;
+	/**
+	 * {@link #ironmanOwnedOnlyPref()}'s value as of the last {@link
+	 * #refreshIronmanOwnedOnlyMode()} call (seeded at construction) — lets
+	 * that method detect an OFF-&gt;ON transition specifically, rather than
+	 * "currently on", so a result computed WHILE owned-only mode is already
+	 * on (always budget-0, hence always owned-only-safe — see {@link
+	 * com.ospulse.ui.sections.gear.OwnedOnlyMode#effectiveBudget}) is never
+	 * needlessly cleared by an unrelated later refresh (e.g. the RS-profile-
+	 * change mirror).
+	 */
+	private boolean lastKnownIronmanOwnedOnlyPref;
 	/** Nullable collaborator wired post-construction by {@link com.ospulse.ui.OSPulsePanel#setBankHighlighter} — see {@link #setBankHighlighter}. */
 	private com.ospulse.integration.BankRecommendationHighlighter bankHighlighter;
 	private final WeaponCategoryRepository weaponRepo = WeaponCategoryRepository.getInstance();
@@ -685,6 +696,10 @@ public final class GearSection extends CollapsibleSection
 		this.spriteManager = spriteManager;
 		this.configManager = configManager;
 		this.priceResolver = priceResolver;
+		// Baseline for refreshIronmanOwnedOnlyMode's OFF->ON transition guard —
+		// must read AFTER this.configManager is assigned (see that field's own
+		// javadoc on why a field initializer here would run too early).
+		this.lastKnownIronmanOwnedOnlyPref = ironmanOwnedOnlyPref();
 		loadPotionVariantPrefs();
 
 		// ------------------------------------------------ worn-gear header
@@ -3725,18 +3740,34 @@ public final class GearSection extends CollapsibleSection
 			configManager.getConfiguration(OSPulseConfig.GROUP, "hideUnprotectableItems"));
 	}
 
-	/** Mirrors {@link OSPulseConfig#ironmanOwnedOnly()}'s {@code keyName} — see {@link #ironmanOwnedOnlyPref()}. */
-	private static final String CONFIG_KEY_IRONMAN_OWNED_ONLY = "ironmanOwnedOnly";
-
-	/** Live read of {@link OSPulseConfig#ironmanOwnedOnly()} (issue #11) — mirrors {@link #hideUnprotectableItemsPref()}'s raw {@link ConfigManager} idiom. */
+	/**
+	 * Live read of the per-account merged {@code ironmanOwnedOnly} value
+	 * (issue #11 leak fix): the current RS profile's own value if it has one,
+	 * else the client-wide {@code ironmanOwnedOnlyDefault} global preference,
+	 * else {@code false} — see {@link com.ospulse.ui.sections.gear.IronmanOwnedOnlyResolver#resolve}.
+	 * Deliberately never reads the client-wide {@code ironmanOwnedOnly}
+	 * {@code @ConfigItem} itself here — that key is only an edit surface /
+	 * display mirror now (kept in sync by {@code OSPulsePlugin}'s {@code
+	 * IronmanOwnedOnlyStore}), never the source of truth for behaviour, which
+	 * is the whole point of the per-account scheme (an ironman alt's
+	 * auto-enable must never leak onto a main sharing this client). No-op
+	 * (returns {@code false}) without a {@link ConfigManager}, mirroring
+	 * {@link #hideUnprotectableItemsPref()}'s guard.
+	 */
 	private boolean ironmanOwnedOnlyPref()
 	{
 		if (configManager == null)
 		{
 			return false;
 		}
-		return Boolean.parseBoolean(
-			configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_IRONMAN_OWNED_ONLY));
+		String profileKey = configManager.getRSProfileKey();
+		String rawProfile = profileKey != null
+			? configManager.getRSProfileConfiguration(OSPulseConfig.GROUP,
+				com.ospulse.ui.sections.gear.IronmanOwnedOnlyStore.KEY)
+			: null;
+		String rawDefault = configManager.getConfiguration(OSPulseConfig.GROUP,
+			com.ospulse.ui.sections.gear.IronmanOwnedOnlyStore.DEFAULT_KEY);
+		return com.ospulse.ui.sections.gear.IronmanOwnedOnlyResolver.resolve(rawProfile, rawDefault);
 	}
 
 	/** Restores {@link #excludedItemIds} from a comma-separated config value. No-op without a {@link ConfigManager}. */
@@ -4738,12 +4769,48 @@ public final class GearSection extends CollapsibleSection
 		optimizerSwapList.setVisible(visible);
 	}
 
-	/** Re-applies ironman owned-only mode after a post-construction config change (issue #11 P2 fix) — setVisible only, no rebuild. */
+	/**
+	 * Re-applies ironman owned-only mode after a post-construction config
+	 * change (issue #11 P2 fix) — setVisible only, no rebuild.
+	 *
+	 * <p>Codex/CodeRabbit finding on PR #19: a "Find best setup" result
+	 * computed while owned-only mode was OFF (a real, possibly non-zero
+	 * budget) used to simply have its upgrade-UI rows hidden here, but the
+	 * result itself — and the what-if override / bank highlight it already
+	 * auto-applied (see the class javadoc's "B8-4 auto-preview" / "B9-4
+	 * auto-arm") — survived untouched, so the panel kept silently
+	 * recommending gear the player might not own while owned-only mode was
+	 * now visibly ON. This is exactly the scenario auto-detect creates:
+	 * flipping the mode ON mid-session, after the player already searched.
+	 *
+	 * <p>Only clears on the OFF-&gt;ON transition specifically (see {@link
+	 * #lastKnownIronmanOwnedOnlyPref}'s javadoc for why "currently on" alone
+	 * is the wrong condition). {@link #resetAllOverrides()} — the existing
+	 * "Revert to current gear" / "Clear preview" action — is reused rather
+	 * than re-running the optimiser: {@code runOptimizer()} always goes
+	 * through {@code runOptimizerSearch}'s real {@code SwingWorker} (even
+	 * with no {@link #priceResolver} wired — see {@code
+	 * runOptimizerSyncForTest}'s javadoc on why that test seam exists at
+	 * all), so it can't complete synchronously with this method's caller
+	 * ({@code OSPulsePlugin#onConfigChanged}, off the EDT via {@code
+	 * invokeLater} either way); {@code resetAllOverrides()} is fully
+	 * synchronous and already exactly clears "every what-if override AND any
+	 * optimiser-applied preview/highlight" in one clean, already-tested step,
+	 * leaving the readout showing the player's real worn gear — never a
+	 * half-torn-down state.
+	 */
 	public void refreshIronmanOwnedOnlyMode()
 	{
-		budgetRiskRow.setVisible(OwnedOnlyMode.upgradeUiVisible(ironmanOwnedOnlyPref()));
+		boolean ownedOnly = ironmanOwnedOnlyPref();
+		if (ownedOnly && !lastKnownIronmanOwnedOnlyPref && lastOptimizerResult != null)
+		{
+			resetAllOverrides();
+		}
+		lastKnownIronmanOwnedOnlyPref = ownedOnly;
+
+		budgetRiskRow.setVisible(OwnedOnlyMode.upgradeUiVisible(ownedOnly));
 		updateBudgetDisplay();
-		setUpgradeStatRowsVisible(OwnedOnlyMode.upgradeStatRowsVisible(ironmanOwnedOnlyPref(), lastOptimizerResult));
+		setUpgradeStatRowsVisible(OwnedOnlyMode.upgradeStatRowsVisible(ownedOnly, lastOptimizerResult));
 	}
 
 	/** True if the optimiser's proposed loadout differs from the currently worn gear in at least one slot. */
