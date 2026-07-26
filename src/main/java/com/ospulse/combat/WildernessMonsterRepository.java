@@ -28,6 +28,22 @@ import java.util.Set;
  * curated, mirroring {@link MonsterGearOverrideRepository}/{@link
  * MonsterCombatRequirementRepository}'s own bundled-resource pattern.
  *
+ * <p><b>This is a curated SUBSET of Wilderness monsters, not "every
+ * Wilderness NPC".</b> It covers the reported bosses, every Revenant, and
+ * ordinary Wilderness combat NPCs whose bundled display name either is
+ * unique to the Wilderness or is explicitly location-tagged in the bundled
+ * data (e.g. "(Wilderness Slayer Cave)"). Many OSRS monster NAMES are
+ * shared between a Wilderness spawn and one or more non-Wilderness spawns
+ * with no location field to tell them apart in this engine's {@link
+ * Monster} — including such a name here would be a false positive (it
+ * would overstate DPS for a target the player may not actually be fighting
+ * in the Wilderness), so every ambiguous or majority-non-Wilderness name is
+ * deliberately EXCLUDED rather than guessed into the set. See the
+ * accompanying README's "Deliberately excluded" section for the specific
+ * calls and evidence. {@link #isWilderness} therefore has NO fallback
+ * beyond this curated set by design — a false negative here only
+ * undersells a weapon's DPS, which is the safer failure direction.
+ *
  * <p>Matches by monster NAME (case-insensitive exact match), not npc id —
  * same convention as {@link MonsterRepository#byName}.
  */
@@ -88,7 +104,12 @@ public final class WildernessMonsterRepository {
         return lowercaseNames.size();
     }
 
-    /** True when {@code monsterName} (case-insensitive exact match) is in the curated Wilderness set. */
+    /**
+     * True when {@code monsterName} (case-insensitive exact match) is in the
+     * curated Wilderness set — a deliberate SUBSET of real Wilderness NPCs,
+     * not "any Wilderness NPC"; see the class javadoc and this repository's
+     * README for which names were included/excluded and why.
+     */
     public boolean isWilderness(String monsterName) {
         return monsterName != null && lowercaseNames.contains(monsterName.toLowerCase(Locale.ROOT));
     }
