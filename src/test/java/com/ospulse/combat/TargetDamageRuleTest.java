@@ -288,6 +288,43 @@ public class TargetDamageRuleTest {
             CombatMath.cappedAverageDamagePerAttack(0.5, 40, 4), 1e-12);
     }
 
+    // ---- capped overkill -----------------------------------------------------------------
+    // Overkill must use the SAME distribution as the average, or TTK (derived from it) is wrong.
+
+    /** Same boundary check as the average: cap == max must delegate to the uniform version. */
+    @Test
+    public void cappedOverkillReducesToTheUniformVersionWhenCapEqualsMax() {
+        for (int max : new int[]{1, 4, 9, 40}) {
+            assertEquals("cap == max must be a no-op for max=" + max,
+                CombatMath.expectedOverkill(max, 60),
+                CombatMath.cappedExpectedOverkill(max, max, 60), 1e-12);
+        }
+    }
+
+    @Test
+    public void aCapAboveTheMaxIsANoOpForOverkill() {
+        assertEquals(CombatMath.expectedOverkill(10, 60),
+            CombatMath.cappedExpectedOverkill(10, 50, 60), 1e-12);
+    }
+
+    /**
+     * The bug: clamping the max hit and using the uniform version assumes a flat 1..cap
+     * spread, but 37/41 of the mass sits on the cap itself, so real overkill is higher.
+     */
+    @Test
+    public void cappedOverkillExceedsTheNaivelyClampedValue() {
+        double naive = CombatMath.expectedOverkill(4, 60);
+        double correct = CombatMath.cappedExpectedOverkill(40, 4, 60);
+        assertTrue("mass piled on the cap makes the killing blow overshoot more often",
+            correct > naive);
+    }
+
+    /** A cap of 1 puts the entire distribution on 1, so a kill can never overshoot. */
+    @Test
+    public void aCapOfOneCanNeverOverkill() {
+        assertEquals(0.0, CombatMath.cappedExpectedOverkill(40, 1, 60), 1e-12);
+    }
+
     /** The shipped dataset must match the wiki rule, not just the model. */
     @Test
     public void shippedCorpBeastEntryPenalisesEverythingButMagic() {

@@ -335,4 +335,51 @@ final class CombatMath {
         }
         return over[targetHitpoints];
     }
+
+    /**
+     * Expected overkill when each hitsplat is capped — the same recurrence as
+     * {@link #expectedOverkill}, but over the capped damage distribution rather
+     * than a uniform {@code 0..cap} one.
+     *
+     * <p>Necessary for the same reason as {@link #cappedAverageDamagePerAttack}:
+     * the roll spans {@code 0..M} and everything from {@code cap} upward lands on
+     * the cap, so the cap carries {@code (M - cap + 1)/(M + 1)} of the mass rather
+     * than {@code 1/(cap + 1)}. Feeding a clamped max hit into the uniform
+     * version assumes a flat 1..cap spread and gets overkill — and therefore TTK
+     * — wrong for every capped setup.
+     *
+     * <p>Distribution (the 0-to-1 correction applies to the roll, before the cap):
+     * roll 0 and roll 1 both give 1; rolls {@code 2..cap-1} give themselves;
+     * rolls {@code cap..M} all give {@code cap}. With {@code cap == 1} every roll
+     * gives 1. Setting {@code cap >= M} delegates to {@link #expectedOverkill},
+     * which the tests assert.
+     */
+    static double cappedExpectedOverkill(int uncappedMaxHit, int cap, int targetHitpoints) {
+        if (cap >= uncappedMaxHit) {
+            return expectedOverkill(uncappedMaxHit, targetHitpoints);
+        }
+        if (cap <= 0 || targetHitpoints <= 0) {
+            return 0.0;
+        }
+        double denom = uncappedMaxHit + 1.0;
+        double[] p = new double[cap + 1];
+        if (cap == 1) {
+            p[1] = 1.0;
+        } else {
+            p[1] = 2.0 / denom;
+            for (int d = 2; d <= cap - 1; d++) {
+                p[d] = 1.0 / denom;
+            }
+            p[cap] = (uncappedMaxHit - cap + 1.0) / denom;
+        }
+        double[] over = new double[targetHitpoints + 1];
+        for (int h = 1; h <= targetHitpoints; h++) {
+            double sum = 0.0;
+            for (int d = 1; d <= cap; d++) {
+                sum += p[d] * (d >= h ? (d - h) : over[h - d]);
+            }
+            over[h] = sum;
+        }
+        return over[targetHitpoints];
+    }
 }

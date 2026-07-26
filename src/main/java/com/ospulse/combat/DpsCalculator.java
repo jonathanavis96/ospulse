@@ -562,7 +562,12 @@ public final class DpsCalculator {
             : CombatMath.averageDamagePerAttack(hitChance, maxHit);
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
         // avgDamage is the expected damage per attack (misses included) — GearScape's "Avg Hit".
-        double overkill = CombatMath.expectedOverkill(maxHit, targetHitpoints);
+        // Overkill must use the SAME distribution as avgDamage. Passing the clamped max hit
+        // to the uniform version would assume a flat 1..cap spread and get overkill — and
+        // therefore TTK, which is derived from it — wrong for every capped setup.
+        double overkill = damage.isCapped()
+            ? CombatMath.cappedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints)
+            : CombatMath.expectedOverkill(maxHit, targetHitpoints);
         // TTK must account for overkill: the killing blow rolls past 0 HP, wasting
         // `overkill` HP of damage, so effective damage per kill is HP + overkill.
         // By Wald's identity E[TTK] = (HP + E[overkill]) / DPS exactly — the naive
