@@ -258,3 +258,22 @@ Note also (footnote in the same table): **dragonfire protection does not defend 
 one-hit fireball at all.** No potion or shield choice changes that, so it is deliberately left out of
 a *consumables* reminder - it is a movement problem, not a supply one.
 
+## Correction (round 6) — Zulrah envenoms, it does not poison every hit
+
+The note said "Zulrah poisons you on every hit". Wrong on the status effect, the source and the
+frequency. Per [Zulrah/Strategies](https://oldschool.runescape.wiki/w/Zulrah/Strategies):
+
+- "The ranged and magic attacks will **envenom** the player unless they miss, even if blocked by a
+  protection prayer." So it is **venom**, not poison — the distinction matters, because plain
+  antipoison only knocks venom down to poison rather than curing it — and it is the ranged/magic
+  attacks that do it, not the melee (crimson) form.
+- "While these clouds inflict venom damage, they **do not** envenom the player." The venom clouds are
+  a separate damage mechanic and are not the source of the envenoming.
+- A **serpentine helm** grants venom immunity outright and "prevents the need for anti-venom+
+  potions, therefore freeing up an inventory slot" — a genuine alternative to the consumable, so the
+  note now offers it.
+
+The helm's item id is deliberately not attached: it is head-slot equipment and would need
+verification against `equipment_index.min.json` under the same rule as every other id here. Naming it
+in prose costs nothing and asserts nothing unverified.
+

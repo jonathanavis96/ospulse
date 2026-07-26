@@ -2,7 +2,7 @@
   "reminders": [
     {
       "monsters": ["Zulrah"],
-      "note": "Zulrah poisons you on every hit — bring antivenom(+). A ring of suffering (ri) or ring of recoil chips some retaliation damage back."
+      "note": "Zulrah's ranged and magic attacks envenom you unless they miss, even through a protection prayer — bring antivenom+, or wear a serpentine helm for outright immunity. A ring of suffering (ri) or ring of recoil chips damage back at the snakelings."
     },
     {
       "monsters": ["Vorkath"],
