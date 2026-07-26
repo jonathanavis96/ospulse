@@ -78,13 +78,17 @@ public final class GeSection extends CollapsibleSection
 				}
 				first = false;
 
-				String arrow = offer.isBuying() ? "▲" : "▼"; // ▲ buy / ▼ sell
-				String header = arrow + " " + offer.getItemName();
+				// Direction (buy/sell) is a NEUTRAL fact, not a gain/loss
+				// signal: it gets a plain label and a single neutral colour
+				// regardless of which way the offer runs. Red/green is
+				// reserved entirely for actual realised P&L below, matching
+				// the rest of the panel's convention (PanelWidgets#setSignedGpLabel,
+				// HoldingsSection, GearSection) — a sell is not inherently a
+				// loss just because coins are the direction things moved.
+				String header = (offer.isBuying() ? "BUY " : "SELL ") + offer.getItemName();
 				String qty = String.format("%,d / %,d",
 					offer.getQuantityTransacted(), offer.getTotalQuantity());
-				Color dirColor = offer.isBuying()
-					? ColorScheme.PROGRESS_COMPLETE_COLOR
-					: ColorScheme.PROGRESS_ERROR_COLOR;
+				Color dirColor = ColorScheme.BRAND_ORANGE;
 				geListPanel.add(PanelWidgets.iconRow(itemManager, offer.getItemId(), header, qty, dirColor));
 
 				double progress = offer.getTotalQuantity() == 0L
@@ -102,6 +106,19 @@ public final class GeSection extends CollapsibleSection
 				String gp = GpFormat.format(offer.getGpProgress())
 					+ " / " + GpFormat.format(offer.getGpPotential());
 				geListPanel.add(PanelWidgets.listRow("   " + gpLabelText, gp));
+
+				// Live signed flip P&L, only when this offer has actually
+				// realised one: absent for a still-open buy, and absent
+				// (deliberately, not a misleading "0") for a dump — selling
+				// items with no GE cost basis, whose value is already booked
+				// as Loot elsewhere. Present means a genuine flip, which
+				// grows/updates as the sell fills, and can legitimately be a
+				// small loss even when sold at the exact price it was bought
+				// at (the GE's sales tax).
+				if (offer.getRealizedPnl().isPresent())
+				{
+					geListPanel.add(PanelWidgets.signedListRow("   P&L", offer.getRealizedPnl().getAsLong()));
+				}
 			}
 		}
 

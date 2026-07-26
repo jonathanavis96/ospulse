@@ -162,6 +162,14 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 
 ## 📝 Changelog
 
+### Unreleased
+
+**🔧 Fixed**
+
+- **Crafting at a loss now reads as a loss.** Making potions whose ingredients cost more than the result left Profit unchanged — the ingredient cost silently disappeared from Profit and was absorbed into the Bank line, so a losing herblore run could still look like a gain. Skilling is now tracked as an episode: your inputs are charged, the item you made is no longer counted as "loot" you found, and Profit shows the real margin — negative when you lose money. Covers Herblore, Crafting, Fletching, Smithing and Cooking.
+- **Loot picked up without a kill now reaches the loot feed.** The feed only ever showed what RuneLite's Loot Tracker broadcast, so anything it missed — notably bird nests searched without a menu click — never appeared, even though your wealth clearly moved. OSPulse now watches your inventory directly, so that loot lands under **Inventory (unattributed)**. Loot from kills is unchanged and can't be counted twice.
+- **The GE panel no longer calls every sale a loss.** A sell offer was always drawn red with a down arrow — the colour meant "this is a sell", not "you lost money" — so selling at your listed price looked exactly like a disaster. Direction is now neutral, and red/green means what it means everywhere else in the plugin: your real profit or loss on the flip, net of tax, updating as the offer fills. Items you never bought on the GE show no profit figure, since their value already counted as loot when you picked them up.
+
 <!-- 0.2.1 is the version declared in build.gradle + runelite-plugin.properties and is
      what master builds as. It is NOT yet the version served by the Plugin Hub: the
      hub manifest pins a commit SHA, so going live still needs a PR against
