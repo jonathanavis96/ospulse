@@ -1,0 +1,58 @@
+{
+  "reminders": [
+    {
+      "monsters": ["Zulrah"],
+      "note": "Zulrah's ranged and magic attacks envenom you unless they miss, even through a protection prayer — bring antivenom+, or wear a serpentine helm for outright immunity. A ring of suffering (ri) or ring of recoil chips damage back at the snakelings."
+    },
+    {
+      "monsters": ["Vorkath"],
+      "note": "Vorkath's dragonfire hits 80 unprotected. A dragonfire shield with a super antifire blocks it completely; a two-handed setup with Protect from Magic and a super antifire brings it down to 10, which is what most players run. His venomous dragonfire, part of the normal rotation, can poison you — bring antivenom(+).",
+      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
+    },
+    {
+      "monsters": [
+        "Red dragon", "Brutal red dragon",
+        "Blue dragon", "Brutal blue dragon",
+        "Green dragon", "Brutal green dragon",
+        "Black dragon", "Brutal black dragon", "King Black Dragon",
+        "Lava dragon", "Frost dragon", "Reanimated dragon"
+      ],
+      "note": "Breathes dragonfire — Protect from Magic plus an antifire (or extended antifire) potion covers it without needing a shield; a dragonfire shield/ward or anti-dragon shield works too.",
+      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
+    },
+    {
+      "monsters": [
+        "Bronze dragon", "Iron dragon", "Steel dragon", "Steel dragon (Level 246 (Task only))",
+        "Mithril dragon", "Adamant dragon", "Rune dragon"
+      ],
+      "note": "Metal dragons' dragonfire pierces Protect from Magic, so the prayer alone does nothing. A super antifire potion gives full protection by itself, and an ordinary antifire potion paired with an anti-dragon shield, dragonfire shield, or dragonfire ward does too.",
+      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
+    },
+    {
+      "monsters": [
+        "Alchemical Hydra (Electric)", "Alchemical Hydra (Extinguished)",
+        "Alchemical Hydra (Fire)", "Alchemical Hydra (Serpentine)"
+      ],
+      "note": "Bring antivenom+. Its poison phase is venom-tier and escalates — plain antipoison only knocks it down to poison, it does not cure it."
+    },
+    {
+      "monsters": [
+        "Abyssal Sire (Phase 1)", "Abyssal Sire (Phase 2)",
+        "Abyssal Sire (Phase 3 (stage 1))", "Abyssal Sire (Phase 3 (stage 2))"
+      ],
+      "note": "Bring antipoison. The poison fumes in its first phase start at 8 damage and keep ticking."
+    },
+    {
+      "monsters": ["K'ril Tsutsaroth"],
+      "note": "Bring antidote++ or a sanfew serum. His melee can poison you starting at 16 damage, and it lands even through Protect from Melee."
+    },
+    {
+      "monsters": ["Nex"],
+      "note": "Bring antipoison or antidote++. Her Smoke phase — Smoke Rush and the smoke clouds — can poison you."
+    },
+    {
+      "monsters": ["Cerberus"],
+      "note": "Bring antipoison for the walk in — the tunnel to her lair is full of poison spiders. Cerberus herself does not poison you."
+    }
+  ]
+}
