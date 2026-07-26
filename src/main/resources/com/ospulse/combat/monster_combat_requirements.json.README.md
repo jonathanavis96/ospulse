@@ -58,6 +58,19 @@ penalising only `STAB` would let slash, crush and ranged through at full damage.
 Magic is not listed as penalised at all: at Corp it deals full damage and is merely
 inaccurate.
 
+`exemptStyles` is a set, not a single style, because one entry can cover weapons that
+are corpbane on different styles. Corp lists both `STAB` and `RANGED`: the melee
+corpbane weapons attack on stab, but King's barrage is a crossbow and RANGED is the
+only style it has, so a stab-only exemption would have been inert for it. This is safe
+only because `allowedItemIds` is the other half of the gate — a weapon escapes the
+penalty when it is *both* listed *and* on an exempt style, and no spear can attack on
+ranged nor a crossbow on stab. **When adding a weapon here, check that at least one
+style it can actually attack with is in `exemptStyles`**, or the listing does nothing;
+`TargetDamageRuleTest.everyShippedCorpbaneWeaponIsExemptOnAStyleItCanActuallyUse`
+enforces that. If a future entry ever needs "exempt on stab" and "exempt on ranged" to
+apply to *overlapping* weapons with different answers, split it into two entries rather
+than widening this set.
+
 ### `DAMAGE_CAP` fields
 
 - `maxHitCap` — the ceiling. `-1`/absent means no cap.

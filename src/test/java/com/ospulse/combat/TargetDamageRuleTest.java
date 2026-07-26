@@ -7,6 +7,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import org.junit.Test;
 
@@ -21,6 +22,8 @@ public class TargetDamageRuleTest {
 
     private static final int CORPBANE_SPEAR = 4158; // Leaf-bladed spear — a Corp Beast exempt weapon
     private static final int WHIP = 4151;           // an ordinary, non-exempt stab-capable weapon
+    private static final int KINGS_BARRAGE = 33251; // the one corpbane weapon that is ranged, not melee
+    private static final int ARMADYL_CROSSBOW = 11785; // an ordinary, non-exempt ranged weapon
 
     /** Exemption applies on any penalised style — the pre-{@code exemptStyles} behaviour. */
     private static MonsterCombatRequirement corpBeastPenalty(Set<CombatStyle> penalisedStyles) {
@@ -333,5 +336,47 @@ public class TargetDamageRuleTest {
         assertEquals(0.5, TargetDamageRule.damageMultiplierFor(req, WHIP, CombatStyle.SLASH), 0.0);
         assertEquals(0.5, TargetDamageRule.damageMultiplierFor(req, WHIP, CombatStyle.RANGED), 0.0);
         assertEquals(1.0, TargetDamageRule.damageMultiplierFor(req, WHIP, CombatStyle.MAGIC), 0.0);
+    }
+
+    /**
+     * King's barrage is corpbane but it is a crossbow, so RANGED is the only style it can ever
+     * attack with. A STAB-only exemption silently halved it; the exemption has to cover RANGED,
+     * and it must not become a blanket "any ranged weapon is fine at Corp".
+     */
+    @Test
+    public void shippedCorpBeastEntryExemptsKingsBarrageOnRangedOnly() {
+        MonsterCombatRequirement req = MonsterCombatRequirementRepository.getInstance()
+            .forMonster("Corporeal Beast").orElseThrow(AssertionError::new);
+        assertEquals("King's barrage is corpbane on its only style, ranged", 1.0,
+            TargetDamageRule.damageMultiplierFor(req, KINGS_BARRAGE, CombatStyle.RANGED), 0.0);
+        assertEquals("an ordinary crossbow is still halved", 0.5,
+            TargetDamageRule.damageMultiplierFor(req, ARMADYL_CROSSBOW, CombatStyle.RANGED), 0.0);
+        assertEquals("a spear is still halved on slash", 0.5,
+            TargetDamageRule.damageMultiplierFor(req, CORPBANE_SPEAR, CombatStyle.SLASH), 0.0);
+    }
+
+    /**
+     * The dead-exemption guard. Listing a weapon in {@code allowedItemIds} only helps if one of
+     * the styles it can actually attack with is in {@code exemptStyles} — otherwise the entry is
+     * inert and the weapon is quietly scored at half damage, which is exactly how King's barrage
+     * was wrong. Checks every shipped corpbane weapon against its real style list.
+     */
+    @Test
+    public void everyShippedCorpbaneWeaponIsExemptOnAStyleItCanActuallyUse() {
+        MonsterCombatRequirement req = MonsterCombatRequirementRepository.getInstance()
+            .forMonster("Corporeal Beast").orElseThrow(AssertionError::new);
+        WeaponCategoryRepository categories = WeaponCategoryRepository.getInstance();
+        for (int itemId : req.allowedItemIds()) {
+            List<WeaponStyle> styles = categories.stylesForItem(itemId);
+            assertTrue("no weapon category for corpbane item " + itemId, !styles.isEmpty());
+            boolean exemptOnSomeRealStyle = false;
+            for (WeaponStyle style : styles) {
+                if (TargetDamageRule.damageMultiplierFor(req, itemId, style.type()) == 1.0) {
+                    exemptOnSomeRealStyle = true;
+                }
+            }
+            assertTrue("corpbane item " + itemId + " is listed but exempt on no style it can use",
+                exemptOnSomeRealStyle);
+        }
     }
 }
