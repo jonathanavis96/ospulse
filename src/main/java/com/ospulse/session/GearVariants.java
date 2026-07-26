@@ -569,50 +569,66 @@ public final class GearVariants
 	// ==== Crystal armour set + crystal bow / Bow of Faerdhinen set effect =================
 
 	/**
-	 * ACTIVE (charged, fully-statted) Crystal helm ids only — verified
-	 * against the bundled {@code equipment_stats.min.json} 2026-07-26 by
-	 * checking every combat-bonus field is nonzero: basic/attuned/perfected
-	 * (23886-23888), the pre-rework single "Crystal helm" (23971), the
-	 * "beta" leftover (25495), and each of the seven Elf clan cosmetic
-	 * recolours that got an armour reskin — Hefin/Ithell/Iorwerth/
-	 * Trahaearn/Cadarn/Crwys/Amlodd (27705/27717/27729/27741/27753/27765/
-	 * 27777) plus the deadman-mode cosmetic (33031). Meilyr has NO armour
-	 * recolour in the bundled data (only a weapon one) — verified, not
-	 * assumed. The INACTIVE (uncharged/broken, all-zero-stat) counterpart of
-	 * every one of these — a SEPARATE id sharing the identical display name
-	 * — is deliberately EXCLUDED: crediting a zero-stat inactive piece with
-	 * the active set bonus is exactly the prior P1-class defect the design
-	 * spec warns about for this mechanic.
+	 * ACTIVE (charged, fully-statted), OVERWORLD-usable Crystal helm ids —
+	 * verified against the bundled {@code equipment_stats.min.json}
+	 * 2026-07-26 by checking every combat-bonus field is nonzero: the
+	 * pre-rework single "Crystal helm" (23971), the "beta" leftover
+	 * (25495), and each of the seven Elf clan cosmetic recolours that got an
+	 * armour reskin — Hefin/Ithell/Iorwerth/Trahaearn/Cadarn/Crwys/Amlodd
+	 * (27705/27717/27729/27741/27753/27765/27777) plus the deadman-mode
+	 * cosmetic (33031). Meilyr has NO armour recolour in the bundled data
+	 * (only a weapon one) — verified, not assumed. The INACTIVE
+	 * (uncharged/broken, all-zero-stat) counterpart of every one of these —
+	 * a SEPARATE id sharing the identical display name — is deliberately
+	 * EXCLUDED: crediting a zero-stat inactive piece with the active set
+	 * bonus is exactly the prior P1-class defect the design spec warns
+	 * about for this mechanic.
+	 *
+	 * <p><b>The basic/attuned/perfected tier ids (23886-23888) are
+	 * deliberately EXCLUDED here too</b> — per review finding, these are The
+	 * Gauntlet's INSTANCE-ONLY crystal equipment (see {@link
+	 * com.ospulse.ui.sections.gear.ItemEligibility#isGauntletOnlyItem}'s own
+	 * javadoc: "made from crystal shards in the instance, unusable/lost the
+	 * moment the player leaves"), not the overworld Crystal armour set this
+	 * mechanic models. {@code ItemEligibility} already treats the whole
+	 * 23840-23903 range as Gauntlet-only for optimiser-candidate purposes;
+	 * crediting them here as well — even from a LIVE equipped-gear read
+	 * while literally inside the Gauntlet — would apply the overworld set's
+	 * +15%/+30% bonus to gear that cannot exist outside that instance. The
+	 * Gauntlet's own basic/attuned/perfected tiers have their own (unrelated,
+	 * unmodelled) mechanics — out of scope here, not silently approximated.
 	 */
 	private static final Set<Integer> ACTIVE_CRYSTAL_HELM = setOf(
-		23886, 23887, 23888, 23971, 25495,
+		23971, 25495,
 		27705, 27717, 27729, 27741, 27753, 27765, 27777, 33031
 	);
 
-	/** ACTIVE Crystal body ids — same provenance/exclusion note as {@link #ACTIVE_CRYSTAL_HELM}. */
+	/** ACTIVE, overworld-usable Crystal body ids — same provenance/exclusion notes as {@link #ACTIVE_CRYSTAL_HELM}. */
 	private static final Set<Integer> ACTIVE_CRYSTAL_BODY = setOf(
-		23889, 23890, 23891, 23975, 25496,
+		23975, 25496,
 		27697, 27709, 27721, 27733, 27745, 27757, 27769, 33023
 	);
 
-	/** ACTIVE Crystal legs ids — same provenance/exclusion note as {@link #ACTIVE_CRYSTAL_HELM}. */
+	/** ACTIVE, overworld-usable Crystal legs ids — same provenance/exclusion notes as {@link #ACTIVE_CRYSTAL_HELM}. */
 	private static final Set<Integer> ACTIVE_CRYSTAL_LEGS = setOf(
-		23892, 23893, 23894, 23979, 25497,
+		23979, 25497,
 		27701, 27713, 27725, 27737, 27749, 27761, 27773, 33027
 	);
 
 	/**
-	 * ACTIVE (charged) Crystal bow AND Bow of Faerdhinen ids — verified the
-	 * same way as the armour pieces: basic/attuned/perfected Crystal bow
-	 * (23901-23903), the pre-rework single "Crystal bow" (23983), charged
-	 * Bow of Faerdhinen (25865) and every one of its "(c)" cosmetic
-	 * recolours (25867 plain, 25884 Ithell, 25886 Iorwerth, 25888 Trahaearn,
-	 * 25890 Cadarn, 25892 Crwys, 25894 Meilyr, 25896 Amlodd, 33021 deadman).
-	 * The UNCHARGED Bow of Faerdhinen (25862, all-zero stats) is deliberately
-	 * EXCLUDED — same "don't credit the inactive piece" reasoning.
+	 * ACTIVE, overworld-usable Crystal bow AND Bow of Faerdhinen ids —
+	 * verified the same way as the armour pieces: the pre-rework single
+	 * "Crystal bow" (23983), charged Bow of Faerdhinen (25865) and every one
+	 * of its "(c)" cosmetic recolours (25867 plain, 25884 Ithell, 25886
+	 * Iorwerth, 25888 Trahaearn, 25890 Cadarn, 25892 Crwys, 25894 Meilyr,
+	 * 25896 Amlodd, 33021 deadman). The UNCHARGED Bow of Faerdhinen (25862,
+	 * all-zero stats) is deliberately EXCLUDED — same "don't credit the
+	 * inactive piece" reasoning. The basic/attuned/perfected Crystal bow
+	 * tier ids (23901-23903) are ALSO deliberately excluded — same
+	 * Gauntlet-instance-only reasoning as {@link #ACTIVE_CRYSTAL_HELM}.
 	 */
 	private static final Set<Integer> ACTIVE_CRYSTAL_BOW = setOf(
-		23901, 23902, 23903, 23983,
+		23983,
 		25865, 25867, 25884, 25886, 25888, 25890, 25892, 25894, 25896, 33021
 	);
 

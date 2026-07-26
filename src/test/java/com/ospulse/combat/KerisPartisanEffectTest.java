@@ -142,6 +142,37 @@ public class KerisPartisanEffectTest {
         }
     }
 
+    /**
+     * Review finding (rejected, confirmed wrong): the wiki's own wording for
+     * both the base {@code Keris} and the {@code Keris partisan} reads "It
+     * deals 33% bonus damage against all kalphites and scabarites, AND has a
+     * 1/51 chance of puncturing a hole in THEIR exoskeleton, dealing triple
+     * damage" — "their" refers back to kalphites/scabarites, and the
+     * puncture message text ("a gap in the creature's chitin") describes a
+     * Kalphite-specific anatomical feature. Both effects are gated on the
+     * SAME target attribute; a suggestion to decouple the 1/51 puncture from
+     * the {@code KALPHITE} gate (so it would apply vs any target) is not
+     * supported by the primary source. Pinned explicitly here — distinct
+     * from {@link #nonKalphiteTarget_hasNoEffect_anyVariant}'s aggregate
+     * dps/maxHit check — so a future re-application of that exact
+     * suggestion is caught immediately: avgHit against a non-Kalphite
+     * target must match the PLAIN generic formula exactly, with no residual
+     * 53/51 triple-roll bump.
+     */
+    @Test
+    public void nonKalphiteTarget_getsNeitherTheDamageBonusNorTheTripleRollPassive() {
+        Monster nonKalphite = monster(EnumSet.noneOf(MonsterAttribute.class));
+        DpsResult keris = compute(gear().kerisPartisan(KerisPartisan.PARTISAN).build(), nonKalphite);
+
+        double plainAvg = DamageDistribution.averageDamagePerAttack(keris.accuracy(), keris.maxHit());
+        assertEquals("no residual 1/51 triple-roll bump vs a non-Kalphite target",
+                plainAvg, keris.avgHit(), 1e-9);
+        // If the puncture roll were wrongly left universal, avgHit would be
+        // plainAvg * 53/51 instead - assert that mismatch explicitly too.
+        assertTrue("must NOT equal the triple-roll-inflated average",
+                Math.abs(keris.avgHit() - plainAvg * 53.0 / 51.0) > 1e-6);
+    }
+
     @Test
     public void ofBreaching_getsAdditionalThirtyThreePercentAccuracy() {
         Monster kalphite = monster(EnumSet.of(MonsterAttribute.KALPHITE));

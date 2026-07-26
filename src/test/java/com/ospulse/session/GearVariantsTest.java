@@ -323,17 +323,20 @@ public class GearVariantsTest
 	// ==== Crystal armour set + crystal bow / Bow of Faerdhinen ============================
 
 	@Test
-	public void isActiveCrystalArmourSet_fullActiveBasicTier_returnsTrue()
+	public void isActiveCrystalArmourSet_fullOverworldSet_returnsTrue()
 	{
-		org.junit.Assert.assertTrue(GearVariants.isActiveCrystalArmourSet(23886, 23889, 23892)); // basic tier
+		// The pre-rework single "Crystal helm/body/legs" ids - genuine
+		// overworld, unlimited-use crystal armour (not Gauntlet-instance-only).
+		org.junit.Assert.assertTrue(GearVariants.isActiveCrystalArmourSet(23971, 23975, 23979));
 	}
 
 	@Test
-	public void isActiveCrystalArmourSet_mixedActiveTiers_stillReturnsTrue()
+	public void isActiveCrystalArmourSet_mixedActiveVariants_stillReturnsTrue()
 	{
-		// Mixed tiers (e.g. perfected helm + basic body + attuned legs) - the
-		// wiki does not require matching tiers, only that each piece is active.
-		org.junit.Assert.assertTrue(GearVariants.isActiveCrystalArmourSet(23888, 23889, 23893));
+		// Mixing the pre-rework helm with an Elf clan cosmetic body/legs - the
+		// wiki does not require matching cosmetic variants, only that each
+		// piece is a genuine (non-Gauntlet, non-inactive) overworld piece.
+		org.junit.Assert.assertTrue(GearVariants.isActiveCrystalArmourSet(23971, 27697, 27701)); // Hefin body/legs
 	}
 
 	@Test
@@ -341,13 +344,33 @@ public class GearVariantsTest
 	{
 		// Id 23973 is the INACTIVE (all-zero-stat) "Crystal helm" companion id
 		// - the exact prior P1-class trap this mechanic must not repeat.
-		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalArmourSet(23973, 23889, 23892));
+		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalArmourSet(23973, 23975, 23979));
 	}
 
 	@Test
 	public void isActiveCrystalArmourSet_missingPiece_returnsFalse()
 	{
-		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalArmourSet(-1, 23889, 23892));
+		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalArmourSet(-1, 23975, 23979));
+	}
+
+	/**
+	 * Review finding (confirmed real): ids 23886-23894 are The Gauntlet's
+	 * INSTANCE-ONLY basic/attuned/perfected crystal armour tiers — {@link
+	 * com.ospulse.ui.sections.gear.ItemEligibility#isGauntletOnlyItem}
+	 * already treats this exact id range as unusable outside the Gauntlet
+	 * for optimiser-candidate purposes. A live-equipped read while literally
+	 * inside the Gauntlet must NOT credit the overworld set's +15%/+30%
+	 * bonus — even a full "matching" basic/attuned/perfected trio.
+	 */
+	@Test
+	public void isActiveCrystalArmourSet_gauntletOnlyTiers_neverCountTowardsTheOverworldSet()
+	{
+		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalArmourSet(23886, 23889, 23892)); // basic tier
+		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalArmourSet(23887, 23890, 23893)); // attuned tier
+		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalArmourSet(23888, 23891, 23894)); // perfected tier
+		// Even mixed with genuine overworld pieces, a single Gauntlet-only
+		// piece must deny the whole set (matching the missing-piece contract).
+		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalArmourSet(23886, 23975, 23979));
 	}
 
 	@Test
@@ -366,7 +389,15 @@ public class GearVariantsTest
 	@Test
 	public void isActiveCrystalBowOrFaerdhinen_plainCrystalBow_returnsTrue()
 	{
-		org.junit.Assert.assertTrue(GearVariants.isActiveCrystalBowOrFaerdhinen(23901)); // Crystal bow (basic)
+		org.junit.Assert.assertTrue(GearVariants.isActiveCrystalBowOrFaerdhinen(23983)); // pre-rework "Crystal bow"
+	}
+
+	@Test
+	public void isActiveCrystalBowOrFaerdhinen_gauntletOnlyTiers_returnFalse()
+	{
+		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalBowOrFaerdhinen(23901)); // Crystal bow (basic)
+		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalBowOrFaerdhinen(23902)); // Crystal bow (attuned)
+		org.junit.Assert.assertFalse(GearVariants.isActiveCrystalBowOrFaerdhinen(23903)); // Crystal bow (perfected)
 	}
 
 	@Test
