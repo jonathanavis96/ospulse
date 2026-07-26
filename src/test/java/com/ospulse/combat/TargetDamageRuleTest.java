@@ -237,6 +237,57 @@ public class TargetDamageRuleTest {
         assertEquals(1.0, TargetDamageRule.damageMultiplierFor(req, CORPBANE_SPEAR, CombatStyle.SLASH), 0.0);
     }
 
+    // ---- capped damage distribution ------------------------------------------------------
+    // A cap is not a lower max hit. The roll still spans 0..uncapped and everything above
+    // the cap lands ON the cap, so that probability mass must be preserved.
+
+    /** With cap == max there is nothing to cap, so it must equal the uncapped formula exactly. */
+    @Test
+    public void cappedAverageReducesToTheUncappedFormulaWhenCapEqualsMax() {
+        for (int max : new int[]{1, 4, 9, 40, 99}) {
+            assertEquals("cap == max must be a no-op for max=" + max,
+                CombatMath.averageDamagePerAttack(1.0, max),
+                CombatMath.cappedAverageDamagePerAttack(1.0, max, max), 1e-12);
+        }
+    }
+
+    /** A cap above the max cannot bind. */
+    @Test
+    public void aCapAboveTheMaxIsANoOp() {
+        assertEquals(CombatMath.averageDamagePerAttack(1.0, 10),
+            CombatMath.cappedAverageDamagePerAttack(1.0, 10, 50), 1e-12);
+    }
+
+    /**
+     * The bug this formula exists to fix: clamping max hit to the cap and reusing the
+     * uncapped formula assumes a uniform 0..cap roll and badly understates the result.
+     */
+    @Test
+    public void cappedAverageBeatsNaivelyClampingTheMaxHit() {
+        double naive = CombatMath.averageDamagePerAttack(1.0, 4);          // ~2.2
+        double correct = CombatMath.cappedAverageDamagePerAttack(1.0, 40, 4);
+        assertTrue("a cap of 4 against an uncapped max of 40 should average close to 4, not 2",
+            correct > naive * 1.5);
+        assertTrue("but it can never exceed the cap itself", correct <= 4.0);
+    }
+
+    /**
+     * Closed form: {@code (C(C-1)/2 + (M-C+1)*C + 1) / (M+1)}. With C=4, M=40 that is
+     * {@code (6 + 148 + 1) / 41 = 155/41}. The trailing +1 is the "a rolled 0 becomes 1"
+     * correction — dropping it is an easy off-by-one, so it is asserted explicitly.
+     */
+    @Test
+    public void cappedAverageMatchesTheClosedForm() {
+        assertEquals(155.0 / 41.0, CombatMath.cappedAverageDamagePerAttack(1.0, 40, 4), 1e-12);
+    }
+
+    /** Hit chance scales the whole thing linearly. */
+    @Test
+    public void cappedAverageScalesWithHitChance() {
+        assertEquals(0.5 * CombatMath.cappedAverageDamagePerAttack(1.0, 40, 4),
+            CombatMath.cappedAverageDamagePerAttack(0.5, 40, 4), 1e-12);
+    }
+
     /** The shipped dataset must match the wiki rule, not just the model. */
     @Test
     public void shippedCorpBeastEntryPenalisesEverythingButMagic() {

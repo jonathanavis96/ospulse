@@ -122,6 +122,40 @@ final class CombatMath {
         return hitChance * (maxHit / 2.0 + 1.0 / (maxHit + 1.0));
     }
 
+    /**
+     * Average damage per attack when a monster caps each hitsplat (e.g. The
+     * Hueycoatl's tail) rather than reducing the roll.
+     *
+     * <p><b>A cap is not the same as a lower max hit.</b> The damage roll is
+     * still uniform over {@code 0..uncappedMaxHit}; every result above the cap
+     * is simply reduced TO the cap, so all of that probability mass piles up on
+     * the cap instead of being spread over {@code 0..cap}. Modelling it by
+     * clamping {@code maxHit} and reusing {@link #averageDamagePerAttack} would
+     * assume a uniform {@code 0..cap} roll and badly understate the result —
+     * with a cap of 4 against an uncapped max of 40 the true average is ~3.8,
+     * not 2.0.
+     *
+     * <pre>
+     * hitChance * ( C(C-1)/2 + (M - C + 1) * C + 1 ) / (M + 1)
+     * </pre>
+     *
+     * where {@code M} is the uncapped max hit and {@code C} the cap. The
+     * trailing {@code + 1} is the same "a rolled 0 becomes 1" correction the
+     * uncapped formula carries. Setting {@code C == M} reduces this exactly to
+     * {@link #averageDamagePerAttack}, which is asserted in the tests.
+     */
+    static double cappedAverageDamagePerAttack(double hitChance, int uncappedMaxHit, int cap) {
+        if (cap >= uncappedMaxHit) {
+            return averageDamagePerAttack(hitChance, uncappedMaxHit);
+        }
+        if (cap <= 0) {
+            return 0.0;
+        }
+        double belowCap = cap * (cap - 1) / 2.0;
+        double atCap = (uncappedMaxHit - cap + 1.0) * cap;
+        return hitChance * (belowCap + atCap + 1.0) / (uncappedMaxHit + 1.0);
+    }
+
     /** DPS = average damage per attack / (weaponSpeedTicks * 0.6 seconds/tick). */
     static double dps(double averageDamagePerAttack, int weaponSpeedTicks) {
         return averageDamagePerAttack / (weaponSpeedTicks * 0.6);
