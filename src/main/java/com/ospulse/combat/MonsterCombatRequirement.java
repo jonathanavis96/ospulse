@@ -27,14 +27,22 @@ public final class MonsterCombatRequirement
      * {@link CombatMath#cappedAverageDamagePerAttack}/
      * {@link CombatMath#cappedExpectedOverkill}.</li>
      * <li>{@link #REROLL} — a hit above the cap is re-rolled uniformly into
-     * {@code 0..cap} (e.g. Verzik Vitur phase 1). A re-roll into
-     * {@code 0..cap} is algebraically identical to a uniform
-     * {@code 0..cap} roll (P(d) is independent of d for every d in
-     * {@code 0..cap} — see the {@code CombatMath} test proving this), so this
-     * needs no new distribution math: it is exactly
-     * {@code maxHit = min(maxHit, cap)} fed through the ordinary uncapped
-     * path ({@link CombatMath#averageDamagePerAttack}/
-     * {@link CombatMath#expectedOverkill}).</li>
+     * {@code 0..cap} (e.g. Verzik Vitur phase 1). Use
+     * {@link CombatMath#rerolledAverageDamagePerAttack}/
+     * {@link CombatMath#rerolledExpectedOverkill}.
+     *
+     * <p><b>Do NOT implement this as {@code maxHit = min(maxHit, cap)} fed
+     * through the ordinary uncapped path.</b> That is tempting because the
+     * re-rolled distribution is nearly uniform over {@code 0..cap}, but the
+     * ordinary formulas carry OSRS's "a rolled 0 becomes 1" correction, and a
+     * re-rolled 0 is a GENUINE result that must keep its probability mass. The
+     * bump belongs to the damage roll, so it applies before the monster
+     * re-rolls and survives only on values that were never re-rolled, giving
+     * {@code E = cap/2 + 1/(uncappedMax + 1)} for {@code cap >= 1} — not the
+     * {@code cap/2 + 1/(cap + 1)} the ordinary path would produce. At Verzik's
+     * ranged/magic cap of 3 that shortcut overstates by about 15% and hands
+     * the overkill DP a zero-free distribution, so TTK is wrong too. This
+     * exact mistake shipped once and was caught in review.</li>
      * </ul>
      * Default {@link #CLAMP} — every entry shipped before this enum existed
      * used clamp semantics, so this default keeps them byte-identical.
