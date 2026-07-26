@@ -19,10 +19,14 @@ import com.ospulse.combat.OffensivePrayer;
 import com.ospulse.combat.PlayerCombat;
 import com.ospulse.combat.PoweredStaff;
 import com.ospulse.combat.Spell;
+import com.ospulse.combat.SpecWeapon;
+import com.ospulse.combat.SpecWeaponRecommendation;
+import com.ospulse.combat.SpecWeaponSelector;
 import com.ospulse.combat.Stance;
 import com.ospulse.combat.WeaponCategory;
 import com.ospulse.combat.WeaponCategoryRepository;
 import com.ospulse.combat.WeaponStyle;
+import com.ospulse.combat.optimizer.BundledSlotStatsLookup;
 import com.ospulse.combat.optimizer.GearOptimizer;
 import com.ospulse.combat.optimizer.LoadoutOverride;
 import com.ospulse.combat.optimizer.WhatIfLoadout;
@@ -51,6 +55,7 @@ import com.ospulse.ui.sections.gear.OwnedOnlyResultOwnershipGate;
 import com.ospulse.ui.sections.gear.OwnedVariantResolver;
 import com.ospulse.ui.sections.gear.RiskCreditPolicy;
 import com.ospulse.ui.sections.gear.RoundedButton;
+import com.ospulse.ui.sections.gear.SpecWeaponCell;
 import com.ospulse.ui.sections.gear.StyleGrid;
 import com.ospulse.ui.sections.gear.VariantCreditSources;
 import com.ospulse.wealth.WealthSnapshot;
@@ -198,6 +203,15 @@ public final class GearSection extends CollapsibleSection
 		9, 10, 12,
 	};
 
+	/**
+	 * The flat {@link #SLOT_GRID} index of the previously-unused filler cell
+	 * directly below WEAPON (index 6) and above GLOVES (index 12) — where the
+	 * "best spec weapon" pseudo-slot (design spec §8) is placed. The OTHER
+	 * {@code -1} filler in the grid (index 11, beside LEGS) stays a plain
+	 * blank filler.
+	 */
+	private static final int SPEC_WEAPON_GRID_INDEX = 9;
+
 	private static final String[] SLOT_NAMES = {
 		"Head", "Cape", "Amulet", "Weapon", "Body", "Shield", "", "Legs",
 		"", "Gloves", "Boots", "", "Ring", "Ammo",
@@ -313,6 +327,15 @@ public final class GearSection extends CollapsibleSection
 
 	private final JLabel[] slotLabels = new JLabel[GearSnapshot.EQUIPMENT_SLOT_COUNT];
 	private final int[] renderedSlotIds = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
+	/**
+	 * The "best spec weapon" pseudo-slot cell (design spec §8) — placed at
+	 * {@code SLOT_GRID}'s unused flat filler index 9 (directly below WEAPON,
+	 * above GLOVES). Deliberately NOT part of {@link #slotLabels}/{@link
+	 * #renderedSlotIds}: those arrays are sized/indexed by the 14 REAL
+	 * {@code EquipmentInventorySlot} ordinals, and this pseudo-slot has no
+	 * ordinal of its own — see {@link SpecWeaponCell}'s class javadoc.
+	 */
+	private final SpecWeaponCell specWeaponCell = new SpecWeaponCell(SLOT_W, SLOT_H);
 
 	/** Fixed row height (row content + the 2px inter-row gap) used to size {@link #stylesScroll}'s viewport. */
 	private static final int STYLE_ROW_HEIGHT = 22;
@@ -1609,6 +1632,13 @@ public final class GearSection extends CollapsibleSection
 			int slotOrdinal = SLOT_GRID[i];
 			if (slotOrdinal < 0)
 			{
+				if (i == SPEC_WEAPON_GRID_INDEX)
+				{
+					// Design spec §8: "it'd fit nicely between the weapon and
+					// glove slots" — exactly this otherwise-unused filler cell.
+					grid.add(specWeaponCell);
+					continue;
+				}
 				JLabel filler = new JLabel();
 				filler.setOpaque(false);
 				grid.add(filler);
@@ -2027,6 +2057,52 @@ public final class GearSection extends CollapsibleSection
 		syncOptimizerStyleSelector();
 
 		updateOutputs();
+		updateSpecWeaponCell();
+	}
+
+	/**
+	 * Recomputes {@link #specWeaponCell} for the currently selected target
+	 * (design spec §8). Reuses the SAME weapon-slot-swap machinery {@code
+	 * GearOptimizer} already relies on for ordinary candidate scoring ({@link
+	 * WhatIfLoadout#effectiveItemIds} + {@link GearMapper#buildEquipmentStats})
+	 * so every curated spec candidate is scored through the real {@code
+	 * DpsCalculator}/{@code CombatMath} pipeline against the real target, with
+	 * every other worn slot and every boost toggle held exactly as they are
+	 * for the main readout — never a separate, drifting mini-calculator.
+	 */
+	private void updateSpecWeaponCell()
+	{
+		if (lastGear == null || selectedMonster == null)
+		{
+			specWeaponCell.refresh(null, itemManager);
+			return;
+		}
+		java.util.Set<Integer> ownedIds = ownedPriceMap().keySet();
+		MonsterCombatRequirement requirement =
+			MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.name()).orElse(null);
+		int[] baseItemIds = WhatIfLoadout.effectiveItemIds(lastGear.equippedItemIds(), override);
+		SpecWeaponSelector.DpsProbe probe = weapon ->
+		{
+			WeaponStyle style = weapon.resolvedStyle(weaponRepo);
+			if (style == null)
+			{
+				return null;
+			}
+			int[] swapped = baseItemIds.clone();
+			swapped[WhatIfLoadout.WEAPON_SLOT] = weapon.itemId();
+			EquipmentStats swappedStats =
+				GearMapper.buildEquipmentStats(swapped, WhatIfLoadout.WEAPON_SLOT, BundledSlotStatsLookup.INSTANCE);
+			return computeAgainst(swappedStats, style, weapon.itemId());
+		};
+		SpecWeaponRecommendation recommendation =
+			SpecWeaponSelector.select(selectedMonster, requirement, ownedIds, probe).orElse(null);
+		specWeaponCell.refresh(recommendation, itemManager);
+	}
+
+	/** Test seam: {@link #specWeaponCell}'s last-rendered item id for the current target (-1/{@code Integer.MIN_VALUE} if none). */
+	int specWeaponCellItemIdForTest()
+	{
+		return specWeaponCell.renderedItemIdForTest();
 	}
 
 	/**
