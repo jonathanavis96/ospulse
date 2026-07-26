@@ -97,11 +97,11 @@
       "note": "Corp halves all melee and ranged damage. Only a corpbane weapon deals full damage, and only on the style it is corpbane with: the melee corpbane weapons (spears, halberds, stab swords) must be on STAB — the same spear on slash is still halved — while King's barrage is a crossbow whose only style is RANGED. Both styles are listed in exemptStyles because allowedItemIds is the other half of the gate: no spear can attack on RANGED and no crossbow on STAB, so neither style leaks the exemption to the other group. Magic is never reduced, just inaccurate."
     },
     {
-      "monsters": ["The Hueycoatl (Tail)"],
+      "monsters": ["The Hueycoatl (Tail)", "The Hueycoatl (Tail (broken))"],
       "type": "DAMAGE_CAP",
       "maxHitCap": 4,
       "maxHitCapWhenCrushHighest": 9,
-      "note": "The tail's scales blunt most damage — max hit is capped at 4 regardless of gear, or 9 if your loadout's highest attack bonus is crush."
+      "note": "The tail's scales blunt most damage — max hit is capped at 4 regardless of gear, or 9 if your loadout's highest attack bonus is crush. Both tail records are listed because the broken-tail name nests its parentheses and so never reaches the base-name fallback."
     }
   ]
 }

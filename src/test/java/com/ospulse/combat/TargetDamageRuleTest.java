@@ -355,6 +355,123 @@ public class TargetDamageRuleTest {
             TargetDamageRule.damageMultiplierFor(req, CORPBANE_SPEAR, CombatStyle.SLASH), 0.0);
     }
 
+    // ---- the fang's compressed roll, capped ----------------------------------------------
+    // The cap meets the fang's SHRUNK roll, not the max hit that roll is derived from.
+    // Collapsing maxHit to the cap first and shrinking that is a different, far smaller
+    // distribution — the mistake this pair of formulas exists to keep apart.
+
+    /** Brute-force expectation over the fang's uniform lo..hi roll with each result clamped. */
+    private static double bruteForceCappedFang(int trueMaxHit, int cap) {
+        int shrink = trueMaxHit * 3 / 20;
+        int lo = shrink;
+        int hi = trueMaxHit - shrink;
+        double total = 0.0;
+        for (int d = lo; d <= hi; d++) {
+            total += Math.min(d, cap);
+        }
+        return total / (hi - lo + 1);
+    }
+
+    @Test
+    public void cappedFangMatchesABruteForceEnumeration() {
+        for (int max : new int[]{20, 27, 40, 55, 99}) {
+            for (int cap : new int[]{1, 4, 9, 15, 30, 60}) {
+                if (max * 3 / 20 <= 0) {
+                    continue; // degenerate range is covered by its own fallback test
+                }
+                assertEquals("max=" + max + " cap=" + cap,
+                    bruteForceCappedFang(max, cap),
+                    CombatMath.cappedFangAverageDamagePerAttack(1.0, max, cap), 1e-12);
+            }
+        }
+    }
+
+    /** A cap above the shrunk roll's top cannot bind, so it must equal the uncapped fang formula. */
+    @Test
+    public void cappedFangReducesToTheUncappedFangFormulaWhenTheCapCannotBind() {
+        for (int max : new int[]{20, 40, 99}) {
+            assertEquals("cap above the shrunk max must be a no-op for max=" + max,
+                CombatMath.fangAverageDamagePerAttack(1.0, max),
+                CombatMath.cappedFangAverageDamagePerAttack(1.0, max, max), 1e-12);
+        }
+    }
+
+    /**
+     * The reported defect. A true max of 40 shrinks to a 6..34 roll, every result of which
+     * exceeds a cap of 4 — so the fang lands a flat 4 on every successful hit. Deriving the
+     * roll from the already-capped 4 instead gives a 0..4 roll averaging ~2.2, understating
+     * by nearly half.
+     */
+    @Test
+    public void cappedFangDoesNotShrinkTheCapItself() {
+        double correct = CombatMath.cappedFangAverageDamagePerAttack(1.0, 40, 4);
+        double wrong = CombatMath.fangAverageDamagePerAttack(1.0, 4); // ~2.2, the old path
+        assertEquals("every hit in a 6..34 roll caps at 4", 4.0, correct, 1e-12);
+        assertTrue("the capped-fang formula must not reproduce the shrink-the-cap result",
+            correct > wrong + 1.0);
+    }
+
+    /** Below the shrunk minimum every hit caps, so the average is exactly the cap. */
+    @Test
+    public void cappedFangIsFlatWhenTheCapIsBelowTheShrunkMinimum() {
+        assertEquals(3.0, CombatMath.cappedFangAverageDamagePerAttack(1.0, 99, 3), 1e-12);
+        assertEquals(1.5, CombatMath.cappedFangAverageDamagePerAttack(0.5, 99, 3), 1e-12);
+    }
+
+    /**
+     * Both Hueycoatl tail records must reach the cap. `MonsterNameKey` strips a single
+     * NON-NESTED trailing parenthetical, so "The Hueycoatl (Tail (broken))" never reduces to
+     * the base name and would otherwise report fully uncapped damage.
+     */
+    @Test
+    public void shippedHueycoatlCapCoversBothTailRecords() {
+        MonsterCombatRequirementRepository repo = MonsterCombatRequirementRepository.getInstance();
+        for (String name : new String[]{"The Hueycoatl (Tail)", "The Hueycoatl (Tail (broken))"}) {
+            MonsterCombatRequirement req = repo.forMonster(name).orElseThrow(AssertionError::new);
+            assertEquals(name + " must be capped at 4", 4,
+                TargetDamageRule.maxHitCapFor(req, gearWithAttackBonuses(50, 10, 10)));
+        }
+    }
+
+    /**
+     * The formula existing is not the same as {@link DpsCalculator} using it. Drives a real fang
+     * loadout through the shipped Hueycoatl entry and asserts the average damage is the capped
+     * COMPRESSED roll, not the shrink-the-cap result — and that both tail records agree.
+     */
+    @Test
+    public void dpsCalculatorRoutesTheFangThroughTheCappedCompressedRoll() {
+        EquipmentStats fangGear = EquipmentStats.builder()
+                .add(80, 60, 40, 30, 70,
+                     20, 20, 20, 20, 20,
+                     64, 60, 10.0, 0)
+                .weaponSpeedTicks(4)
+                .osmumtensFang(true)
+                .build();
+        double previous = -1.0;
+        for (String name : new String[]{"The Hueycoatl (Tail)", "The Hueycoatl (Tail (broken))"}) {
+            Monster tail = Monster.builder()
+                    .name(name)
+                    .hitpoints(200)
+                    .defenceLevel(100)
+                    .defenceBonuses(50, 50, 50, 50, 50)
+                    .magicLevel(100)
+                    .build();
+            DpsResult r = DpsCalculator.compute(fangGear, regressionPlayer(), CombatStyle.STAB, tail, 26219);
+
+            assertEquals("the readout shows the cap as the max hit", 4, r.maxHit());
+            assertEquals(name + ": must use the capped compressed roll",
+                CombatMath.cappedFangAverageDamagePerAttack(r.accuracy(), 20, 4),
+                r.avgHit(), 1e-12);
+            assertTrue(name + ": must not reproduce the shrink-the-cap average",
+                r.avgHit() > CombatMath.fangAverageDamagePerAttack(r.accuracy(), 4) + 1.0);
+
+            if (previous >= 0) {
+                assertEquals("both tail records must cap identically", previous, r.avgHit(), 1e-12);
+            }
+            previous = r.avgHit();
+        }
+    }
+
     /**
      * The dead-exemption guard. Listing a weapon in {@code allowedItemIds} only helps if one of
      * the styles it can actually attack with is in {@code exemptStyles} — otherwise the entry is

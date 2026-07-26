@@ -184,7 +184,7 @@ public final class DpsCalculator {
         TargetDamage damage = applyTargetDamageRules(maxHit, target, gear, style, weaponId);
         maxHit = damage.visibleMaxHit();
         if (fangApplies) {
-            return finishFang(maxHit, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
+            return finishFang(damage, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
         }
 
         return finish(damage, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints(), false);
@@ -590,14 +590,27 @@ public final class DpsCalculator {
      * overkill exactly for the fang's compressed distribution is out of scope
      * here (Tier B, not requested); this only matters for the very last hit
      * of a kill and the effect is small.
+     *
+     * <p><b>A capped target caps the fang's compressed roll, not the max hit it
+     * is compressed from.</b> The cap therefore cannot be folded into {@code
+     * maxHit} before this method is reached — it has to travel alongside the
+     * true max, which is why this takes the whole {@link TargetDamage} rather
+     * than an already-collapsed int. See {@link
+     * CombatMath#cappedFangAverageDamagePerAttack}. Overkill stays on the same
+     * approximation tier as the uncapped path, but against the capped
+     * distribution so it cannot disagree with the average.
      */
-    private static DpsResult finishFang(int maxHit, int attackRoll, int defenceRoll, int weaponSpeedTicks,
+    private static DpsResult finishFang(TargetDamage damage, int attackRoll, int defenceRoll, int weaponSpeedTicks,
                                         int targetHitpoints) {
         double hitChance = CombatMath.fangHitChance(attackRoll, defenceRoll);
-        double avgDamage = CombatMath.fangAverageDamagePerAttack(hitChance, maxHit);
+        double avgDamage = damage.isCapped()
+                ? CombatMath.cappedFangAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap)
+                : CombatMath.fangAverageDamagePerAttack(hitChance, damage.uncapped);
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
-        double overkill = CombatMath.expectedOverkill(maxHit, targetHitpoints);
+        double overkill = damage.isCapped()
+                ? CombatMath.cappedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints)
+                : CombatMath.expectedOverkill(damage.uncapped, targetHitpoints);
         double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
-        return new DpsResult(maxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, false);
+        return new DpsResult(damage.visibleMaxHit(), hitChance, dps, avgDamage, ttkSeconds, overkill, false);
     }
 }

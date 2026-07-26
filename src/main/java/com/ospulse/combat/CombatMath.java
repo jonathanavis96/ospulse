@@ -303,6 +303,51 @@ final class CombatMath {
         return hitChance * (shrunkMin + shrunkMax) / 2.0;
     }
 
+    /**
+     * Osmumten's fang average damage per attack against a target that caps each
+     * hitsplat (e.g. The Hueycoatl's tail).
+     *
+     * <p><b>The cap must be applied to the fang's compressed roll, not to the
+     * max hit that roll is derived from.</b> The fang shrinks the TRUE max into
+     * {@code shrink..(max-shrink)} and only then does each result meet the cap.
+     * Capping {@code maxHit} first and shrinking the cap is a different, much
+     * smaller distribution: with a true max of 40 the real roll is 6..34, every
+     * result of which caps to 4, so the fang averages a full 4 per landed hit —
+     * whereas shrinking the cap gives a 0..4 roll averaging only ~2.2.
+     *
+     * <p>Because the fang's roll is uniform over {@code lo..hi}, clamping it at
+     * {@code C} is exact:
+     * <pre>
+     * C &gt;= hi:  (lo + hi) / 2          — cap never binds
+     * C &lt;= lo:  C                      — every hit caps
+     * else:     ( (C-1+lo)(C-lo)/2 + (hi-C+1)C ) / (hi-lo+1)
+     * </pre>
+     *
+     * <p>This is the CLAMP model, matching {@link #cappedAverageDamagePerAttack}
+     * — a cap that instead re-rolls into {@code 0..C} is simply a lower max hit
+     * and needs none of this.
+     */
+    static double cappedFangAverageDamagePerAttack(double hitChance, int trueMaxHit, int cap) {
+        int shrink = trueMaxHit * 3 / 20;
+        int lo = shrink;
+        int hi = trueMaxHit - shrink;
+        if (lo <= 0) {
+            // Degenerate low-level case: the shrunk range still touches 0, so the
+            // standard capped distribution (with its "rolled 0 -> 1" correction)
+            // is the right model — same fallback as the uncapped fang formula.
+            return cappedAverageDamagePerAttack(hitChance, hi, cap);
+        }
+        if (cap >= hi) {
+            return hitChance * (lo + hi) / 2.0;
+        }
+        if (cap <= lo) {
+            return hitChance * cap;
+        }
+        double belowCap = (cap - 1.0 + lo) * (cap - lo) / 2.0;
+        double atCap = (hi - cap + 1.0) * cap;
+        return hitChance * (belowCap + atCap) / (hi - lo + 1.0);
+    }
+
     // ---- Overkill ---------------------------------------------------------------------------
 
     /**
