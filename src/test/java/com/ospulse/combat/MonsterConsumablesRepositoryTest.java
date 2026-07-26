@@ -78,13 +78,38 @@ public class MonsterConsumablesRepositoryTest
 		assertTrue(MonsterConsumablesRepository.getInstance().forMonster("zULRAH").isPresent());
 	}
 
-	/** A metal dragon's reminder must warn that Protect from Magic alone is not enough. */
-	@Test public void metalDragonNoteWarnsProtectFromMagicIsNotEnough()
+	/**
+	 * A metal dragon's reminder must warn that Protect from Magic alone does
+	 * nothing, and must include the anti-dragon shield — per the OSRS Wiki's
+	 * Dragonfire damage-reduction table, anti-dragon shield + an ordinary
+	 * antifire potion is a fully-protective (0 max hit) combo against
+	 * metallic dragons, not just the upgraded dragonfire shield/ward or
+	 * super antifire potion.
+	 */
+	@Test public void metalDragonNoteWarnsProtectFromMagicDoesNothing()
 	{
 		Optional<MonsterConsumablesReminder> r = MonsterConsumablesRepository.getInstance().forMonster("Rune dragon");
 		assertTrue(r.isPresent());
-		assertEquals("Metal dragons' dragonfire pierces Protect from Magic — a dragonfire shield/ward or a super antifire potion is mandatory here, not just a prayer.",
+		assertEquals("Metal dragons' dragonfire pierces Protect from Magic, so the prayer alone does nothing. A super antifire potion gives full protection by itself, and an ordinary antifire potion paired with an anti-dragon shield, dragonfire shield, or dragonfire ward does too.",
 			r.get().note());
+		assertTrue("anti-dragon shield (1540) is a fully-protective combo with an ordinary antifire potion, not just the upgraded shield/potion",
+			r.get().equipmentItemIds().contains(1540));
+	}
+
+	/**
+	 * Baby dragons (red/blue/green/black) are visually similar to their adult
+	 * and brutal counterparts, whose dragonfire reminder is keyed by base
+	 * name — but per the OSRS Wiki, baby dragons "do not breathe fire" and
+	 * must NOT inherit that reminder. Uses the exact bundled dataset names
+	 * from monsters.min.json.gz.
+	 */
+	@Test public void babyDragons_doNotResolveTheDragonfireReminder()
+	{
+		MonsterConsumablesRepository repo = MonsterConsumablesRepository.getInstance();
+		assertFalse("Baby red dragon does not breathe dragonfire", repo.forMonster("Baby red dragon (1)").isPresent());
+		assertFalse("Baby blue dragon does not breathe dragonfire", repo.forMonster("Baby blue dragon (1)").isPresent());
+		assertFalse("Baby green dragon does not breathe dragonfire", repo.forMonster("Baby green dragon (1)").isPresent());
+		assertFalse("Baby black dragon does not breathe dragonfire", repo.forMonster("Baby black dragon (Normal)").isPresent());
 	}
 
 	/** A parse failure would leave an empty map and make every other assertion vacuous. */

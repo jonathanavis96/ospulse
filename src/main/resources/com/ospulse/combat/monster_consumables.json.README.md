@@ -29,7 +29,7 @@ name, exactly like its two siblings.
     },
     {
       "monsters": ["Vorkath"],
-      "note": "Vorkath breathes dragonfire (Protect from Magic plus an antifire potion covers it, no shield needed) and poisons you during the acid phase — bring antivenom(+). A dragonfire shield/ward or anti-dragon shield still helps if you'd rather not rely on potion doses.",
+      "note": "Vorkath's dragonfire is stronger than a normal dragon's: a shield only gives full protection when paired with a super antifire potion, and two-handed setups can reduce the damage but never fully block it, even with Protect from Magic and a super antifire potion. He also poisons you during the acid phase, so bring antivenom(+).",
       "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
     }
   ]
@@ -119,9 +119,12 @@ row in `equipment_stats.min.json`), so it too is prose-only.
 ## Starter data (round 1) — the three cases the reporter actually named
 
 Zulrah (venom), Vorkath (dragonfire + acid-phase venom), and chromatic/brutal/
-baby/lava/frost/reanimated dragons plus the metal-dragon tier (dragonfire).
+lava/frost/reanimated dragons plus the metal-dragon tier (dragonfire).
 Deliberately nothing speculative beyond these — the dataset grows by request
 and by verification, matching how `monster_gear_overrides.json` was built.
+Baby dragons were originally included in the chromatic/brutal entry by name
+pattern but were removed in a later correction (see below) once the wiki
+confirmed they do not breathe fire at all.
 
 ## Starter data (round 2) — poison/venom entries recovered from a truncated research file
 
@@ -155,3 +158,54 @@ All five are prose-only: every item involved (antivenom+, antipoison,
 antidote++, sanfew serum) is an inventory consumable, so none has a
 verifiable equipment id — `equipmentItemIds` is correctly absent from all
 five, not an oversight.
+
+## Corrections (round 3) — dragonfire accuracy fixes from a bot review, verified against the OSRS Wiki
+
+A PR review raised three factual-accuracy findings against the round-1
+dragonfire entries. All three were checked directly against the OSRS Wiki's
+`Dragonfire` article (`Protection` section, `Damage reduction` tables) rather
+than trusting the reviewer, the original note, or recall of the game — the
+tables give exact max-hit numbers per combination of Anti-dragon shield /
+Protect from Magic / (super) antifire potion, cross-checked against the
+in-table Mod Ash Twitter citations (e.g. "the max hit of that attack is 80
+... The super antifire potion would reduce it by 20" for Vorkath, which the
+table's own numbers reproduce exactly: 80 → 60).
+
+- **Vorkath — real finding, note rewritten.** The Wiki's damage-reduction
+  table shows Vorkath is the *only* row in the Chromatic/Vorkath/KBD/Elvarg
+  table where shield + Protect from Magic + an ordinary antifire potion
+  still leaves a max hit of 10 (not 0) — full (0 max hit) protection needs
+  a super antifire potion paired with a shield (Anti-dragon shield,
+  Dragonfire shield, or Dragonfire ward); Protect from Magic doesn't change
+  that outcome once shield + super antifire are both present. With no
+  shield (two-handed), no combination in the table reaches 0 — the best is
+  Protect from Magic + super antifire potion, which still caps the max hit
+  at 10. The old note's claim that "Protect from Magic plus an antifire
+  potion covers it, no shield needed" was wrong (that combo's own table row
+  shows a 20 max hit); the note now says a shield needs the super antifire
+  potion for full protection, and that a shieldless setup can only reduce,
+  never fully block, the damage.
+- **Baby dragons — real finding, names removed.** The Wiki pages for each
+  baby dragon colour state directly that they do not breathe dragonfire:
+  Baby red dragon — "They do not attack with dragonfire"; Baby blue/green
+  dragon — "Unlike their adult forms, they do not breathe fire"; Baby black
+  dragon — "Unlike their adult form, they are too young to breathe flames,
+  so no anti-dragon shield or other protection from dragonbreath is needed
+  to fight them." `"Baby red dragon"`, `"Baby blue dragon"`, `"Baby green
+  dragon"`, and `"Baby black dragon"` were removed from the chromatic/
+  brutal-dragon entry's `monsters` array (the adult and brutal tiers were
+  left untouched — the note is still correct for them, per the same Wiki
+  table). `MonsterConsumablesRepositoryTest#babyDragons_doNotResolveTheDragonfireReminder`
+  guards this using the exact bundled dataset names from
+  `monsters.min.json.gz` (e.g. `"Baby red dragon (1)"`).
+- **Metal dragons — real finding, `equipmentItemIds` and note both corrected.**
+  The Wiki has a *separate* metallic-dragon damage-reduction table (metal
+  dragons, Drakes, and Galvek are explicitly "unaffected by Protect from
+  Magic"). That table's own row for "Anti-dragon shield + Antifire
+  potion(4)" shows a max hit of 0 for metallic dragons — a fully-protective,
+  inexpensive combo, exactly as the reviewer said. This reverses the earlier
+  round-1 caution that deliberately omitted the anti-dragon shield id
+  (`1540`) pending confirmation: `1540` and its `(nz)` variant `11710` are
+  now restored to `equipmentItemIds` (both verified present in
+  `equipment_index.min.json`), and the note no longer implies the upgraded
+  dragonfire shield/ward or super antifire potion is mandatory.

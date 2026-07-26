@@ -6,15 +6,15 @@
     },
     {
       "monsters": ["Vorkath"],
-      "note": "Vorkath breathes dragonfire (Protect from Magic plus an antifire potion covers it, no shield needed) and poisons you during the acid phase — bring antivenom(+). A dragonfire shield/ward or anti-dragon shield still helps if you'd rather not rely on potion doses.",
+      "note": "Vorkath's dragonfire is stronger than a normal dragon's: a shield only gives full protection when paired with a super antifire potion, and two-handed setups can reduce the damage but never fully block it, even with Protect from Magic and a super antifire potion. He also poisons you during the acid phase, so bring antivenom(+).",
       "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
     },
     {
       "monsters": [
-        "Red dragon", "Baby red dragon", "Brutal red dragon",
-        "Blue dragon", "Baby blue dragon", "Brutal blue dragon",
-        "Green dragon", "Baby green dragon", "Brutal green dragon",
-        "Black dragon", "Baby black dragon", "Brutal black dragon", "King Black Dragon",
+        "Red dragon", "Brutal red dragon",
+        "Blue dragon", "Brutal blue dragon",
+        "Green dragon", "Brutal green dragon",
+        "Black dragon", "Brutal black dragon", "King Black Dragon",
         "Lava dragon", "Frost dragon", "Reanimated dragon"
       ],
       "note": "Breathes dragonfire — Protect from Magic plus an antifire (or extended antifire) potion covers it without needing a shield; a dragonfire shield/ward or anti-dragon shield works too.",
@@ -25,8 +25,8 @@
         "Bronze dragon", "Iron dragon", "Steel dragon", "Steel dragon (Level 246 (Task only))",
         "Mithril dragon", "Adamant dragon", "Rune dragon"
       ],
-      "note": "Metal dragons' dragonfire pierces Protect from Magic — a dragonfire shield/ward or a super antifire potion is mandatory here, not just a prayer.",
-      "equipmentItemIds": [11283, 11284, 22002, 22003]
+      "note": "Metal dragons' dragonfire pierces Protect from Magic, so the prayer alone does nothing. A super antifire potion gives full protection by itself, and an ordinary antifire potion paired with an anti-dragon shield, dragonfire shield, or dragonfire ward does too.",
+      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
     },
     {
       "monsters": [
