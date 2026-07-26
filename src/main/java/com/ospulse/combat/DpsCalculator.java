@@ -34,13 +34,35 @@ package com.ospulse.combat;
  * behind their own "applies when" predicate.
  *
  * <p>Per-target damage-magnitude effects (a curated {@link
- * MonsterCombatRequirement} resolved once per compute call from {@code
- * target.name()} via {@link MonsterCombatRequirementRepository}): a {@link
+ * MonsterCombatRequirement}, resolved once per compute call from {@code
+ * target.name()} via {@link MonsterCombatRequirementRepository} by the
+ * overloads below that don't take one explicitly, or supplied directly by a
+ * caller — such as {@code GearOptimizer} — that already resolved its own,
+ * which then takes priority instead of a second, independent lookup here; see
+ * {@link #applyTargetDamageRules} for how "not supplied" and "supplied null"
+ * are told apart): a {@link
  * MonsterCombatRequirement.Type#DAMAGE_PENALTY} multiplies max hit for an
  * off-style weapon (e.g. Corporeal Beast's half-damage stab), and a {@link
- * MonsterCombatRequirement.Type#DAMAGE_CAP} clamps max hit to a flat ceiling
- * (e.g. The Hueycoatl's tail) — both applied as the final step immediately
- * before {@code finish}/{@code finishFang}; see {@link TargetDamageRule}.
+ * MonsterCombatRequirement.Type#DAMAGE_CAP} ceilings max hit, optionally per
+ * {@link CombatStyle} (e.g. Verzik Vitur phase 1: melee 10, ranged/magic 3)
+ * and optionally exempting a specific weapon entirely (e.g. Dawnbringer) —
+ * both applied as the final step immediately before {@code finish}/{@code
+ * finishFang}; see {@link TargetDamageRule}. A cap's {@link
+ * MonsterCombatRequirement.CapMode} decides HOW it applies: {@code CLAMP}
+ * piles the roll's excess probability mass onto the cap itself (The
+ * Hueycoatl's tail), {@code REROLL} re-rolls a too-high hit uniformly into
+ * {@code 0..cap} (Verzik). Even for the GENERIC 0..maxHit roll this is NOT
+ * simply {@link CombatMath#averageDamagePerAttack}/{@link
+ * CombatMath#expectedOverkill} fed the cap as maxHit — that shape equivalence
+ * (a re-roll into {@code 0..cap} of a uniform {@code 0..M} roll is exactly a
+ * uniform {@code 0..cap} roll) is real, but those two methods ALSO bake in
+ * the ordinary "rolled 0 becomes 1" bump, which belongs to the ORIGINAL roll
+ * and does not apply a second time to the re-roll's own genuine zero —
+ * {@link CombatMath#rerolledAverageDamagePerAttack}/{@code
+ * rerolledExpectedOverkill} get this right; see {@link #finish}. Osmumten's
+ * fang needs its own re-rolled formulas for a different reason (its
+ * compressed roll isn't 0..M to begin with) — see {@link #finishFang} and
+ * {@link CombatMath#rerolledFangAverageDamagePerAttack}.
  */
 public final class DpsCalculator {
     private DpsCalculator() {
@@ -67,20 +89,47 @@ public final class DpsCalculator {
      */
     public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
                                      Monster target, int baseSpellMaxHit, int weaponId) {
+        return compute(gear, player, style, target, baseSpellMaxHit, weaponId, resolveRequirement(target));
+    }
+
+    /**
+     * As {@link #compute(EquipmentStats, PlayerCombat, CombatStyle, Monster, int)},
+     * but the caller supplies the target's already-resolved {@link
+     * MonsterCombatRequirement} instead of it being looked up here — see
+     * {@link #applyTargetDamageRules} for why a caller-supplied {@code null}
+     * is never re-resolved.
+     */
+    public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                     Monster target, int baseSpellMaxHit, MonsterCombatRequirement requirement) {
+        return compute(gear, player, style, target, baseSpellMaxHit, UNKNOWN_WEAPON_ID, requirement);
+    }
+
+    /**
+     * As {@link #compute(EquipmentStats, PlayerCombat, CombatStyle, Monster, int, int)},
+     * but the caller supplies the target's already-resolved {@link
+     * MonsterCombatRequirement} instead of it being looked up here — see
+     * {@link #applyTargetDamageRules} for why a caller-supplied {@code null}
+     * is never re-resolved.
+     */
+    public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                     Monster target, int baseSpellMaxHit, int weaponId,
+                                     MonsterCombatRequirement requirement) {
         if (style == CombatStyle.MAGIC) {
-            return computeMagic(gear, player, target, baseSpellMaxHit, gear.weaponSpeedTicks(), false, null, weaponId);
+            return computeMagic(gear, player, target, baseSpellMaxHit, gear.weaponSpeedTicks(), false, null, weaponId,
+                    requirement, false);
         }
-        return computeNonMagic(gear, player, style, target, weaponId);
+        return computeNonMagic(gear, player, style, target, weaponId, requirement);
     }
 
     /**
      * Spell-aware entry point. For {@link CombatStyle#MAGIC}: a worn powered
      * staff (detected on {@code gear}) takes precedence — its built-in spell's
      * max hit is derived from the (boosted) Magic level at the weapon's own
-     * speed; otherwise the given {@link Spell}'s base max hit is cast at the
-     * fixed {@link Spell#CAST_SPEED_TICKS} autocast speed. A {@code null}
-     * spell with no powered staff yields a zero-damage result rather than a
-     * guess.
+     * speed; otherwise the given {@link Spell}'s base max hit is cast at a
+     * weapon-aware speed (see {@link MagicCastSpeed}: the Twinflame staff and
+     * Harmonised nightmare staff override the default {@link
+     * Spell#CAST_SPEED_TICKS}). A {@code null} spell with no powered staff
+     * yields a zero-damage result rather than a guess.
      */
     public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
                                      Monster target, Spell spell) {
@@ -93,36 +142,77 @@ public final class DpsCalculator {
      */
     public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
                                      Monster target, Spell spell, int weaponId) {
+        return compute(gear, player, style, target, spell, weaponId, resolveRequirement(target));
+    }
+
+    /**
+     * As {@link #compute(EquipmentStats, PlayerCombat, CombatStyle, Monster, Spell)},
+     * but the caller supplies the target's already-resolved {@link
+     * MonsterCombatRequirement} instead of it being looked up here — see
+     * {@link #applyTargetDamageRules} for why a caller-supplied {@code null}
+     * is never re-resolved.
+     */
+    public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                     Monster target, Spell spell, MonsterCombatRequirement requirement) {
+        return compute(gear, player, style, target, spell, UNKNOWN_WEAPON_ID, requirement);
+    }
+
+    /**
+     * As {@link #compute(EquipmentStats, PlayerCombat, CombatStyle, Monster, Spell, int)},
+     * but the caller supplies the target's already-resolved {@link
+     * MonsterCombatRequirement} instead of it being looked up here — see
+     * {@link #applyTargetDamageRules} for why a caller-supplied {@code null}
+     * is never re-resolved.
+     */
+    public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                     Monster target, Spell spell, int weaponId, MonsterCombatRequirement requirement) {
         if (style != CombatStyle.MAGIC) {
-            return computeNonMagic(gear, player, style, target, weaponId);
+            return computeNonMagic(gear, player, style, target, weaponId, requirement);
         }
         if (gear.poweredStaff().applies()) {
             // Base max hit derives from the boosted level inside computeMagic.
             // Powered staves cast their own built-in "spell" (Magic Dart etc.),
             // which is not a real Spell and carries no element - no weakness bonus.
+            // Twinflame/Harmonised are not powered staves, so this branch never
+            // needs the weapon-aware cast speed or the second-hit passive.
             return computeMagic(gear, player, target, POWERED_STAFF_SENTINEL, gear.weaponSpeedTicks(),
-                    gear.poweredStaff().approximate(), null, weaponId);
+                    gear.poweredStaff().approximate(), null, weaponId, requirement, false);
         }
         int baseMaxHit = spell == null ? 0 : spell.baseMaxHit();
         Spell.Element element = spell == null ? null : spell.element();
-        return computeMagic(gear, player, target, baseMaxHit, Spell.CAST_SPEED_TICKS, false, element, weaponId);
+        int castSpeedTicks = MagicCastSpeed.ticksFor(gear.twinflameStaff(), gear.harmonisedNightmareStaff(), spell);
+        boolean twinflameSecondHit = gear.twinflameStaff() && spell != null && spell.twinflameEligible();
+        return computeMagic(gear, player, target, baseMaxHit, castSpeedTicks, false, element, weaponId,
+                requirement, twinflameSecondHit);
     }
 
     /** Sentinel meaning "the worn weapon's item id is not known to this caller". */
     private static final int UNKNOWN_WEAPON_ID = -1;
 
+    /**
+     * The repository-default resolution used by every overload that does not
+     * take an explicit {@link MonsterCombatRequirement} — exactly what {@link
+     * #applyTargetDamageRules} looked up internally before this class started
+     * threading the requirement through as a parameter. Kept as its own
+     * method so every "resolve it yourself" overload performs the identical
+     * lookup, byte-identical to the old behaviour.
+     */
+    private static MonsterCombatRequirement resolveRequirement(Monster target) {
+        return MonsterCombatRequirementRepository.getInstance().forMonster(target.name()).orElse(null);
+    }
+
     private static DpsResult computeNonMagic(EquipmentStats gear, PlayerCombat player, CombatStyle style,
-                                             Monster target, int weaponId) {
+                                             Monster target, int weaponId, MonsterCombatRequirement requirement) {
         if (style == CombatStyle.RANGED) {
-            return computeRanged(gear, player, target, weaponId);
+            return computeRanged(gear, player, target, weaponId, requirement);
         }
-        return computeMelee(gear, player, style, target, weaponId);
+        return computeMelee(gear, player, style, target, weaponId, requirement);
     }
 
     // ---- Melee (STAB/SLASH/CRUSH) -----------------------------------------------------
 
     private static DpsResult computeMelee(EquipmentStats gear, PlayerCombat player, CombatStyle style,
-                                          Monster target, int weaponId) {
+                                          Monster target, int weaponId, MonsterCombatRequirement requirement) {
         int boostedStr = player.assumeBestPotion()
                 ? PotionBoosts.bestMeleeBoostedLevel(player.baseStrength())
                 : player.boostedStrength();
@@ -181,7 +271,7 @@ public final class DpsCalculator {
         // attackRoll themselves — they change how hitChance/avgDamage are
         // derived from them, so this bypasses the generic finish() path.
         boolean fangApplies = gear.osmumtensFang() && style == CombatStyle.STAB;
-        TargetDamage damage = applyTargetDamageRules(maxHit, target, gear, style, weaponId);
+        TargetDamage damage = applyTargetDamageRules(maxHit, requirement, gear, style, weaponId);
         maxHit = damage.visibleMaxHit();
         if (fangApplies) {
             return finishFang(damage, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
@@ -192,7 +282,8 @@ public final class DpsCalculator {
 
     // ---- Ranged -----------------------------------------------------------------------
 
-    private static DpsResult computeRanged(EquipmentStats gear, PlayerCombat player, Monster target, int weaponId) {
+    private static DpsResult computeRanged(EquipmentStats gear, PlayerCombat player, Monster target, int weaponId,
+                                           MonsterCombatRequirement requirement) {
         int boostedRanged = player.assumeBestPotion()
                 ? PotionBoosts.bestRangedBoostedLevel(player.baseRanged())
                 : player.boostedRanged();
@@ -278,7 +369,7 @@ public final class DpsCalculator {
         int weaponSpeedTicks = gear.weaponSpeedTicks() - (player.stance() == Stance.RAPID ? 1 : 0);
         weaponSpeedTicks = Math.max(1, weaponSpeedTicks);
 
-        TargetDamage damage = applyTargetDamageRules(maxHit, target, gear, CombatStyle.RANGED, weaponId);
+        TargetDamage damage = applyTargetDamageRules(maxHit, requirement, gear, CombatStyle.RANGED, weaponId);
         maxHit = damage.visibleMaxHit();
         return finish(damage, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints(), false);
     }
@@ -307,7 +398,8 @@ public final class DpsCalculator {
 
     private static DpsResult computeMagic(EquipmentStats gear, PlayerCombat player, Monster target,
                                           int baseSpellMaxHit, int castSpeedTicks, boolean approximate,
-                                          Spell.Element spellElement, int weaponId) {
+                                          Spell.Element spellElement, int weaponId,
+                                          MonsterCombatRequirement requirement, boolean twinflameSecondHit) {
         int boostedMagic = player.assumeBestPotion()
                 ? magicPotionBoostedLevel(player.magicPotionVariant(), player.baseMagic())
                 : player.boostedMagic();
@@ -386,44 +478,96 @@ public final class DpsCalculator {
             maxHit = (int) new Fraction(11, 10).applyFloor(maxHit);
         }
 
-        TargetDamage damage = applyTargetDamageRules(maxHit, target, gear, CombatStyle.MAGIC, weaponId);
+        TargetDamage damage = applyTargetDamageRules(maxHit, requirement, gear, CombatStyle.MAGIC, weaponId);
         maxHit = damage.visibleMaxHit();
+        if (twinflameSecondHit) {
+            return finishTwinflame(damage, accuracyRoll, defenceRoll, castSpeedTicks, target.hitpoints());
+        }
         return finish(damage, accuracyRoll, defenceRoll, castSpeedTicks, target.hitpoints(), approximate);
     }
 
     /**
-     * The final max-hit step, shared by all three styles: resolves the
-     * target's curated {@link MonsterCombatRequirement} once (by name, {@code
-     * null} if this monster has none) and applies its damage penalty then its
-     * damage cap, in that order — see {@link TargetDamageRule}. A monster
-     * with no requirement (the overwhelming majority) is unaffected: both
-     * {@link TargetDamageRule} methods return their neutral values for a
+     * The final max-hit step, shared by all three styles: applies the given,
+     * already-resolved {@link MonsterCombatRequirement}'s damage penalty then
+     * its damage cap, in that order — see {@link TargetDamageRule}. A
+     * {@code null} req (the overwhelming majority of monsters) is unaffected:
+     * both {@link TargetDamageRule} methods return their neutral values for a
      * {@code null} requirement.
+     *
+     * <p><b>{@code req} is never re-resolved here</b> — resolution happens
+     * exactly once, before this method is ever called, so a plain {@code
+     * null} unambiguously means "this target has no requirement" and nothing
+     * else. There is no third "not yet resolved" state to confuse it with:
+     * the public {@code compute(...)} overloads that do NOT accept a {@link
+     * MonsterCombatRequirement} parameter (the original API) look it up
+     * themselves via {@link #resolveRequirement} — exactly the {@code
+     * MonsterCombatRequirementRepository.getInstance().forMonster(target.name())}
+     * call this method used to make internally — and pass that (possibly
+     * {@code null}) result down through {@code computeNonMagic}/{@code
+     * computeMelee}/{@code computeRanged}/{@code computeMagic} to here
+     * unchanged; the newer overloads that DO accept the parameter pass the
+     * caller's value straight through, likewise unchanged. Overload dispatch
+     * (arity/type, decided at the call site, not at runtime) is therefore the
+     * whole "sentinel": which family of overload was invoked is what tells
+     * "resolve it yourself" apart from "here is the resolved answer, even if
+     * that answer is null" — no in-band marker value is needed, and none of
+     * {@code MonsterCombatRequirement}'s real states is stolen for the
+     * purpose.
+     *
+     * <p>Deliberately does NOT collapse a {@code REROLL} cap into a lower
+     * {@code uncapped} value here, tempting as that shortcut looks for the
+     * generic melee/ranged/magic path (see {@link #finish}, where it IS
+     * exact). {@link #finishFang} needs the true, uncapped max hit AND the
+     * cap AND the mode kept separate — Osmumten's fang compresses its roll
+     * from the TRUE max, not from a value that has already had the cap
+     * folded into it, exactly the defect the fang's {@code CLAMP} path was
+     * fixed for in review; collapsing here would silently reintroduce the
+     * same defect for {@code REROLL} instead. {@link TargetDamage} therefore
+     * carries the mode, and each of {@link #finish}/{@link #finishFang}
+     * decides for itself what to do with it.
      */
-    private static TargetDamage applyTargetDamageRules(int maxHit, Monster target, EquipmentStats gear,
+    private static TargetDamage applyTargetDamageRules(int maxHit, MonsterCombatRequirement req, EquipmentStats gear,
                                                        CombatStyle style, int weaponId) {
-        MonsterCombatRequirement req = MonsterCombatRequirementRepository.getInstance()
-                .forMonster(target.name()).orElse(null);
         int afterPenalty = (int) Math.floor(maxHit * TargetDamageRule.damageMultiplierFor(req, weaponId, style));
-        return new TargetDamage(afterPenalty, TargetDamageRule.maxHitCapFor(req, gear));
+        int cap = TargetDamageRule.maxHitCapFor(req, gear, style, weaponId);
+        MonsterCombatRequirement.CapMode mode = TargetDamageRule.capModeFor(req);
+        return new TargetDamage(afterPenalty, cap, mode);
     }
 
     /**
-     * A max hit split into the roll's real range and the per-hitsplat cap, because
-     * the two are not interchangeable: the roll still spans {@code 0..uncapped}
-     * and everything above {@code cap} lands ON the cap. Collapsing them into one
-     * number loses the probability mass that piles up there — see
-     * {@link CombatMath#cappedAverageDamagePerAttack}.
+     * A max hit split into the roll's real (uncapped) range, the per-hitsplat
+     * cap, and the {@link MonsterCombatRequirement.CapMode} it applies with —
+     * three separate things are needed because none of them is
+     * interchangeable with another, in BOTH modes. Under {@code CLAMP} the
+     * roll stays {@code 0..uncapped} and everything above {@code cap} lands
+     * ON the cap — collapsing {@code uncapped} and {@code cap} into one
+     * number loses the probability mass that piles up there (see {@link
+     * CombatMath#cappedAverageDamagePerAttack}). Under {@code REROLL} the
+     * distribution's SHAPE reduces to a plain {@code 0..cap} roll, but its
+     * mean still depends on {@code uncapped}: the ordinary "rolled 0 becomes
+     * 1" bump belongs to the ORIGINAL {@code 0..uncapped} roll (see {@link
+     * CombatMath#rerolledAverageDamagePerAttack}'s {@code 1/(uncapped+1)}
+     * term) — collapsing to just {@code cap} and feeding it through the
+     * ordinary {@link CombatMath#averageDamagePerAttack} would apply that
+     * bump a second time, to the re-roll's own genuine zero, and overstate
+     * the mean. {@link #finishFang} needs the same three kept apart for a
+     * different reason on top: it must compress its own {@code lo..hi} roll
+     * from the TRUE max, not from a value the cap has already been folded
+     * into. Both numbers and the mode therefore travel together all the way
+     * to whichever {@code finish*} method consumes them.
      */
     private static final class TargetDamage {
         /** Max hit after any damage penalty, before any cap — the roll's real range. */
         final int uncapped;
         /** Per-hitsplat ceiling, or {@code -1} for none. */
         final int cap;
+        /** How the cap applies; meaningless when {@link #cap} is {@code -1}. */
+        final MonsterCombatRequirement.CapMode mode;
 
-        TargetDamage(int uncapped, int cap) {
+        TargetDamage(int uncapped, int cap, MonsterCombatRequirement.CapMode mode) {
             this.uncapped = uncapped;
             this.cap = cap;
+            this.mode = mode;
         }
 
         /** What the player actually sees as their max hit. */
@@ -549,25 +693,51 @@ public final class DpsCalculator {
 
     private static DpsResult finish(int maxHit, int attackRoll, int defenceRoll, int weaponSpeedTicks,
                                     int targetHitpoints, boolean baseEstimate) {
-        return finish(new TargetDamage(maxHit, -1), attackRoll, defenceRoll, weaponSpeedTicks,
-            targetHitpoints, baseEstimate);
+        return finish(new TargetDamage(maxHit, -1, MonsterCombatRequirement.CapMode.CLAMP), attackRoll, defenceRoll,
+            weaponSpeedTicks, targetHitpoints, baseEstimate);
     }
 
+    /**
+     * Applies a {@link TargetDamage}'s cap (if any) to the GENERIC
+     * uniform-{@code 0..maxHit} roll used by every style except Osmumten's
+     * fang (see {@link #finishFang} for that one). Uncapped: the ordinary
+     * formulas. {@code CLAMP}: the roll stays {@code 0..uncapped} with excess
+     * mass piled on the cap ({@code cappedAverageDamagePerAttack}/
+     * {@code cappedExpectedOverkill}). {@code REROLL}: a re-roll into
+     * {@code 0..cap} of a uniform {@code 0..M} roll is EXACTLY a uniform
+     * {@code 0..cap} roll — BUT that equivalence is about the shape of the
+     * distribution only, not the "rolled 0 becomes 1" bump: the bump belongs
+     * to the ORIGINAL {@code 0..M} roll (it happens first), and the re-roll
+     * into {@code 0..cap} is a separate, later step with its own genuine
+     * zero. Feeding the cap into {@link CombatMath#averageDamagePerAttack}/
+     * {@link CombatMath#expectedOverkill} (as if it were a plain {@code
+     * 0..cap} weapon roll) therefore overstates the mean by the bump's
+     * {@code 1/(cap+1)} term where the correct term is {@code 1/(M+1)} — at
+     * Verzik's ranged/magic cap of 3 that reports 1.75 instead of the true
+     * ~1.524, a 14.8% overstatement (the same over-general-equivalence
+     * mistake the fang's re-rolled formulas were built to avoid, caught in
+     * the same review). {@link CombatMath#rerolledAverageDamagePerAttack}/
+     * {@code rerolledExpectedOverkill} are the exact, zero-aware versions.
+     * Overkill always uses the SAME distribution as avgDamage in every
+     * branch, since TTK is derived from both together.
+     */
     private static DpsResult finish(TargetDamage damage, int attackRoll, int defenceRoll, int weaponSpeedTicks,
                                     int targetHitpoints, boolean baseEstimate) {
         int maxHit = damage.visibleMaxHit();
         double hitChance = CombatMath.hitChance(attackRoll, defenceRoll);
-        double avgDamage = damage.isCapped()
-            ? CombatMath.cappedAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap)
-            : CombatMath.averageDamagePerAttack(hitChance, maxHit);
+        double avgDamage;
+        double overkill;
+        if (!damage.isCapped()) {
+            avgDamage = CombatMath.averageDamagePerAttack(hitChance, maxHit);
+            overkill = CombatMath.expectedOverkill(maxHit, targetHitpoints);
+        } else if (damage.mode == MonsterCombatRequirement.CapMode.REROLL) {
+            avgDamage = CombatMath.rerolledAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            overkill = CombatMath.rerolledExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
+        } else {
+            avgDamage = CombatMath.cappedAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            overkill = CombatMath.cappedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
+        }
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
-        // avgDamage is the expected damage per attack (misses included) — GearScape's "Avg Hit".
-        // Overkill must use the SAME distribution as avgDamage. Passing the clamped max hit
-        // to the uniform version would assume a flat 1..cap spread and get overkill — and
-        // therefore TTK, which is derived from it — wrong for every capped setup.
-        double overkill = damage.isCapped()
-            ? CombatMath.cappedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints)
-            : CombatMath.expectedOverkill(maxHit, targetHitpoints);
         // TTK must account for overkill: the killing blow rolls past 0 HP, wasting
         // `overkill` HP of damage, so effective damage per kill is HP + overkill.
         // By Wald's identity E[TTK] = (HP + E[overkill]) / DPS exactly — the naive
@@ -585,33 +755,103 @@ public final class DpsCalculator {
      * the TRUE (unshrunk) max hit, matching how the wiki/GearScape display it
      * — only the roll range feeding avgDamage is compressed.
      *
-     * <p>Overkill/TTK reuse the generic uniform-0..maxHit overkill model on
-     * the true max hit (not the shrunk range) as an approximation — modelling
-     * overkill exactly for the fang's compressed distribution is out of scope
-     * here (Tier B, not requested); this only matters for the very last hit
-     * of a kill and the effect is small.
+     * <p>Uncapped: overkill/TTK reuse the generic uniform-0..maxHit overkill
+     * model on the true max hit (not the shrunk range) as an approximation —
+     * modelling overkill exactly for the fang's UNCAPPED compressed
+     * distribution is out of scope here (Tier B, not requested); this only
+     * matters for the very last hit of a kill and the effect is small.
      *
      * <p><b>A capped target caps the fang's compressed roll, not the max hit it
      * is compressed from.</b> The cap therefore cannot be folded into {@code
      * maxHit} before this method is reached — it has to travel alongside the
-     * true max, which is why this takes the whole {@link TargetDamage} rather
-     * than an already-collapsed int. See {@link
-     * CombatMath#cappedFangAverageDamagePerAttack}. Overkill runs on that SAME
-     * distribution via {@link CombatMath#cappedFangExpectedOverkill} — the
-     * average and the overkill must not be drawn from two different models, or
-     * the reported TTK silently disagrees with the reported DPS.
+     * true max (and the {@link MonsterCombatRequirement.CapMode}), which is
+     * why this takes the whole {@link TargetDamage} rather than an
+     * already-collapsed int. {@code CLAMP}: {@link
+     * CombatMath#cappedFangAverageDamagePerAttack} / {@code
+     * cappedFangExpectedOverkill} — both against the fang's own
+     * compressed-and-clamped distribution, so the average and the overkill
+     * cannot disagree (an earlier version of this ran overkill on the
+     * GENERIC capped distribution instead, which silently reported a
+     * different TTK than the average implied — fixed in review).
+     * {@code REROLL}: unlike the generic path, this is NOT algebraically a
+     * lower max hit — the fang would re-derive a different, much narrower
+     * compression from a lowered max — so it needs its own EXACT formula,
+     * {@link CombatMath#rerolledFangAverageDamagePerAttack} / {@code
+     * rerolledFangExpectedOverkill}, built from the same {@code lo..hi}
+     * distribution for both, for exactly the same reason.
      */
     private static DpsResult finishFang(TargetDamage damage, int attackRoll, int defenceRoll, int weaponSpeedTicks,
                                         int targetHitpoints) {
         double hitChance = CombatMath.fangHitChance(attackRoll, defenceRoll);
-        double avgDamage = damage.isCapped()
-                ? CombatMath.cappedFangAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap)
-                : CombatMath.fangAverageDamagePerAttack(hitChance, damage.uncapped);
+        double avgDamage;
+        double overkill;
+        if (!damage.isCapped()) {
+            avgDamage = CombatMath.fangAverageDamagePerAttack(hitChance, damage.uncapped);
+            overkill = CombatMath.expectedOverkill(damage.uncapped, targetHitpoints);
+        } else if (damage.mode == MonsterCombatRequirement.CapMode.REROLL) {
+            avgDamage = CombatMath.rerolledFangAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            overkill = CombatMath.rerolledFangExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
+        } else {
+            avgDamage = CombatMath.cappedFangAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            overkill = CombatMath.cappedFangExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
+        }
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
-        double overkill = damage.isCapped()
-                ? CombatMath.cappedFangExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints)
-                : CombatMath.expectedOverkill(damage.uncapped, targetHitpoints);
         double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
         return new DpsResult(damage.visibleMaxHit(), hitChance, dps, avgDamage, ttkSeconds, overkill, false);
+    }
+
+    /**
+     * Twinflame staff variant of {@link #finish}: adds the exact expected
+     * second-hit damage (see {@link TwinflameSecondHit} for the derivation
+     * and why {@code E[floor(0.4*D)] != 0.4*E[D]}) to the average damage used
+     * for DPS, and uses {@link TwinflameSecondHit}'s combined-hitsplat model
+     * for overkill/TTK — see that class's javadoc for the explicit modelling
+     * choice and its one documented, negligible simplification (the killing
+     * blow's second hitsplat is still counted in full even when the first
+     * alone would already be lethal).
+     *
+     * <p>Both the average AND the overkill are migrated together here
+     * deliberately: reflecting the second hit in only one of the two would
+     * leave the reported DPS and TTK disagreeing with each other for every
+     * Twinflame-eligible cast.
+     *
+     * <p>Mirrors {@link #finish}'s three-way switch on {@link
+     * TargetDamage#mode} rather than the two-way {@code isCapped()} check
+     * this used to branch on: a {@code REROLL}-capped target (e.g. Verzik
+     * Vitur phase 1's ranged/magic cap of 3) was previously silently routed
+     * through the {@code cappedXxx} (i.e. {@code CLAMP}) helpers for all
+     * three terms, piling excess probability onto the cap instead of
+     * re-rolling it into {@code 0..cap} — the exact same over-general
+     * "REROLL is just a clamp" mistake {@link #finish}/{@link #finishFang}
+     * were already fixed for. {@link TwinflameSecondHit#rerolledSecondHitAverage}/
+     * {@code rerolledCombinedExpectedOverkill} are the exact, zero-aware
+     * REROLL replacements, built from the same distribution {@link
+     * CombatMath#rerolledAverageDamagePerAttack}/{@code
+     * rerolledExpectedOverkill} use so all three terms cannot disagree.
+     */
+    private static DpsResult finishTwinflame(TargetDamage damage, int attackRoll, int defenceRoll, int castSpeedTicks,
+                                              int targetHitpoints) {
+        int maxHit = damage.visibleMaxHit();
+        double hitChance = CombatMath.hitChance(attackRoll, defenceRoll);
+        double firstHitAvg;
+        double secondHitAvg;
+        double overkill;
+        if (!damage.isCapped()) {
+            firstHitAvg = CombatMath.averageDamagePerAttack(hitChance, maxHit);
+            secondHitAvg = TwinflameSecondHit.secondHitAverage(hitChance, maxHit);
+            overkill = TwinflameSecondHit.combinedExpectedOverkill(maxHit, targetHitpoints);
+        } else if (damage.mode == MonsterCombatRequirement.CapMode.REROLL) {
+            firstHitAvg = CombatMath.rerolledAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            secondHitAvg = TwinflameSecondHit.rerolledSecondHitAverage(hitChance, damage.uncapped, damage.cap);
+            overkill = TwinflameSecondHit.rerolledCombinedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
+        } else {
+            firstHitAvg = CombatMath.cappedAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            secondHitAvg = TwinflameSecondHit.cappedSecondHitAverage(hitChance, damage.uncapped, damage.cap);
+            overkill = TwinflameSecondHit.cappedCombinedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
+        }
+        double avgDamage = firstHitAvg + secondHitAvg;
+        double dps = CombatMath.dps(avgDamage, castSpeedTicks);
+        double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
+        return new DpsResult(maxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, false);
     }
 }

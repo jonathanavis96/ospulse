@@ -183,6 +183,8 @@ public final class GearMapper
 		builder.dragonHunterWeapon(GearVariants.dragonHunterWeaponFor(weaponItemId));
 		builder.twistedBow(GearVariants.isTwistedBow(weaponItemId));
 		builder.osmumtensFang(GearVariants.isOsmumtensFang(weaponItemId));
+		builder.twinflameStaff(GearVariants.isTwinflameStaff(weaponItemId));
+		builder.harmonisedNightmareStaff(GearVariants.isHarmonisedNightmareStaff(weaponItemId));
 		builder.poweredStaff(GearVariants.poweredStaffFor(weaponItemId));
 		builder.tome(GearVariants.tomeFor(slotItemId(equippedItemIds, SLOT_SHIELD)));
 		builder.voidSet(GearVariants.voidSetFor(

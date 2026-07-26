@@ -30,26 +30,26 @@ import java.util.stream.Collectors;
  */
 public enum Spell {
     // ---- Standard spellbook (elemental tiers at their tier-cap max hits) ----
-    WIND_STRIKE("Wind Strike", SpellBook.STANDARD, 8, 15, Element.WIND),
-    WATER_STRIKE("Water Strike", SpellBook.STANDARD, 8, 17, Element.WATER),
-    EARTH_STRIKE("Earth Strike", SpellBook.STANDARD, 8, 19, Element.EARTH),
-    FIRE_STRIKE("Fire Strike", SpellBook.STANDARD, 8, 21, Element.FIRE),
-    WIND_BOLT("Wind Bolt", SpellBook.STANDARD, 12, 23, Element.WIND),
-    WATER_BOLT("Water Bolt", SpellBook.STANDARD, 12, 26, Element.WATER),
-    EARTH_BOLT("Earth Bolt", SpellBook.STANDARD, 12, 29, Element.EARTH),
-    FIRE_BOLT("Fire Bolt", SpellBook.STANDARD, 12, 32, Element.FIRE),
-    WIND_BLAST("Wind Blast", SpellBook.STANDARD, 16, 35, Element.WIND),
-    WATER_BLAST("Water Blast", SpellBook.STANDARD, 16, 38, Element.WATER),
-    EARTH_BLAST("Earth Blast", SpellBook.STANDARD, 16, 40, Element.EARTH),
-    FIRE_BLAST("Fire Blast", SpellBook.STANDARD, 16, 44, Element.FIRE),
-    WIND_WAVE("Wind Wave", SpellBook.STANDARD, 20, 46, Element.WIND),
-    WATER_WAVE("Water Wave", SpellBook.STANDARD, 20, 48, Element.WATER),
-    EARTH_WAVE("Earth Wave", SpellBook.STANDARD, 20, 51, Element.EARTH),
-    FIRE_WAVE("Fire Wave", SpellBook.STANDARD, 20, 52, Element.FIRE),
-    WIND_SURGE("Wind Surge", SpellBook.STANDARD, 24, 362, Element.WIND),
-    WATER_SURGE("Water Surge", SpellBook.STANDARD, 24, 363, Element.WATER),
-    EARTH_SURGE("Earth Surge", SpellBook.STANDARD, 24, 364, Element.EARTH),
-    FIRE_SURGE("Fire Surge", SpellBook.STANDARD, 24, 365, Element.FIRE),
+    WIND_STRIKE("Wind Strike", SpellBook.STANDARD, 8, 15, Element.WIND, Tier.STRIKE),
+    WATER_STRIKE("Water Strike", SpellBook.STANDARD, 8, 17, Element.WATER, Tier.STRIKE),
+    EARTH_STRIKE("Earth Strike", SpellBook.STANDARD, 8, 19, Element.EARTH, Tier.STRIKE),
+    FIRE_STRIKE("Fire Strike", SpellBook.STANDARD, 8, 21, Element.FIRE, Tier.STRIKE),
+    WIND_BOLT("Wind Bolt", SpellBook.STANDARD, 12, 23, Element.WIND, Tier.BOLT),
+    WATER_BOLT("Water Bolt", SpellBook.STANDARD, 12, 26, Element.WATER, Tier.BOLT),
+    EARTH_BOLT("Earth Bolt", SpellBook.STANDARD, 12, 29, Element.EARTH, Tier.BOLT),
+    FIRE_BOLT("Fire Bolt", SpellBook.STANDARD, 12, 32, Element.FIRE, Tier.BOLT),
+    WIND_BLAST("Wind Blast", SpellBook.STANDARD, 16, 35, Element.WIND, Tier.BLAST),
+    WATER_BLAST("Water Blast", SpellBook.STANDARD, 16, 38, Element.WATER, Tier.BLAST),
+    EARTH_BLAST("Earth Blast", SpellBook.STANDARD, 16, 40, Element.EARTH, Tier.BLAST),
+    FIRE_BLAST("Fire Blast", SpellBook.STANDARD, 16, 44, Element.FIRE, Tier.BLAST),
+    WIND_WAVE("Wind Wave", SpellBook.STANDARD, 20, 46, Element.WIND, Tier.WAVE),
+    WATER_WAVE("Water Wave", SpellBook.STANDARD, 20, 48, Element.WATER, Tier.WAVE),
+    EARTH_WAVE("Earth Wave", SpellBook.STANDARD, 20, 51, Element.EARTH, Tier.WAVE),
+    FIRE_WAVE("Fire Wave", SpellBook.STANDARD, 20, 52, Element.FIRE, Tier.WAVE),
+    WIND_SURGE("Wind Surge", SpellBook.STANDARD, 24, 362, Element.WIND, Tier.SURGE),
+    WATER_SURGE("Water Surge", SpellBook.STANDARD, 24, 363, Element.WATER, Tier.SURGE),
+    EARTH_SURGE("Earth Surge", SpellBook.STANDARD, 24, 364, Element.EARTH, Tier.SURGE),
+    FIRE_SURGE("Fire Surge", SpellBook.STANDARD, 24, 365, Element.FIRE, Tier.SURGE),
     CRUMBLE_UNDEAD("Crumble Undead", SpellBook.STANDARD, 15, 34),
     /**
      * Castable ONLY with Iban's staff equipped (regular 1409, the other
@@ -99,6 +99,23 @@ public enum Spell {
         FIRE
     }
 
+    /**
+     * The standard-spellbook elemental tier a spell belongs to, used ONLY to
+     * gate the Twinflame staff's second-hit passive (see
+     * {@link #twinflameEligible()}) — it has no other combat effect here.
+     * Only the 20 elemental Strike/Bolt/Blast/Wave/Surge spells carry a tier;
+     * every other spell (Iban Blast, Crumble Undead, the three god spells and
+     * all 12 Ancient Magicks) has {@code tier() == null}, matching their
+     * {@code element() == null}.
+     */
+    public enum Tier {
+        STRIKE,
+        BOLT,
+        BLAST,
+        WAVE,
+        SURGE
+    }
+
     public enum SpellBook {
         STANDARD("Standard"),
         ANCIENT("Ancient");
@@ -122,14 +139,16 @@ public enum Spell {
     private final Set<Integer> requiredWeaponItemIds;
     /** This spell's elemental-weakness-matching element, or {@code null} if it has none. */
     private final Element element;
+    /** This spell's elemental {@link Tier}, or {@code null} if it has none (see {@link Tier}'s javadoc). */
+    private final Tier tier;
 
     Spell(String displayName, SpellBook book, int baseMaxHit, int spriteId) {
-        this(displayName, book, baseMaxHit, spriteId, null, new int[0]);
+        this(displayName, book, baseMaxHit, spriteId, null, null, new int[0]);
     }
 
-    /** Standard elemental tiers (Strike/Bolt/Blast/Wave/Surge): carries an {@link Element}, no weapon requirement. */
-    Spell(String displayName, SpellBook book, int baseMaxHit, int spriteId, Element element) {
-        this(displayName, book, baseMaxHit, spriteId, element, new int[0]);
+    /** Standard elemental tiers (Strike/Bolt/Blast/Wave/Surge): carries an {@link Element} and a {@link Tier}, no weapon requirement. */
+    Spell(String displayName, SpellBook book, int baseMaxHit, int spriteId, Element element, Tier tier) {
+        this(displayName, book, baseMaxHit, spriteId, element, tier, new int[0]);
     }
 
     /**
@@ -138,16 +157,17 @@ public enum Spell {
      *                               item ids (e.g. Iban Blast + Iban's staff).
      */
     Spell(String displayName, SpellBook book, int baseMaxHit, int spriteId, int... requiredWeaponItemIds) {
-        this(displayName, book, baseMaxHit, spriteId, null, requiredWeaponItemIds);
+        this(displayName, book, baseMaxHit, spriteId, null, null, requiredWeaponItemIds);
     }
 
-    private Spell(String displayName, SpellBook book, int baseMaxHit, int spriteId, Element element,
+    private Spell(String displayName, SpellBook book, int baseMaxHit, int spriteId, Element element, Tier tier,
                   int... requiredWeaponItemIds) {
         this.displayName = displayName;
         this.book = book;
         this.baseMaxHit = baseMaxHit;
         this.spriteId = spriteId;
         this.element = element;
+        this.tier = tier;
         this.requiredWeaponItemIds = requiredWeaponItemIds.length == 0
                 ? Collections.emptySet()
                 : java.util.Arrays.stream(requiredWeaponItemIds).boxed().collect(Collectors.toSet());
@@ -178,6 +198,36 @@ public enum Spell {
      */
     public Element element() {
         return element;
+    }
+
+    /**
+     * This spell's elemental {@link Tier} (Strike/Bolt/Blast/Wave/Surge), or
+     * {@code null} when it has none — see {@link Tier}'s javadoc for exactly
+     * which spells carry one.
+     */
+    public Tier tier() {
+        return tier;
+    }
+
+    /**
+     * True when the Twinflame staff (item id 30634 — see {@code
+     * GearVariants}) fires a second hit for this spell. Per the OSRS Wiki:
+     * "the staff fires two spells at once ... when casting elemental spells
+     * (excluding Strike and Surge spells)" — i.e. Bolt/Blast/Wave across all
+     * four elements (12 spells total).
+     *
+     * <p><b>Deliberately gated on {@link #element()} + {@link #tier()}, NOT
+     * on the spell's display name.</b> The reference JS implementation
+     * (weirdgloop/osrs-dps-calc) gates on {@code name.includes('Bolt'|'Blast'|
+     * 'Wave')}, which also incorrectly matches "Iban Blast" — a non-elemental
+     * spell ({@code element() == null}) that this codebase must NOT treat as
+     * eligible. Iban Blast, Crumble Undead, the three god spells and all 12
+     * Ancient Magicks all have {@code element() == null} (and {@code tier()
+     * == null}) and therefore never qualify, regardless of what their name
+     * contains.
+     */
+    public boolean twinflameEligible() {
+        return element != null && (tier == Tier.BOLT || tier == Tier.BLAST || tier == Tier.WAVE);
     }
 
     /**

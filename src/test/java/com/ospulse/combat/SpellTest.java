@@ -2,6 +2,7 @@ package com.ospulse.combat;
 
 import org.junit.Test;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -40,5 +41,54 @@ public class SpellTest {
         assertTrue(Spell.FIRE_SURGE.isCastableWith(DRAGON_HUNTER_WAND));
         assertTrue(Spell.FIRE_SURGE.isCastableWith(-1));
         assertTrue(Spell.ICE_BARRAGE.isCastableWith(STAFF_OF_FIRE));
+    }
+
+    /**
+     * {@link Spell#twinflameEligible()} — Bolt/Blast/Wave across all four
+     * elements only, and NOT the name-substring trap the reference JS
+     * implementation falls into (Iban Blast).
+     */
+    @Test
+    public void twinflameEligible_boltBlastWaveAcrossAllFourElements() {
+        assertTrue(Spell.WIND_BOLT.twinflameEligible());
+        assertTrue(Spell.WATER_BOLT.twinflameEligible());
+        assertTrue(Spell.EARTH_BOLT.twinflameEligible());
+        assertTrue(Spell.FIRE_BOLT.twinflameEligible());
+        assertTrue(Spell.WIND_BLAST.twinflameEligible());
+        assertTrue(Spell.WATER_BLAST.twinflameEligible());
+        assertTrue(Spell.EARTH_BLAST.twinflameEligible());
+        assertTrue(Spell.FIRE_BLAST.twinflameEligible());
+        assertTrue(Spell.WIND_WAVE.twinflameEligible());
+        assertTrue(Spell.WATER_WAVE.twinflameEligible());
+        assertTrue(Spell.EARTH_WAVE.twinflameEligible());
+        assertTrue(Spell.FIRE_WAVE.twinflameEligible());
+    }
+
+    @Test
+    public void twinflameEligible_falseForStrikeAndSurge() {
+        assertFalse(Spell.WIND_STRIKE.twinflameEligible());
+        assertFalse(Spell.FIRE_STRIKE.twinflameEligible());
+        assertFalse(Spell.WIND_SURGE.twinflameEligible());
+        assertFalse(Spell.FIRE_SURGE.twinflameEligible());
+    }
+
+    @Test
+    public void twinflameEligible_falseForIbanBlast_nameSubstringTrap() {
+        // Iban Blast's display name contains "Blast" - the reference JS
+        // implementation's name.includes('Blast') gate would wrongly match it.
+        // It has no Element/Tier, so twinflameEligible() must be false.
+        assertFalse(Spell.IBAN_BLAST.twinflameEligible());
+        assertEquals(null, Spell.IBAN_BLAST.element());
+        assertEquals(null, Spell.IBAN_BLAST.tier());
+    }
+
+    @Test
+    public void twinflameEligible_falseForNonElementalSpells() {
+        assertFalse(Spell.CRUMBLE_UNDEAD.twinflameEligible());
+        assertFalse(Spell.SARADOMIN_STRIKE.twinflameEligible());
+        assertFalse(Spell.CLAWS_OF_GUTHIX.twinflameEligible());
+        assertFalse(Spell.FLAMES_OF_ZAMORAK.twinflameEligible());
+        assertFalse(Spell.ICE_BARRAGE.twinflameEligible());
+        assertFalse(Spell.SMOKE_RUSH.twinflameEligible());
     }
 }

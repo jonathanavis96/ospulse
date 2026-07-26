@@ -401,6 +401,52 @@ public final class GearVariants
 		}
 	}
 
+	// ==== Magic cast-speed override weapons ==============================================
+
+	/**
+	 * Twinflame staff. Bundled {@code weapon_categories} says {@code staff};
+	 * bundled {@code equipment_stats} index 14 = 6 ticks. The OSRS Wiki's
+	 * combat-styles table lists "Spell (Autocast) = 6 ticks" too — i.e. the
+	 * 6-tick speed applies to spellcasting, not only melee — and the staff
+	 * also fires a second hit on eligible elemental spells (see {@link
+	 * com.ospulse.combat.Spell#twinflameEligible()} /
+	 * {@link com.ospulse.combat.TwinflameSecondHit}).
+	 *
+	 * <p>NOT modelled here (explicitly out of scope): the wiki also documents
+	 * that the staff auto-substitutes the elemental spell matching an NPC's
+	 * weakness when autocasting (e.g. autocasting Wind Wave at a moss giant
+	 * actually casts Fire Wave) — that changes WHICH spell is cast and
+	 * interacts with the optimizer's spell selection, so it is a separate
+	 * follow-up, not part of the cast-speed/second-hit wiring here.
+	 */
+	private static final int TWINFLAME_STAFF = 30634;
+
+	/**
+	 * Harmonised nightmare staff. Bundled {@code equipment_stats} index 14 = 5
+	 * ticks (the base/manual-cast speed — the wiki-documented 4-tick discount
+	 * is a conditional runtime effect that never appears in the bundled
+	 * cache data). Per the OSRS Wiki: "reduces the cast time from 5 (3.0s) to
+	 * 4 (2.4s) ticks ... The 4-tick spell speed only applies when
+	 * autocasting"; "Manually casting spells with the staff equipped will
+	 * result in a 5-tick attack speed"; and it "can autocast offensive
+	 * standard spells, but cannot autocast any other spells (including
+	 * Ancient Magicks and the Arceuus spellbook)" — see {@code
+	 * com.ospulse.combat.MagicCastSpeed}.
+	 */
+	private static final int HARMONISED_NIGHTMARE_STAFF = 24423;
+
+	/** True when the worn weapon is the Twinflame staff. */
+	static boolean isTwinflameStaff(int weaponItemId)
+	{
+		return weaponItemId == TWINFLAME_STAFF;
+	}
+
+	/** True when the worn weapon is the Harmonised nightmare staff. */
+	static boolean isHarmonisedNightmareStaff(int weaponItemId)
+	{
+		return weaponItemId == HARMONISED_NIGHTMARE_STAFF;
+	}
+
 	// ==== Blowpipe (loads darts internally, ignores worn ammo) ============================
 
 	/**
