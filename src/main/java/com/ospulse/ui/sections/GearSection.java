@@ -35,10 +35,12 @@ import com.ospulse.ui.CentFormat;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
 import com.ospulse.ui.WidthTrackingPanel;
+import com.ospulse.ui.sections.gear.AdvisoryNoteRenderer;
 import com.ospulse.ui.sections.gear.BudgetAmount;
 import com.ospulse.ui.sections.gear.CoinPileBadge;
 import com.ospulse.ui.sections.gear.CollapsibleHeading;
 import com.ospulse.ui.sections.gear.CombatStyleLabel;
+import com.ospulse.ui.sections.gear.ConsumablesReminderPanel;
 import com.ospulse.ui.sections.gear.DpsFormat;
 import com.ospulse.ui.sections.gear.GpFormat;
 import com.ospulse.ui.sections.gear.HeldItemIds;
@@ -371,6 +373,15 @@ public final class GearSection extends CollapsibleSection
 	 * or its note is empty.
 	 */
 	private final JPanel combatReqNotePanel;
+	/**
+	 * The "don't forget" consumables/gear reminder row(s) (e.g. "Zulrah
+	 * poisons you — bring antivenom") for the selected target, sourced from
+	 * {@link com.ospulse.combat.MonsterConsumablesRepository}. Owns its own
+	 * rendering ({@link ConsumablesReminderPanel#refresh}) and holds no
+	 * {@code GearSection} state, so it is independently testable. Hidden
+	 * entirely when the target has no curated reminder.
+	 */
+	private final ConsumablesReminderPanel consumablesReminderPanel;
 
 	private List<Monster> filteredMonsters = Collections.emptyList();
 	private Monster selectedMonster;
@@ -1105,6 +1116,13 @@ public final class GearSection extends CollapsibleSection
 		combatReqNotePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		combatReqNotePanel.setVisible(false);
 		body().add(combatReqNotePanel);
+
+		// Curated "don't forget" consumables/gear reminder (e.g. "Zulrah
+		// poisons you — bring antivenom") — advisory only, sourced from
+		// MonsterConsumablesRepository. Empty/invisible until update() finds
+		// one for the selected target.
+		consumablesReminderPanel = new ConsumablesReminderPanel();
+		body().add(consumablesReminderPanel);
 		body().add(Box.createRigidArea(new Dimension(0, 6)));
 
 		// ------------------------------------------------------- outputs
@@ -3100,6 +3118,7 @@ public final class GearSection extends CollapsibleSection
 			: java.awt.Color.WHITE);
 		updateGearOverrideNote();
 		updateCombatRequirementNote();
+		consumablesReminderPanel.refresh(selectedMonster == null ? null : selectedMonster.name());
 	}
 
 	/**
@@ -3144,8 +3163,8 @@ public final class GearSection extends CollapsibleSection
 			// A plain JLabel does not wrap, and a hard-coded HTML div width
 			// clips as soon as the side panel is narrower than that pixel
 			// value (Jonathan saw "...equip in selected boot..." cut off).
-			// wrappingNote() wraps to whatever width the panel actually has.
-			gearOverrideNotePanel.add(wrappingNote(raw, ColorScheme.BRAND_ORANGE));
+			// AdvisoryNoteRenderer.wrappingNote() wraps to whatever width the panel actually has.
+			gearOverrideNotePanel.add(AdvisoryNoteRenderer.wrappingNote(raw, ColorScheme.BRAND_ORANGE));
 		}
 		gearOverrideNotePanel.setVisible(!overrides.isEmpty());
 		gearOverrideNotePanel.revalidate();
@@ -3164,6 +3183,18 @@ public final class GearSection extends CollapsibleSection
 			}
 		}
 		return texts;
+	}
+
+	/** Test seam: the rendered text of every current {@link #consumablesReminderPanel} advisory line, in order. */
+	java.util.List<String> consumablesReminderNoteTextsForTest()
+	{
+		return consumablesReminderPanel.noteTextsForTest();
+	}
+
+	/** Test seam: whether {@link #consumablesReminderPanel} is currently showing anything. */
+	boolean consumablesReminderVisibleForTest()
+	{
+		return consumablesReminderPanel.isVisible();
 	}
 
 	/**
@@ -3185,60 +3216,13 @@ public final class GearSection extends CollapsibleSection
 				MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.name());
 			if (req.isPresent() && !req.get().note().isEmpty())
 			{
-				combatReqNotePanel.add(wrappingNote("⚠ " + req.get().note(), ColorScheme.BRAND_ORANGE));
+				combatReqNotePanel.add(AdvisoryNoteRenderer.wrappingNote("⚠ " + req.get().note(), ColorScheme.BRAND_ORANGE));
 				show = true;
 			}
 		}
 		combatReqNotePanel.setVisible(show);
 		combatReqNotePanel.revalidate();
 		combatReqNotePanel.repaint();
-	}
-
-	/**
-	 * A read-only, non-opaque, word-wrapping "label" that — unlike a plain
-	 * {@link JLabel} (no wrap) or the previous HTML-{@code JLabel} approach
-	 * (hard-coded {@code width:200px}, clipped in a narrower panel) — wraps to
-	 * whatever width the enclosing {@link BoxLayout} panel actually gives it.
-	 * Standard Swing trick: {@link JTextArea#getPreferredSize()} normally
-	 * measures the UNWRAPPED width, so it is overridden here to re-measure
-	 * against the parent's current width once one is known, and
-	 * {@code getMaximumSize()} caps height at that (dynamic) preferred height
-	 * while leaving width free to stretch to the container — matching the
-	 * {@code Integer.MAX_VALUE}-width pattern {@link PanelWidgets#iconRow}
-	 * already uses for full-width rows.
-	 */
-	private static JTextArea wrappingNote(String text, java.awt.Color foreground)
-	{
-		JTextArea area = new JTextArea(text)
-		{
-			@Override
-			public Dimension getPreferredSize()
-			{
-				Container parent = getParent();
-				int width = parent != null ? parent.getWidth() : 0;
-				if (width > 0)
-				{
-					setSize(width, Short.MAX_VALUE);
-				}
-				return super.getPreferredSize();
-			}
-
-			@Override
-			public Dimension getMaximumSize()
-			{
-				return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
-			}
-		};
-		area.setEditable(false);
-		area.setFocusable(false);
-		area.setOpaque(false);
-		area.setLineWrap(true);
-		area.setWrapStyleWord(true);
-		area.setFont(FontManager.getRunescapeSmallFont());
-		area.setForeground(foreground);
-		area.setBorder(null);
-		area.setAlignmentX(Component.LEFT_ALIGNMENT);
-		return area;
 	}
 
 	/** Human-readable slot name for the advisory note, e.g. {@code BOOTS} -&gt; {@code "Boots"}. */
