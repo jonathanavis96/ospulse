@@ -46,8 +46,12 @@ package com.ospulse.combat;
  * MonsterCombatRequirement.CapMode} decides HOW it applies: {@code CLAMP}
  * piles the roll's excess probability mass onto the cap itself (The
  * Hueycoatl's tail), {@code REROLL} re-rolls a too-high hit uniformly into
- * {@code 0..cap} (Verzik), which is algebraically just a lower max hit fed
- * through the ordinary uncapped math — see {@link #applyTargetDamageRules}.
+ * {@code 0..cap} (Verzik). For the GENERIC 0..maxHit roll a re-roll is
+ * algebraically just a lower max hit fed through the ordinary uncapped math
+ * — see {@link #applyTargetDamageRules}/{@link #finish} — but this does NOT
+ * hold for Osmumten's fang's compressed roll, which needs its own re-rolled
+ * formula; see {@link #finishFang} and {@link
+ * CombatMath#rerolledFangAverageDamagePerAttack}.
  */
 public final class DpsCalculator {
     private DpsCalculator() {
@@ -407,17 +411,17 @@ public final class DpsCalculator {
      * {@link TargetDamageRule} methods return their neutral values for a
      * {@code null} requirement.
      *
-     * <p>The cap's {@link MonsterCombatRequirement.CapMode} decides which
-     * math applies it, not just which number: {@link
-     * MonsterCombatRequirement.CapMode#CLAMP} keeps the roll spanning
-     * {@code 0..afterPenalty} with the cap as a ceiling (the {@link
-     * TargetDamage#cap} channel, consumed by {@code cappedAverageDamagePerAttack}/
-     * {@code cappedExpectedOverkill} in {@link #finish}), while {@link
-     * MonsterCombatRequirement.CapMode#REROLL} needs no special distribution
-     * at all — it is algebraically identical to lowering the max hit to the
-     * cap, so the cap is folded straight into {@code uncapped} here and the
-     * {@code cap} channel is left at {@code -1}, sending it through the
-     * ordinary uncapped path in {@link #finish} instead.
+     * <p>Deliberately does NOT collapse a {@code REROLL} cap into a lower
+     * {@code uncapped} value here, tempting as that shortcut looks for the
+     * generic melee/ranged/magic path (see {@link #finish}, where it IS
+     * exact). {@link #finishFang} needs the true, uncapped max hit AND the
+     * cap AND the mode kept separate — Osmumten's fang compresses its roll
+     * from the TRUE max, not from a value that has already had the cap
+     * folded into it, exactly the defect the fang's {@code CLAMP} path was
+     * fixed for in review; collapsing here would silently reintroduce the
+     * same defect for {@code REROLL} instead. {@link TargetDamage} therefore
+     * carries the mode, and each of {@link #finish}/{@link #finishFang}
+     * decides for itself what to do with it.
      */
     private static TargetDamage applyTargetDamageRules(int maxHit, Monster target, EquipmentStats gear,
                                                        CombatStyle style, int weaponId) {
@@ -425,30 +429,38 @@ public final class DpsCalculator {
                 .forMonster(target.name()).orElse(null);
         int afterPenalty = (int) Math.floor(maxHit * TargetDamageRule.damageMultiplierFor(req, weaponId, style));
         int cap = TargetDamageRule.maxHitCapFor(req, gear, style, weaponId);
-        boolean capBinds = cap >= 0 && cap < afterPenalty;
-        if (capBinds && TargetDamageRule.capModeFor(req) == MonsterCombatRequirement.CapMode.REROLL) {
-            // REROLL ≡ a lower max hit — no capped distribution needed, see the class javadoc above.
-            return new TargetDamage(cap, -1);
-        }
-        return new TargetDamage(afterPenalty, cap);
+        MonsterCombatRequirement.CapMode mode = TargetDamageRule.capModeFor(req);
+        return new TargetDamage(afterPenalty, cap, mode);
     }
 
     /**
-     * A max hit split into the roll's real range and the per-hitsplat cap, because
-     * the two are not interchangeable: the roll still spans {@code 0..uncapped}
-     * and everything above {@code cap} lands ON the cap. Collapsing them into one
-     * number loses the probability mass that piles up there — see
-     * {@link CombatMath#cappedAverageDamagePerAttack}.
+     * A max hit split into the roll's real (uncapped) range, the per-hitsplat
+     * cap, and the {@link MonsterCombatRequirement.CapMode} it applies with —
+     * three separate things are needed because none of them is
+     * interchangeable with another. The roll still spans {@code 0..uncapped}
+     * and, under {@code CLAMP}, everything above {@code cap} lands ON the cap
+     * — collapsing {@code uncapped} and {@code cap} into one number loses the
+     * probability mass that piles up there (see {@link
+     * CombatMath#cappedAverageDamagePerAttack}). Under {@code REROLL} the
+     * generic path can collapse them safely (a re-roll into {@code 0..cap} of
+     * a uniform {@code 0..M} roll is exactly a uniform {@code 0..cap} roll),
+     * but {@link #finishFang} cannot: it needs the TRUE max hit to compress
+     * its own {@code lo..hi} roll from, so {@code mode} travels alongside
+     * both numbers all the way to whichever {@code finish*} method consumes
+     * them.
      */
     private static final class TargetDamage {
         /** Max hit after any damage penalty, before any cap — the roll's real range. */
         final int uncapped;
         /** Per-hitsplat ceiling, or {@code -1} for none. */
         final int cap;
+        /** How the cap applies; meaningless when {@link #cap} is {@code -1}. */
+        final MonsterCombatRequirement.CapMode mode;
 
-        TargetDamage(int uncapped, int cap) {
+        TargetDamage(int uncapped, int cap, MonsterCombatRequirement.CapMode mode) {
             this.uncapped = uncapped;
             this.cap = cap;
+            this.mode = mode;
         }
 
         /** What the player actually sees as their max hit. */
@@ -574,25 +586,40 @@ public final class DpsCalculator {
 
     private static DpsResult finish(int maxHit, int attackRoll, int defenceRoll, int weaponSpeedTicks,
                                     int targetHitpoints, boolean baseEstimate) {
-        return finish(new TargetDamage(maxHit, -1), attackRoll, defenceRoll, weaponSpeedTicks,
-            targetHitpoints, baseEstimate);
+        return finish(new TargetDamage(maxHit, -1, MonsterCombatRequirement.CapMode.CLAMP), attackRoll, defenceRoll,
+            weaponSpeedTicks, targetHitpoints, baseEstimate);
     }
 
+    /**
+     * Applies a {@link TargetDamage}'s cap (if any) to the GENERIC
+     * uniform-{@code 0..maxHit} roll used by every style except Osmumten's
+     * fang (see {@link #finishFang} for that one). Uncapped: the ordinary
+     * formulas. {@code CLAMP}: the roll stays {@code 0..uncapped} with excess
+     * mass piled on the cap ({@code cappedAverageDamagePerAttack}/
+     * {@code cappedExpectedOverkill}). {@code REROLL}: a re-roll into
+     * {@code 0..cap} of a uniform {@code 0..M} roll is EXACTLY a uniform
+     * {@code 0..cap} roll (proved in {@code CombatMathRerollEquivalenceTest}),
+     * so this is simply the ordinary formulas fed the cap as maxHit — exact,
+     * not an approximation. Overkill always uses the SAME distribution as
+     * avgDamage in every branch, since TTK is derived from both together.
+     */
     private static DpsResult finish(TargetDamage damage, int attackRoll, int defenceRoll, int weaponSpeedTicks,
                                     int targetHitpoints, boolean baseEstimate) {
         int maxHit = damage.visibleMaxHit();
         double hitChance = CombatMath.hitChance(attackRoll, defenceRoll);
-        double avgDamage = damage.isCapped()
-            ? CombatMath.cappedAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap)
-            : CombatMath.averageDamagePerAttack(hitChance, maxHit);
+        double avgDamage;
+        double overkill;
+        if (!damage.isCapped()) {
+            avgDamage = CombatMath.averageDamagePerAttack(hitChance, maxHit);
+            overkill = CombatMath.expectedOverkill(maxHit, targetHitpoints);
+        } else if (damage.mode == MonsterCombatRequirement.CapMode.REROLL) {
+            avgDamage = CombatMath.averageDamagePerAttack(hitChance, damage.cap);
+            overkill = CombatMath.expectedOverkill(damage.cap, targetHitpoints);
+        } else {
+            avgDamage = CombatMath.cappedAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            overkill = CombatMath.cappedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
+        }
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
-        // avgDamage is the expected damage per attack (misses included) — GearScape's "Avg Hit".
-        // Overkill must use the SAME distribution as avgDamage. Passing the clamped max hit
-        // to the uniform version would assume a flat 1..cap spread and get overkill — and
-        // therefore TTK, which is derived from it — wrong for every capped setup.
-        double overkill = damage.isCapped()
-            ? CombatMath.cappedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints)
-            : CombatMath.expectedOverkill(maxHit, targetHitpoints);
         // TTK must account for overkill: the killing blow rolls past 0 HP, wasting
         // `overkill` HP of damage, so effective damage per kill is HP + overkill.
         // By Wald's identity E[TTK] = (HP + E[overkill]) / DPS exactly — the naive
@@ -610,32 +637,47 @@ public final class DpsCalculator {
      * the TRUE (unshrunk) max hit, matching how the wiki/GearScape display it
      * — only the roll range feeding avgDamage is compressed.
      *
-     * <p>Overkill/TTK reuse the generic uniform-0..maxHit overkill model on
-     * the true max hit (not the shrunk range) as an approximation — modelling
-     * overkill exactly for the fang's compressed distribution is out of scope
-     * here (Tier B, not requested); this only matters for the very last hit
-     * of a kill and the effect is small.
+     * <p>Uncapped: overkill/TTK reuse the generic uniform-0..maxHit overkill
+     * model on the true max hit (not the shrunk range) as an approximation —
+     * modelling overkill exactly for the fang's UNCAPPED compressed
+     * distribution is out of scope here (Tier B, not requested); this only
+     * matters for the very last hit of a kill and the effect is small.
      *
      * <p><b>A capped target caps the fang's compressed roll, not the max hit it
      * is compressed from.</b> The cap therefore cannot be folded into {@code
      * maxHit} before this method is reached — it has to travel alongside the
-     * true max, which is why this takes the whole {@link TargetDamage} rather
-     * than an already-collapsed int. See {@link
-     * CombatMath#cappedFangAverageDamagePerAttack}. Overkill runs on that SAME
-     * distribution via {@link CombatMath#cappedFangExpectedOverkill} — the
-     * average and the overkill must not be drawn from two different models, or
-     * the reported TTK silently disagrees with the reported DPS.
+     * true max (and the {@link MonsterCombatRequirement.CapMode}), which is
+     * why this takes the whole {@link TargetDamage} rather than an
+     * already-collapsed int. {@code CLAMP}: {@link
+     * CombatMath#cappedFangAverageDamagePerAttack} / {@code
+     * cappedFangExpectedOverkill} — both against the fang's own
+     * compressed-and-clamped distribution, so the average and the overkill
+     * cannot disagree (an earlier version of this ran overkill on the
+     * GENERIC capped distribution instead, which silently reported a
+     * different TTK than the average implied — fixed in review).
+     * {@code REROLL}: unlike the generic path, this is NOT algebraically a
+     * lower max hit — the fang would re-derive a different, much narrower
+     * compression from a lowered max — so it needs its own EXACT formula,
+     * {@link CombatMath#rerolledFangAverageDamagePerAttack} / {@code
+     * rerolledFangExpectedOverkill}, built from the same {@code lo..hi}
+     * distribution for both, for exactly the same reason.
      */
     private static DpsResult finishFang(TargetDamage damage, int attackRoll, int defenceRoll, int weaponSpeedTicks,
                                         int targetHitpoints) {
         double hitChance = CombatMath.fangHitChance(attackRoll, defenceRoll);
-        double avgDamage = damage.isCapped()
-                ? CombatMath.cappedFangAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap)
-                : CombatMath.fangAverageDamagePerAttack(hitChance, damage.uncapped);
+        double avgDamage;
+        double overkill;
+        if (!damage.isCapped()) {
+            avgDamage = CombatMath.fangAverageDamagePerAttack(hitChance, damage.uncapped);
+            overkill = CombatMath.expectedOverkill(damage.uncapped, targetHitpoints);
+        } else if (damage.mode == MonsterCombatRequirement.CapMode.REROLL) {
+            avgDamage = CombatMath.rerolledFangAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            overkill = CombatMath.rerolledFangExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
+        } else {
+            avgDamage = CombatMath.cappedFangAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            overkill = CombatMath.cappedFangExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
+        }
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
-        double overkill = damage.isCapped()
-                ? CombatMath.cappedFangExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints)
-                : CombatMath.expectedOverkill(damage.uncapped, targetHitpoints);
         double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
         return new DpsResult(damage.visibleMaxHit(), hitChance, dps, avgDamage, ttkSeconds, overkill, false);
     }

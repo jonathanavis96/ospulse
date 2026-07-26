@@ -348,6 +348,67 @@ final class CombatMath {
         return hitChance * (belowCap + atCap) / (hi - lo + 1.0);
     }
 
+    /**
+     * Osmumten's fang average damage per attack against a target that
+     * RE-ROLLS each hitsplat above a cap (e.g. Verzik Vitur phase 1), as
+     * opposed to {@link #cappedFangAverageDamagePerAttack}'s clamp.
+     *
+     * <p><b>This is a genuinely different distribution from clamping, and
+     * also different from the generic {@code REROLL} equivalence.</b> The
+     * generic case (a re-roll into {@code 0..cap} from a uniform
+     * {@code 0..M} roll) is exactly a uniform {@code 0..cap} roll — see
+     * {@link MonsterCombatRequirement.CapMode#REROLL} — because the WHOLE
+     * roll is uniform to begin with. The fang's roll is uniform over
+     * {@code lo..hi} (never touching values below {@code lo} or above
+     * {@code hi}), so a monster re-rolling one of ITS hitsplats above the cap
+     * back into {@code 0..cap} does not reproduce a plain {@code lo..cap}
+     * roll: values in {@code lo..cap} are both directly kept AND topped up by
+     * the re-rolled share from every {@code hi..(cap+1)} result, while values
+     * below {@code lo} can ONLY be reached via a re-roll. Collapsing
+     * {@code maxHit} to the cap and re-shrinking (mirroring the generic
+     * equivalence) reproduces neither: with a true max of 40 and a cap of 10,
+     * the real roll is {@code 6..34} (every result of which is &gt;= 6), so a
+     * re-roll into {@code 0..10} can and does land below 6 — a shrink-the-cap
+     * model (compressing 10 into {@code 1..9}) can never produce that.
+     *
+     * <p>Worked example (also pinned in the tests): true max 40, cap 10 -&gt;
+     * {@code lo=6, hi=34}. Results 6-10 (5 of the 29 equally likely raw
+     * outcomes) stand as themselves; results 11-34 (24 outcomes) re-roll
+     * uniformly into {@code 0..10}, each contributing an expectation of 5.
+     * Average = {@code (6+7+8+9+10 + 24*5) / 29 = 160/29 ≈ 5.5172}, NOT
+     * {@code fangAverageDamagePerAttack(hitChance, 10) ≈ 5.0} (which wrongly
+     * re-derives the compression from the already-capped value).
+     *
+     * <pre>
+     * lo &lt;= 0  : averageDamagePerAttack(hitChance, min(hi, cap))     — degenerate range touches 0; the generic equivalence applies directly
+     * cap &gt;= hi: fangAverageDamagePerAttack(hitChance, trueMaxHit)   — cap can never bind
+     * cap &lt; lo : hitChance * cap / 2                                 — every result re-rolls into a plain uniform 0..cap
+     * else     : hitChance * ( sum_(d=lo)^(cap) d + (hi-cap)*cap/2 ) / (hi-lo+1)
+     *            where sum_(d=lo)^(cap) d = (lo+cap)*(cap-lo+1)/2
+     * </pre>
+     * None of these branches carry the ordinary "rolled 0 is bumped to 1"
+     * correction: the worked example above only reduces to {@code 160/29}
+     * without it, and a re-rolled fang hitsplat of 0 is a genuine result, not
+     * folded into 1.
+     */
+    static double rerolledFangAverageDamagePerAttack(double hitChance, int trueMaxHit, int cap) {
+        int shrink = trueMaxHit * 3 / 20;
+        int lo = shrink;
+        int hi = trueMaxHit - shrink;
+        if (lo <= 0) {
+            return averageDamagePerAttack(hitChance, Math.min(hi, cap));
+        }
+        if (cap >= hi) {
+            return fangAverageDamagePerAttack(hitChance, trueMaxHit);
+        }
+        if (cap < lo) {
+            return hitChance * cap / 2.0;
+        }
+        double keptSum = (lo + cap) * (cap - lo + 1.0) / 2.0;
+        double rerolledSum = (hi - cap) * cap / 2.0;
+        return hitChance * (keptSum + rerolledSum) / (hi - lo + 1.0);
+    }
+
     // ---- Overkill ---------------------------------------------------------------------------
 
     /**
@@ -481,6 +542,97 @@ final class CombatMath {
                 sum += p[d] * (d >= h ? (d - h) : over[h - d]);
             }
             over[h] = sum;
+        }
+        return over[targetHitpoints];
+    }
+
+    /**
+     * Expected overkill for Osmumten's fang against a target that RE-ROLLS
+     * each hitsplat above a cap — the same per-attack distribution as
+     * {@link #rerolledFangAverageDamagePerAttack}, so this cannot disagree
+     * with it (that was precisely the earlier defect this PR was bitten by
+     * once already: an average migrated onto a new distribution while
+     * overkill silently stayed on the old one).
+     *
+     * <p>Mirrors {@link #rerolledFangAverageDamagePerAttack}'s branches
+     * exactly, each delegating to whichever EXACT overkill model matches
+     * that branch's distribution:
+     * <pre>
+     * lo &lt;= 0  : expectedOverkill(min(hi, cap), ...)   — degenerate range touches 0, generic equivalence applies
+     * cap &gt;= hi: expectedOverkill(trueMaxHit, ...)      — cap can never bind; same approximation tier as the uncapped fang path
+     * cap &lt; lo : uniform 0..cap, no bump                — every result re-rolls
+     * else     : the exact "kept lo..cap plus re-rolled share" mixture
+     * </pre>
+     * The last two build the per-attack probability array explicitly (see
+     * {@link #overkillFromExplicitDistribution}) rather than reusing {@link
+     * #expectedOverkill}/{@link #cappedExpectedOverkill}, because BOTH of
+     * those bake in the ordinary "rolled 0 is bumped to 1" convention, which
+     * {@link #rerolledFangAverageDamagePerAttack} does not carry (a
+     * re-rolled fang hitsplat of 0 is a genuine, undisguised result).
+     */
+    static double rerolledFangExpectedOverkill(int trueMaxHit, int cap, int targetHitpoints) {
+        if (cap <= 0 || targetHitpoints <= 0) {
+            return 0.0;
+        }
+        int shrink = trueMaxHit * 3 / 20;
+        int lo = shrink;
+        int hi = trueMaxHit - shrink;
+        if (lo <= 0) {
+            return expectedOverkill(Math.min(hi, cap), targetHitpoints);
+        }
+        if (cap >= hi) {
+            return expectedOverkill(trueMaxHit, targetHitpoints);
+        }
+        if (cap < lo) {
+            double[] p = new double[cap + 1];
+            double share = 1.0 / (cap + 1);
+            for (int d = 0; d <= cap; d++) {
+                p[d] = share;
+            }
+            return overkillFromExplicitDistribution(p, cap, targetHitpoints);
+        }
+        double w = 1.0 / (hi - lo + 1.0);
+        double rerollShare = (hi - cap) * w / (cap + 1.0);
+        double[] p = new double[cap + 1];
+        for (int d = 0; d <= cap; d++) {
+            p[d] = rerollShare;
+        }
+        for (int d = lo; d <= cap; d++) {
+            p[d] += w;
+        }
+        return overkillFromExplicitDistribution(p, cap, targetHitpoints);
+    }
+
+    /**
+     * Exact overkill DP over an arbitrary explicit {@code 0..cap} probability
+     * array — unlike {@link #expectedOverkill}/{@link #cappedExpectedOverkill},
+     * this does NOT assume the ordinary "rolled 0 is bumped to 1" damage-roll
+     * convention, since {@code p[0]} can be genuinely positive here (a
+     * re-rolled fang hitsplat of 0 is a real result, not folded into 1).
+     *
+     * <p>A landed hit of value 0 leaves the remaining-HP state unchanged —
+     * exactly like a miss — but unlike a miss (which never enters this
+     * recursion at all; see {@link #expectedOverkill}'s Javadoc) it DOES
+     * carry a share of the "hit landed" probability mass, so it cannot simply
+     * be dropped. It makes {@code over[h]} reference itself:
+     * <pre>
+     * over[h] = p[0]*over[h] + sum_(d=1)^(cap) p[d] * (d &gt;= h ? d-h : over[h-d])
+     * </pre>
+     * which rearranges to dividing by {@code (1 - p[0])}, the probability the
+     * damage roll produced a real, HP-reducing result.
+     */
+    private static double overkillFromExplicitDistribution(double[] p, int cap, int targetHitpoints) {
+        double retain = 1.0 - p[0];
+        if (retain <= 0.0) {
+            return 0.0; // every result is 0 -- can never contribute overkill
+        }
+        double[] over = new double[targetHitpoints + 1];
+        for (int h = 1; h <= targetHitpoints; h++) {
+            double sum = 0.0;
+            for (int d = 1; d <= cap; d++) {
+                sum += p[d] * (d >= h ? (d - h) : over[h - d]);
+            }
+            over[h] = sum / retain;
         }
         return over[targetHitpoints];
     }
