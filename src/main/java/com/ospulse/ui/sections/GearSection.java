@@ -2471,7 +2471,7 @@ public final class GearSection extends CollapsibleSection
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, stance,
 			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected(),
 			magicPotionVariantForCalc());
-		return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell);
+		return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell, effectiveWeaponId());
 	}
 
 	/**
@@ -2909,16 +2909,19 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private DpsResult computeFor(WeaponStyle style)
 	{
-		return computeAgainst(effectiveEquipmentStats(), style);
+		return computeAgainst(effectiveEquipmentStats(), style, effectiveWeaponId());
 	}
 
 	/**
 	 * DPS for one style against the current target + toggles, using the given
 	 * {@link EquipmentStats} rather than always the live/overridden one — lets
 	 * {@link #updateWhatIfDelta} compute the SAME style against real worn gear
-	 * for the baseline comparison. {@code null} if not computable.
+	 * for the baseline comparison. {@code weaponId} must correspond to {@code
+	 * gearStats} (e.g. the real worn weapon id when {@code gearStats} is the
+	 * real worn stats, even under a what-if override). {@code null} if not
+	 * computable.
 	 */
-	private DpsResult computeAgainst(EquipmentStats gearStats, WeaponStyle style)
+	private DpsResult computeAgainst(EquipmentStats gearStats, WeaponStyle style, int weaponId)
 	{
 		if (lastGear == null || selectedMonster == null || gearStats == null || style == null)
 		{
@@ -2938,9 +2941,9 @@ public final class GearSection extends CollapsibleSection
 				// Magic view on a spell-less book (Lunar/Arceuus): nothing to cast.
 				return null;
 			}
-			return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell);
+			return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell, weaponId);
 		}
-		return DpsCalculator.compute(gearStats, player, style.type(), selectedMonster, 0);
+		return DpsCalculator.compute(gearStats, player, style.type(), selectedMonster, 0, weaponId);
 	}
 
 	/** The spell currently picked in the selector (never {@code null} — the model always has a selection). */
@@ -3445,7 +3448,7 @@ public final class GearSection extends CollapsibleSection
 		}
 		resetAllButton.setVisible(true);
 
-		DpsResult baseline = computeAgainst(lastGear.equipmentStats(), selectedStyle);
+		DpsResult baseline = computeAgainst(lastGear.equipmentStats(), selectedStyle, lastGear.itemIdAt(WEAPON_SLOT));
 		if (baseline == null)
 		{
 			whatIfRow.setVisible(false);

@@ -122,6 +122,40 @@ final class CombatMath {
         return hitChance * (maxHit / 2.0 + 1.0 / (maxHit + 1.0));
     }
 
+    /**
+     * Average damage per attack when a monster caps each hitsplat (e.g. The
+     * Hueycoatl's tail) rather than reducing the roll.
+     *
+     * <p><b>A cap is not the same as a lower max hit.</b> The damage roll is
+     * still uniform over {@code 0..uncappedMaxHit}; every result above the cap
+     * is simply reduced TO the cap, so all of that probability mass piles up on
+     * the cap instead of being spread over {@code 0..cap}. Modelling it by
+     * clamping {@code maxHit} and reusing {@link #averageDamagePerAttack} would
+     * assume a uniform {@code 0..cap} roll and badly understate the result —
+     * with a cap of 4 against an uncapped max of 40 the true average is ~3.8,
+     * not 2.0.
+     *
+     * <pre>
+     * hitChance * ( C(C-1)/2 + (M - C + 1) * C + 1 ) / (M + 1)
+     * </pre>
+     *
+     * where {@code M} is the uncapped max hit and {@code C} the cap. The
+     * trailing {@code + 1} is the same "a rolled 0 becomes 1" correction the
+     * uncapped formula carries. Setting {@code C == M} reduces this exactly to
+     * {@link #averageDamagePerAttack}, which is asserted in the tests.
+     */
+    static double cappedAverageDamagePerAttack(double hitChance, int uncappedMaxHit, int cap) {
+        if (cap >= uncappedMaxHit) {
+            return averageDamagePerAttack(hitChance, uncappedMaxHit);
+        }
+        if (cap <= 0) {
+            return 0.0;
+        }
+        double belowCap = cap * (cap - 1) / 2.0;
+        double atCap = (uncappedMaxHit - cap + 1.0) * cap;
+        return hitChance * (belowCap + atCap + 1.0) / (uncappedMaxHit + 1.0);
+    }
+
     /** DPS = average damage per attack / (weaponSpeedTicks * 0.6 seconds/tick). */
     static double dps(double averageDamagePerAttack, int weaponSpeedTicks) {
         return averageDamagePerAttack / (weaponSpeedTicks * 0.6);
@@ -269,6 +303,51 @@ final class CombatMath {
         return hitChance * (shrunkMin + shrunkMax) / 2.0;
     }
 
+    /**
+     * Osmumten's fang average damage per attack against a target that caps each
+     * hitsplat (e.g. The Hueycoatl's tail).
+     *
+     * <p><b>The cap must be applied to the fang's compressed roll, not to the
+     * max hit that roll is derived from.</b> The fang shrinks the TRUE max into
+     * {@code shrink..(max-shrink)} and only then does each result meet the cap.
+     * Capping {@code maxHit} first and shrinking the cap is a different, much
+     * smaller distribution: with a true max of 40 the real roll is 6..34, every
+     * result of which caps to 4, so the fang averages a full 4 per landed hit —
+     * whereas shrinking the cap gives a 0..4 roll averaging only ~2.2.
+     *
+     * <p>Because the fang's roll is uniform over {@code lo..hi}, clamping it at
+     * {@code C} is exact:
+     * <pre>
+     * C &gt;= hi:  (lo + hi) / 2          — cap never binds
+     * C &lt;= lo:  C                      — every hit caps
+     * else:     ( (C-1+lo)(C-lo)/2 + (hi-C+1)C ) / (hi-lo+1)
+     * </pre>
+     *
+     * <p>This is the CLAMP model, matching {@link #cappedAverageDamagePerAttack}
+     * — a cap that instead re-rolls into {@code 0..C} is simply a lower max hit
+     * and needs none of this.
+     */
+    static double cappedFangAverageDamagePerAttack(double hitChance, int trueMaxHit, int cap) {
+        int shrink = trueMaxHit * 3 / 20;
+        int lo = shrink;
+        int hi = trueMaxHit - shrink;
+        if (lo <= 0) {
+            // Degenerate low-level case: the shrunk range still touches 0, so the
+            // standard capped distribution (with its "rolled 0 -> 1" correction)
+            // is the right model — same fallback as the uncapped fang formula.
+            return cappedAverageDamagePerAttack(hitChance, hi, cap);
+        }
+        if (cap >= hi) {
+            return hitChance * (lo + hi) / 2.0;
+        }
+        if (cap <= lo) {
+            return hitChance * cap;
+        }
+        double belowCap = (cap - 1.0 + lo) * (cap - lo) / 2.0;
+        double atCap = (hi - cap + 1.0) * cap;
+        return hitChance * (belowCap + atCap) / (hi - lo + 1.0);
+    }
+
     // ---- Overkill ---------------------------------------------------------------------------
 
     /**
@@ -296,6 +375,110 @@ final class CombatMath {
             for (int d = 1; d <= maxHit; d++) {
                 double p = (d == 1 ? 2.0 : 1.0) / (maxHit + 1);
                 sum += p * (d >= h ? (d - h) : over[h - d]);
+            }
+            over[h] = sum;
+        }
+        return over[targetHitpoints];
+    }
+
+    /**
+     * Expected overkill when each hitsplat is capped — the same recurrence as
+     * {@link #expectedOverkill}, but over the capped damage distribution rather
+     * than a uniform {@code 0..cap} one.
+     *
+     * <p>Necessary for the same reason as {@link #cappedAverageDamagePerAttack}:
+     * the roll spans {@code 0..M} and everything from {@code cap} upward lands on
+     * the cap, so the cap carries {@code (M - cap + 1)/(M + 1)} of the mass rather
+     * than {@code 1/(cap + 1)}. Feeding a clamped max hit into the uniform
+     * version assumes a flat 1..cap spread and gets overkill — and therefore TTK
+     * — wrong for every capped setup.
+     *
+     * <p>Distribution (the 0-to-1 correction applies to the roll, before the cap):
+     * roll 0 and roll 1 both give 1; rolls {@code 2..cap-1} give themselves;
+     * rolls {@code cap..M} all give {@code cap}. With {@code cap == 1} every roll
+     * gives 1. Setting {@code cap >= M} delegates to {@link #expectedOverkill},
+     * which the tests assert.
+     */
+    static double cappedExpectedOverkill(int uncappedMaxHit, int cap, int targetHitpoints) {
+        if (cap >= uncappedMaxHit) {
+            return expectedOverkill(uncappedMaxHit, targetHitpoints);
+        }
+        if (cap <= 0 || targetHitpoints <= 0) {
+            return 0.0;
+        }
+        double denom = uncappedMaxHit + 1.0;
+        double[] p = new double[cap + 1];
+        if (cap == 1) {
+            p[1] = 1.0;
+        } else {
+            p[1] = 2.0 / denom;
+            for (int d = 2; d <= cap - 1; d++) {
+                p[d] = 1.0 / denom;
+            }
+            p[cap] = (uncappedMaxHit - cap + 1.0) / denom;
+        }
+        double[] over = new double[targetHitpoints + 1];
+        for (int h = 1; h <= targetHitpoints; h++) {
+            double sum = 0.0;
+            for (int d = 1; d <= cap; d++) {
+                sum += p[d] * (d >= h ? (d - h) : over[h - d]);
+            }
+            over[h] = sum;
+        }
+        return over[targetHitpoints];
+    }
+
+    /**
+     * Expected overkill for Osmumten's fang against a capped target: the same
+     * recurrence again, but over the fang's COMPRESSED roll with each result
+     * clamped — the distribution {@link #cappedFangAverageDamagePerAttack}
+     * averages.
+     *
+     * <p>Without this, a capped fang setup reports its average damage from one
+     * distribution and its overkill (and therefore TTK) from another. That
+     * inconsistency is not academic: with a true max of 40 and a cap of 4 the
+     * fang's roll is {@code 6..34}, so <b>every</b> landed hit deals exactly 4
+     * — yet the generic capped distribution still assigns probability to 1, 2
+     * and 3, and predicts a different number of hits to a kill.
+     *
+     * <p>The uncapped fang path deliberately keeps using {@link
+     * #expectedOverkill} on the true max: the compressed roll has the same MEAN
+     * as the uniform one, so there the generic model is a fair approximation
+     * (documented on {@code DpsCalculator.finishFang}). Capping breaks that
+     * equivalence, which is why only this path needs its own recurrence.
+     */
+    static double cappedFangExpectedOverkill(int trueMaxHit, int cap, int targetHitpoints) {
+        if (cap <= 0 || targetHitpoints <= 0 || trueMaxHit <= 0) {
+            return 0.0;
+        }
+        int shrink = trueMaxHit * 3 / 20;
+        int lo = shrink;
+        int hi = trueMaxHit - shrink;
+        if (lo <= 0) {
+            // The shrunk range still touches 0, so the standard capped
+            // distribution (with its "rolled 0 -> 1" correction) is the model —
+            // same fallback as the capped-fang average.
+            return cappedExpectedOverkill(hi, cap, targetHitpoints);
+        }
+        int top = Math.min(cap, hi);
+        double n = hi - lo + 1.0;
+        double[] p = new double[top + 1];
+        if (cap <= lo) {
+            p[cap] = 1.0; // every result of the roll exceeds the cap
+        } else {
+            for (int d = lo; d <= top - 1; d++) {
+                p[d] = 1.0 / n;
+            }
+            p[top] = (hi - top + 1.0) / n;
+        }
+        double[] over = new double[targetHitpoints + 1];
+        for (int h = 1; h <= targetHitpoints; h++) {
+            double sum = 0.0;
+            for (int d = 1; d <= top; d++) {
+                if (p[d] == 0.0) {
+                    continue;
+                }
+                sum += p[d] * (d >= h ? (d - h) : over[h - d]);
             }
             over[h] = sum;
         }

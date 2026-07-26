@@ -29,9 +29,18 @@ package com.ospulse.combat;
  * finishFang / {@link CombatMath#fangHitChance} /
  * {@link CombatMath#fangAverageDamagePerAttack}). Unknown/unmodelled effects
  * (scythe multi-hit, special
- * attacks, Avarice, Tomes, Tumeken's 3x gear multiplier, ...) are simply not
+ * attacks, Avarice, Tumeken's 3x gear multiplier, ...) are simply not
  * applied — extend this class (and {@link CombatMath}) to add them, gated
  * behind their own "applies when" predicate.
+ *
+ * <p>Per-target damage-magnitude effects (a curated {@link
+ * MonsterCombatRequirement} resolved once per compute call from {@code
+ * target.name()} via {@link MonsterCombatRequirementRepository}): a {@link
+ * MonsterCombatRequirement.Type#DAMAGE_PENALTY} multiplies max hit for an
+ * off-style weapon (e.g. Corporeal Beast's half-damage stab), and a {@link
+ * MonsterCombatRequirement.Type#DAMAGE_CAP} clamps max hit to a flat ceiling
+ * (e.g. The Hueycoatl's tail) — both applied as the final step immediately
+ * before {@code finish}/{@code finishFang}; see {@link TargetDamageRule}.
  */
 public final class DpsCalculator {
     private DpsCalculator() {
@@ -45,10 +54,23 @@ public final class DpsCalculator {
      */
     public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
                                      Monster target, int baseSpellMaxHit) {
+        return compute(gear, player, style, target, baseSpellMaxHit, UNKNOWN_WEAPON_ID);
+    }
+
+    /**
+     * As above, plus the worn weapon's item id — needed to resolve a
+     * per-target {@link MonsterCombatRequirement.Type#DAMAGE_PENALTY} (see
+     * {@link TargetDamageRule#damageMultiplierFor}). Callers that do not know
+     * the weapon id may use the no-arg overload; an unknown id never matches
+     * a curated exemption list, so any penalty for the target still applies
+     * (the conservative default).
+     */
+    public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                     Monster target, int baseSpellMaxHit, int weaponId) {
         if (style == CombatStyle.MAGIC) {
-            return computeMagic(gear, player, target, baseSpellMaxHit, gear.weaponSpeedTicks(), false, null);
+            return computeMagic(gear, player, target, baseSpellMaxHit, gear.weaponSpeedTicks(), false, null, weaponId);
         }
-        return computeNonMagic(gear, player, style, target);
+        return computeNonMagic(gear, player, style, target, weaponId);
     }
 
     /**
@@ -62,31 +84,45 @@ public final class DpsCalculator {
      */
     public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
                                      Monster target, Spell spell) {
+        return compute(gear, player, style, target, spell, UNKNOWN_WEAPON_ID);
+    }
+
+    /**
+     * As above, plus the worn weapon's item id — see {@link #compute(EquipmentStats,
+     * PlayerCombat, CombatStyle, Monster, int, int)} for why it is needed.
+     */
+    public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                     Monster target, Spell spell, int weaponId) {
         if (style != CombatStyle.MAGIC) {
-            return computeNonMagic(gear, player, style, target);
+            return computeNonMagic(gear, player, style, target, weaponId);
         }
         if (gear.poweredStaff().applies()) {
             // Base max hit derives from the boosted level inside computeMagic.
             // Powered staves cast their own built-in "spell" (Magic Dart etc.),
             // which is not a real Spell and carries no element - no weakness bonus.
             return computeMagic(gear, player, target, POWERED_STAFF_SENTINEL, gear.weaponSpeedTicks(),
-                    gear.poweredStaff().approximate(), null);
+                    gear.poweredStaff().approximate(), null, weaponId);
         }
         int baseMaxHit = spell == null ? 0 : spell.baseMaxHit();
         Spell.Element element = spell == null ? null : spell.element();
-        return computeMagic(gear, player, target, baseMaxHit, Spell.CAST_SPEED_TICKS, false, element);
+        return computeMagic(gear, player, target, baseMaxHit, Spell.CAST_SPEED_TICKS, false, element, weaponId);
     }
 
-    private static DpsResult computeNonMagic(EquipmentStats gear, PlayerCombat player, CombatStyle style, Monster target) {
+    /** Sentinel meaning "the worn weapon's item id is not known to this caller". */
+    private static final int UNKNOWN_WEAPON_ID = -1;
+
+    private static DpsResult computeNonMagic(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                             Monster target, int weaponId) {
         if (style == CombatStyle.RANGED) {
-            return computeRanged(gear, player, target);
+            return computeRanged(gear, player, target, weaponId);
         }
-        return computeMelee(gear, player, style, target);
+        return computeMelee(gear, player, style, target, weaponId);
     }
 
     // ---- Melee (STAB/SLASH/CRUSH) -----------------------------------------------------
 
-    private static DpsResult computeMelee(EquipmentStats gear, PlayerCombat player, CombatStyle style, Monster target) {
+    private static DpsResult computeMelee(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                          Monster target, int weaponId) {
         int boostedStr = player.assumeBestPotion()
                 ? PotionBoosts.bestMeleeBoostedLevel(player.baseStrength())
                 : player.boostedStrength();
@@ -145,16 +181,18 @@ public final class DpsCalculator {
         // attackRoll themselves — they change how hitChance/avgDamage are
         // derived from them, so this bypasses the generic finish() path.
         boolean fangApplies = gear.osmumtensFang() && style == CombatStyle.STAB;
+        TargetDamage damage = applyTargetDamageRules(maxHit, target, gear, style, weaponId);
+        maxHit = damage.visibleMaxHit();
         if (fangApplies) {
-            return finishFang(maxHit, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
+            return finishFang(damage, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
         }
 
-        return finish(maxHit, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints(), false);
+        return finish(damage, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints(), false);
     }
 
     // ---- Ranged -----------------------------------------------------------------------
 
-    private static DpsResult computeRanged(EquipmentStats gear, PlayerCombat player, Monster target) {
+    private static DpsResult computeRanged(EquipmentStats gear, PlayerCombat player, Monster target, int weaponId) {
         int boostedRanged = player.assumeBestPotion()
                 ? PotionBoosts.bestRangedBoostedLevel(player.baseRanged())
                 : player.boostedRanged();
@@ -240,7 +278,9 @@ public final class DpsCalculator {
         int weaponSpeedTicks = gear.weaponSpeedTicks() - (player.stance() == Stance.RAPID ? 1 : 0);
         weaponSpeedTicks = Math.max(1, weaponSpeedTicks);
 
-        return finish(maxHit, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints(), false);
+        TargetDamage damage = applyTargetDamageRules(maxHit, target, gear, CombatStyle.RANGED, weaponId);
+        maxHit = damage.visibleMaxHit();
+        return finish(damage, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints(), false);
     }
 
     // ---- Magic --------------------------------------------------------------------------
@@ -267,7 +307,7 @@ public final class DpsCalculator {
 
     private static DpsResult computeMagic(EquipmentStats gear, PlayerCombat player, Monster target,
                                           int baseSpellMaxHit, int castSpeedTicks, boolean approximate,
-                                          Spell.Element spellElement) {
+                                          Spell.Element spellElement, int weaponId) {
         int boostedMagic = player.assumeBestPotion()
                 ? magicPotionBoostedLevel(player.magicPotionVariant(), player.baseMagic())
                 : player.boostedMagic();
@@ -346,7 +386,54 @@ public final class DpsCalculator {
             maxHit = (int) new Fraction(11, 10).applyFloor(maxHit);
         }
 
-        return finish(maxHit, accuracyRoll, defenceRoll, castSpeedTicks, target.hitpoints(), approximate);
+        TargetDamage damage = applyTargetDamageRules(maxHit, target, gear, CombatStyle.MAGIC, weaponId);
+        maxHit = damage.visibleMaxHit();
+        return finish(damage, accuracyRoll, defenceRoll, castSpeedTicks, target.hitpoints(), approximate);
+    }
+
+    /**
+     * The final max-hit step, shared by all three styles: resolves the
+     * target's curated {@link MonsterCombatRequirement} once (by name, {@code
+     * null} if this monster has none) and applies its damage penalty then its
+     * damage cap, in that order — see {@link TargetDamageRule}. A monster
+     * with no requirement (the overwhelming majority) is unaffected: both
+     * {@link TargetDamageRule} methods return their neutral values for a
+     * {@code null} requirement.
+     */
+    private static TargetDamage applyTargetDamageRules(int maxHit, Monster target, EquipmentStats gear,
+                                                       CombatStyle style, int weaponId) {
+        MonsterCombatRequirement req = MonsterCombatRequirementRepository.getInstance()
+                .forMonster(target.name()).orElse(null);
+        int afterPenalty = (int) Math.floor(maxHit * TargetDamageRule.damageMultiplierFor(req, weaponId, style));
+        return new TargetDamage(afterPenalty, TargetDamageRule.maxHitCapFor(req, gear));
+    }
+
+    /**
+     * A max hit split into the roll's real range and the per-hitsplat cap, because
+     * the two are not interchangeable: the roll still spans {@code 0..uncapped}
+     * and everything above {@code cap} lands ON the cap. Collapsing them into one
+     * number loses the probability mass that piles up there — see
+     * {@link CombatMath#cappedAverageDamagePerAttack}.
+     */
+    private static final class TargetDamage {
+        /** Max hit after any damage penalty, before any cap — the roll's real range. */
+        final int uncapped;
+        /** Per-hitsplat ceiling, or {@code -1} for none. */
+        final int cap;
+
+        TargetDamage(int uncapped, int cap) {
+            this.uncapped = uncapped;
+            this.cap = cap;
+        }
+
+        /** What the player actually sees as their max hit. */
+        int visibleMaxHit() {
+            return cap >= 0 ? Math.min(uncapped, cap) : uncapped;
+        }
+
+        boolean isCapped() {
+            return cap >= 0 && cap < uncapped;
+        }
     }
 
     // ---- Shared helpers -----------------------------------------------------------------
@@ -462,11 +549,25 @@ public final class DpsCalculator {
 
     private static DpsResult finish(int maxHit, int attackRoll, int defenceRoll, int weaponSpeedTicks,
                                     int targetHitpoints, boolean baseEstimate) {
+        return finish(new TargetDamage(maxHit, -1), attackRoll, defenceRoll, weaponSpeedTicks,
+            targetHitpoints, baseEstimate);
+    }
+
+    private static DpsResult finish(TargetDamage damage, int attackRoll, int defenceRoll, int weaponSpeedTicks,
+                                    int targetHitpoints, boolean baseEstimate) {
+        int maxHit = damage.visibleMaxHit();
         double hitChance = CombatMath.hitChance(attackRoll, defenceRoll);
-        double avgDamage = CombatMath.averageDamagePerAttack(hitChance, maxHit);
+        double avgDamage = damage.isCapped()
+            ? CombatMath.cappedAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap)
+            : CombatMath.averageDamagePerAttack(hitChance, maxHit);
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
         // avgDamage is the expected damage per attack (misses included) — GearScape's "Avg Hit".
-        double overkill = CombatMath.expectedOverkill(maxHit, targetHitpoints);
+        // Overkill must use the SAME distribution as avgDamage. Passing the clamped max hit
+        // to the uniform version would assume a flat 1..cap spread and get overkill — and
+        // therefore TTK, which is derived from it — wrong for every capped setup.
+        double overkill = damage.isCapped()
+            ? CombatMath.cappedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints)
+            : CombatMath.expectedOverkill(maxHit, targetHitpoints);
         // TTK must account for overkill: the killing blow rolls past 0 HP, wasting
         // `overkill` HP of damage, so effective damage per kill is HP + overkill.
         // By Wald's identity E[TTK] = (HP + E[overkill]) / DPS exactly — the naive
@@ -489,14 +590,28 @@ public final class DpsCalculator {
      * overkill exactly for the fang's compressed distribution is out of scope
      * here (Tier B, not requested); this only matters for the very last hit
      * of a kill and the effect is small.
+     *
+     * <p><b>A capped target caps the fang's compressed roll, not the max hit it
+     * is compressed from.</b> The cap therefore cannot be folded into {@code
+     * maxHit} before this method is reached — it has to travel alongside the
+     * true max, which is why this takes the whole {@link TargetDamage} rather
+     * than an already-collapsed int. See {@link
+     * CombatMath#cappedFangAverageDamagePerAttack}. Overkill runs on that SAME
+     * distribution via {@link CombatMath#cappedFangExpectedOverkill} — the
+     * average and the overkill must not be drawn from two different models, or
+     * the reported TTK silently disagrees with the reported DPS.
      */
-    private static DpsResult finishFang(int maxHit, int attackRoll, int defenceRoll, int weaponSpeedTicks,
+    private static DpsResult finishFang(TargetDamage damage, int attackRoll, int defenceRoll, int weaponSpeedTicks,
                                         int targetHitpoints) {
         double hitChance = CombatMath.fangHitChance(attackRoll, defenceRoll);
-        double avgDamage = CombatMath.fangAverageDamagePerAttack(hitChance, maxHit);
+        double avgDamage = damage.isCapped()
+                ? CombatMath.cappedFangAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap)
+                : CombatMath.fangAverageDamagePerAttack(hitChance, damage.uncapped);
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
-        double overkill = CombatMath.expectedOverkill(maxHit, targetHitpoints);
+        double overkill = damage.isCapped()
+                ? CombatMath.cappedFangExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints)
+                : CombatMath.expectedOverkill(damage.uncapped, targetHitpoints);
         double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
-        return new DpsResult(maxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, false);
+        return new DpsResult(damage.visibleMaxHit(), hitChance, dps, avgDamage, ttkSeconds, overkill, false);
     }
 }

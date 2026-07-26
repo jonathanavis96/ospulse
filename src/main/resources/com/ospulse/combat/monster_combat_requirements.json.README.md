@@ -38,6 +38,44 @@ A **defensive** requirement belongs there, not here.
   - `WEAPON_GATE` — only the listed styles/items can damage this monster at all.
   - `FINISHER` — an item is needed to land the killing blow (note only; the
     optimiser does not force it).
+  - `DAMAGE_PENALTY` — a style still works but deals reduced damage. Never gates.
+  - `DAMAGE_CAP` — max hit is flatly capped regardless of gear. Never gates.
+
+### `DAMAGE_PENALTY` fields
+
+- `damageMultiplier` — applied to max hit. `0.5` halves it. Default `1.0`.
+- `penalisedStyles` — which styles suffer it. **Empty means every style**, so list
+  them explicitly unless that is really what you want.
+- `allowedItemIds` — weapons that can escape the penalty.
+- `exemptStyles` — the styles on which `allowedItemIds` actually grants the escape.
+  Empty means "exempt on any penalised style".
+
+That last field exists because exemption is often style-sensitive. Corporeal Beast's
+rule is *"50% damage reduction against any weapon that is not a corpbane weapon **on
+stab attack style**"* — so a Zamorakian spear earns full damage on stab and is still
+halved on slash. Exempting purely on item id would overstate that loadout, and
+penalising only `STAB` would let slash, crush and ranged through at full damage.
+Magic is not listed as penalised at all: at Corp it deals full damage and is merely
+inaccurate.
+
+`exemptStyles` is a set, not a single style, because one entry can cover weapons that
+are corpbane on different styles. Corp lists both `STAB` and `RANGED`: the melee
+corpbane weapons attack on stab, but King's barrage is a crossbow and RANGED is the
+only style it has, so a stab-only exemption would have been inert for it. This is safe
+only because `allowedItemIds` is the other half of the gate — a weapon escapes the
+penalty when it is *both* listed *and* on an exempt style, and no spear can attack on
+ranged nor a crossbow on stab. **When adding a weapon here, check that at least one
+style it can actually attack with is in `exemptStyles`**, or the listing does nothing;
+`TargetDamageRuleTest.everyShippedCorpbaneWeaponIsExemptOnAStyleItCanActuallyUse`
+enforces that. If a future entry ever needs "exempt on stab" and "exempt on ranged" to
+apply to *overlapping* weapons with different answers, split it into two entries rather
+than widening this set.
+
+### `DAMAGE_CAP` fields
+
+- `maxHitCap` — the ceiling. `-1`/absent means no cap.
+- `maxHitCapWhenCrushHighest` — alternative ceiling used when the loadout's crush
+  attack bonus beats both its stab and slash bonuses.
 - `allowedStyles`: `STAB` / `SLASH` / `CRUSH` / `RANGED` / `MAGIC`. Any style
   listed here is permitted outright.
 - `allowedItemIds`: specific weapons permitted **regardless of style** — the
@@ -101,3 +139,21 @@ need no entry — recorded so they are not re-investigated:
 Aerial-Fishing "krakens" (`Armoured`, `Pygmy`, `Spined`, `Vampyre`, `Veiled`) are
 a different family fought on land and are correctly untouched by the `Kraken` and
 `Cave kraken` entries — lookup is keyed, not substring.
+
+## Known gaps this schema cannot express yet
+
+**One requirement per monster name.** The loader keys a `Map` by lowercased name and
+`put`s — a second entry for the same monster **silently overwrites** the first. So a
+monster can carry exactly one requirement, of one type. Two real cases are blocked:
+
+- **Tekton** — has the `WEAPON_GATE` for its ranged immunity, so its separate 80%
+  reduced-magic damage cannot also be expressed.
+- Any monster needing both a gate and a penalty/cap.
+
+Fix when needed: either store a list per monster and apply all matches, or fold
+optional `damageMultiplier`/`maxHitCap` fields into `WEAPON_GATE`.
+
+**Per-style damage caps.** `DAMAGE_CAP` carries one cap (plus a crush-highest variant),
+but some caps differ by style. **Verzik Vitur phase 1** caps melee at 10 and ranged/magic
+at **3** — a single value would overstate ranged and magic by more than 3x, so no entry
+is shipped rather than a wrong one. Needs a per-style cap field.
