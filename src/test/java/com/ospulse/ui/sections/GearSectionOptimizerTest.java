@@ -912,4 +912,44 @@ public class GearSectionOptimizerTest
 				40_000_000L, risk.priceFor(SARADOMIN_CAPE_DEADMAN));
 		});
 	}
+
+	/**
+	 * Companion to the test above, and the rule the credit map has to share
+	 * with the display: an EXCLUDED variant is never reverse-resolved, so the
+	 * panel and preview keep telling the player to use the plain item — and
+	 * the cap must therefore price the plain item, the one actually equipped.
+	 * Charging the excluded variant's risk enforces the limit against gear the
+	 * player has told the panel not to use, rejecting a valid setup or waving
+	 * through an over-threshold one depending on which side of the threshold
+	 * the two values land.
+	 */
+	@Test
+	public void excludedVariant_leavesTheCreditedPlainItemPricedAsItself()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> riskValues = new java.util.HashMap<>();
+			riskValues.put(SARADOMIN_CAPE_DEADMAN, 40_000_000L);
+			riskValues.put(SARADOMIN_CAPE_PLAIN, 1_000L);
+
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(SARADOMIN_CAPE_DEADMAN, "Imbued saradomin cape (deadman)", 1, 40_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null,
+				(ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(
+					java.util.Map.of(), java.util.Set.of(), riskValues, java.util.Set.of())));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+			section.excludeItemFromSuggestionsForTest(SARADOMIN_CAPE_DEADMAN);
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			GearOptimizer.PriceSource risk = section.lastRiskValueSourceForTest();
+			assertTrue("the risk source must be wired when the resolver supplies risk data", risk != null);
+			assertEquals("an excluded variant is never displayed, so its credit must not price the plain "
+					+ "item the player will actually equip",
+				1_000L, risk.priceFor(SARADOMIN_CAPE_PLAIN));
+		});
+	}
 }

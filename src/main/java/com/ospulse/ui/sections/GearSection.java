@@ -4655,7 +4655,7 @@ public final class GearSection extends CollapsibleSection
 			.magicPotionVariant(magicPotionVariantForCalc());
 
 		java.util.Map<Integer, Integer> creditSources =
-			VariantCreditSources.from(lastWealth, lastGear, EquipmentIndexRepository.getInstance());
+			VariantCreditSources.from(lastWealth, lastGear, EquipmentIndexRepository.getInstance(), excludedItemIds);
 		java.util.Set<Integer> exclusions = new java.util.LinkedHashSet<>(excludedItemIds);
 		exclusions.addAll(restrictedItemIds());
 		if (hideUnprotectableItemsPref())

@@ -34,6 +34,15 @@ import java.util.Set;
  *
  * <p>A plain id the player <b>physically holds</b> is never listed here: it
  * prices itself, and no substitution happens for it anyway.
+ *
+ * <p><b>Exclusions are honoured for the same reason the display honours
+ * them.</b> {@code preferOwnedVariant} never returns a variant the player
+ * excluded from suggestions, so an excluded variant's credit leaves the plain
+ * id on screen and in the preview — and the cap must then price the plain
+ * item, the one that will actually be equipped. A credit map that ignored
+ * exclusions would charge for an item the player has told the panel not to
+ * use, which can reject a valid setup or wave through an over-threshold one
+ * depending on which side of the threshold the two values fall.
  */
 public final class VariantCreditSources
 {
@@ -51,7 +60,7 @@ public final class VariantCreditSources
 	 * matching the ownership map's own {@code putIfAbsent} semantics.
 	 */
 	public static Map<Integer, Integer> from(WealthSnapshot wealth, GearSnapshot gear,
-		EquipmentIndexRepository index)
+		EquipmentIndexRepository index, Set<Integer> excludedItemIds)
 	{
 		Set<Integer> held = HeldItemIds.from(wealth, gear, index);
 		Map<Integer, Integer> credits = new HashMap<>();
@@ -64,7 +73,7 @@ public final class VariantCreditSources
 			{
 				if (stack != null)
 				{
-					record(credits, held, index, stack.getId());
+					record(credits, held, index, excludedItemIds, stack.getId());
 				}
 			}
 		}
@@ -72,16 +81,17 @@ public final class VariantCreditSources
 		{
 			for (int id : gear.equippedItemIds())
 			{
-				record(credits, held, index, id);
+				record(credits, held, index, excludedItemIds, id);
 			}
 		}
 		return credits;
 	}
 
 	private static void record(Map<Integer, Integer> credits, Set<Integer> held,
-		EquipmentIndexRepository index, int heldItemId)
+		EquipmentIndexRepository index, Set<Integer> excludedItemIds, int heldItemId)
 	{
-		if (heldItemId <= 0 || index.entryFor(heldItemId) == null)
+		if (heldItemId <= 0 || index.entryFor(heldItemId) == null
+			|| (excludedItemIds != null && excludedItemIds.contains(heldItemId)))
 		{
 			return;
 		}
