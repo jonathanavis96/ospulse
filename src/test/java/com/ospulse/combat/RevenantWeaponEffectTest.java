@@ -26,17 +26,30 @@ public class RevenantWeaponEffectTest {
     }
 
     private static Monster monster(String name) {
+        return monster(name, false);
+    }
+
+    /**
+     * {@code wildernessTarget} must be set explicitly here — production
+     * Monsters get it baked in once at {@code MonsterRepository} load time
+     * (from the curated {@code WildernessMonsterRepository} set, or as a
+     * synthetic Wilderness-variant twin), not re-derived from the name at
+     * {@code DpsCalculator} call time, so a hand-built test fixture has to
+     * say so itself, the same way production construction does.
+     */
+    private static Monster monster(String name, boolean wildernessTarget) {
         return Monster.builder()
                 .name(name)
                 .hitpoints(600)
                 .defenceLevel(100)
                 .defenceBonuses(50, 50, 50, 50, 50)
                 .magicLevel(1)
+                .wildernessTarget(wildernessTarget)
                 .build();
     }
 
-    private static final Monster ARTIO = monster("Artio");
-    private static final Monster NON_WILDERNESS = monster("Test");
+    private static final Monster ARTIO = monster("Artio", true);
+    private static final Monster NON_WILDERNESS = monster("Test", false);
 
     // ---- Craw's bow (RANGED) --------------------------------------------------------------
 

@@ -37,8 +37,13 @@ package com.ospulse.combat;
  * triple-damage roll (see {@link KerisPartisan}/{@link KerisTripleRoll}),
  * the charged Tonalztics of Ralos's two full independent damage rolls (see
  * {@link TonalzticsDualHit}), the revenant weapons' (Craw's bow/Viggora's
- * chainmace/Thammaron's sceptre) +50% accuracy/damage vs any Wilderness NPC
- * (see {@link RevenantWeapon}/{@link WildernessMonsterRepository}), and the
+ * chainmace/Thammaron's sceptre) +50% accuracy/damage vs a Wilderness target
+ * — gated on {@link Monster#isWildernessTarget()}, true for both genuinely
+ * Wilderness-exclusive monsters ({@link WildernessMonsterRepository}) and a
+ * player-selected synthetic "(Wilderness)" twin of a both-locations monster
+ * ({@link WildernessVariantMonsterRepository}; see {@link
+ * Monster#lookupName()} for how every OTHER lookup resolves such a twin back
+ * to its real underlying monster) — and the
  * Crystal armour set + Crystal bow/Bow of Faerdhinen's +15% damage/+30%
  * accuracy (see {@code EquipmentStats#crystalSetBonusActive}). Remaining
  * unmodelled effects (special attacks, Avarice, Tumeken's 3x gear
@@ -48,7 +53,10 @@ package com.ospulse.combat;
  *
  * <p>Per-target damage-magnitude effects (a curated {@link
  * MonsterCombatRequirement}, resolved once per compute call from {@code
- * target.name()} via {@link MonsterCombatRequirementRepository} by the
+ * target.lookupName()} — {@link Monster#lookupName()}, NOT {@link
+ * Monster#name()}, so a synthetic Wilderness-variant target resolves the
+ * SAME requirement its real underlying monster would — via {@link
+ * MonsterCombatRequirementRepository} by the
  * overloads below that don't take one explicitly, or supplied directly by a
  * caller — such as {@code GearOptimizer} — that already resolved its own,
  * which then takes priority instead of a second, independent lookup here; see
@@ -211,7 +219,7 @@ public final class DpsCalculator {
      * lookup, byte-identical to the old behaviour.
      */
     private static MonsterCombatRequirement resolveRequirement(Monster target) {
-        return MonsterCombatRequirementRepository.getInstance().forMonster(target.name()).orElse(null);
+        return MonsterCombatRequirementRepository.getInstance().forMonster(target.lookupName()).orElse(null);
     }
 
     private static DpsResult computeNonMagic(EquipmentStats gear, PlayerCombat player, CombatStyle style,
@@ -304,7 +312,7 @@ public final class DpsCalculator {
         // any Wilderness NPC, while charged with ether (assumed — see
         // RevenantWeapon) — the weapon's own separate multiplicative step.
         RevenantWeapon revenant = gear.revenantWeapon();
-        if (revenant.appliesTo(style) && WildernessMonsterRepository.getInstance().isWilderness(target.name())) {
+        if (revenant.appliesTo(style) && target.isWildernessTarget()) {
             maxHit = (int) revenant.damageMult().applyFloor(maxHit);
             attackRoll = (int) revenant.accuracyMult().applyFloor(attackRoll);
         }
@@ -428,7 +436,7 @@ public final class DpsCalculator {
         // RevenantWeapon) — the weapon's own separate multiplicative step,
         // stacking with everything above (including a folded slayer helm).
         RevenantWeapon revenant = gear.revenantWeapon();
-        if (revenant.appliesTo(CombatStyle.RANGED) && WildernessMonsterRepository.getInstance().isWilderness(target.name())) {
+        if (revenant.appliesTo(CombatStyle.RANGED) && target.isWildernessTarget()) {
             maxHit = (int) revenant.damageMult().applyFloor(maxHit);
             attackRoll = (int) revenant.accuracyMult().applyFloor(attackRoll);
         }
@@ -569,7 +577,7 @@ public final class DpsCalculator {
         // any Wilderness NPC, while charged with ether (assumed — see
         // RevenantWeapon) — the weapon's own separate multiplicative step.
         RevenantWeapon revenant = gear.revenantWeapon();
-        if (revenant.appliesTo(CombatStyle.MAGIC) && WildernessMonsterRepository.getInstance().isWilderness(target.name())) {
+        if (revenant.appliesTo(CombatStyle.MAGIC) && target.isWildernessTarget()) {
             maxHit = (int) revenant.damageMult().applyFloor(maxHit);
             accuracyRoll = (int) revenant.accuracyMult().applyFloor(accuracyRoll);
         }
@@ -597,7 +605,7 @@ public final class DpsCalculator {
      * the public {@code compute(...)} overloads that do NOT accept a {@link
      * MonsterCombatRequirement} parameter (the original API) look it up
      * themselves via {@link #resolveRequirement} — exactly the {@code
-     * MonsterCombatRequirementRepository.getInstance().forMonster(target.name())}
+     * MonsterCombatRequirementRepository.getInstance().forMonster(target.lookupName())}
      * call this method used to make internally — and pass that (possibly
      * {@code null}) result down through {@code computeNonMagic}/{@code
      * computeMelee}/{@code computeRanged}/{@code computeMagic} to here

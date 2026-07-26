@@ -1,0 +1,14 @@
+{
+  "variants": [
+    {"baseMonster": "Black dragon (Level 227)", "displayName": "Black dragon (Wilderness)"},
+    {"baseMonster": "Green dragon (Level 79)", "displayName": "Green dragon (Wilderness)"},
+    {"baseMonster": "Chaos druid", "displayName": "Chaos druid (Wilderness)"},
+    {"baseMonster": "Hill Giant", "displayName": "Hill Giant (Wilderness)"},
+    {"baseMonster": "Ankou (Level 86)", "displayName": "Ankou (Wilderness)"},
+    {"baseMonster": "Black demon (Level 172)", "displayName": "Black demon (Wilderness)"},
+    {"baseMonster": "Greater demon (Level 92)", "displayName": "Greater demon (Wilderness)"},
+    {"baseMonster": "Lesser demon (Level 82)", "displayName": "Lesser demon (Level 82) (Wilderness)"},
+    {"baseMonster": "Lesser demon (Level 94)", "displayName": "Lesser demon (Level 94) (Wilderness)"},
+    {"baseMonster": "Hellhound (Level 122)", "displayName": "Hellhound (Wilderness)"}
+  ]
+}

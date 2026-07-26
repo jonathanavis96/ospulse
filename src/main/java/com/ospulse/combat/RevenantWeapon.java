@@ -3,10 +3,17 @@ package com.ospulse.combat;
 /**
  * Craw's bow / Viggora's chainmace / Thammaron's sceptre — the three
  * revenant-cave weapons that, while charged with revenant ether, grant a
- * flat accuracy AND damage boost vs any NPC recognised as being in the
- * Wilderness by {@link WildernessMonsterRepository} — a curated SUBSET of
- * real Wilderness monsters, not literally "any" (see that class's javadoc
- * and its README for what is/isn't covered and why). Mirrors the {@code
+ * flat accuracy AND damage boost vs any NPC the player selects as being in
+ * the Wilderness ({@link Monster#isWildernessTarget()}). Coverage is
+ * comprehensive by construction, not by curated guesswork: a monster that
+ * is EXCLUSIVELY Wilderness (see {@link WildernessMonsterRepository}) is a
+ * single always-boosted entry, while a monster that exists BOTH in and out
+ * of the Wilderness (e.g. Black dragon, found at both the Lava Maze Dungeon
+ * and several non-Wilderness dungeons) gets an explicitly separate,
+ * player-selectable "(Wilderness)" target (see {@link
+ * WildernessVariantMonsterRepository}) rather than the engine silently
+ * guessing which instance is meant — the player says which one they mean,
+ * so nothing is assumed or overstated. Mirrors the {@code
  * DemonbaneWeapon}/{@code DragonHunterWeapon} enum shape: a plain
  * multiplicative floor step {@link DpsCalculator} applies to both the
  * attack roll and max hit.

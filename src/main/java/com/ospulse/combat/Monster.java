@@ -27,6 +27,8 @@ public final class Monster {
     private final int demonbaneResistPercent;
     private final String weaknessElement;
     private final int weaknessSeverity;
+    private final boolean wildernessTarget;
+    private final String lookupName;
 
     private Monster(Builder b) {
         this.name = b.name;
@@ -46,6 +48,8 @@ public final class Monster {
         this.demonbaneResistPercent = b.demonbaneResistPercent;
         this.weaknessElement = b.weaknessElement;
         this.weaknessSeverity = b.weaknessSeverity;
+        this.wildernessTarget = b.wildernessTarget;
+        this.lookupName = b.lookupName != null ? b.lookupName : b.name;
     }
 
     public String name() {
@@ -167,6 +171,78 @@ public final class Monster {
         return weaknessSeverity;
     }
 
+    /**
+     * True when this target should receive the revenant-weapon Wilderness
+     * bonus (see {@code RevenantWeapon}/{@code DpsCalculator}) — either
+     * because it is a genuinely Wilderness-exclusive monster ({@link
+     * WildernessMonsterRepository}'s curated set), or because it is a
+     * SYNTHETIC "(Wilderness)" twin of a both-locations monster (see {@link
+     * #lookupName()} and {@link WildernessVariantMonsterRepository}) that
+     * the player explicitly selected in preference to the ordinary,
+     * non-Wilderness entry of the same species. An ordinary both-locations
+     * monster's own (non-synthetic) entry always returns {@code false} here
+     * — selecting it means the player is NOT claiming to be fighting it in
+     * the Wilderness.
+     */
+    public boolean isWildernessTarget() {
+        return wildernessTarget;
+    }
+
+    /**
+     * The name every OTHER lookup (per-target damage caps/penalties via
+     * {@code MonsterCombatRequirementRepository}, required-gear reminders
+     * via {@code MonsterGearOverrideRepository}, consumables reminders via
+     * {@code MonsterConsumablesRepository}) should resolve against — equal
+     * to {@link #name()} for an ordinary monster, but for a SYNTHETIC
+     * "(Wilderness)" variant this returns the REAL underlying monster's
+     * name instead (e.g. "Black dragon (Level 227)" for the "Black dragon
+     * (Wilderness)" synthetic entry).
+     *
+     * <p>This is the reverse-map a synthetic target needs so it behaves
+     * identically to its base monster in every respect except the
+     * revenant-weapon bonus: a Wilderness Black dragon must still gate on
+     * the same weapon requirements, get the same required-gear warnings,
+     * and get the same dragonfire consumables reminder as the ordinary
+     * Black dragon (Level 227) — only {@link #isWildernessTarget()} and the
+     * DISPLAY name ({@link #name()}) differ. Callers resolving identity-based
+     * data must use this method, never {@link #name()}, for that reason.
+     */
+    public String lookupName() {
+        return lookupName;
+    }
+
+    /**
+     * Builds a new {@link Monster} that copies every field of {@code
+     * source} — used ONLY to synthesize a Wilderness-selectable "twin" of a
+     * both-locations monster (see {@link WildernessVariantMonsterRepository}):
+     * the caller then overrides {@link Builder#name}, {@link
+     * Builder#wildernessTarget}, and {@link Builder#lookupName} on the
+     * returned builder before calling {@link Builder#build()}.
+     */
+    public static Builder builderFrom(Monster source) {
+        Builder b = new Builder();
+        b.name = source.name;
+        b.npcIds = source.npcIds;
+        b.hitpoints = source.hitpoints;
+        b.defenceLevel = source.defenceLevel;
+        b.dstab = source.dstab;
+        b.dslash = source.dslash;
+        b.dcrush = source.dcrush;
+        b.dmagic = source.dmagic;
+        b.drange = source.drange;
+        b.magicLevel = source.magicLevel;
+        b.size = source.size;
+        b.attributes = EnumSet.copyOf(source.attributes.isEmpty()
+                ? EnumSet.noneOf(MonsterAttribute.class) : source.attributes);
+        b.attackSpeedTicks = source.attackSpeedTicks;
+        b.demonbaneResistPercent = source.demonbaneResistPercent;
+        b.weaknessElement = source.weaknessElement;
+        b.weaknessSeverity = source.weaknessSeverity;
+        b.wildernessTarget = source.wildernessTarget;
+        b.lookupName = source.lookupName;
+        return b;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -188,6 +264,8 @@ public final class Monster {
         private int demonbaneResistPercent;
         private String weaknessElement;
         private int weaknessSeverity;
+        private boolean wildernessTarget;
+        private String lookupName;
 
         private Builder() {
         }
@@ -251,6 +329,18 @@ public final class Monster {
         public Builder weakness(String element, int severity) {
             this.weaknessElement = element;
             this.weaknessSeverity = severity;
+            return this;
+        }
+
+        /** See {@link Monster#isWildernessTarget()}. Defaults to {@code false}. */
+        public Builder wildernessTarget(boolean value) {
+            this.wildernessTarget = value;
+            return this;
+        }
+
+        /** See {@link Monster#lookupName()}. Defaults to this builder's {@link #name} if never called. */
+        public Builder lookupName(String value) {
+            this.lookupName = value;
             return this;
         }
 

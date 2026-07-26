@@ -24,11 +24,19 @@ import java.util.Optional;
  * combat-requirement notes it sits beside.
  *
  * <p>Deliberately free of any {@code GearSection} state: {@link #refresh}
- * takes only the selected monster's display name (or {@code null}), so this
- * class is independently constructible and testable without a
- * {@code GearSection} instance. It is a pure keyed-lookup render step, never
- * touching {@code GearOptimizer} — picking a target with no curated entry
- * costs one map lookup and renders nothing, not an empty placeholder row.
+ * takes only a monster name (or {@code null}), so this class is
+ * independently constructible and testable without a {@code GearSection}
+ * instance. It is a pure keyed-lookup render step, never touching {@code
+ * GearOptimizer} — picking a target with no curated entry costs one map
+ * lookup and renders nothing, not an empty placeholder row.
+ *
+ * <p><b>The caller must pass {@code Monster.lookupName()}, not {@code
+ * Monster.name()}.</b> A synthetic Wilderness-variant target (see {@code
+ * WildernessVariantMonsterRepository}) has a decorated DISPLAY name (e.g.
+ * "Black dragon (Wilderness)") that this repository's curated data was
+ * never authored against — the reminder must resolve against the real
+ * underlying monster's identity so a Wilderness Black dragon still gets the
+ * same dragonfire-shield note the ordinary Black dragon does.
  */
 public final class ConsumablesReminderPanel extends JPanel
 {
@@ -41,9 +49,10 @@ public final class ConsumablesReminderPanel extends JPanel
 	}
 
 	/**
-	 * Rebuilds this panel for the given target's display name. {@code null}
-	 * (no target selected) and a name with no curated reminder both leave the
-	 * panel empty and invisible — no empty row, no placeholder.
+	 * Rebuilds this panel for the given target's LOOKUP name (see the class
+	 * javadoc — {@code Monster.lookupName()}, not {@code Monster.name()}).
+	 * {@code null} (no target selected) and a name with no curated reminder
+	 * both leave the panel empty and invisible — no empty row, no placeholder.
 	 *
 	 * <p>Named {@code refresh}, not {@code update}, to avoid an overload
 	 * clash/shadow with {@code JComponent.update(Graphics)}.

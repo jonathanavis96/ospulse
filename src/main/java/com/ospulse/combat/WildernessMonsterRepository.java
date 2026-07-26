@@ -15,34 +15,34 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Loads the bundled, hand-curated Wilderness monster name list ({@code
- * /com/ospulse/combat/wilderness_monsters.json}, see the accompanying README
- * for provenance/shape) and serves in-memory "is this target in the
- * Wilderness" lookups by monster name.
+ * Loads the bundled, hand-curated Wilderness-EXCLUSIVE monster name list
+ * ({@code /com/ospulse/combat/wilderness_monsters.json}, see the
+ * accompanying README for provenance/generation) and serves in-memory
+ * lookups by monster name.
  *
- * <p>This is the ONE genuinely new *input* the revenant-weapon wilderness
- * bonus (§9e) needs: the bundled monster snapshot has no location field at
+ * <p>This is one of the two curated inputs the revenant-weapon Wilderness
+ * bonus (§9e) needs — the bundled monster snapshot has no location field at
  * all (confirmed when the expensive-item cap's "wilderness" framing was
  * investigated — that is advisory tooltip text, not a data property), so
  * "is this monster in the Wilderness" cannot be derived and must be
- * curated, mirroring {@link MonsterGearOverrideRepository}/{@link
- * MonsterCombatRequirementRepository}'s own bundled-resource pattern.
+ * generated from the OSRS Wiki's own location data, mirroring {@link
+ * MonsterGearOverrideRepository}/{@link MonsterCombatRequirementRepository}'s
+ * own bundled-resource pattern.
  *
- * <p><b>This is a curated SUBSET of Wilderness monsters, not "every
- * Wilderness NPC".</b> It covers the reported bosses, every Revenant, and
- * ordinary Wilderness combat NPCs whose bundled display name either is
- * unique to the Wilderness or is explicitly location-tagged in the bundled
- * data (e.g. "(Wilderness Slayer Cave)"). Many OSRS monster NAMES are
- * shared between a Wilderness spawn and one or more non-Wilderness spawns
- * with no location field to tell them apart in this engine's {@link
- * Monster} — including such a name here would be a false positive (it
- * would overstate DPS for a target the player may not actually be fighting
- * in the Wilderness), so every ambiguous or majority-non-Wilderness name is
- * deliberately EXCLUDED rather than guessed into the set. See the
- * accompanying README's "Deliberately excluded" section for the specific
- * calls and evidence. {@link #isWilderness} therefore has NO fallback
- * beyond this curated set by design — a false negative here only
- * undersells a weapon's DPS, which is the safer failure direction.
+ * <p><b>This set holds only Wilderness-EXCLUSIVE monsters</b> — every
+ * location the OSRS Wiki documents for the specific bundled entry is a
+ * Wilderness location, so selecting it always applies the revenant-weapon
+ * bonus with no ambiguity. A monster that ALSO exists outside the
+ * Wilderness (e.g. Black dragon — found at both the Lava Maze Dungeon and
+ * several non-Wilderness dungeons) does NOT belong here: crediting its
+ * ordinary, possibly-non-Wilderness entry with the bonus would be a false
+ * positive. Those monsters instead get an explicitly separate,
+ * player-selected "(Wilderness)" twin — see {@link
+ * WildernessVariantMonsterRepository} — so the player states which instance
+ * they mean rather than the engine guessing. Together, the two curated sets
+ * make coverage comprehensive: every Wilderness-fightable monster the
+ * generation pass found is selectable as a Wilderness target one way or the
+ * other; see that README for the documented residual gap.
  *
  * <p>Matches by monster NAME (case-insensitive exact match), not npc id —
  * same convention as {@link MonsterRepository#byName}.
@@ -105,10 +105,10 @@ public final class WildernessMonsterRepository {
     }
 
     /**
-     * True when {@code monsterName} (case-insensitive exact match) is in the
-     * curated Wilderness set — a deliberate SUBSET of real Wilderness NPCs,
-     * not "any Wilderness NPC"; see the class javadoc and this repository's
-     * README for which names were included/excluded and why.
+     * True when {@code monsterName} (case-insensitive exact match) is a
+     * Wilderness-EXCLUSIVE monster — see the class javadoc for how a
+     * both-locations monster is handled instead ({@link
+     * WildernessVariantMonsterRepository}).
      */
     public boolean isWilderness(String monsterName) {
         return monsterName != null && lowercaseNames.contains(monsterName.toLowerCase(Locale.ROOT));

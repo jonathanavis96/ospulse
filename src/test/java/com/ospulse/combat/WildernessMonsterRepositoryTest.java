@@ -5,17 +5,17 @@ import org.junit.Test;
 import java.util.List;
 import java.util.Optional;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
  * Verifies the bundled, hand-curated {@code wilderness_monsters.json}
- * parses, serves case-insensitive name lookups correctly, and — the
- * director's explicit requirement — that every single curated name is
- * copied EXACTLY from the bundled {@code monsters.min.json.gz}: this test
- * fails on a typo (a name present here but not in the real monster
- * repository) rather than silently doing nothing.
+ * (Wilderness-EXCLUSIVE monsters — see {@link WildernessVariantMonsterRepositoryTest}
+ * for the separate both-locations set) parses, serves case-insensitive name
+ * lookups correctly, and — the director's explicit requirement — that every
+ * single curated name is copied EXACTLY from the bundled {@code
+ * monsters.min.json.gz}: this test fails on a typo (a name present here but
+ * not in the real monster repository) rather than silently doing nothing.
  */
 public class WildernessMonsterRepositoryTest {
     static { BundledGson.set(new com.google.gson.Gson()); }
@@ -78,12 +78,30 @@ public class WildernessMonsterRepositoryTest {
     }
 
     /**
-     * The ordinary Wilderness combat NPCs added in response to the review
-     * finding that the original bosses+revenants-only set left common,
-     * selectable Wilderness monsters uncovered. Each of these is either
-     * Wilderness-exclusive or explicitly location-tagged in the bundled
-     * data — see {@code wilderness_monsters.json.README.md}'s "Included, and
-     * why" section for the citation behind each one.
+     * The ordinary Wilderness-EXCLUSIVE combat NPCs added in response to the
+     * review finding that the original bosses+revenants-only set left
+     * common, selectable Wilderness monsters uncovered. Each of these is
+     * either the ONLY location the OSRS Wiki documents for that specific
+     * bundled entry, or explicitly location-tagged in the bundled data — see
+     * {@code wilderness_monsters.json.README.md}'s "Generation" section for
+     * how this was derived and verified.
+     *
+     * <p><b>"Green dragon (Level 79)" is deliberately NOT here</b> — an
+     * earlier hand-read of the wiki's own Locations table mis-attributed
+     * which combat level paired with which spawn; the wiki's structured
+     * {@code {{LocLine}}} data (parsed directly, not eyeballed) shows Level
+     * 79 has BOTH Wilderness field spawns AND the Corsair Cove/Myths' Guild
+     * spawn, while Level 88's ONLY location is the Wilderness Slayer Cave —
+     * the reverse of what was first assumed. Level 79 is now a
+     * both-locations entry (see {@link WildernessVariantMonsterRepositoryTest});
+     * Level 88 is exclusive, asserted below.
+     *
+     * <p><b>"Bandit (Level 22)"/"(Level 130)" are deliberately here now</b>
+     * (a prior stage excluded them on the assumption of a same-named Desert
+     * Bandit Camp population) — the Bandit wiki page's own structured
+     * location data shows both levels ONLY at the Wilderness Bandit Camp,
+     * with no non-Wilderness location at all; the earlier exclusion was a
+     * guess, not a verified fact, and is corrected here.
      */
     @Test
     public void ordinaryWildernessCombatNpcs_areCurated() {
@@ -93,12 +111,30 @@ public class WildernessMonsterRepositoryTest {
                 "Elder Chaos druid",
                 "Mammoth (Normal)",
                 "Earth warrior",
-                "Green dragon (Level 79)",
+                "Earth Warrior Champion",
+                "Green dragon (Level 88)",
                 "Black dragon (Level 247)",
                 "Bandit (Bandit Camp) (Level 57)",
                 "Bandit (Bandit Camp) (Level 74)",
+                "Bandit (Level 22)",
+                "Bandit (Level 130)",
+                "Bandit champion",
+                "Guard Bandit",
                 "Rogue (Level 15)",
                 "Rogue (Level 135)",
+                "Dark warrior (Level 8)",
+                "Dark warrior (Level 145)",
+                "Ankou (Level 98)",
+                "Black demon (Level 188)",
+                "Hellhound (Level 136)",
+                "Black Heather",
+                "Donny the lad",
+                "Speedy Keith",
+                "Scorpia's guardian",
+                "Scorpia's offspring (monster)",
+                "Zombie pirate (Level 22)",
+                "Zombie pirate (Level 28)",
+                "Zombie pirate (Level 34)",
                 "Ent (Wilderness)",
                 "Abyssal demon (Wilderness Slayer Cave)",
                 "Dust devil (Wilderness Slayer Cave)",
@@ -132,39 +168,50 @@ public class WildernessMonsterRepositoryTest {
     }
 
     /**
-     * Every name in this list shares its bundled DISPLAY NAME with a
-     * non-Wilderness spawn (or is majority non-Wilderness), per the
-     * README's "Deliberately excluded" section — a false positive here
-     * would OVER-state DPS, so these must resolve as "not Wilderness" even
-     * though a same-family name (a different level/tag) IS curated above.
-     * This is the direct regression test for the fail-safe direction the
-     * review demanded: prefer under-selling a weapon over sending someone
-     * into the Wilderness expecting a damage boost they will not get.
+     * These bundled names genuinely have NO Wilderness location at all —
+     * confirmed against the OSRS Wiki's own structured location data, not
+     * assumed — so {@link WildernessMonsterRepository#isWilderness} must
+     * stay {@code false} for them AND they must NOT appear in {@link
+     * WildernessVariantMonsterRepository} either (see {@code
+     * WildernessVariantMonsterRepositoryTest#noEntryHasNoWildernessLocationAtAll}
+     * for that half of the guarantee).
+     *
+     * <p>Some names below (Chaos druid, Hill Giant, Greater demon (Level 92),
+     * Black demon (Level 172), Lesser demon (Level 94) untagged) DO now have
+     * a Wilderness location — but as a separately-selectable synthetic
+     * variant (see {@link WildernessVariantMonsterRepository}), not as this
+     * plain entry itself, which is why {@code isWilderness} on the PLAIN
+     * name still correctly returns {@code false} here: selecting the plain
+     * entry means the player is NOT claiming to fight it in the Wilderness.
      */
     @Test
-    public void ambiguousOrMajorityNonWildernessNames_areDeliberatelyExcluded() {
+    public void namesWithNoWildernessLocationAtAll_orOnlyViaASeparateVariant_areNotDirectlyCurated() {
         WildernessMonsterRepository repo = WildernessMonsterRepository.getInstance();
         String[] excluded = {
-                "Green dragon (Level 88)", // Corsair Cove/Myths' Guild ONLY - never Wilderness
-                "Black dragon (Level 227)", // 7 locations, only 1 (Lava Maze) is Wilderness
                 "Black dragon (Echo)",
-                "Chaos druid",
-                "Chaos druid warrior",
+                "Chaos druid warrior", // zero Wilderness location at all (Yanille / Slepe roof only)
                 "Reanimated chaos druid",
-                "Hill Giant",
-                "Ankou (Level 95)",
                 "Dark Ankou",
-                "Greater demon (Level 92)",
-                "Black demon (Level 172)",
-                "Bandit (Level 22)", // untagged - a same-named Desert Bandit Camp also exists
-                "Bandit (Level 130)",
+                "Ankou (Level 95)", // no Wilderness location for this specific level
                 "Ice giant (1)", // untagged non-Wilderness variant, distinct from the tagged cave ones
-                "Lesser demon (Level 94)", // untagged - distinct from the "(Wilderness Slayer Cave)" tagged one
                 "Dust devil (Catacombs of Kourend)",
                 "Abyssal demon (Standard)",
+                // Both-locations species: the PLAIN entry is correctly
+                // excluded here; the Wilderness option is the separate
+                // synthetic variant (WildernessVariantMonsterRepositoryTest).
+                "Chaos druid",
+                "Hill Giant",
+                "Greater demon (Level 92)",
+                "Black demon (Level 172)",
+                "Lesser demon (Level 94)",
+                "Black dragon (Level 227)",
+                "Green dragon (Level 79)",
+                "Ankou (Level 86)",
+                "Hellhound (Level 122)",
+                "Lesser demon (Level 82)",
         };
         for (String name : excluded) {
-            assertFalse(name + " must NOT be curated as Wilderness (see README)", repo.isWilderness(name));
+            assertFalse(name + " must NOT be curated as Wilderness-exclusive (see README)", repo.isWilderness(name));
         }
     }
 }
