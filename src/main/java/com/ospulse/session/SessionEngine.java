@@ -626,6 +626,32 @@ public final class SessionEngine
 	private final List<PendingEpisodeInput> pendingEpisodeInputs = new ArrayList<>();
 
 	/**
+	 * How long an unclaimed loot receipt stays eligible to vouch for a later
+	 * update's appearance (see {@link #receiptLedger}). Mirrors {@code
+	 * SessionTracker.OUTSTANDING_RECEIPT_WINDOW_MS}: the same physical fact —
+	 * RuneLite's {@code LootReceived} fires at an NPC's death, not at pickup —
+	 * applies identically here.
+	 */
+	private static final long RECEIPT_LEDGER_WINDOW_MS = 20_000L;
+
+	/**
+	 * Round-2 bot-review Finding C: {@code LootReceived} can fire on an
+	 * earlier tick than the pickup it describes (confirmed by decompiling
+	 * {@code client-1.12.33.jar}: the event fires at the NPC's death, not at
+	 * the ground-item pickup). A receipt that isn't claimed on its own update
+	 * is not stale; it stays eligible to vouch for whichever later update's
+	 * appearance actually lands, up to {@link #RECEIPT_LEDGER_WINDOW_MS} —
+	 * otherwise an unclaimed receipt from an earlier update would leave the
+	 * matching appear looking unvouched, letting it wrongly consume the open
+	 * episode's input budget as manufactured output and disappear from
+	 * {@code getLootValue()}. Only consulted (via {@link OutstandingReceiptLedger#claim})
+	 * from inside the {@code episodeOpen} branch, same as before this fix; the
+	 * FIFO/expiry mechanism itself is shared with {@code SessionTracker}'s
+	 * equivalent feed de-dup problem — see {@link OutstandingReceiptLedger}.
+	 */
+	private final OutstandingReceiptLedger receiptLedger = new OutstandingReceiptLedger(RECEIPT_LEDGER_WINDOW_MS);
+
+	/**
 	 * An unvouched (no {@code LootReceived}) appearance during an open episode,
 	 * held for resolution until this update's vanishes (this tick's own episode
 	 * inputs) are fully known — see the budget-capped resolution in {@link
@@ -902,6 +928,7 @@ public final class SessionEngine
 		this.geNonPoolLastObserved = initial.tracked() - initialGePool;
 		this.pendingBankSettles.clear();
 		this.pendingEpisodeInputs.clear();
+		this.receiptLedger.clear();
 		this.episodeOpen = false;
 		this.episodeLastActivityMs = 0L;
 		this.episodePnl = 0L;
@@ -2034,15 +2061,18 @@ public final class SessionEngine
 			&& 2 * coinsSpentThisTick >= arrivingItemValue;
 		long purchasedValueThisTick = 0L;
 
-		// This tick's loot receipts, indexed by id and CLAIMABLE (each reported
-		// unit can vouch for exactly one appearing unit). Used only to tell a
-		// manufactured output apart from genuine loot during an episode: an
-		// appear a receipt vouches for is a real drop (a bird nest mid-craft);
-		// an appear nothing reported is something the player made.
-		Map<Integer, Long> unclaimedReceipts = new LinkedHashMap<>();
+		// This update's loot receipts feed the persistent receiptLedger, CLAIMABLE
+		// (each reported unit can vouch for exactly one appearing unit) across
+		// however many later updates it takes for the matching pickup to land —
+		// see RECEIPT_LEDGER_WINDOW_MS. Used only to tell a manufactured output
+		// apart from genuine loot during an episode: an appear a receipt vouches
+		// for is a real drop (a bird nest mid-craft, possibly several updates
+		// after the kill); an appear nothing reported is something the player
+		// made.
+		receiptLedger.pruneExpired(tsMs);
 		for (LootReceipt r : signals.lootReceipts())
 		{
-			unclaimedReceipts.merge(r.itemId, r.quantity, Long::sum);
+			receiptLedger.record(r.itemId, r.quantity, tsMs);
 		}
 
 		long episodeOutput = 0L;
@@ -2258,8 +2288,10 @@ public final class SessionEngine
 				// this update's own vanishes are known too (a same-tick craft's
 				// input hasn't been processed yet at this point in the method) —
 				// see the budget-capped resolution after the vanish loop below.
-				long vouched = claimReceipt(unclaimedReceipts, a.itemId, a.quantity);
-				long manufactured = a.quantity - vouched;
+				// receiptLedger.claim returns the UNMATCHED remainder (round-2
+				// bot-review Finding C: the receipt may have been recorded on an
+				// EARLIER update, not just this one — see RECEIPT_LEDGER_WINDOW_MS).
+				long manufactured = receiptLedger.claim(a.itemId, a.quantity);
 				if (manufactured > 0)
 				{
 					manufacturedCandidates.add(new ManufacturedCandidate(a, manufactured));
@@ -2446,7 +2478,17 @@ public final class SessionEngine
 
 			if (v.quantity > 0)
 			{
-				boolean charge = v.consumable;
+				// Round-2 bot-review Finding B: gate the Supply charge on
+				// episodeOpen too, not just v.consumable. SupplyClassifier
+				// recognises plenty of genuine production inputs as
+				// consumables (Raw shark matches FOOD_PATTERN) — charging
+				// those straight to Supplies, unconditionally, meant they
+				// never funded pendingEpisodeInputs, so Cooking's episode
+				// output budget sat permanently at zero and every cooked
+				// item fell through to ordinary Loot instead of being
+				// credited as manufactured output. Outside an episode a
+				// consumable still charges to Supplies exactly as before.
+				boolean charge = v.consumable && !episodeOpen;
 				long reversedLootQty = 0L;
 				if (charge)
 				{
@@ -2457,12 +2499,15 @@ public final class SessionEngine
 				}
 				else
 				{
-					// A non-consumable stack leaving tracked wealth is a drop (or
-					// other loss). If any of it was looted this session, it is no
-					// longer held, so retract that value from Loot; a never-looted
-					// stack reverses nothing (floored at zero). The reversed
+					// A stack leaving tracked wealth with no Supply charge: a
+					// drop (or other loss) outside an episode, or — inside
+					// one — a production input, consumable or not. If any of
+					// it was looted this session, it is no longer held, so
+					// retract that value from Loot; a never-looted stack
+					// reverses nothing (floored at zero). The reversed
 					// quantity is remembered so a re-pickup within the return
-					// window restores exactly this much and the round trip nets.
+					// window restores exactly this much and the round trip
+					// nets.
 					reversedLootQty = lootLedger.reverseLoot(v.itemId, v.quantity);
 					if (reversedLootQty > 0)
 					{
@@ -2471,9 +2516,19 @@ public final class SessionEngine
 					if (episodeOpen)
 					{
 						// An episode INPUT — the herb this whole design exists to
-						// charge for. What the episode owes is the tracked value
-						// lost MINUS whatever Loot just gave back for it: a LOOTED
-						// herb cleaned into a better one has already had its value
+						// charge for, or a recognised consumable (e.g. Raw shark)
+						// that would otherwise be charged to Supplies AND never
+						// fund the budget. Charged or not, an item vanishing
+						// while the episode is open is production input, full
+						// stop; it funds the budget instead of Supplies, and
+						// settleEpisodeLedger below subtracts it from episodePnl
+						// exactly once — whether an output claims it this update
+						// or it later expires unanswered — so it is never charged
+						// twice.
+						//
+						// What the episode owes is the tracked value lost MINUS
+						// whatever Loot just gave back for it: a LOOTED herb
+						// cleaned into a better one has already had its value
 						// retracted above, so charging the full stack here too
 						// would count the same cost twice. A never-looted herb
 						// reverses nothing, so the episode carries all of it —
@@ -2497,6 +2552,11 @@ public final class SessionEngine
 				}
 				// Remember ALL surviving vanishes (consumable or not) so a
 				// reappearance next update is netted instead of read as loot.
+				// `charge` (not v.consumable) drives suppliesCharged: a
+				// consumable vanished during an open episode was NOT charged to
+				// Supplies above, so its reappearance must cancel the pending
+				// episode input, not try to un-charge a Supply record that was
+				// never made.
 				PendingSwing pending = new PendingSwing(v.itemId, v.quantity, v.unitValue,
 					v.fullSwing, charge, v.hadBasis, v.basisQuantity, v.basisTotalCost, tsMs);
 				pending.reversedLootQty = reversedLootQty;
@@ -2930,23 +2990,6 @@ public final class SessionEngine
 	}
 
 	/**
-	 * Claims up to {@code wanted} units of {@code itemId} from this tick's
-	 * unclaimed loot receipts, returning how many were vouched for. Claiming
-	 * consumes the receipt, so one reported drop can only ever explain one
-	 * appearing unit.
-	 */
-	private static long claimReceipt(Map<Integer, Long> unclaimedReceipts, int itemId, long wanted)
-	{
-		long available = unclaimedReceipts.getOrDefault(itemId, 0L);
-		long claimed = Math.min(available, wanted);
-		if (claimed > 0)
-		{
-			unclaimedReceipts.put(itemId, available - claimed);
-		}
-		return claimed;
-	}
-
-	/**
 	 * Folds this update's episode activity into {@link #episodePnl}.
 	 *
 	 * <p>An output landing RELEASES every input still held: inside an episode,
@@ -2959,6 +3002,43 @@ public final class SessionEngine
 	 *
 	 * <p>An input that no output answers within {@link #EPISODE_SETTLE_MS} was
 	 * not a transformation in flight — it is a genuine loss, and books alone.
+	 *
+	 * <p><b>KNOWN, DELIBERATELY UNFIXED LIMITATION (round-2 bot-review Finding
+	 * D).</b> "Every input still held" is a POOLED-VALUE proxy, not true
+	 * recipe correlation — it has no notion of which specific input produced
+	 * which specific output. Continuous production straddling a tick boundary
+	 * (finishing recipe N's output the same update recipe N+1's input first
+	 * vanishes — the NORMAL case, not an edge case, for any repeated single
+	 * action) can therefore over-drain: recipe N+1's brand-new input gets
+	 * swept into recipe N's settle, even though it hasn't produced its own
+	 * output yet. This renders an exaggerated intermediate loss on that
+	 * update, and recipe N+1's later output then finds nothing left pending
+	 * to credit against and misbooks as ordinary Loot instead of a net
+	 * episode credit — a genuinely corrupted Loot/episode breakdown for that
+	 * stretch of play. See {@code
+	 * SessionEngineTest#continuousProductionAcrossATickBoundaryOverchargesAnIntermediateUpdateKnownLimitation}
+	 * for a worked trace, including the (not universally proven) observation
+	 * that the FINAL total still nets to the true combined margin once every
+	 * recipe's output has landed.
+	 *
+	 * <p>The obvious partial fix — drain only {@code outputThisUpdate}'s
+	 * worth, oldest entries first, leaving the rest pending — was tried and
+	 * rejected: it breaks the headline single-recipe-loss feature instead
+	 * ({@code SessionEngineTest#herbloreAtALossRegistersNegativeProfit}, where the
+	 * SAME update carries both the herb's vanish and the potion's appear with
+	 * nothing carried over from a prior update). A partial drain there would
+	 * charge only the potion's value against the herb and leave the genuine
+	 * shortfall sitting pending indefinitely — or, worse, available as spare
+	 * budget for a later, unrelated candidate. There is no way for a
+	 * value-only ledger to tell apart "this same conversion under-produced,
+	 * so the shortfall is a real loss to charge now" from "this is a
+	 * different, later conversion's input that just happens to vanish the
+	 * same tick" without actually knowing which input maps to which output.
+	 * Fixing this for real needs true recipe correlation — a materially
+	 * larger change than this proxy, per the manufacturedCandidates
+	 * resolution's own comment in {@link #update} — so it is left as a
+	 * documented limitation rather than "fixed" with a change that trades one
+	 * miscount for a worse one.
 	 */
 	private void settleEpisodeLedger(long outputThisUpdate, long tsMs)
 	{

@@ -292,6 +292,76 @@ public class SessionTrackerTest
 	}
 
 	/**
+	 * Round-2 bot-review Finding A: {@code outstandingReceipts} is the FIFO
+	 * pool {@link #aDelayedPickupOfAnEarlierGroundDropDoesNotDoubleCountItInTheFeed}
+	 * relies on to net a delayed pickup against the receipt booked several
+	 * ticks earlier — but {@link SessionTracker#resetSession()} clears {@code
+	 * lootBySource} (so the NPC's feed row is gone) without also clearing
+	 * {@code outstandingReceipts}. If the receipt is still pending when the
+	 * player hits the panel's reset button, the delayed pickup that lands in
+	 * the FRESH session nets against the stale entry and is silently
+	 * swallowed — the fresh session's loot feed never shows it at all.
+	 */
+	@Test
+	public void resetSessionClearsOutstandingReceiptsSoAPostResetPickupIsNotSwallowed()
+	{
+		priceItem(BONES_ID, "Bones", (int) BONES_UNIT);
+
+		// Tick 1: the kill's LootReceived fires but the pickup hasn't landed
+		// yet — the receipt is parked in outstandingReceipts, still unmatched.
+		tracker.onLootReceived("Goblin", 1, Collections.singletonList(
+			new net.runelite.client.game.ItemStack(BONES_ID, 3)));
+		engineReportsDiffLoot(Collections.<DiffLoot>emptyList());
+		tracker.onTick();
+
+		// The player resets the session (panel button) before the pickup lands.
+		tracker.resetSession();
+
+		// Now, in the FRESH session, the delayed pickup finally lands.
+		engineReportsDiffLoot(Collections.singletonList(
+			new DiffLoot(BONES_ID, "Bones", 3L, BONES_UNIT)));
+		tracker.onTick();
+
+		SourceLoot un = sourceNamed(SessionTracker.UNATTRIBUTED_LOOT_SOURCE);
+		assertNotNull("the fresh session must see this pickup as real loot, not silently "
+			+ "swallow it against a stale pre-reset receipt", un);
+		assertEquals(3L, un.getItems().get(0).getQuantity());
+		assertNull("the pre-reset NPC's row must not reappear either — it was cleared",
+			sourceNamed("Goblin"));
+	}
+
+	/**
+	 * Same finding, the other clearing site: {@link
+	 * SessionTracker#bootstrapSession} (a genuine login after logout) also
+	 * clears {@code lootBySource} without clearing {@code outstandingReceipts}.
+	 */
+	@Test
+	public void reloginClearsOutstandingReceiptsSoAPostLoginPickupIsNotSwallowed()
+	{
+		priceItem(BONES_ID, "Bones", (int) BONES_UNIT);
+
+		tracker.onLootReceived("Goblin", 1, Collections.singletonList(
+			new net.runelite.client.game.ItemStack(BONES_ID, 3)));
+		engineReportsDiffLoot(Collections.<DiffLoot>emptyList());
+		tracker.onTick();
+
+		// The player logs out and back in before the pickup lands.
+		tracker.onLogout();
+		tracker.onLogin();
+		tracker.onTick(); // bootstraps the fresh session
+
+		// The delayed pickup lands after the relogin.
+		engineReportsDiffLoot(Collections.singletonList(
+			new DiffLoot(BONES_ID, "Bones", 3L, BONES_UNIT)));
+		tracker.onTick();
+
+		SourceLoot un = sourceNamed(SessionTracker.UNATTRIBUTED_LOOT_SOURCE);
+		assertNotNull("the fresh post-login session must see this pickup as real loot, "
+			+ "not silently swallow it against a stale pre-login receipt", un);
+		assertEquals(3L, un.getItems().get(0).getQuantity());
+	}
+
+	/**
 	 * A BANK-id container change drives the eager refresh path without involving
 	 * the fish-barrel inventory/equipment diff (which only handles INVENTORY /
 	 * EQUIPMENT ids).

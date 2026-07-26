@@ -47,12 +47,8 @@ import net.runelite.client.game.ItemStats;
 import java.util.EnumSet;
 
 import java.lang.reflect.Type;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Deque;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -525,6 +521,13 @@ public class SessionTracker implements SessionService
 		long ts = System.currentTimeMillis();
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
+		// Round-2 bot-review Finding A: a receipt still pending when the panel's
+		// reset button is hit must not survive into the fresh session — its
+		// source row in lootBySource is gone (cleared above), but the stale
+		// entry would still be sitting in the FIFO pool, ready to net out a
+		// perfectly genuine post-reset pickup and silently drop it from the
+		// fresh session's feed. See #bootstrapSession for the other clearing site.
+		outstandingReceipts.clear();
 		geReconciler.reset();
 		// Restore the GE cost-basis ledger immediately after the reset, mirroring
 		// bootstrapSession — a manual "reset session" must not wipe the cost basis
@@ -576,6 +579,11 @@ public class SessionTracker implements SessionService
 		loadBankCache();
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
+		// Round-2 bot-review Finding A: same rationale as resetSession() — a
+		// genuine login must not carry a stale pre-login receipt forward to
+		// silently swallow a fresh-session pickup that happens to land within
+		// OUTSTANDING_RECEIPT_WINDOW_MS of it.
+		outstandingReceipts.clear();
 		geReconciler.reset();
 		// Restore the GE cost-basis ledger immediately after the reset, so a buy
 		// made in an earlier session (before this relog/login) still has its
@@ -1363,26 +1371,20 @@ public class SessionTracker implements SessionService
 	 */
 	private static final long OUTSTANDING_RECEIPT_WINDOW_MS = 20_000L;
 
-	/** One not-yet-matched slice of a sourced receipt, aging toward expiry. */
-	private static final class OutstandingReceipt
-	{
-		long quantity;
-		final long tsMs;
-
-		OutstandingReceipt(long quantity, long tsMs)
-		{
-			this.quantity = quantity;
-			this.tsMs = tsMs;
-		}
-	}
-
 	/**
 	 * Sourced receipts ({@link com.ospulse.session.LootReceipt#source} != null)
 	 * not yet matched by an inventory diff, keyed by canonical item id and kept
 	 * oldest-first so a later tick's pickup can still net against a receipt
-	 * booked several ticks earlier. See {@link #attributeDiffLoot}.
+	 * booked several ticks earlier. See {@link #attributeDiffLoot}. The FIFO
+	 * netting/expiry logic itself lives in {@link
+	 * com.ospulse.session.OutstandingReceiptLedger}, shared with {@link
+	 * com.ospulse.session.SessionEngine}'s equivalent cross-tick problem for
+	 * its episode-output crediting (round-2 bot-review Finding C) — this
+	 * tracker's instance is separate (different quantities, different
+	 * clearing points), only the mechanism is shared.
 	 */
-	private final Map<Integer, Deque<OutstandingReceipt>> outstandingReceipts = new HashMap<>();
+	private final com.ospulse.session.OutstandingReceiptLedger outstandingReceipts =
+		new com.ospulse.session.OutstandingReceiptLedger(OUTSTANDING_RECEIPT_WINDOW_MS);
 
 	/**
 	 * Feeds this tick's inventory-diff loot into the per-source feed, so the feed
@@ -1429,7 +1431,7 @@ public class SessionTracker implements SessionService
 	 */
 	private void attributeDiffLoot(long ts, MovementSignals signals, List<com.ospulse.session.DiffLoot> diffLoot)
 	{
-		pruneExpiredOutstandingReceipts(ts);
+		outstandingReceipts.pruneExpired(ts);
 
 		// Fold this tick's sourced receipts into the outstanding pool BEFORE
 		// netting below, so a same-tick kill+pickup still nets in full (as
@@ -1441,8 +1443,7 @@ public class SessionTracker implements SessionService
 			{
 				continue;
 			}
-			outstandingReceipts.computeIfAbsent(r.itemId, k -> new ArrayDeque<>())
-				.addLast(new OutstandingReceipt(r.quantity, ts));
+			outstandingReceipts.record(r.itemId, r.quantity, ts);
 		}
 
 		if (diffLoot.isEmpty())
@@ -1456,7 +1457,7 @@ public class SessionTracker implements SessionService
 		SourceAgg agg = null;
 		for (com.ospulse.session.DiffLoot d : diffLoot)
 		{
-			long remaining = nettAgainstOutstandingReceipts(d.itemId, d.quantity);
+			long remaining = outstandingReceipts.claim(d.itemId, d.quantity);
 			if (remaining <= 0)
 			{
 				continue;
@@ -1468,60 +1469,6 @@ public class SessionTracker implements SessionService
 				agg.lastSeq = ++lootSeq;
 			}
 			mergeItem(agg.items, d.itemId, d.name, remaining, d.unitValue);
-		}
-	}
-
-	/**
-	 * Nets {@code quantity} of {@code itemId} against the oldest outstanding
-	 * receipts first (FIFO), consuming/removing entries as they're used up.
-	 * Returns whatever quantity is left unmatched — the genuine, never-receipted
-	 * remainder that must still land in the feed.
-	 */
-	private long nettAgainstOutstandingReceipts(int itemId, long quantity)
-	{
-		Deque<OutstandingReceipt> pending = outstandingReceipts.get(itemId);
-		if (pending == null)
-		{
-			return quantity;
-		}
-		long remaining = quantity;
-		while (remaining > 0 && !pending.isEmpty())
-		{
-			OutstandingReceipt head = pending.peekFirst();
-			long netted = Math.min(remaining, head.quantity);
-			head.quantity -= netted;
-			remaining -= netted;
-			if (head.quantity <= 0)
-			{
-				pending.pollFirst();
-			}
-		}
-		if (pending.isEmpty())
-		{
-			outstandingReceipts.remove(itemId);
-		}
-		return remaining;
-	}
-
-	/**
-	 * Drops outstanding receipts older than {@link #OUTSTANDING_RECEIPT_WINDOW_MS}
-	 * so an item that was never picked up (looted by someone else, despawned)
-	 * cannot sit around indefinitely and wrongly net out an unrelated later find.
-	 */
-	private void pruneExpiredOutstandingReceipts(long ts)
-	{
-		Iterator<Map.Entry<Integer, Deque<OutstandingReceipt>>> it = outstandingReceipts.entrySet().iterator();
-		while (it.hasNext())
-		{
-			Deque<OutstandingReceipt> pending = it.next().getValue();
-			while (!pending.isEmpty() && ts - pending.peekFirst().tsMs > OUTSTANDING_RECEIPT_WINDOW_MS)
-			{
-				pending.pollFirst();
-			}
-			if (pending.isEmpty())
-			{
-				it.remove();
-			}
 		}
 	}
 

@@ -3912,6 +3912,213 @@ public class SessionEngineTest
 			nestReachedDiffLoot);
 	}
 
+	private static final int RAW_SHARK = 383;
+
+	/** 10 raw sharks @ 1,000 = 10,000 of tracked input on top of 10M. */
+	private static Map<Integer, ItemStack> rawSharks()
+	{
+		return items(new ItemStack(RAW_SHARK, "Raw shark", 10L, 1_000L));
+	}
+
+	private static Map<Integer, ItemStack> cookedSharks(long unitValue)
+	{
+		return items(new ItemStack(SHARK, "Shark", 10L, unitValue));
+	}
+
+	/**
+	 * Round-2 bot-review Finding B: {@code SupplyClassifier.isConsumable}
+	 * recognises "Raw shark" (it matches {@code FOOD_PATTERN}), so Cooking's
+	 * vanish used to take the {@code charge} branch unconditionally —
+	 * charging the raw fish to Supplies and never adding it to {@code
+	 * pendingEpisodeInputs}. With the episode's output budget permanently at
+	 * zero, the cooked fish (an unvouched appear during the same open
+	 * episode) had nothing to draw against and fell through to ordinary
+	 * Loot. The two numbers still net to the correct margin (Loot minus
+	 * Supplies), but the episode-input-budget feature — crediting a
+	 * manufactured output instead of misreporting it as looted — never
+	 * engaged for any of Cooking's recognised consumable ingredients, which
+	 * defeats the feature for that entire tracked production skill.
+	 */
+	@Test
+	public void cookingFundsTheEpisodeBudgetFromARecognisedConsumableInputWithoutDoubleCharging()
+	{
+		WealthSnapshot initial = snap(10_010_000L, rawSharks(), 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// 10 raw sharks (10,000 tracked value) vanish; 10 cooked sharks worth
+		// only 800 each (8,000) appear in their place, with no LootReceived —
+		// exactly how a Cooking action actually swaps the item in-place.
+		WealthSnapshot cooked = snap(10_008_000L, cookedSharks(800L), 0L, false, 1_000L);
+		engine.update(cooked, (GeAttributions) null, crafting(), 1_000L);
+
+		SessionSnapshot s = engine.snapshot(cooked, 0L, Collections.emptyMap(), 0L, 1_000L);
+		assertEquals("the raw shark must fund the episode budget, not Supplies",
+			0L, s.getSuppliesUsed());
+		assertEquals("a fully-funded cooked-shark appear must be credited as episode "
+			+ "output, not booked as ordinary Loot", 0L, s.getLootValue());
+		assertEquals("the true conversion loss (10,000 in, 8,000 out) must be charged "
+			+ "exactly once, via episodePnl, not twice via Supplies AND episodePnl",
+			-2_000L, s.getNetProfit());
+		assertIdentity("cooking funds the episode budget", s);
+	}
+
+	/**
+	 * Round-2 bot-review Finding C: {@code LootReceived} fires at an NPC's
+	 * death (confirmed by decompiling {@code client-1.12.33.jar}), not at the
+	 * ground-item pickup — the same cross-tick delay {@code SessionTracker}'s
+	 * feed already accounts for (see {@code
+	 * SessionTrackerTest#aDelayedPickupOfAnEarlierGroundDropDoesNotDoubleCountItInTheFeed}).
+	 * Before this fix, the engine's {@code unclaimedReceipts} map was rebuilt
+	 * fresh from each update's OWN signals only, so a receipt that fired on an
+	 * earlier update was gone by the time the delayed pickup landed. If that
+	 * pickup lands on the SAME update as a genuine, budget-funding episode
+	 * input, the delayed (but perfectly genuine) loot is wrongly treated as
+	 * unvouched and consumed as manufactured output — vanishing from {@code
+	 * getLootValue()} and cancelling out the herb's cost in {@code
+	 * episodePnl} instead of leaving it correctly HELD pending settlement.
+	 */
+	@Test
+	public void delayedPickupOfAnEarlierReceiptDuringAnOpenEpisodeIsNotMisclassifiedAsCraftOutput()
+	{
+		Map<Integer, ItemStack> toadflax = items(
+			new ItemStack(CLEAN_TOADFLAX, "Clean toadflax", 10L, 8_000L));
+		WealthSnapshot initial = snap(10_080_000L, toadflax, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Update 1: the bird nest's LootReceived fires (the "kill"/discovery),
+		// but nothing has reached the inventory yet — tracked wealth is
+		// unchanged this update, exactly like a ground drop not yet walked
+		// over.
+		MovementSignals withReceipt = MovementSignals.builder()
+			.productionXp()
+			.productionAnimation()
+			.lootReceived(new LootReceipt(BIRD_NEST, 1L, 80_000L))
+			.build();
+		WealthSnapshot stillHoldingHerbs = snap(10_080_000L, toadflax, 0L, false, 1_000L);
+		engine.update(stillHoldingHerbs, (GeAttributions) null, withReceipt, 1_000L);
+
+		// Update 2 (400ms later, well inside the receipt's window): the herb
+		// is consumed (funding the episode budget) AND the nest finally lands
+		// in the inventory — the delayed pickup of update 1's receipt, with
+		// NO new LootReceived this update.
+		Map<Integer, ItemStack> nestLanded = items(new ItemStack(BIRD_NEST, "Bird nest", 1L, 80_000L));
+		WealthSnapshot afterPickup = snap(10_080_000L, nestLanded, 0L, false, 1_400L);
+		engine.update(afterPickup, (GeAttributions) null, crafting(), 1_400L);
+
+		SessionSnapshot s = engine.snapshot(afterPickup, 0L, Collections.emptyMap(), 0L, 1_400L);
+		assertEquals("the nest is genuine loot even though its receipt fired on an EARLIER "
+			+ "update — it must not be swallowed as manufactured episode output",
+			80_000L, s.getLootValue());
+		assertEquals("the herb's cost is correctly still HELD pending settlement (not yet "
+			+ "expired), so net profit shows only the real nest loot this update",
+			80_000L, s.getNetProfit());
+		assertIdentity("delayed cross-tick receipt during an open episode", s);
+	}
+
+	/**
+	 * Round-2 bot-review Finding D (KNOWN, DELIBERATELY UNFIXED LIMITATION —
+	 * see the comment on {@code drainPendingEpisodeInputs} / {@code
+	 * settleEpisodeLedger}): when continuous production straddles a tick
+	 * boundary, an update can carry the PREVIOUS recipe's output landing
+	 * together with the NEXT recipe's input freshly vanishing. Because
+	 * {@code drainPendingEpisodeInputs()} unconditionally drains the WHOLE
+	 * pending ledger whenever any output lands, the next recipe's
+	 * just-vanished input is swept up too, even though it hasn't produced its
+	 * own output yet.
+	 *
+	 * <p>This pins the CURRENT, ACCEPTED-AS-LIMITATION behavior with a
+	 * concrete two-recipe trace (recipe A: 10 toadflax @ 8,000 -> 10 unf
+	 * potions @ 6,000, a 20,000 loss; recipe B: 5 ranarr @ 8,000 -> 5 "uncut
+	 * diamond" stand-ins @ 9,000, a 5,000 profit — true combined margin
+	 * -15,000):
+	 * <ul>
+	 *   <li>Tick 2 (A's output lands, B's input vanishes the SAME update)
+	 *       reads an EXAGGERATED intermediate loss of -60,000 instead of the
+	 *       true -20,000 so far — B's 40,000 input is charged a whole tick
+	 *       before it could possibly have failed.</li>
+	 *   <li>Tick 3 (B's output lands, nothing pending left to credit against)
+	 *       books the FULL 45,000 as ordinary Loot instead of a 5,000 net
+	 *       episode credit — a genuinely corrupted Loot/episode breakdown.</li>
+	 *   <li>The FINAL total nets out correctly (-15,000) by the time B's
+	 *       output lands, because whatever gets drained early is exactly
+	 *       offset by that same value later booking in full as Loot — this
+	 *       identity held in every case explored, but is NOT proven to hold
+	 *       for every possible sequence (e.g. the episode closing, or the
+	 *       settle window expiring, between the exaggeration and the
+	 *       correction).</li>
+	 * </ul>
+	 *
+	 * <p><b>Why this isn't fixed here.</b> The obvious fix — only drain up to
+	 * {@code outputThisUpdate}'s worth, leaving the rest pending — breaks the
+	 * headline single-recipe-loss feature instead: in {@link
+	 * #herbloreAtALossRegistersNegativeProfit}, the SAME update carries both
+	 * the herb's vanish and the potion's appear, with nothing "carried over"
+	 * from a prior update. A partial drain there would charge only the
+	 * potion's value (60,000) against the herb, leave the genuine 20,050 loss
+	 * sitting pending indefinitely (or double as budget for an unrelated
+	 * later output), and never book it. The pooled-value budget has no way to
+	 * tell apart "this same conversion under-produced, so the shortfall is a
+	 * real loss to charge now" from "this is a different, later conversion's
+	 * input that just happens to vanish the same tick" — both look identical
+	 * to a value-only ledger with no notion of which specific input produced
+	 * which specific output. Solving it for real needs true recipe
+	 * correlation (matching a specific output to the specific inputs it was
+	 * made from), which the class-level javadoc on {@code
+	 * settleEpisodeLedger} already flags as a materially larger change than
+	 * this proxy.
+	 */
+	@Test
+	public void continuousProductionAcrossATickBoundaryOverchargesAnIntermediateUpdateKnownLimitation()
+	{
+		Map<Integer, ItemStack> initialHoldings = items(
+			new ItemStack(CLEAN_TOADFLAX, "Clean toadflax", 10L, 8_000L),
+			new ItemStack(RANARR, "Grimy ranarr", 5L, 8_000L));
+		WealthSnapshot initial = snap(10_120_000L, initialHoldings, 0L, false, 0L);
+		engine.startSession(initial, 0L);
+
+		// Tick 1: recipe A's input (toadflax) vanishes; recipe B's ingredient
+		// (ranarr) sits untouched, still held.
+		Map<Integer, ItemStack> afterTick1 = items(new ItemStack(RANARR, "Grimy ranarr", 5L, 8_000L));
+		engine.update(snap(10_040_000L, afterTick1, 0L, false, 1_000L),
+			(GeAttributions) null, crafting(), 1_000L);
+		SessionSnapshot afterT1 = engine.snapshot(snap(10_040_000L, afterTick1, 0L, false, 1_000L),
+			0L, Collections.emptyMap(), 0L, 1_000L);
+		assertEquals("an input in flight with no output yet books no transient loss",
+			0L, afterT1.getNetProfit());
+
+		// Tick 2 (400ms later): recipe A's output (unf potion) lands AND
+		// recipe B's input (ranarr) vanishes to START its own conversion —
+		// straddling the tick boundary, the normal case for continuous
+		// production.
+		Map<Integer, ItemStack> afterTick2 = items(
+			new ItemStack(TOADFLAX_UNF, "Toadflax potion(unf)", 10L, 6_000L));
+		engine.update(snap(10_060_000L, afterTick2, 0L, false, 1_400L),
+			(GeAttributions) null, crafting(), 1_400L);
+		SessionSnapshot afterT2 = engine.snapshot(snap(10_060_000L, afterTick2, 0L, false, 1_400L),
+			0L, Collections.emptyMap(), 0L, 1_400L);
+		assertEquals("KNOWN LIMITATION: -60,000 exaggerates recipe A's true -20,000 so-far "
+			+ "loss by recipe B's 40,000 input, drained a whole tick early",
+			-60_000L, afterT2.getNetProfit());
+		assertEquals("nothing yet misbooked as Loot at this point", 0L, afterT2.getLootValue());
+
+		// Tick 3: recipe B's output (a stand-in "uncut diamond") lands. No new vanish.
+		Map<Integer, ItemStack> afterTick3 = items(
+			new ItemStack(TOADFLAX_UNF, "Toadflax potion(unf)", 10L, 6_000L),
+			new ItemStack(UNCUT_DIAMOND, "Uncut diamond", 5L, 9_000L));
+		engine.update(snap(10_105_000L, afterTick3, 0L, false, 1_800L),
+			(GeAttributions) null, crafting(), 1_800L);
+		SessionSnapshot afterT3 = engine.snapshot(snap(10_105_000L, afterTick3, 0L, false, 1_800L),
+			0L, Collections.emptyMap(), 0L, 1_800L);
+		assertEquals("KNOWN LIMITATION: recipe B's whole output misbooks as ordinary Loot "
+			+ "(nothing left pending to credit it against), not a 5,000 net episode credit",
+			45_000L, afterT3.getLootValue());
+		assertEquals("the FINAL total still nets to the true combined margin: "
+			+ "(60,000-80,000) + (45,000-40,000) = -15,000 — the corruption above is "
+			+ "presentational/intermediate, not (in this trace) a total-profit error",
+			-15_000L, afterT3.getNetProfit());
+		assertIdentity("continuous production straddling a tick boundary (tick 3, final)", afterT3);
+	}
+
 	@Test
 	public void craftInFlightBooksNoTransientLoss()
 	{
