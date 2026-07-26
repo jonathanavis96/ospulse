@@ -101,12 +101,6 @@
       "maxHitCap": 4,
       "maxHitCapWhenCrushHighest": 9,
       "note": "The tail's scales blunt most damage — max hit is capped at 4 regardless of gear, or 9 if your loadout's highest attack bonus is crush."
-    },
-    {
-      "monsters": ["Verzik Vitur (Entry mode, Phase 1)", "Verzik Vitur (Normal mode, Phase 1)", "Verzik Vitur (Hard mode, Phase 1)"],
-      "type": "DAMAGE_CAP",
-      "maxHitCap": 10,
-      "note": "Verzik's web phase resists ordinary damage — max hit is capped at 10 regardless of gear or style. Only the Dawnbringer (found in the room) deals real, uncapped damage to break the phase quickly."
     }
   ]
 }

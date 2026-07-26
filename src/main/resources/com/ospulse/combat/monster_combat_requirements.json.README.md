@@ -101,3 +101,21 @@ need no entry — recorded so they are not re-investigated:
 Aerial-Fishing "krakens" (`Armoured`, `Pygmy`, `Spined`, `Vampyre`, `Veiled`) are
 a different family fought on land and are correctly untouched by the `Kraken` and
 `Cave kraken` entries — lookup is keyed, not substring.
+
+## Known gaps this schema cannot express yet
+
+**One requirement per monster name.** The loader keys a `Map` by lowercased name and
+`put`s — a second entry for the same monster **silently overwrites** the first. So a
+monster can carry exactly one requirement, of one type. Two real cases are blocked:
+
+- **Tekton** — has the `WEAPON_GATE` for its ranged immunity, so its separate 80%
+  reduced-magic damage cannot also be expressed.
+- Any monster needing both a gate and a penalty/cap.
+
+Fix when needed: either store a list per monster and apply all matches, or fold
+optional `damageMultiplier`/`maxHitCap` fields into `WEAPON_GATE`.
+
+**Per-style damage caps.** `DAMAGE_CAP` carries one cap (plus a crush-highest variant),
+but some caps differ by style. **Verzik Vitur phase 1** caps melee at 10 and ranged/magic
+at **3** — a single value would overstate ranged and magic by more than 3x, so no entry
+is shipped rather than a wrong one. Needs a per-style cap field.
