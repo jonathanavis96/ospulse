@@ -8,6 +8,7 @@ import com.ospulse.model.ItemStack;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
+import com.ospulse.ui.sections.gear.BudgetAmount;
 import com.ospulse.wealth.WealthSnapshot;
 
 import org.junit.Test;
@@ -76,6 +77,8 @@ public class GearSectionOptimizerTest
 
 	private static final int BRONZE_SWORD = 1277;
 	private static final int DRAGON_SCIMITAR = 4587;
+	private static final int MASORI_MASK = 27226;   // plain base form
+	private static final int MASORI_MASK_F = 27235; // owned fortified variant
 
 	private static int[] loadout(int weaponId)
 	{
@@ -610,16 +613,16 @@ public class GearSectionOptimizerTest
 	@Test
 	public void parseBudget_handlesKAndMSuffixesAndPlainNumbers()
 	{
-		assertEquals(0L, GearSection.parseBudget(null));
-		assertEquals(0L, GearSection.parseBudget(""));
-		assertEquals(0L, GearSection.parseBudget("not a number"));
-		assertEquals(0L, GearSection.parseBudget("0"));
-		assertEquals(500L, GearSection.parseBudget("500"));
-		assertEquals(500_000L, GearSection.parseBudget("500k"));
-		assertEquals(10_000_000L, GearSection.parseBudget("10m"));
-		assertEquals(10_000_000L, GearSection.parseBudget("10M"));
-		assertEquals(1_500_000L, GearSection.parseBudget("1.5m"));
-		assertEquals(2_000_000L, GearSection.parseBudget("2,000,000"));
+		assertEquals(0L, BudgetAmount.parse(null));
+		assertEquals(0L, BudgetAmount.parse(""));
+		assertEquals(0L, BudgetAmount.parse("not a number"));
+		assertEquals(0L, BudgetAmount.parse("0"));
+		assertEquals(500L, BudgetAmount.parse("500"));
+		assertEquals(500_000L, BudgetAmount.parse("500k"));
+		assertEquals(10_000_000L, BudgetAmount.parse("10m"));
+		assertEquals(10_000_000L, BudgetAmount.parse("10M"));
+		assertEquals(1_500_000L, BudgetAmount.parse("1.5m"));
+		assertEquals(2_000_000L, BudgetAmount.parse("2,000,000"));
 	}
 
 	// -------------------------------------------- item #1: budget K/M toggle + expensive-items fields

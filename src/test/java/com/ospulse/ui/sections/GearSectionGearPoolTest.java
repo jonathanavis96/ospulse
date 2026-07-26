@@ -9,6 +9,7 @@ import com.ospulse.model.ItemStack;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
+import com.ospulse.ui.sections.gear.ItemEligibility;
 import com.ospulse.wealth.WealthSnapshot;
 
 import org.junit.Test;
@@ -400,14 +401,14 @@ public class GearSectionGearPoolTest
 	@Test
 	public void isModeLockedItem_matchesEveryDocumentedMarker()
 	{
-		assertTrue(GearSection.isModeLockedItem("Zuriel's robe top (Deadman Mode)"));
-		assertTrue(GearSection.isModeLockedItem("Armadyl godsword (deadman)"));
-		assertTrue(GearSection.isModeLockedItem("Abyssal dagger (bh)"));
-		assertTrue(GearSection.isModeLockedItem("Some item (lms)"));
-		assertTrue(GearSection.isModeLockedItem("Some item (Last Man Standing)"));
-		assertTrue(GearSection.isModeLockedItem("Black d'hide chaps (beta)"));
-		assertFalse("a normal item must not be excluded", GearSection.isModeLockedItem("Abyssal whip"));
-		assertFalse("case must not matter for a real item name", GearSection.isModeLockedItem("Rune platebody"));
+		assertTrue(ItemEligibility.isModeLockedItem("Zuriel's robe top (Deadman Mode)"));
+		assertTrue(ItemEligibility.isModeLockedItem("Armadyl godsword (deadman)"));
+		assertTrue(ItemEligibility.isModeLockedItem("Abyssal dagger (bh)"));
+		assertTrue(ItemEligibility.isModeLockedItem("Some item (lms)"));
+		assertTrue(ItemEligibility.isModeLockedItem("Some item (Last Man Standing)"));
+		assertTrue(ItemEligibility.isModeLockedItem("Black d'hide chaps (beta)"));
+		assertFalse("a normal item must not be excluded", ItemEligibility.isModeLockedItem("Abyssal whip"));
+		assertFalse("case must not matter for a real item name", ItemEligibility.isModeLockedItem("Rune platebody"));
 	}
 
 	private static int findIdByName(String name)
@@ -581,17 +582,17 @@ public class GearSectionGearPoolTest
 	@Test
 	public void isGauntletOnlyItem_matchesTheThreeTierSuffixes_andNothingElse()
 	{
-		assertTrue(GearSection.isGauntletOnlyItem("Crystal legs (perfected)"));
-		assertTrue(GearSection.isGauntletOnlyItem("Crystal helm (basic)"));
-		assertTrue(GearSection.isGauntletOnlyItem("Corrupted bow (attuned)"));
-		assertTrue(GearSection.isGauntletOnlyItem("Crystal dagger (perfected)"));
+		assertTrue(ItemEligibility.isGauntletOnlyItem("Crystal legs (perfected)"));
+		assertTrue(ItemEligibility.isGauntletOnlyItem("Crystal helm (basic)"));
+		assertTrue(ItemEligibility.isGauntletOnlyItem("Corrupted bow (attuned)"));
+		assertTrue(ItemEligibility.isGauntletOnlyItem("Crystal dagger (perfected)"));
 		assertFalse("plain main-game crystal armour must not be excluded",
-			GearSection.isGauntletOnlyItem("Crystal legs"));
-		assertFalse(GearSection.isGauntletOnlyItem("Crystal body"));
+			ItemEligibility.isGauntletOnlyItem("Crystal legs"));
+		assertFalse(ItemEligibility.isGauntletOnlyItem("Crystal body"));
 		assertFalse("the suffix must be at the END of the name",
-			GearSection.isGauntletOnlyItem("(perfected) oddity"));
-		assertFalse(GearSection.isGauntletOnlyItem("Abyssal whip"));
-		assertFalse(GearSection.isGauntletOnlyItem(null));
+			ItemEligibility.isGauntletOnlyItem("(perfected) oddity"));
+		assertFalse(ItemEligibility.isGauntletOnlyItem("Abyssal whip"));
+		assertFalse(ItemEligibility.isGauntletOnlyItem(null));
 	}
 
 	/**
@@ -633,7 +634,7 @@ public class GearSectionGearPoolTest
 	@Test
 	public void restrictedItemIds_excludeGauntletTiers_butKeepPlainCrystalArmour()
 	{
-		java.util.Set<Integer> restricted = GearSection.restrictedItemIds();
+		java.util.Set<Integer> restricted = ItemEligibility.restrictedItemIds();
 		assertTrue("Crystal legs (perfected) must be excluded from the candidate pool",
 			restricted.contains(CRYSTAL_LEGS_PERFECTED));
 		assertFalse("plain main-game Crystal legs must survive the filter",
