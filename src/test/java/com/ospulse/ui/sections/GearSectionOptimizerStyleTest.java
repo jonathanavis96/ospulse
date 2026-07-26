@@ -90,6 +90,21 @@ public class GearSectionOptimizerStyleTest
 	private static final int MASORI_MASK = 27226;       // plain base form the optimiser's ownership map aliases to
 	private static final int MASORI_MASK_F = 27235;     // the actual owned fortified variant
 
+	// P1 (issue #11 Stage 3 follow-up): self-cast magic weapon (no spellbook/rune
+	// plumbing needed, mirrors GearOptimizerOwnedDeadmanCapeTest's fixture) plus the
+	// Deadman-mode Imbued saradomin cape — mode-locked (GearSection.isModeLockedItem),
+	// so restrictedItemIds() always excludes it, yet its ownership legitimately
+	// credits the real, non-mode-locked "Imbued saradomin cape" via OwnedVariantResolver.
+	private static final int TRIDENT_OF_THE_SEAS = 11905;
+	private static final int IMBUED_SARADOMIN_CAPE_DEADMAN = 29617;
+	/**
+	 * The ordinary counterpart 29617's ownership credits — the magic-75-gated
+	 * id, not the ungated same-named duplicate 24248 (see
+	 * {@code OwnedVariantResolver.resolveByStatMatch}).
+	 */
+	private static final int IMBUED_SARADOMIN_CAPE_PLAIN = 21791;
+	private static final int CAPE_SLOT = 1;
+
 	private static int[] loadout(int weaponId)
 	{
 		int[] ids = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
@@ -435,15 +450,30 @@ public class GearSectionOptimizerStyleTest
 	}
 
 	/**
-	 * Codex review finding #2 (PR #5): if the player EXCLUDED their own
-	 * owned variant from suggestions, the optimiser correctly falls back to
-	 * recommending the plain base form via the ownership map — and the
-	 * display must NOT remap that back to the excluded variant, or the
-	 * excluded item would silently reappear under a different id's row. The
-	 * plain name is shown/applied instead, matching what the optimiser is
-	 * actually proposing (also exercises finding #1's consistency: whatever
-	 * the row shows is exactly what gets applied, even in this fallback
-	 * case).
+	 * Codex review finding #2 (PR #5) established that an excluded owned
+	 * variant must never reappear in the suggestions. That still holds and is
+	 * still asserted here.
+	 *
+	 * <p><b>What changed is the fallback</b> (2026-07-26): the original
+	 * version asserted the plain base id came back <i>owned and free</i> —
+	 * "that's the whole point of the mapping". It is not, and that assertion
+	 * encoded a defect. The credit's entire justification is that the player
+	 * effectively HAS the plain item because they hold the variant. Excluding
+	 * the variant withdraws that backing, and a player who fortified their
+	 * Masori mask has no plain Masori mask in the bank — so recommending one
+	 * at zero spend proposes an item that does not exist anywhere, and the
+	 * bank highlighter then points at an id that cannot be found. The
+	 * exclusion would have manufactured a free item out of nothing.
+	 *
+	 * <p>The honest outcome at budget 0 is what this now asserts: no free
+	 * plain fallback for that slot. With a real budget the plain form is
+	 * simply a purchase, priced like any other — which is exactly what it
+	 * would be.
+	 *
+	 * <p>Applied uniformly across {@code SUFFIXES} rather than only to the
+	 * mode-locked "(deadman)" class that surfaced it: a rule that held for one
+	 * variant class and not another is precisely the kind of split that
+	 * produced several of these findings.
 	 */
 	@Test
 	public void excludedOwnedVariant_doesNotReappearInSuggestions()
@@ -457,30 +487,231 @@ public class GearSectionOptimizerStyleTest
 			section.setBudgetTextForTest("0");
 			section.runOptimizerSyncForTest();
 
-			int headChoiceId = -1;
-			boolean headOwned = false;
+			assertFalse("excluding the only backing variant must withdraw the synthetic credit — the plain "
+					+ "mask is in no bank and must not be marked owned at price 0",
+				section.ownedPriceMapForTest().containsKey(MASORI_MASK));
+			assertTrue("the excluded variant itself is still genuinely owned; exclusion means \"never "
+					+ "suggest\", not \"pretend it is gone\"",
+				section.ownedPriceMapForTest().containsKey(MASORI_MASK_F));
+
 			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
 			{
 				if (choice.slotOrdinal() == 0) // HEAD
 				{
-					headChoiceId = choice.itemId();
-					headOwned = choice.owned();
+					assertFalse("the excluded variant must never be recommended", choice.itemId() == MASORI_MASK_F);
+					assertFalse("and its plain form must not be handed over free in its place",
+						choice.itemId() == MASORI_MASK && choice.owned());
 				}
 			}
-			assertEquals("the optimiser must fall back to matching the plain base id via the ownership map",
-				MASORI_MASK, headChoiceId);
-			assertTrue("the plain base id must be free/owned (that's the whole point of the mapping)", headOwned);
 
 			String swapTooltip = findSwapTooltipStartingWith(section, "Masori");
-			assertTrue("a swap row must exist for the head slot: " + swapTooltip, swapTooltip != null);
-			assertFalse("the excluded variant must NOT reappear — its name must not appear anywhere in the row: "
-				+ swapTooltip, swapTooltip.contains("Masori mask (f)"));
-			assertTrue("the plain item's name must be shown instead: " + swapTooltip,
-				swapTooltip.contains("Masori mask ("));
+			assertEquals("no Masori row at all at budget 0 — neither the excluded variant nor a plain mask "
+					+ "the player does not have: " + swapTooltip,
+				null, swapTooltip);
 
 			section.clickApplyOptimizerResultForTest();
-			assertEquals("the applied preview must match the (plain) row too, not resurrect the excluded variant",
-				MASORI_MASK, section.overrideForTest().itemIdFor(0)); // HEAD
+			assertFalse("the preview must not equip the excluded variant",
+				section.overrideForTest().itemIdFor(0) == MASORI_MASK_F);
+			assertFalse("nor the plain form it no longer credits",
+				section.overrideForTest().itemIdFor(0) == MASORI_MASK);
+		});
+	}
+
+	// ------------------------------------------------ P1 (issue #11 Stage 3 follow-up): mode-locked reverse substitution
+
+	/**
+	 * Second P1 on the deadman-suffix fix, a consequence of it rather than a
+	 * pre-existing bug: once owning a "(deadman)" item cross-maps to its
+	 * plain counterpart ({@code OwnedVariantResolver.SUFFIXES}), the
+	 * optimiser can legitimately SELECT that plain counterpart — but {@code
+	 * GearSection#resolvedChoiceItemId} previously passed {@code
+	 * preferOwnedVariant} only the user-managed {@code excludedItemIds}, not
+	 * {@code restrictedItemIds()} (the mode-locked/Gauntlet-only set {@code
+	 * buildOptimizerRequest} always folds into the optimiser's OWN exclude
+	 * set — see {@code GearSectionGearPoolTest
+	 * #deadmanNamedItem_isNeverSuggestedByTheOptimizer}). So the reverse
+	 * display lookup could remap the plain choice straight back to the
+	 * owned-but-mode-locked deadman id, resurrecting under the swap row /
+	 * applied preview / bank highlight exactly the item the optimiser
+	 * correctly refused to ever suggest directly.
+	 *
+	 * <p><b>That reading was wrong, and this test now asserts the opposite
+	 * (see {@code GearSection#resolvedChoiceItemId}).</b> Blocking the
+	 * substitution left the player holding ONLY the deadman cape while every
+	 * display surface named the plain id — an item that is not in their bank,
+	 * because {@code addVariantPlainForm} invented it at price 0 purely to
+	 * make the credit work. The swap row then said "equip Imbued saradomin
+	 * cape" for a cape they do not have, and the bank highlight armed on an
+	 * id that cannot be in the bank while missing the one that is.
+	 *
+	 * <p>The mode-lock's actual guarantee is about the SEARCH, and it is
+	 * untouched: the optimiser still never picks, scores or recommends a
+	 * mode-locked id ({@code GearSectionGearPoolTest
+	 * #deadmanNamedItem_isNeverSuggestedByTheOptimizer}), which this test
+	 * re-asserts below. Once the credit has already been granted, naming the
+	 * physical item the player owns is the only display that is not a lie —
+	 * and the two ids are stat- and requirement-identical by construction, so
+	 * the recommendation itself is unchanged either way. See {@link
+	 * #ownedPlainAndDeadmanCape_prefersTheGenuinelyHeldPlainId} for the
+	 * kernel of the original P1 that IS still enforced.
+	 */
+	@Test
+	public void ownedDeadmanCapeCredit_resolvesEveryDisplaySurfaceToTheHeldVariant()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(TRIDENT_OF_THE_SEAS)), wealthWith(IMBUED_SARADOMIN_CAPE_DEADMAN)));
+			pickCerberus(section);
+			section.clickOptimizerStyleForTest(CombatStyle.MAGIC);
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			int capeChoiceId = -1;
+			boolean capeOwned = false;
+			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
+			{
+				if (choice.slotOrdinal() == CAPE_SLOT)
+				{
+					capeChoiceId = choice.itemId();
+					capeOwned = choice.owned();
+				}
+			}
+			// The optimiser itself must pick the credited PLAIN "Imbued saradomin cape"
+			// id — restrictedItemIds() always excludes the deadman id itself, so the
+			// optimiser can never choose it directly (this much already worked before
+			// this fix, and is not what's under test here).
+			assertTrue("the cape-slot recommendation must be owned via the deadman-suffix credit", capeOwned);
+			assertFalse("the optimiser itself must never choose the mode-locked deadman id directly",
+				capeChoiceId == IMBUED_SARADOMIN_CAPE_DEADMAN);
+
+			String swapTooltip = findSwapTooltipStartingWith(section, "Imbued saradomin cape");
+			assertTrue("a swap row must exist for the cape slot: " + swapTooltip, swapTooltip != null);
+			assertTrue("the swap row must name the cape the player actually holds, not the credited plain id "
+					+ "they have no copy of: " + swapTooltip,
+				swapTooltip.contains("(deadman)"));
+
+			section.clickApplyOptimizerResultForTest();
+			int appliedCapeId = section.overrideForTest().itemIdFor(CAPE_SLOT);
+			assertEquals("the applied preview must equip the held deadman id, matching the row "
+					+ "(Codex finding #1's consistency guarantee — every surface resolves identically)",
+				IMBUED_SARADOMIN_CAPE_DEADMAN, appliedCapeId);
+			assertEquals("the bank highlight must point at the same held id, or it highlights nothing at all",
+				IMBUED_SARADOMIN_CAPE_DEADMAN,
+				(int) section.optimizerLoadoutSlotMapForTest(section.lastOptimizerResultForTest()).get(CAPE_SLOT));
+		});
+	}
+
+	/**
+	 * The WORN case, and the reason a reported self-swap does not actually
+	 * occur — recorded because the reasoning is not obvious from either side.
+	 *
+	 * <p>The concern: with the mode-locked cape equipped rather than banked,
+	 * the optimiser would be forced onto its credited plain counterpart
+	 * (21791) since 29617 is excluded from every search, the display would
+	 * resolve that back to 29617, and comparing the RAW choice against the
+	 * live id would render a 29617 → 29617 self-swap, report a slot change
+	 * and auto-apply a redundant override.
+	 *
+	 * <p>It does not happen, because the exclude set filters <b>candidates</b>
+	 * and a worn item is not a candidate — it is the <b>seed</b>.
+	 * {@code GearOptimizer.Request.Builder} adds every live id to {@code
+	 * owned} unconditionally ("the player's own worn gear is always owned"),
+	 * and the search starts from {@code request.liveItemIds.clone()}. A worn
+	 * mode-locked item therefore stays in its slot and comes back as the raw
+	 * choice, so the live-vs-choice comparison already matches. This test
+	 * pins that: the raw cape choice IS the worn deadman id.
+	 *
+	 * <p>The margin is one tie-break wide, which is why the comparisons still
+	 * resolve first (see {@code GearSection#hasAnySlotChange}). The greedy
+	 * seed picks each slot's best owned CANDIDATE, and 21791 is in the owned
+	 * set via the credit while 29617 is not a candidate — the two are
+	 * stat-identical, so the tie keeps the worn item today. Anything that
+	 * made the credited counterpart score strictly higher would hand the slot
+	 * to 21791 and make the self-swap real.
+	 */
+	@Test
+	public void wornDeadmanCape_isNotReportedAsASwapAgainstItself()
+	{
+		onEdt(() ->
+		{
+			int[] worn = loadout(TRIDENT_OF_THE_SEAS);
+			worn[CAPE_SLOT] = IMBUED_SARADOMIN_CAPE_DEADMAN;
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(worn), wealthWith(IMBUED_SARADOMIN_CAPE_DEADMAN)));
+			pickCerberus(section);
+			section.clickOptimizerStyleForTest(CombatStyle.MAGIC);
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			int capeChoiceId = -1;
+			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
+			{
+				if (choice.slotOrdinal() == CAPE_SLOT)
+				{
+					capeChoiceId = choice.itemId();
+				}
+			}
+			assertEquals("a worn mode-locked item is the search SEED, not a candidate, so it comes "
+					+ "back as the raw choice unchanged",
+				IMBUED_SARADOMIN_CAPE_DEADMAN, capeChoiceId);
+
+			assertEquals("no swap row may be rendered for a cape the player is already wearing",
+				null, findSwapTooltipStartingWith(section, "Imbued saradomin cape"));
+			assertFalse("the cape slot must not count as a change, or the panel reports an upgrade "
+					+ "that is the item already on the player's back",
+				section.hasAnySlotChangeForTest(section.lastOptimizerResultForTest()));
+
+			section.clickApplyOptimizerResultForTest();
+			assertEquals("no redundant override may be applied for an unchanged slot",
+				-1, section.overrideForTest().itemIdFor(CAPE_SLOT));
+		});
+	}
+
+	/**
+	 * The kernel of the original P1, still enforced: a substitution only ever
+	 * happens for a choice the player does NOT physically hold. Here they own
+	 * the plain "Imbued saradomin cape" outright AND the mode-locked deadman
+	 * copy; the optimiser picks the plain id it can legitimately recommend,
+	 * and the display must leave it alone rather than swapping in the
+	 * look-alike the optimiser is forbidden to suggest. Without the
+	 * {@code heldItemIds} guard in {@code GearSection#resolvedChoiceItemId},
+	 * {@code preferOwnedVariant} would happily return the deadman id here,
+	 * since it is an owned, non-excluded, stat-identical variant.
+	 */
+	@Test
+	public void ownedPlainAndDeadmanCape_prefersTheGenuinelyHeldPlainId()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(TRIDENT_OF_THE_SEAS)),
+				wealthWith(IMBUED_SARADOMIN_CAPE_DEADMAN, IMBUED_SARADOMIN_CAPE_PLAIN)));
+			pickCerberus(section);
+			section.clickOptimizerStyleForTest(CombatStyle.MAGIC);
+			section.setBudgetTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			int capeChoiceId = -1;
+			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
+			{
+				if (choice.slotOrdinal() == CAPE_SLOT)
+				{
+					capeChoiceId = choice.itemId();
+				}
+			}
+			assertEquals("the optimiser must pick the plain cape the player genuinely holds",
+				IMBUED_SARADOMIN_CAPE_PLAIN, capeChoiceId);
+
+			String swapTooltip = findSwapTooltipStartingWith(section, "Imbued saradomin cape");
+			assertTrue("a swap row must exist for the cape slot: " + swapTooltip, swapTooltip != null);
+			assertFalse("a genuinely-held plain id must never be swapped out for the mode-locked "
+					+ "look-alike: " + swapTooltip,
+				swapTooltip.contains("(deadman)"));
+
+			section.clickApplyOptimizerResultForTest();
+			assertEquals("the applied preview must equip the genuinely-held plain id",
+				IMBUED_SARADOMIN_CAPE_PLAIN, section.overrideForTest().itemIdFor(CAPE_SLOT));
 		});
 	}
 

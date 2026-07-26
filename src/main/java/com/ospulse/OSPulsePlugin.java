@@ -8,6 +8,8 @@ import com.ospulse.integration.RuneLiteItemValuation;
 import com.ospulse.integration.SessionTracker;
 import com.ospulse.ui.OSPulsePanel;
 import com.ospulse.ui.sections.GearSection;
+import com.ospulse.ui.sections.gear.IronmanAutoDetect;
+import com.ospulse.ui.sections.gear.IronmanOwnedOnlyStore;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
@@ -21,9 +23,11 @@ import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.vars.AccountType;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.events.RuneScapeProfileChanged;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
@@ -113,14 +117,34 @@ public class OSPulsePlugin extends Plugin
 	@com.google.inject.Inject(optional = true)
 	private net.runelite.client.plugins.banktags.TagManager tagManager;
 
+	/** Mirrors {@link OSPulseConfig#ironmanOwnedOnly()}'s {@code keyName} — see {@link #checkIronmanAutoDetect()} and {@link IronmanOwnedOnlyStore#KEY}. */
+	private static final String IRONMAN_OWNED_ONLY_KEY = IronmanOwnedOnlyStore.KEY;
+	/** Per-RS-profile "have I already evaluated auto-detect for this profile" bookkeeping key — see {@link #checkIronmanAutoDetect()}. */
+	private static final String IRONMAN_AUTO_DETECT_SEEN_KEY = "ironmanOwnedOnlyAutoDetectSeen";
+
 	private SessionTracker tracker;
 	private OSPulsePanel panel;
 	private PriceTrendService priceTrendService;
 	private NavigationButton navButton;
 	private com.ospulse.integration.BankRecommendationHighlighter bankHighlighter;
+	/** Owns every {@code ironmanOwnedOnly} read/write — the per-account merged-read scheme's reads/writes/mirror (issue #11 leak fix). */
+	private IronmanOwnedOnlyStore ownedOnlyStore;
 
 	/** Last observed bank-interface-open state, to fire transitions once. */
 	private boolean lastBankOpen;
+
+	/**
+	 * Set on every {@code LOGGED_IN} transition; {@link #onGameTick} is where
+	 * {@link #checkIronmanAutoDetect()} actually runs (see that method's
+	 * javadoc for why account state can't be read on the LOGGED_IN event
+	 * itself) — but only CLEARS this flag once {@link #checkIronmanAutoDetect()}
+	 * reports it actually ran (P2 fix): if the first post-login tick still
+	 * sees {@code Client.getAccountHash() == -1}, this stays armed and
+	 * {@link #checkIronmanAutoDetect()} is retried on every subsequent tick
+	 * until account state is ready, rather than being silently dropped for
+	 * the whole session.
+	 */
+	private boolean pendingIronmanAutoDetect;
 
 	@Override
 	protected void startUp()
@@ -132,6 +156,8 @@ public class OSPulsePlugin extends Plugin
 		BundledGson.set(gson);
 
 		tracker = new SessionTracker(client, itemManager, config, configManager, gson);
+
+		ownedOnlyStore = new IronmanOwnedOnlyStore(configManager);
 
 		priceTrendService = new PriceTrendService(okHttpClient, config, gson);
 
@@ -252,6 +278,7 @@ public class OSPulsePlugin extends Plugin
 		{
 			tracker.onLogin();
 		}
+		armPendingIronmanAutoDetectIfLoggedIn();
 
 		log.debug("OSPulse plugin started");
 	}
@@ -306,6 +333,7 @@ public class OSPulsePlugin extends Plugin
 		{
 			case LOGGED_IN:
 				tracker.onLogin();
+				armPendingIronmanAutoDetectIfLoggedIn();
 				break;
 			case LOGIN_SCREEN:
 			case HOPPING:
@@ -324,6 +352,18 @@ public class OSPulsePlugin extends Plugin
 		if (client.getGameState() != GameState.LOGGED_IN)
 		{
 			return;
+		}
+
+		if (pendingIronmanAutoDetect)
+		{
+			// P2 fix: only consumed once checkIronmanAutoDetect() actually ran —
+			// see that method's readiness guard/javadoc. Clearing the flag
+			// unconditionally here (the earlier bug) would silently drop the
+			// only pending attempt for the whole session whenever the FIRST
+			// post-login tick still reported account state as not-yet-ready:
+			// no other event re-arms pendingIronmanAutoDetect until the next
+			// LOGGED_IN transition, so auto-detect would just never run.
+			pendingIronmanAutoDetect = !checkIronmanAutoDetect();
 		}
 
 		// Detect bank open/close transitions before advancing the tracker so the
@@ -352,6 +392,99 @@ public class OSPulsePlugin extends Plugin
 		}
 
 		tracker.onTick();
+	}
+
+	/**
+	 * Arms {@link #pendingIronmanAutoDetect} if the client is already logged
+	 * in — shared by {@link #startUp()} (plugin enabled while already
+	 * logged in, which fires no {@code LOGGED_IN} {@link GameStateChanged})
+	 * and {@link #onGameStateChanged}'s own LOGGED_IN case, so the two paths
+	 * cannot drift (issue #11 P2 fix).
+	 */
+	void armPendingIronmanAutoDetectIfLoggedIn()
+	{
+		if (client.getGameState() == GameState.LOGGED_IN)
+		{
+			pendingIronmanAutoDetect = true;
+		}
+	}
+
+	/** Test seam: {@link #pendingIronmanAutoDetect}'s current value. */
+	boolean pendingIronmanAutoDetectForTest()
+	{
+		return pendingIronmanAutoDetect;
+	}
+
+	/**
+	 * One-time, per-RS-profile auto-enable of {@link OSPulseConfig#ironmanOwnedOnly()}
+	 * for ironman accounts (issue #11). Deliberately run from the first
+	 * {@link GameTick} after login rather than {@link #onGameStateChanged}
+	 * itself: reading account state (e.g. {@link Client#getAccountType()}) on
+	 * the LOGGED_IN transition has been observed elsewhere in this codebase
+	 * (see the bank-cache/GE-ledger restore in {@code SessionTracker}) to run
+	 * before the client has finished populating post-login state, so this
+	 * mirrors {@code SessionTracker#onTick}'s own bootstrap-on-next-tick
+	 * pattern by deferring exactly one tick.
+	 *
+	 * <p>{@code ironmanOwnedOnly} is per-account now (issue #11 leak fix): the
+	 * write below goes through {@link #ownedOnlyStore}'s {@code
+	 * writeAutoDetected}, which sets ONLY the current account's RS-profile-
+	 * scoped value, never the client-wide {@code @ConfigItem} — an ironman
+	 * alt auto-enabling can therefore never leak onto a main sharing the same
+	 * client. The bookkeeping "have I already evaluated this profile" marker
+	 * (separate from the value itself) is likewise RS-profile-scoped (via
+	 * {@code getRSProfileConfiguration}/{@code setRSProfileConfiguration},
+	 * mirroring {@code SessionTracker}'s bank-cache/GE-ledger persistence) —
+	 * this guarantees an ironman alt and a main sharing one client each get
+	 * their own independent one-time evaluation, rather than one profile's
+	 * "already decided" state silently blocking the other's. See {@link
+	 * IronmanAutoDetect} for the pure decision logic and {@link
+	 * IronmanOwnedOnlyStore}/{@code com.ospulse.ui.sections.gear.IronmanOwnedOnlyResolver}
+	 * for the full per-account merged-read scheme.
+	 *
+	 * @return {@code false} when the readiness guard below refused to run at
+	 *         all (account state not yet available) — {@link #onGameTick}'s
+	 *         P2 fix uses this to decide whether {@link
+	 *         #pendingIronmanAutoDetect} may be cleared or must stay armed
+	 *         for a retry on the next tick; {@code true} otherwise (the check
+	 *         ran to completion, whatever it decided).
+	 */
+	private boolean checkIronmanAutoDetect()
+	{
+		if (configManager == null || client.getAccountHash() == -1L)
+		{
+			return false;
+		}
+
+		String seenMarker = configManager.getRSProfileConfiguration(
+			OSPulseConfig.GROUP, IRONMAN_AUTO_DETECT_SEEN_KEY);
+		if (IronmanAutoDetect.needsEvaluation(seenMarker))
+		{
+			configManager.setRSProfileConfiguration(OSPulseConfig.GROUP, IRONMAN_AUTO_DETECT_SEEN_KEY, true);
+
+			String rawOwnedOnly = ownedOnlyStore.rawProfileValue();
+			AccountType accountType = client.getAccountType();
+			boolean isIronman = accountType != null && (accountType.isIronman() || accountType.isGroupIronman());
+			if (IronmanAutoDetect.shouldAutoEnable(rawOwnedOnly, isIronman))
+			{
+				ownedOnlyStore.writeAutoDetected(true);
+			}
+		}
+
+		// Mirror (issue #11 leak fix): every login re-syncs the client-wide
+		// checkbox to this account's resolved effective value, so the settings
+		// panel never shows a stale value left over from whichever account was
+		// last logged in. Also re-run from onRuneScapeProfileChanged (an RS
+		// profile switch without a full re-login, e.g. bank PIN or world hop
+		// edge cases RuneLite itself treats as a profile change).
+		ownedOnlyStore.mirrorToClientWide();
+		return true;
+	}
+
+	/** Test seam: runs {@link #checkIronmanAutoDetect()} directly (private, no {@code pendingIronmanAutoDetect} plumbing needed in a test). */
+	void checkIronmanAutoDetectForTest()
+	{
+		checkIronmanAutoDetect();
 	}
 
 	@Subscribe
@@ -467,7 +600,9 @@ public class OSPulsePlugin extends Plugin
 	 * episode from it. Animation is not a nicety here: herblore's unf-making
 	 * step grants no XP at all, so an XP-only trigger would never see the step
 	 * the expensive herb is spent on. See {@code ProductionActivity} for the id
-	 * table (currently UNVERIFIED) and for why a wrong id degrades safely.
+	 * table — every id resolved from RuneLite's own {@code AnimationID}
+	 * constants and guarded by {@code ProductionAnimationProvenanceTest} — and
+	 * for why a missing id degrades safely.
 	 */
 	@Subscribe
 	public void onAnimationChanged(AnimationChanged event)
@@ -475,6 +610,27 @@ public class OSPulsePlugin extends Plugin
 		if (event.getActor() == client.getLocalPlayer())
 		{
 			tracker.onAnimationChanged(event.getActor().getAnimation());
+		}
+	}
+
+	/**
+	 * An RS profile switch without a full re-login (RuneLite fires this
+	 * whenever its own profile resolution decides the "current" RS profile
+	 * changed) — re-mirrors the newly-current account's resolved value into
+	 * the client-wide checkbox (issue #11 leak fix), same as {@link
+	 * #checkIronmanAutoDetect()} does on every login.
+	 */
+	@Subscribe
+	public void onRuneScapeProfileChanged(RuneScapeProfileChanged event)
+	{
+		if (ownedOnlyStore == null)
+		{
+			return;
+		}
+		ownedOnlyStore.mirrorToClientWide();
+		if (panel != null)
+		{
+			SwingUtilities.invokeLater(panel::refreshIronmanOwnedOnlyMode);
 		}
 	}
 
@@ -492,6 +648,36 @@ public class OSPulsePlugin extends Plugin
 		if (key != null && key.startsWith("show") && key.endsWith("Section"))
 		{
 			SwingUtilities.invokeLater(panel::applySectionVisibility);
+		}
+
+		// Ironman owned-only mode (issue #11 P2 fix, then the issue #11 leak
+		// fix's per-account scheme): every change on this key — the auto-
+		// detect's own per-profile write, this plugin's own client-wide
+		// mirror echoing back, or a genuine user toggle of the settings-panel
+		// checkbox — must recompute the affected GearSection visibility live,
+		// same as the show*Section keys above.
+		if (IRONMAN_OWNED_ONLY_KEY.equals(key))
+		{
+			// A non-null profile means this is a profile-SCOPED write (verified
+			// against the ConfigManager bytecode: setRSProfileConfiguration's
+			// posted ConfigChanged always carries the resolved RS profile key;
+			// every plain setConfiguration — whether ours or the settings
+			// panel's — always carries a null profile) — i.e. auto-detect's own
+			// write, never a user toggle of the client-wide checkbox. Refresh
+			// only; never treat it as a toggle to persist.
+			if (event.getProfile() == null)
+			{
+				// Client-wide write: either this plugin's own mirrorToClientWide
+				// echoing back (swallowed by the echo latch — see
+				// IronmanOwnedOnlyStore's javadoc) or a genuine user toggle,
+				// which must persist to the current account's per-profile value
+				// AND the global default.
+				if (!ownedOnlyStore.consumeMirrorEcho(event.getNewValue()))
+				{
+					ownedOnlyStore.writeUserToggle(Boolean.parseBoolean(event.getNewValue()));
+				}
+			}
+			SwingUtilities.invokeLater(panel::refreshIronmanOwnedOnlyMode);
 		}
 	}
 

@@ -8,7 +8,7 @@
       "note": "Only leaf-bladed weapons, broad ammo, or Magic Dart can harm it. Magic is greyed because Magic Dart can't be detected, but the spell still works."
     },
     {
-      "monsters": ["Aviansie", "Kree'arra", "Flight Kilisa", "Wingman Skree", "Flockleader Geerin", "Armadylean guard"],
+      "monsters": ["Aviansie", "Kree'arra", "Flight Kilisa", "Wingman Skree", "Flockleader Geerin", "Armadylean guard", "Dawn"],
       "type": "WEAPON_GATE",
       "allowedStyles": ["RANGED", "MAGIC"],
       "allowedItemIds": [3190, 3192, 3194, 3196, 3198, 3200, 3202, 3204, 6599, 23849, 23850, 23851, 23895, 23896, 23897, 23987, 28049, 29796, 10146, 10147, 10148, 10149, 28834],
@@ -39,10 +39,87 @@
       "note": "Finish with an ice cooler at low HP."
     },
     {
-      "monsters": ["Zygomite", "Mutated Zygomite", "Ancient Zygomite"],
+      "monsters": ["Zygomite", "Ancient Zygomite"],
       "type": "FINISHER",
       "finisherItemIds": [7421],
       "note": "Finish with fungicide spray once its HP is low (about 8 or below)."
+    },
+    {
+      "monsters": ["Zulrah"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["RANGED", "MAGIC"],
+      "allowedItemIds": [3190, 3192, 3194, 3196, 3198, 3200, 3202, 3204, 6599, 23849, 23850, 23851, 23895, 23896, 23897, 23987, 28049, 29796],
+      "note": "Zulrah sits across the water — only a halberd has the reach to melee it, so a whip or scimitar cannot connect at all."
+    },
+    {
+      "monsters": ["Kraken"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["RANGED", "MAGIC"],
+      "note": "The kraken stays submerged and cannot be reached by melee at all, not even with a halberd."
+    },
+    {
+      "monsters": ["Cave kraken"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["RANGED", "MAGIC"],
+      "note": "Cave krakens cannot be meleed — a halberd technically reaches, but deals no damage."
+    },
+    {
+      "monsters": ["The Leviathan"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["RANGED", "MAGIC"],
+      "note": "Melee attacks cannot reach the Leviathan — use ranged or magic."
+    },
+    {
+      "monsters": ["Tekton"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["STAB", "SLASH", "CRUSH", "MAGIC"],
+      "note": "Tekton is immune to ranged. Magic works but takes 80% reduced damage, so melee is far better."
+    },
+    {
+      "monsters": ["Tumeken's Warden (Active)"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["RANGED"],
+      "note": "While active this warden protects against melee and magic — only ranged will damage it."
+    },
+    {
+      "monsters": ["Elidinis' Warden (Active)"],
+      "type": "WEAPON_GATE",
+      "allowedStyles": ["MAGIC"],
+      "note": "While active this warden protects against melee and ranged — only magic will damage it."
+    },
+    {
+      "monsters": ["Corporeal Beast"],
+      "type": "DAMAGE_PENALTY",
+      "damageMultiplier": 0.5,
+      "penalisedStyles": ["STAB", "SLASH", "CRUSH", "RANGED"],
+      "exemptStyles": ["STAB", "RANGED"],
+      "allowedItemIds": [1237, 1239, 1241, 1243, 1245, 1247, 1249, 1251, 1253, 1255, 1257, 1259, 1261, 1263, 3170, 3171, 3172, 3173, 3174, 3175, 3176, 3190, 3192, 3194, 3196, 3198, 3200, 3202, 3204, 4158, 4580, 4582, 4584, 4726, 4910, 4911, 4912, 4913, 5016, 5704, 5706, 5708, 5710, 5712, 5714, 5716, 5718, 5720, 5722, 5724, 5726, 5728, 5730, 5734, 5736, 6599, 7809, 11367, 11369, 11371, 11373, 11375, 11377, 11379, 11381, 11382, 11384, 11386, 11388, 11389, 11391, 11393, 11395, 11396, 11398, 11400, 11402, 11403, 11405, 11407, 11409, 11410, 11412, 11414, 11416, 11417, 11419, 11824, 11889, 20158, 20161, 21649, 22610, 22731, 22734, 22737, 22740, 22743, 22978, 23849, 23850, 23851, 23895, 23896, 23897, 23987, 26219, 27246, 27900, 28041, 28043, 28045, 28047, 28049, 29796, 33249, 33251, 33722],
+      "note": "Corp halves all melee and ranged damage. Only a corpbane weapon deals full damage, and only on the style it is corpbane with: the melee corpbane weapons (spears, halberds, stab swords) must be on STAB — the same spear on slash is still halved — while King's barrage is a crossbow whose only style is RANGED. Both styles are listed in exemptStyles because allowedItemIds is the other half of the gate: no spear can attack on RANGED and no crossbow on STAB, so neither style leaks the exemption to the other group. Magic is never reduced, just inaccurate."
+    },
+    {
+      "monsters": ["The Hueycoatl (Tail)", "The Hueycoatl (Tail (broken))"],
+      "type": "DAMAGE_CAP",
+      "maxHitCap": 4,
+      "maxHitCapWhenCrushHighest": 9,
+      "note": "The tail's scales blunt most damage — max hit is capped at 4 regardless of gear, or 9 if your loadout's highest attack bonus is crush. Both tail records are listed because the broken-tail name nests its parentheses and so never reaches the base-name fallback."
+    },
+    {
+      "monsters": [
+        "Verzik Vitur (Entry mode, Phase 1)",
+        "Verzik Vitur (Normal mode, Phase 1)",
+        "Verzik Vitur (Hard mode, Phase 1)"
+      ],
+      "type": "DAMAGE_CAP",
+      "maxHitCapByStyle": {
+        "STAB": 10,
+        "SLASH": 10,
+        "CRUSH": 10,
+        "RANGED": 3,
+        "MAGIC": 3
+      },
+      "capMode": "REROLL",
+      "allowedItemIds": [22516],
+      "note": "Phase 1 re-rolls any melee hitsplat above 10 down to 0-10, and any ranged or magic hitsplat above 3 down to 0-3. Dawnbringer has no damage cap on this boss at all. Any other weapon also has a much lower chance of hitting, but the wiki publishes no number for that penalty, so it is NOT modelled here — this cap only corrects the damage magnitude, not accuracy."
     }
   ]
 }

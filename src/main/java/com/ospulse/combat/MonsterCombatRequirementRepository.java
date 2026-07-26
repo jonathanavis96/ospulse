@@ -8,7 +8,9 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -93,6 +95,19 @@ public final class MonsterCombatRequirementRepository {
                         requirement = MonsterCombatRequirement.finisher(
                                 dto.finisherItemIds == null ? Collections.emptySet() : new HashSet<>(dto.finisherItemIds),
                                 dto.note);
+                    } else if (type == MonsterCombatRequirement.Type.DAMAGE_PENALTY) {
+                        requirement = MonsterCombatRequirement.damagePenalty(
+                                dto.allowedItemIds == null ? Collections.emptySet() : new HashSet<>(dto.allowedItemIds),
+                                dto.damageMultiplier == null ? 1.0 : dto.damageMultiplier,
+                                parseStyles(dto.penalisedStyles), parseStyles(dto.exemptStyles), dto.note);
+                    } else if (type == MonsterCombatRequirement.Type.DAMAGE_CAP) {
+                        requirement = MonsterCombatRequirement.damageCap(
+                                dto.maxHitCap == null ? -1 : dto.maxHitCap,
+                                dto.maxHitCapWhenCrushHighest == null ? -1 : dto.maxHitCapWhenCrushHighest,
+                                dto.allowedItemIds == null ? Collections.emptySet() : new HashSet<>(dto.allowedItemIds),
+                                parseCapByStyle(dto.maxHitCapByStyle),
+                                parseCapMode(dto.capMode),
+                                dto.note);
                     } else {
                         requirement = MonsterCombatRequirement.weaponGate(
                                 dto.allowedItemIds == null ? Collections.emptySet() : new HashSet<>(dto.allowedItemIds),
@@ -110,6 +125,70 @@ public final class MonsterCombatRequirementRepository {
             return new MonsterCombatRequirementRepository(byName);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to load monster combat requirement data from " + resourcePath, e);
+        }
+    }
+
+    /** Parses a style-name list from the curated data, skipping anything unrecognised. */
+    private static Set<CombatStyle> parseStyles(List<String> styleNames) {
+        Set<CombatStyle> styles = EnumSet.noneOf(CombatStyle.class);
+        if (styleNames == null) {
+            return styles;
+        }
+        for (String styleName : styleNames) {
+            if (styleName == null) {
+                continue;
+            }
+            try {
+                styles.add(CombatStyle.valueOf(styleName.trim().toUpperCase(Locale.ROOT)));
+            } catch (IllegalArgumentException ignored) {
+                // unknown style name in the data — skip defensively
+            }
+        }
+        return styles;
+    }
+
+    /**
+     * Parses the optional per-style cap map (JSON keys are style names, e.g.
+     * {@code "RANGED"}), skipping anything unrecognised or null-valued. Gson
+     * leaves the field {@code null} when it is absent from the source JSON —
+     * every existing {@code DAMAGE_CAP} entry lacks this key, so this must
+     * (and does) return an empty map for them, leaving {@link
+     * TargetDamageRule#maxHitCapFor} to fall back to the flat/crush-highest
+     * value exactly as before.
+     */
+    private static Map<CombatStyle, Integer> parseCapByStyle(Map<String, Integer> raw) {
+        Map<CombatStyle, Integer> result = new EnumMap<>(CombatStyle.class);
+        if (raw == null) {
+            return result;
+        }
+        for (Map.Entry<String, Integer> entry : raw.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                continue;
+            }
+            try {
+                result.put(CombatStyle.valueOf(entry.getKey().trim().toUpperCase(Locale.ROOT)), entry.getValue());
+            } catch (IllegalArgumentException ignored) {
+                // unknown style name in the data — skip defensively
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Parses the optional cap-mode field, defaulting to {@link
+     * MonsterCombatRequirement.CapMode#CLAMP} when absent (Gson leaves it
+     * {@code null}) or unrecognised — every entry written before {@code
+     * CapMode} existed has no {@code capMode} key and must keep clamp
+     * semantics.
+     */
+    private static MonsterCombatRequirement.CapMode parseCapMode(String raw) {
+        if (raw == null) {
+            return MonsterCombatRequirement.CapMode.CLAMP;
+        }
+        try {
+            return MonsterCombatRequirement.CapMode.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return MonsterCombatRequirement.CapMode.CLAMP;
         }
     }
 
@@ -143,6 +222,25 @@ public final class MonsterCombatRequirementRepository {
         return Optional.ofNullable(byLowercaseMonsterName.get(MonsterNameKey.baseName(monsterName)));
     }
 
+    /**
+     * Every curated key, lowercased, exactly as stored in the lookup map. Exposed so
+     * the data-integrity test can assert each one still resolves against the bundled
+     * monster data — a typo here silently disables a gate rather than failing loudly.
+     */
+    Set<String> curatedKeys() {
+        return Collections.unmodifiableSet(byLowercaseMonsterName.keySet());
+    }
+
+    /** Every curated entry, for dataset-wide integrity checks. */
+    Collection<MonsterCombatRequirement> allRequirements() {
+        return Collections.unmodifiableCollection(byLowercaseMonsterName.values());
+    }
+
+    /** Exposes the name normalisation {@link #forMonster} falls back to. */
+    static String baseNameOf(String monsterName) {
+        return MonsterNameKey.baseName(monsterName);
+    }
+
     /** Internal Gson deserialisation shape mirroring {@code monster_combat_requirements.json}'s top-level object. */
     private static final class RootDto {
         List<ReqDto> requirements;
@@ -157,5 +255,12 @@ public final class MonsterCombatRequirementRepository {
         List<String> allowedStyles;
         List<Integer> finisherItemIds;
         String note;
+        Double damageMultiplier;
+        List<String> penalisedStyles;
+        List<String> exemptStyles;
+        Integer maxHitCap;
+        Integer maxHitCapWhenCrushHighest;
+        Map<String, Integer> maxHitCapByStyle;
+        String capMode;
     }
 }

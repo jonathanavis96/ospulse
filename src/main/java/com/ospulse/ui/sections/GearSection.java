@@ -35,11 +35,22 @@ import com.ospulse.ui.CentFormat;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.PanelWidgets;
 import com.ospulse.ui.WidthTrackingPanel;
+import com.ospulse.ui.sections.gear.BudgetAmount;
 import com.ospulse.ui.sections.gear.CoinPileBadge;
+import com.ospulse.ui.sections.gear.CollapsibleHeading;
+import com.ospulse.ui.sections.gear.CombatStyleLabel;
+import com.ospulse.ui.sections.gear.DpsFormat;
 import com.ospulse.ui.sections.gear.GpFormat;
+import com.ospulse.ui.sections.gear.HeldItemIds;
+import com.ospulse.ui.sections.gear.ItemEligibility;
+import com.ospulse.ui.sections.gear.OwnedOnlyMandatoryOverrideGate;
+import com.ospulse.ui.sections.gear.OwnedOnlyMode;
+import com.ospulse.ui.sections.gear.OwnedOnlyResultOwnershipGate;
 import com.ospulse.ui.sections.gear.OwnedVariantResolver;
+import com.ospulse.ui.sections.gear.RiskCreditPolicy;
 import com.ospulse.ui.sections.gear.RoundedButton;
 import com.ospulse.ui.sections.gear.StyleGrid;
+import com.ospulse.ui.sections.gear.VariantCreditSources;
 import com.ospulse.wealth.WealthSnapshot;
 
 import net.runelite.client.config.ConfigManager;
@@ -268,6 +279,32 @@ public final class GearSection extends CollapsibleSection
 	private final SpriteManager spriteManager;
 	/** {@code null} in tests that don't exercise persistence (see the no-config-manager constructors) — every read/write of it is guarded. */
 	private final ConfigManager configManager;
+	/**
+	 * {@link #ironmanOwnedOnlyPref()}'s value as of the last {@link
+	 * #refreshIronmanOwnedOnlyMode()} call (seeded at construction) — lets
+	 * that method detect an OFF-&gt;ON transition specifically, rather than
+	 * "currently on", so a result computed WHILE owned-only mode is already
+	 * on (always budget-0, hence always owned-only-safe — see {@link
+	 * com.ospulse.ui.sections.gear.OwnedOnlyMode#effectiveBudget}) is never
+	 * needlessly cleared by an unrelated later refresh (e.g. the RS-profile-
+	 * change mirror).
+	 */
+	private boolean lastKnownIronmanOwnedOnlyPref;
+	/**
+	 * P1-B fix (Codex finding on PR #19, {@code GearSection.java:4843}):
+	 * bumped every OFF-&gt;ON owned-only transition in {@link
+	 * #refreshIronmanOwnedOnlyMode()}. Every optimiser search captures this
+	 * value at launch (before price resolution / the {@code SwingWorker}
+	 * background hop); the result is only ever installed via {@link
+	 * #onOptimizerResult} if the captured value still matches this field when
+	 * the result comes back. A search launched under the previous (possibly
+	 * nonzero) budget that is still in flight when the mode flips ON — so
+	 * {@link #lastOptimizerResult} is still {@code null} and the existing
+	 * {@code lastOptimizerResult != null} guard above has nothing to clear —
+	 * is exactly the gap this closes: its eventually-arriving result is
+	 * simply dropped rather than installed/auto-previewed/bank-highlighted.
+	 */
+	private int optimizerGeneration;
 	/** Nullable collaborator wired post-construction by {@link com.ospulse.ui.OSPulsePanel#setBankHighlighter} — see {@link #setBankHighlighter}. */
 	private com.ospulse.integration.BankRecommendationHighlighter bankHighlighter;
 	private final WeaponCategoryRepository weaponRepo = WeaponCategoryRepository.getInstance();
@@ -423,6 +460,8 @@ public final class GearSection extends CollapsibleSection
 	private static final String EXPENSIVE_THRESHOLD_TOOLTIP = "The value of when an item is considered expensive.";
 	private static final String BUDGET_TOOLTIP =
 		"Extra GP to spend on upgrades beyond your owned gear (blank/0 = owned gear only).";
+	/** Badge | budget entry | risk column — hidden entirely in ironman owned-only mode (issue #11). */
+	private final JPanel budgetRiskRow;
 	private final JButton findBestSetupButton;
 	private final JLabel optimizerStatusLabel;
 	private final JPanel optimizerResultPanel;
@@ -442,6 +481,23 @@ public final class GearSection extends CollapsibleSection
 	 * rest of the time.
 	 */
 	private final JLabel optimizerNoUsableWeaponLabel;
+	/**
+	 * P1-A fix (Codex finding on PR #19, {@code GearSection.java:4602}):
+	 * single, large, clearly-visible line shown INSTEAD OF the five stat rows
+	 * + swap list — mirrors {@link #optimizerNoUsableWeaponLabel}'s shape —
+	 * when owned-only mode is on and the selected target has a mandatory
+	 * {@link MonsterGearOverride} the player owns neither the primary item
+	 * nor any accepted substitute for (e.g. Rune dragons without Insulated
+	 * boots). The earlier fix for this finding only disclosed the gap via
+	 * {@link #updateGearOverrideNote()}'s advisory line; Codex correctly
+	 * escalated that as insufficient, since disclosure elsewhere on the panel
+	 * does not stop the loadout/auto-preview/bank-highlight from recommending
+	 * gear the player cannot actually equip in the one mode that exists to
+	 * promise otherwise. See {@link #onOptimizerResult} for where this is
+	 * decided, and {@link com.ospulse.ui.sections.gear.OwnedOnlyMandatoryOverrideGate}
+	 * for the pure decision logic.
+	 */
+	private final JLabel optimizerOwnedOnlyBlockedLabel;
 	private final JButton applyOptimizerResultButton;
 	private final JButton clearOptimizerPreviewButton;
 	/** Small "Find best" button left of the helmet slot in the gear grid — mirrors {@link #findBestSetupButton} (item #7b). */
@@ -450,10 +506,16 @@ public final class GearSection extends CollapsibleSection
 	private JButton revertGridButton;
 	/** The excluded-items viewer container (heading + search + scrollable icon grid); hidden when nothing is excluded — see {@link #renderExcludedItemsList}. */
 	private final JPanel excludedItemsPanel;
+	/** Clickable "▾/▸ Excluded from suggestions" heading, mirroring {@code LootSection}'s collapse-triangle idiom — see {@link CollapsibleHeading}. */
+	private final JLabel excludedHeading;
 	/** Icon-only grid ({@link #ITEM_GRID_COLUMNS} per row) of excluded items, each cell carrying a top-right ✕ — see {@link #buildExcludedCell}. */
 	private final JPanel excludedItemsList;
+	/** Scrollable viewport around {@link #excludedItemsList} — hidden together with {@link #excludedSearchField} while collapsed. */
+	private final JScrollPane excludedScroll;
 	/** Filters {@link #excludedItemsList} by item name (case-insensitive substring). */
 	private final IconTextField excludedSearchField;
+	/** Collapsed state of the excluded-items body (issue #11), persisted via {@link #CONFIG_KEY_EXCLUDED_ITEMS_COLLAPSED} — composes with the empty-list self-hide, see {@link CollapsibleHeading#bodyVisible}. */
+	private boolean excludedItemsCollapsed;
 	private GearOptimizer.Result lastOptimizerResult;
 	/**
 	 * Item ids from the MOST RECENT optimiser run that were only priced via
@@ -494,6 +556,8 @@ public final class GearSection extends CollapsibleSection
 	 * them in a new visual order after a "Find best setup" 5-style ranking.
 	 */
 	private JPanel optimizerStyleSelectorPanel;
+	/** "Best setup for this target" heading — must stay visible across the ironman owned-only mode split (issue #11). */
+	private JLabel optimizerHeading;
 	/**
 	 * The damage type the optimiser searches for. Until the user clicks one of
 	 * the five buttons ({@link #optimizerStyleUserPicked}) this FOLLOWS the
@@ -669,6 +733,10 @@ public final class GearSection extends CollapsibleSection
 		this.spriteManager = spriteManager;
 		this.configManager = configManager;
 		this.priceResolver = priceResolver;
+		// Baseline for refreshIronmanOwnedOnlyMode's OFF->ON transition guard —
+		// must read AFTER this.configManager is assigned (see that field's own
+		// javadoc on why a field initializer here would run too early).
+		this.lastKnownIronmanOwnedOnlyPref = ironmanOwnedOnlyPref();
 		loadPotionVariantPrefs();
 
 		// ------------------------------------------------ worn-gear header
@@ -875,7 +943,7 @@ public final class GearSection extends CollapsibleSection
 		// budget = extra gp allowed for GE purchases beyond that pool. Search runs
 		// off the EDT (SwingWorker) per the design spec's <500ms-in-a-side-panel
 		// target — a pruned search over ~3000 items can still take tens of ms.
-		JLabel optimizerHeading = PanelWidgets.emptyRowLabel("Best setup for this target");
+		optimizerHeading = PanelWidgets.emptyRowLabel("Best setup for this target");
 		optimizerHeading.setForeground(ColorScheme.BRAND_ORANGE);
 		optimizerHeading.setToolTipText("Searches your owned gear (worn + bank/inventory) plus anything "
 			+ "affordable within the budget below for the highest-DPS loadout against your selected target");
@@ -1170,7 +1238,7 @@ public final class GearSection extends CollapsibleSection
 		riskColumn.add(thresholdRow);
 
 		// horizontal container: badge | budget entry | risk column
-		JPanel budgetRiskRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+		budgetRiskRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
 		budgetRiskRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		budgetRiskRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 		budgetRiskRow.add(budgetBadge);
@@ -1182,6 +1250,9 @@ public final class GearSection extends CollapsibleSection
 
 		loadOptimizerPrefs();
 		loadExcludedItemsPref();
+		excludedItemsCollapsed = loadExcludedItemsCollapsedPref();
+		// Ironman owned-only mode (issue #11): a one-time set at construction, like every other pref loaded above.
+		budgetRiskRow.setVisible(OwnedOnlyMode.upgradeUiVisible(ironmanOwnedOnlyPref()));
 		java.awt.event.ActionListener persistOptimizerPrefs = e -> saveOptimizerPrefs();
 		budgetField.addActionListener(persistOptimizerPrefs);
 		budgetKToggle.addActionListener(e -> saveOptimizerPrefs());
@@ -1296,6 +1367,17 @@ public final class GearSection extends CollapsibleSection
 		optimizerResultPanel.add(optimizerNoUsableWeaponLabel);
 		optimizerResultPanel.add(Box.createRigidArea(new Dimension(0, 4)));
 
+		// P1-A fix: same big, unmissable single-message shape as the
+		// no-usable-weapon line above, shown instead of a normal result when
+		// owned-only mode blocks the recommendation outright — see
+		// onOptimizerResult.
+		optimizerOwnedOnlyBlockedLabel = PanelWidgets.emptyRowLabel("");
+		optimizerOwnedOnlyBlockedLabel.setFont(FontManager.getRunescapeBoldFont().deriveFont(java.awt.Font.BOLD, 14f));
+		optimizerOwnedOnlyBlockedLabel.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
+		optimizerOwnedOnlyBlockedLabel.setVisible(false);
+		optimizerResultPanel.add(optimizerOwnedOnlyBlockedLabel);
+		optimizerResultPanel.add(Box.createRigidArea(new Dimension(0, 4)));
+
 		// B8-4: preview is now applied automatically whenever a usable result
 		// with changes is shown (end of onOptimizerResult), so the manual
 		// "Preview these swaps" button and its explanation are no longer needed
@@ -1342,9 +1424,11 @@ public final class GearSection extends CollapsibleSection
 		excludedItemsPanel.setLayout(new BoxLayout(excludedItemsPanel, BoxLayout.Y_AXIS));
 		excludedItemsPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		excludedItemsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-		JLabel excludedHeading = PanelWidgets.emptyRowLabel("Excluded from suggestions");
+		excludedHeading = PanelWidgets.emptyRowLabel(excludedHeadingText());
 		excludedHeading.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		excludedHeading.setToolTipText("Items you've excluded from optimiser suggestions — click a ✕ to stop excluding one");
+		excludedHeading.setToolTipText("Excluded items — click a ✕ to remove one; click here to collapse/expand.");
+		excludedHeading.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+		installRowPressListener(excludedHeading, this::toggleExcludedItemsCollapsed);
 		excludedItemsPanel.add(excludedHeading);
 
 		excludedSearchField = new IconTextField();
@@ -1380,7 +1464,7 @@ public final class GearSection extends CollapsibleSection
 		excludedItemsList = new JPanel(new GridLayout(0, ITEM_GRID_COLUMNS, 2, 2));
 		excludedItemsList.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		excludedItemsList.setAlignmentX(Component.LEFT_ALIGNMENT);
-		JScrollPane excludedScroll = new JScrollPane(excludedItemsList);
+		excludedScroll = new JScrollPane(excludedItemsList);
 		excludedScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 		excludedScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
 		excludedScroll.setBorder(BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR));
@@ -1432,12 +1516,13 @@ public final class GearSection extends CollapsibleSection
 	{
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
+		java.util.Set<Integer> heldIds = HeldItemIds.from(lastWealth, lastGear, index);
 		java.util.Map<Integer, Integer> map = new java.util.LinkedHashMap<>();
 		for (GearOptimizer.SlotChoice choice : result.loadout())
 		{
 			if (choice.itemId() > 0)
 			{
-				map.put(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds));
+				map.put(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds, heldIds));
 			}
 		}
 		return map;
@@ -1809,7 +1894,7 @@ public final class GearSection extends CollapsibleSection
 	 * The bundled damage-type icon (Stab/Slash/Crush/Magic/Ranged sprite) for the
 	 * optimiser style selector, scaled to a uniform {@link #STYLE_ICON_HEIGHT} so
 	 * the segmented buttons align. Cached per style; returns {@code null} if the
-	 * resource is missing so callers fall back to the text {@link #typeLabel}.
+	 * resource is missing so callers fall back to the text {@link CombatStyleLabel}.
 	 */
 	private static ImageIcon styleIcon(CombatStyle type)
 	{
@@ -1851,24 +1936,6 @@ public final class GearSection extends CollapsibleSection
 		}
 	}
 
-	private static String typeLabel(CombatStyle type)
-	{
-		switch (type)
-		{
-			case STAB:
-				return "Stab";
-			case SLASH:
-				return "Slash";
-			case CRUSH:
-				return "Crush";
-			case RANGED:
-				return "Ranged";
-			case MAGIC:
-				return "Magic";
-			default:
-				return type.name();
-		}
-	}
 
 	/**
 	 * Recomputes the equipped weapon's ranking (DPS-desc against the current
@@ -2331,85 +2398,7 @@ public final class GearSection extends CollapsibleSection
 			return "-";
 		}
 		return result == null ? name
-			: "<html>" + escapeHtml(name) + " &middot; " + dpsFragment(result.dps()) + "</html>";
-	}
-
-	/**
-	 * Renders a DPS value as an HTML fragment that resists the "1.98 read as
-	 * 198" misread — a real report, since a woodcutting felling axe legitimately
-	 * does ~2 DPS. Price-tag style: the whole-number part is unbolded in the
-	 * given colour, and the decimal point plus the fractional digits are
-	 * dimmed and half-size, so the magnitude reads at a glance and the
-	 * decimals visibly recede. Delegates to {@link CentFormat} so every
-	 * "cent" number in the panel (gp values, DPS, accuracy, avg hit, TTK,
-	 * overkill — "cent" meaning the fractional/decimal part, by analogy
-	 * with money cents) shares the exact same treatment.
-	 */
-	private static String dpsFragment(double dps)
-	{
-		return CentFormat.fragment(formatDps(dps));
-	}
-
-	/**
-	 * {@link #dpsFragment(double)}, but with an explicit integer/decimal
-	 * colour pairing — used by the "vs worn"/optimizer delta rows so a
-	 * green (upgrade) or red (downgrade) comparison dims its decimals in the
-	 * matching hue instead of the default grey.
-	 */
-	private static String dpsFragment(double dps, String intColor, String decimalColor)
-	{
-		return CentFormat.fragment(formatDps(dps), intColor, decimalColor);
-	}
-
-	/**
-	 * {@link #dpsFragment(double)}, but with the integer in {@code intColor}
-	 * and the decimal dimmed to match it (see {@link CentFormat#fragment(String, String)}) —
-	 * used by a highlighted/best row whose label foreground isn't the
-	 * default white, so the number's own colour has to agree with the row
-	 * instead of hard-coding white (an explicit HTML {@code <font color>}
-	 * always wins over the label's {@code setForeground}).
-	 */
-	private static String dpsFragment(double dps, String intColor)
-	{
-		return CentFormat.fragment(formatDps(dps), intColor);
-	}
-
-	private static String formatDps(double dps)
-	{
-		return String.format(Locale.ROOT, "%.2f", dps);
-	}
-
-	/**
-	 * {@link #dpsFragment(double)} coloured to match a "vs worn"/optimizer
-	 * delta's sign — green (with a dull-green decimal) for an upgrade, red
-	 * (dull-red decimal) for a downgrade, or the plain white/grey default
-	 * when the delta is effectively zero. {@code delta} is shared across
-	 * both the "before" and "after" values in a single comparison row so
-	 * they always render in the same colour.
-	 */
-	private static String deltaDpsFragment(double dps, double delta)
-	{
-		if (delta > 1e-9)
-		{
-			return dpsFragment(dps, CentFormat.GREEN, CentFormat.GREEN_DIM);
-		}
-		if (delta < -1e-9)
-		{
-			return dpsFragment(dps, CentFormat.RED, CentFormat.RED_DIM);
-		}
-		return dpsFragment(dps);
-	}
-
-	/** {@link #dpsFragment(double)} as a standalone HTML label string. */
-	private static String dpsHtml(double dps)
-	{
-		return "<html>" + dpsFragment(dps) + "</html>";
-	}
-
-	/** {@link #dpsFragment(double, String)} as a standalone HTML label string. */
-	private static String dpsHtml(double dps, String intColor)
-	{
-		return "<html>" + dpsFragment(dps, intColor) + "</html>";
+			: "<html>" + escapeHtml(name) + " &middot; " + DpsFormat.fragment(result.dps()) + "</html>";
 	}
 
 	private void setPrimarySecondary(String primary, String secondary)
@@ -2548,7 +2537,7 @@ public final class GearSection extends CollapsibleSection
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, stance,
 			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected(),
 			magicPotionVariantForCalc());
-		return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell);
+		return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell, effectiveWeaponId());
 	}
 
 	/**
@@ -2986,16 +2975,19 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private DpsResult computeFor(WeaponStyle style)
 	{
-		return computeAgainst(effectiveEquipmentStats(), style);
+		return computeAgainst(effectiveEquipmentStats(), style, effectiveWeaponId());
 	}
 
 	/**
 	 * DPS for one style against the current target + toggles, using the given
 	 * {@link EquipmentStats} rather than always the live/overridden one — lets
 	 * {@link #updateWhatIfDelta} compute the SAME style against real worn gear
-	 * for the baseline comparison. {@code null} if not computable.
+	 * for the baseline comparison. {@code weaponId} must correspond to {@code
+	 * gearStats} (e.g. the real worn weapon id when {@code gearStats} is the
+	 * real worn stats, even under a what-if override). {@code null} if not
+	 * computable.
 	 */
-	private DpsResult computeAgainst(EquipmentStats gearStats, WeaponStyle style)
+	private DpsResult computeAgainst(EquipmentStats gearStats, WeaponStyle style, int weaponId)
 	{
 		if (lastGear == null || selectedMonster == null || gearStats == null || style == null)
 		{
@@ -3015,9 +3007,9 @@ public final class GearSection extends CollapsibleSection
 				// Magic view on a spell-less book (Lunar/Arceuus): nothing to cast.
 				return null;
 			}
-			return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell);
+			return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell, weaponId);
 		}
-		return DpsCalculator.compute(gearStats, player, style.type(), selectedMonster, 0);
+		return DpsCalculator.compute(gearStats, player, style.type(), selectedMonster, 0, weaponId);
 	}
 
 	/** The spell currently picked in the selector (never {@code null} — the model always has a selection). */
@@ -3117,6 +3109,23 @@ public final class GearSection extends CollapsibleSection
 	 * the lightning special-attack damage."), hidden entirely when the target
 	 * has none or no target is selected. Called whenever {@link #selectedMonster}
 	 * changes (every {@link #updateTargetLabel} call site).
+	 *
+	 * <p><b>Ownership disclosure:</b> {@code GearOptimizer} force-includes a
+	 * mandatory override's item id past the budget filter entirely ({@code
+	 * GearOptimizer.java}'s per-slot affordability check exempts {@code
+	 * request.include}) and then force-equips it into the recommended
+	 * loadout regardless of ownership or price ({@code applyForcedIncludes})
+	 * — a real, deliberate behaviour (these are mechanical/safety
+	 * requirements, not DPS suggestions: dropping one because it's unowned
+	 * would produce a result that LOOKS safe and isn't), never changed here.
+	 * What changes is disclosure only: when the requirement isn't satisfied
+	 * by anything the player owns (not the primary item, nor any of {@link
+	 * MonsterGearOverride#alternativeItemIds()} — same substitution rule
+	 * {@link #isSlotInvalidForTarget} already uses), the note says so, so the
+	 * "equip X" instruction doesn't read as something already in hand. This
+	 * is NOT gated to owned-only mode: an unowned mandatory include bypasses
+	 * the budget filter in every mode, not just budget-0, so the gap is
+	 * worth disclosing regardless of mode.
 	 */
 	private void updateGearOverrideNote()
 	{
@@ -3124,10 +3133,14 @@ public final class GearSection extends CollapsibleSection
 		List<MonsterGearOverride> overrides = selectedMonster == null
 			? Collections.emptyList()
 			: MonsterGearOverrideRepository.getInstance().forMonster(selectedMonster.name());
+		java.util.Set<Integer> ownedIds = overrides.isEmpty() ? Collections.emptySet() : ownedPriceMap().keySet();
 		for (MonsterGearOverride override : overrides)
 		{
+			boolean owned = ownedIds.contains(override.itemId())
+				|| override.alternativeItemIds().stream().anyMatch(ownedIds::contains);
 			String raw = "⚠ vs " + selectedMonster.name() + ": equip "
-				+ override.itemName() + " (" + slotDisplayName(override.slot()) + ") — " + override.reason();
+				+ override.itemName() + " (" + slotDisplayName(override.slot()) + ")"
+				+ (owned ? "" : " — you don't own this") + " — " + override.reason();
 			// A plain JLabel does not wrap, and a hard-coded HTML div width
 			// clips as soon as the side panel is narrower than that pixel
 			// value (Jonathan saw "...equip in selected boot..." cut off).
@@ -3137,6 +3150,20 @@ public final class GearSection extends CollapsibleSection
 		gearOverrideNotePanel.setVisible(!overrides.isEmpty());
 		gearOverrideNotePanel.revalidate();
 		gearOverrideNotePanel.repaint();
+	}
+
+	/** Test seam: the rendered text of every current {@link #gearOverrideNotePanel} advisory line, in order. */
+	java.util.List<String> gearOverrideNoteTextsForTest()
+	{
+		java.util.List<String> texts = new ArrayList<>();
+		for (Component c : gearOverrideNotePanel.getComponents())
+		{
+			if (c instanceof javax.swing.JTextArea)
+			{
+				texts.add(((javax.swing.JTextArea) c).getText());
+			}
+		}
+		return texts;
 	}
 
 	/**
@@ -3522,7 +3549,7 @@ public final class GearSection extends CollapsibleSection
 		}
 		resetAllButton.setVisible(true);
 
-		DpsResult baseline = computeAgainst(lastGear.equipmentStats(), selectedStyle);
+		DpsResult baseline = computeAgainst(lastGear.equipmentStats(), selectedStyle, lastGear.itemIdAt(WEAPON_SLOT));
 		if (baseline == null)
 		{
 			whatIfRow.setVisible(false);
@@ -3537,78 +3564,23 @@ public final class GearSection extends CollapsibleSection
 		java.awt.Color color = delta > 1e-9 ? DELTA_UP_COLOR
 			: delta < -1e-9 ? DELTA_DOWN_COLOR : java.awt.Color.WHITE;
 		whatIfDeltaValue.setForeground(color);
-		whatIfDeltaValue.setText("<html>" + deltaDpsFragment(baselineDps, delta) + " -> "
-			+ deltaDpsFragment(lastDps, delta) + "</html>");
+		whatIfDeltaValue.setText("<html>" + DpsFormat.deltaFragment(baselineDps, delta) + " -> "
+			+ DpsFormat.deltaFragment(lastDps, delta) + "</html>");
 		whatIfRow.setVisible(true);
 	}
 
 	// ------------------------------------------------- Phase 3: optimiser
 
-	/**
-	 * Parses a budget string with an optional trailing k/m unit (design spec:
-	 * "numeric + K/M unit toggle" — a suffix is a lighter-weight equivalent for
-	 * a text field than a separate toggle button and reads naturally,
-	 * matching how players already type prices in-game, e.g. GE search).
-	 * Blank/unparseable input is treated as 0 (owned-only search) rather than
-	 * rejected, since a budget field is not a validated form control here.
-	 */
-	static long parseBudget(String text)
+	/** The raw stored budget from {@link #budgetField} + K/M toggles, ignoring ironman owned-only mode — see {@link #resolvedBudget()}. */
+	private long storedBudget()
 	{
-		if (text == null)
-		{
-			return 0L;
-		}
-		String trimmed = text.trim().toLowerCase(Locale.ROOT).replace(",", "");
-		if (trimmed.isEmpty())
-		{
-			return 0L;
-		}
-		double multiplier = 1.0;
-		if (trimmed.endsWith("b"))
-		{
-			multiplier = 1_000_000_000.0;
-			trimmed = trimmed.substring(0, trimmed.length() - 1);
-		}
-		else if (trimmed.endsWith("m"))
-		{
-			multiplier = 1_000_000.0;
-			trimmed = trimmed.substring(0, trimmed.length() - 1);
-		}
-		else if (trimmed.endsWith("k"))
-		{
-			multiplier = 1_000.0;
-			trimmed = trimmed.substring(0, trimmed.length() - 1);
-		}
-		try
-		{
-			double value = Double.parseDouble(trimmed.trim());
-			return value <= 0 ? 0L : Math.round(value * multiplier);
-		}
-		catch (NumberFormatException e)
-		{
-			return 0L;
-		}
+		return BudgetAmount.parseUnitAmount(budgetField.getText(), budgetKToggle, budgetMToggle);
 	}
 
-	/**
-	 * Combines a plain numeric field's text with a K/M segmented toggle's
-	 * current selection into the same "10m"/"500k" shape {@link #parseBudget}
-	 * has always accepted, then parses it — so the budget/expensive-threshold
-	 * number fields feed {@link GearOptimizer.Request} exactly as the old
-	 * single free-text budget field did. Neither toggle selected (shouldn't
-	 * normally happen — see {@link #unitToggle}) is treated as a plain number
-	 * (no unit multiplier).
-	 */
-	private static long parseUnitAmount(String numberText, JToggleButton kToggle, JToggleButton mToggle)
-	{
-		String suffix = mToggle.isSelected() ? "m" : kToggle.isSelected() ? "k" : "";
-		return parseBudget((numberText == null ? "" : numberText.trim()) + suffix);
-	}
-
-	/** The optimiser budget from {@link #budgetField} + {@link #budgetKToggle}/{@link #budgetMToggle}. */
+	/** {@link #storedBudget()}, forced to 0 in ironman owned-only mode (issue #11) — {@link #budgetField} itself is never written here. */
 	private long resolvedBudget()
 	{
-		return parseUnitAmount(budgetField.getText(), budgetKToggle, budgetMToggle);
+		return OwnedOnlyMode.effectiveBudget(ironmanOwnedOnlyPref(), storedBudget());
 	}
 
 	/** Loads a panel icon from {@code /com/ospulse/ui/icon/} scaled to {@code size}px square. */
@@ -3661,7 +3633,7 @@ public final class GearSection extends CollapsibleSection
 	/** The "expensive item" gp threshold from {@link #expensiveThresholdField} + its K/M toggle. */
 	private long resolvedExpensiveThreshold()
 	{
-		return parseUnitAmount(expensiveThresholdField.getText(), expensiveThresholdKToggle, expensiveThresholdMToggle);
+		return BudgetAmount.parseUnitAmount(expensiveThresholdField.getText(), expensiveThresholdKToggle, expensiveThresholdMToggle);
 	}
 
 	/** The "expensive items to allow" count from {@link #expensiveCountField} — blank/unparseable/negative treated as 0. */
@@ -3852,6 +3824,36 @@ public final class GearSection extends CollapsibleSection
 			configManager.getConfiguration(OSPulseConfig.GROUP, "hideUnprotectableItems"));
 	}
 
+	/**
+	 * Live read of the per-account merged {@code ironmanOwnedOnly} value
+	 * (issue #11 leak fix): the current RS profile's own value if it has one,
+	 * else the client-wide {@code ironmanOwnedOnlyDefault} global preference,
+	 * else {@code false} — see {@link com.ospulse.ui.sections.gear.IronmanOwnedOnlyResolver#resolve}.
+	 * Deliberately never reads the client-wide {@code ironmanOwnedOnly}
+	 * {@code @ConfigItem} itself here — that key is only an edit surface /
+	 * display mirror now (kept in sync by {@code OSPulsePlugin}'s {@code
+	 * IronmanOwnedOnlyStore}), never the source of truth for behaviour, which
+	 * is the whole point of the per-account scheme (an ironman alt's
+	 * auto-enable must never leak onto a main sharing this client). No-op
+	 * (returns {@code false}) without a {@link ConfigManager}, mirroring
+	 * {@link #hideUnprotectableItemsPref()}'s guard.
+	 */
+	private boolean ironmanOwnedOnlyPref()
+	{
+		if (configManager == null)
+		{
+			return false;
+		}
+		String profileKey = configManager.getRSProfileKey();
+		String rawProfile = profileKey != null
+			? configManager.getRSProfileConfiguration(OSPulseConfig.GROUP,
+				com.ospulse.ui.sections.gear.IronmanOwnedOnlyStore.KEY)
+			: null;
+		String rawDefault = configManager.getConfiguration(OSPulseConfig.GROUP,
+			com.ospulse.ui.sections.gear.IronmanOwnedOnlyStore.DEFAULT_KEY);
+		return com.ospulse.ui.sections.gear.IronmanOwnedOnlyResolver.resolve(rawProfile, rawDefault);
+	}
+
 	/** Restores {@link #excludedItemIds} from a comma-separated config value. No-op without a {@link ConfigManager}. */
 	private void loadExcludedItemsPref()
 	{
@@ -3895,6 +3897,45 @@ public final class GearSection extends CollapsibleSection
 			sb.append(id);
 		}
 		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXCLUDED_ITEM_IDS, sb.toString());
+	}
+
+	/** Raw config key for {@link #excludedItemsCollapsed} — a plain client-wide value, not RS-profile-scoped (issue #11). */
+	private static final String CONFIG_KEY_EXCLUDED_ITEMS_COLLAPSED = "excludedItemsCollapsed";
+
+	/** Restores {@link #excludedItemsCollapsed} so the collapse state survives a client restart. No-op (returns {@code false}) without a {@link ConfigManager}. */
+	private boolean loadExcludedItemsCollapsedPref()
+	{
+		if (configManager == null)
+		{
+			return false;
+		}
+		return Boolean.parseBoolean(
+			configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXCLUDED_ITEMS_COLLAPSED));
+	}
+
+	/** Persists {@link #excludedItemsCollapsed} — see {@link #loadExcludedItemsCollapsedPref}. */
+	private void saveExcludedItemsCollapsedPref()
+	{
+		if (configManager == null)
+		{
+			return;
+		}
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXCLUDED_ITEMS_COLLAPSED,
+			String.valueOf(excludedItemsCollapsed));
+	}
+
+	/** The "▾/▸ Excluded from suggestions" heading text for the current collapse state — see {@link CollapsibleHeading}. */
+	private String excludedHeadingText()
+	{
+		return CollapsibleHeading.headingText("Excluded from suggestions", excludedItemsCollapsed);
+	}
+
+	/** Flips {@link #excludedItemsCollapsed}, persists it, and re-renders — the heading's click handler (issue #11). */
+	private void toggleExcludedItemsCollapsed()
+	{
+		excludedItemsCollapsed = !excludedItemsCollapsed;
+		saveExcludedItemsCollapsedPref();
+		renderExcludedItemsList();
 	}
 
 	/**
@@ -3968,6 +4009,8 @@ public final class GearSection extends CollapsibleSection
 	 * the panel (and its search box) up so the user can clear the filter. Only
 	 * the user's manual exclusions appear here; mode-based
 	 * {@code restrictedItemIds()} (Deadman/LMS filters) are deliberately not shown.
+	 * Also composes the collapse toggle (issue #11, {@link #excludedItemsCollapsed})
+	 * with the empty-list self-hide: see {@link CollapsibleHeading#bodyVisible}.
 	 */
 	private void renderExcludedItemsList()
 	{
@@ -3987,7 +4030,13 @@ public final class GearSection extends CollapsibleSection
 			}
 			excludedItemsList.add(buildExcludedCell(itemId, name));
 		}
-		excludedItemsPanel.setVisible(!excludedItemIds.isEmpty());
+		boolean hasItems = !excludedItemIds.isEmpty();
+		excludedItemsPanel.setVisible(hasItems);
+		excludedHeading.setText(excludedHeadingText());
+		// Composes collapse state with the empty-list self-hide above, not against it — see class javadoc.
+		boolean showBody = CollapsibleHeading.bodyVisible(hasItems, excludedItemsCollapsed);
+		excludedSearchField.setVisible(showBody);
+		excludedScroll.setVisible(showBody);
 		excludedItemsPanel.revalidate();
 		excludedItemsPanel.repaint();
 	}
@@ -4093,7 +4142,7 @@ public final class GearSection extends CollapsibleSection
 				if (index.entryFor(stack.getId()) != null)
 				{
 					prices.merge(stack.getId(), Math.max(0L, stack.getUnitValue()), Math::max);
-					addVariantPlainForm(prices, index, stack.getId());
+					addVariantPlainForm(prices, index, stack.getId(), excludedItemIds);
 				}
 			}
 		}
@@ -4108,7 +4157,7 @@ public final class GearSection extends CollapsibleSection
 				if (id > 0 && index.entryFor(id) != null)
 				{
 					prices.putIfAbsent(id, 0L);
-					addVariantPlainForm(prices, index, id);
+					addVariantPlainForm(prices, index, id, excludedItemIds);
 				}
 			}
 		}
@@ -4120,10 +4169,29 @@ public final class GearSection extends CollapsibleSection
 	 * {@link OwnedVariantResolver#SUFFIXES}, marks the plain (suffix-stripped)
 	 * form's item id owned at price 0 too — see {@link #ownedPriceMap}'s
 	 * javadoc for why.
+	 *
+	 * <p><b>An EXCLUDED variant credits nothing.</b> The credit's whole
+	 * justification is that the player effectively has the plain item because
+	 * they hold the variant — but "exclude from suggestions" withdraws the
+	 * variant from every path that could put it in a loadout, so the plain
+	 * counterpart stops being backed by anything. Crediting it anyway lets the
+	 * optimiser recommend, at zero spend, an item that is not in the bank, and
+	 * points the bank highlighter at an id that cannot be there — the exclusion
+	 * would have manufactured a free item out of nothing.
+	 *
+	 * <p>This is the same rule {@link OwnedVariantResolver#preferOwnedVariant}
+	 * and {@link VariantCreditSources} already apply, at the layer that grants
+	 * the credit rather than the layers that read it. It is the load-bearing
+	 * one: dropping the credit here means the plain form is simply not owned,
+	 * so a budgeted search prices it as the genuine purchase it would be.
 	 */
 	private static void addVariantPlainForm(java.util.Map<Integer, Long> prices, EquipmentIndexRepository index,
-		int ownedItemId)
+		int ownedItemId, java.util.Set<Integer> excludedItemIds)
 	{
+		if (excludedItemIds != null && excludedItemIds.contains(ownedItemId))
+		{
+			return;
+		}
 		Integer plainId = OwnedVariantResolver.plainFormId(index, ownedItemId);
 		if (plainId != null)
 		{
@@ -4156,8 +4224,8 @@ public final class GearSection extends CollapsibleSection
 			ImageIcon icon = styleIcon(style);
 			// Show the damage-type icon; fall back to the text label if the
 			// bundled sprite is missing so the control is never blank.
-			JToggleButton button = icon != null ? new JToggleButton(icon) : new JToggleButton(typeLabel(style));
-			button.setToolTipText("Find the best " + typeLabel(style)
+			JToggleButton button = icon != null ? new JToggleButton(icon) : new JToggleButton(CombatStyleLabel.of(style));
+			button.setToolTipText("Find the best " + CombatStyleLabel.of(style)
 				+ " setup (owned gear + anything affordable within the budget)");
 			button.setFont(FontManager.getRunescapeSmallFont());
 			button.setFocusPainted(false);
@@ -4309,7 +4377,7 @@ public final class GearSection extends CollapsibleSection
 			// data either — the cap falls back to the price source (see
 			// GearOptimizer.Request.Builder#riskValueSource).
 			consumer.run(budget, ownedPrices,
-				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()),
+				ItemEligibility.resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()),
 				java.util.Collections.emptyMap(), java.util.Collections.emptySet());
 			return;
 		}
@@ -4325,7 +4393,7 @@ public final class GearSection extends CollapsibleSection
 		// exception falls through to unaffordable. Mirrors
 		// runOptimizerSyncForTest/runOptimizerAndRankStylesSyncForTest,
 		// which already did this for the test-seam paths.
-		candidateIds.addAll(UNTRADEABLE_CRAFT_INGREDIENT.values());
+		candidateIds.addAll(ItemEligibility.UNTRADEABLE_CRAFT_INGREDIENT.values());
 
 		priceResolver.resolve(candidateIds, lookup ->
 		{
@@ -4334,19 +4402,27 @@ public final class GearSection extends CollapsibleSection
 			// (unknown) or flagged untradeable falls back to Long.MAX_VALUE =
 			// unaffordable — see resolveOptimizerPriceSource (bug D).
 			consumer.run(budget, ownedPrices,
-				resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()),
+				ItemEligibility.resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()),
 				lookup.riskValues(), lookup.needsProtection());
 		});
 	}
 
-	/** Runs {@link GearOptimizer} off the EDT for the currently selected style and publishes the result back via {@link #onOptimizerResult}. */
+	/**
+	 * Runs {@link GearOptimizer} off the EDT for the currently selected style
+	 * and publishes the result back via {@link #onOptimizerResult}.
+	 *
+	 * <p>P1-B fix: {@link #optimizerGeneration} is captured HERE, before
+	 * price resolution (which may hop async) even begins — see {@link
+	 * #installOptimizerResultIfCurrent}.
+	 */
 	private void runOptimizer()
 	{
+		int generation = optimizerGeneration;
 		withResolvedPrices((budget, ownedPrices, priceSource, riskValues, needsProtection) ->
 		{
 			lastOptimizerNeedsProtection = needsProtection;
 			runOptimizerSearch(buildOptimizerRequest(budget, ownedPrices, priceSource, riskValues, needsProtection,
-				optimizerConstraint()));
+				optimizerConstraint()), generation);
 		});
 	}
 
@@ -4360,9 +4436,14 @@ public final class GearSection extends CollapsibleSection
 	 * Unlike {@link #runOptimizer}, this is deliberately NOT used by the toggle/
 	 * exclude-item/style-selector re-runs — those stay single-style so they
 	 * stay responsive.
+	 *
+	 * <p>P1-B fix: {@link #optimizerGeneration} is captured HERE, before
+	 * price resolution (which may hop async) even begins — see {@link
+	 * #applyRankedStyleResultsIfCurrent}.
 	 */
 	private void runOptimizerAndRankStyles()
 	{
+		int generation = optimizerGeneration;
 		withResolvedPrices((budget, ownedPrices, priceSource, riskValues, needsProtection) ->
 		{
 			lastOptimizerNeedsProtection = needsProtection;
@@ -4392,7 +4473,7 @@ public final class GearSection extends CollapsibleSection
 				{
 					try
 					{
-						applyRankedStyleResults(get(), selected);
+						applyRankedStyleResultsIfCurrent(get(), selected, generation);
 					}
 					catch (java.util.concurrent.ExecutionException | InterruptedException e)
 					{
@@ -4474,6 +4555,31 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
+	 * P1-B fix: gates {@link #applyRankedStyleResults} — which reorders the
+	 * style selector AND installs a result via {@link #onOptimizerResult} —
+	 * behind the {@link #optimizerGeneration} this all-styles search was
+	 * launched under (captured by {@link #runOptimizerAndRankStyles} /
+	 * {@link #runOptimizerAndRankStylesSyncForTest} before price resolution
+	 * began). A mismatch means owned-only mode flipped OFF-&gt;ON while this
+	 * search was still in flight (see {@link #refreshIronmanOwnedOnlyMode});
+	 * {@code results} is dropped entirely rather than installed or used to
+	 * reorder the selector. The "Find best setup" buttons are still
+	 * re-enabled either way — a stale drop must not leave them stuck
+	 * disabled.
+	 */
+	private void applyRankedStyleResultsIfCurrent(java.util.Map<CombatStyle, GearOptimizer.Result> results,
+		CombatStyle selected, int generation)
+	{
+		if (generation != optimizerGeneration)
+		{
+			findBestSetupButton.setEnabled(true);
+			findBestSetupGridButton.setEnabled(true);
+			return;
+		}
+		applyRankedStyleResults(results, selected);
+	}
+
+	/**
 	 * Reorders the visual layout of {@link #optimizerStyleSelectorPanel} so
 	 * the five style buttons read left-to-right by best-achievable DPS
 	 * (highest first), stable on ties (keeping {@link #OPTIMIZER_STYLE_ORDER}'s
@@ -4521,170 +4627,6 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
-	 * Untradeable weapons that are nonetheless "buyable" because they are
-	 * crafted directly from ONE tradeable GE ingredient — priced at that
-	 * ingredient, overriding the blanket untradeable-=-unpurchasable rule
-	 * below. Currently just the Scorching bow (crafted from a Tormented
-	 * synapse, id 29580, + a ~1k Magic longbow (u) at 74 Fletching — the
-	 * synapse IS the price; both ids verified against the OSRS Wiki
-	 * 2026-07-07). The other two synapse weapons are deliberately NOT
-	 * mapped: Emberlight's base item (Arclight) is itself untradeable, and
-	 * the Purging staff is a magic weapon with no optimiser demand yet —
-	 * add entries here only when the full craft cost is genuinely ~one
-	 * tradeable ingredient.
-	 */
-	private static final java.util.Map<Integer, Integer> UNTRADEABLE_CRAFT_INGREDIENT =
-		java.util.Map.of(29591 /* Scorching bow */, 29580 /* Tormented synapse */);
-
-	/**
-	 * Wraps a raw (unowned-item) GE price lookup with two rules (bug D):
-	 * <ul>
-	 *   <li><b>untradeable = unpurchasable:</b> an UNOWNED item flagged
-	 *       untradeable by the client-thread-precomputed
-	 *       {@link PriceLookup#untradeableIds()} can never be bought, whatever
-	 *       price the raw lookup reports — RuneLite's
-	 *       {@code ItemManager.getItemPrice} routes some untradeables through
-	 *       {@code ItemMapping} to a tradeable proxy (e.g. every
-	 *       trouver-locked item, including Dragon defender (l) 24143 and Fire
-	 *       cape (l) 24223, "costs" the Trouver parchment's ~1m GE price),
-	 *       which made the optimiser recommend buying items that cannot be
-	 *       bought. Tradeability comes from the precomputed set (the source of
-	 *       truth), NOT from a hand-maintained per-item override. Owned
-	 *       untradeables never reach this path — they are priced 0 via
-	 *       {@code .owned()} directly;</li>
-	 *   <li>a resolved price &lt;= 0 means untradeable/unpriced, not free —
-	 *       an UNOWNED item you cannot buy is unaffordable
-	 *       ({@link Long#MAX_VALUE}), not a bargain;</li>
-	 *   <li><b>craftable-from-one-ingredient exception:</b> the few
-	 *       untradeables in {@link #UNTRADEABLE_CRAFT_INGREDIENT} price at
-	 *       their tradeable ingredient's GE cost INSTEAD of the two rules
-	 *       above (checked first) — e.g. the untradeable Scorching bow "costs"
-	 *       a Tormented synapse, so the optimiser can recommend it to a
-	 *       non-owner and the spend readout shows the real acquisition cost
-	 *       rather than the bogus ~1m ItemMapping value or a blanket
-	 *       "unbuyable".</li>
-	 * </ul>
-	 */
-	private static GearOptimizer.PriceSource resolveOptimizerPriceSource(GearOptimizer.PriceSource rawPriceSource,
-		java.util.Set<Integer> untradeableIds)
-	{
-		return itemId ->
-		{
-			Integer ingredientId = UNTRADEABLE_CRAFT_INGREDIENT.get(itemId);
-			if (ingredientId != null)
-			{
-				long ingredientPrice = rawPriceSource.priceFor(ingredientId);
-				return ingredientPrice > 0 ? ingredientPrice : Long.MAX_VALUE;
-			}
-			if (untradeableIds.contains(itemId))
-			{
-				return Long.MAX_VALUE;
-			}
-			long resolved = rawPriceSource.priceFor(itemId);
-			return resolved > 0 ? resolved : Long.MAX_VALUE;
-		};
-	}
-
-	/**
-	 * Matches a parenthesised game-mode marker in an item's display name —
-	 * Deadman Mode, Bounty Hunter, Last Man Standing/LMS, or a league beta
-	 * cosmetic. These items are not usable by a normal-mode player and must
-	 * never be suggested by the optimiser (bug C).
-	 */
-	private static final java.util.regex.Pattern MODE_LOCKED_NAME_PATTERN = java.util.regex.Pattern.compile(
-		"(?i)\\((deadman mode|deadman|bh|lms|last man standing|beta)\\)");
-
-	/** True when an item's indexed display name carries a mode-locked marker — see {@link #MODE_LOCKED_NAME_PATTERN}. */
-	static boolean isModeLockedItem(String name)
-	{
-		return name != null && MODE_LOCKED_NAME_PATTERN.matcher(name).find();
-	}
-
-	/**
-	 * Name suffixes of The Gauntlet's instance-only weapon/armour tiers —
-	 * "Crystal/Corrupted X (basic|attuned|perfected)" (ids 23840–23903 +
-	 * 30340). These are REAL main-game items but exist only INSIDE the
-	 * Gauntlet (made from crystal shards in the instance, unusable/lost the
-	 * moment the player leaves), so they can never be equipped against a
-	 * normal overworld target and must never be optimiser candidates. Their
-	 * names carry no "(deadman)/(lms)"-style mode marker, so
-	 * {@link #MODE_LOCKED_NAME_PATTERN} cannot catch them — the suffix IS the
-	 * marker. The suffix-less main-game crystal armour ("Crystal helm/body/
-	 * legs", distinct ids 23971–23981) is untouched by this rule.
-	 */
-	private static final String[] GAUNTLET_ONLY_NAME_SUFFIXES = { " (basic)", " (attuned)", " (perfected)" };
-
-	/** True when an item's indexed display name is a Gauntlet-instance-only tier — see {@link #GAUNTLET_ONLY_NAME_SUFFIXES}. */
-	static boolean isGauntletOnlyItem(String name)
-	{
-		if (name == null)
-		{
-			return false;
-		}
-		for (String suffix : GAUNTLET_ONLY_NAME_SUFFIXES)
-		{
-			if (name.length() >= suffix.length()
-				&& name.regionMatches(true, name.length() - suffix.length(), suffix, 0, suffix.length()))
-			{
-				return true;
-			}
-		}
-		return false;
-	}
-
-	/**
-	 * Every indexed item id the player can never actually use against a
-	 * normal target — added to the optimiser's exclude set every search,
-	 * regardless of price or ownership:
-	 * <ul>
-	 *   <li>mode-locked names (bug C): Deadman/BH/LMS/beta-only items, which
-	 *       the user (not being in those modes) cannot use;</li>
-	 *   <li>Gauntlet-instance-only tiers — see
-	 *       {@link #GAUNTLET_ONLY_NAME_SUFFIXES}.</li>
-	 * </ul>
-	 */
-	static java.util.Set<Integer> restrictedItemIds()
-	{
-		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
-		java.util.Set<Integer> ids = new java.util.HashSet<>();
-		for (Integer id : index.allItemIds())
-		{
-			EquipmentIndexRepository.Entry entry = index.entryFor(id);
-			if (entry != null && (isModeLockedItem(entry.name()) || isGauntletOnlyItem(entry.name())))
-			{
-				ids.add(id);
-			}
-		}
-		return ids;
-	}
-
-	/**
-	 * Item ids the optimiser search MUST use for {@code target} (via
-	 * {@link GearOptimizer.Request.Builder#include}) — the curated
-	 * {@link MonsterGearOverrideRepository} entries for that monster, so a
-	 * mechanic-critical item (e.g. Insulated boots vs Rune dragons) can never
-	 * be dropped by DPS ranking. A user's explicit slot exclusion still wins
-	 * (an item present in {@code exclusions} is left out of the forced set
-	 * rather than fighting the exclude list).
-	 */
-	private static java.util.Set<Integer> mandatoryOverrideItemIds(Monster target, java.util.Set<Integer> exclusions)
-	{
-		if (target == null)
-		{
-			return Collections.emptySet();
-		}
-		java.util.Set<Integer> ids = new java.util.LinkedHashSet<>();
-		for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(target.name()))
-		{
-			if (!exclusions.contains(override.itemId()))
-			{
-				ids.add(override.itemId());
-			}
-		}
-		return ids;
-	}
-
-	/**
 	 * Builds the {@link GearOptimizer.Request} shared by both the resolver and
 	 * no-resolver price paths ({@link #withResolvedPrices}), for the given
 	 * {@code styleConstraint} — the single-style caller passes
@@ -4725,8 +4667,34 @@ public final class GearSection extends CollapsibleSection
 			.onSlayerTask(onSlayerTaskToggle.isSelected())
 			.magicPotionVariant(magicPotionVariantForCalc());
 
+		java.util.Map<Integer, Integer> creditSources =
+			new java.util.HashMap<>(VariantCreditSources.from(lastWealth, lastGear,
+				EquipmentIndexRepository.getInstance(), excludedItemIds));
+		// A credit collapses "use the held variant" and "buy an ordinary copy"
+		// onto one item id, which the optimiser's per-slot candidates (bare
+		// ints) cannot tell apart. Where that costs the cap its only safe
+		// option, the credit is withdrawn so the counterpart behaves as the
+		// ordinary purchase it would be — see RiskCreditPolicy for why each
+		// condition is required. Risk values are read UNremapped here: the
+		// request's own source reports the variant's value for both ids, which
+		// would make the comparison vacuous.
+		long expensiveThreshold = resolvedExpensiveThreshold();
+		int expensiveAllowance = resolvedExpensiveCount();
+		java.util.Set<Integer> withdrawnCredits = RiskCreditPolicy.withdrawnForSaferPurchase(
+			creditSources,
+			id -> riskValues.getOrDefault((int) id, 0L),
+			id -> priceSource.priceFor((int) id),
+			GearOptimizer.expensiveCapActive(expensiveThreshold, expensiveAllowance),
+			expensiveAllowance, expensiveThreshold, budget);
+		java.util.Set<Integer> ownedIdsForSearch = ownedPrices.keySet();
+		if (!withdrawnCredits.isEmpty())
+		{
+			creditSources.keySet().removeAll(withdrawnCredits);
+			ownedIdsForSearch = new java.util.LinkedHashSet<>(ownedPrices.keySet());
+			ownedIdsForSearch.removeAll(withdrawnCredits);
+		}
 		java.util.Set<Integer> exclusions = new java.util.LinkedHashSet<>(excludedItemIds);
-		exclusions.addAll(restrictedItemIds());
+		exclusions.addAll(ItemEligibility.restrictedItemIds());
 		if (hideUnprotectableItemsPref())
 		{
 			// "Hide unprotectable items": rare untradeables with no real tradeable
@@ -4756,14 +4724,14 @@ public final class GearSection extends CollapsibleSection
 		return GearOptimizer.Request
 			.builder(liveIds, target, template)
 			.budget(budget)
-			.owned(ownedPrices.keySet())
+			.owned(ownedIdsForSearch)
 			// Retained for any other budget-side consumer/back-compat, but no
 			// longer consulted by the expensive-item risk cap — riskValueSource
 			// below owns that job exclusively now (see
 			// GearOptimizer.expensiveItemCountOf's updated javadoc).
 			.ownedItemPrices(ownedPrices)
 			.exclude(exclusions)
-			.include(mandatoryOverrideItemIds(target, exclusions))
+			.include(ItemEligibility.mandatoryOverrideItemIds(target, exclusions, ironmanOwnedOnlyPref(), ownedPrices.keySet()))
 			.priceSource(priceSource)
 			// The expensive-item risk cap's OWN price source: a real gp "risk
 			// value" per item — tradeable = GE price, untradeable = value of
@@ -4774,7 +4742,22 @@ public final class GearSection extends CollapsibleSection
 			// (no resolver, e.g. a headless owned-only search) leaves the cap
 			// falling back to priceSource unchanged (see
 			// GearOptimizer.Request.Builder#riskValueSource).
-			.riskValueSource(riskValues.isEmpty() ? null : id -> riskValues.getOrDefault(id, 0L))
+			// The cap must price what the player is actually told to RISK, and
+			// for a credited plain id that is the held variant, not the
+			// counterpart the ownership map invented (see
+			// VariantCreditSources). A tradeable cosmetic can be worth a
+			// different amount from its ordinary form, and with a threshold
+			// between the two the cap would otherwise count the wrong item's
+			// gp and let a wilderness search break the user's own limit. The
+			// variant's own value wins; the credited id's value is the
+			// fallback for a variant the resolver did not price, so an
+			// unpriced variant can never silently drop the slot to 0.
+			.riskValueSource(lastRiskValueSource = riskValues.isEmpty() ? null : id ->
+			{
+				Integer source = creditSources.get(id);
+				Long variantRisk = source == null ? null : riskValues.get(source);
+				return variantRisk != null ? variantRisk : riskValues.getOrDefault(id, 0L);
+			})
 			.expensiveItemCount(resolvedExpensiveCount())
 			.expensiveItemThreshold(resolvedExpensiveThreshold())
 			// Items #6e/#6g: anchor the search to the requested damage type,
@@ -4793,8 +4776,14 @@ public final class GearSection extends CollapsibleSection
 			.build();
 	}
 
-	/** Runs the given request off the EDT via {@code SwingWorker} and publishes the result back via {@link #onOptimizerResult}. */
-	private void runOptimizerSearch(GearOptimizer.Request request)
+	/**
+	 * Runs the given request off the EDT via {@code SwingWorker} and
+	 * publishes the result back via {@link #onOptimizerResult} — unless
+	 * {@code generation} (the {@link #optimizerGeneration} this search was
+	 * launched under — see {@link #runOptimizer}) has since gone stale (P1-B
+	 * fix), in which case {@link #installOptimizerResultIfCurrent} drops it.
+	 */
+	private void runOptimizerSearch(GearOptimizer.Request request, int generation)
 	{
 		new javax.swing.SwingWorker<GearOptimizer.Result, Void>()
 		{
@@ -4809,7 +4798,7 @@ public final class GearSection extends CollapsibleSection
 			{
 				try
 				{
-					onOptimizerResult(get());
+					installOptimizerResultIfCurrent(get(), generation);
 				}
 				catch (java.util.concurrent.ExecutionException | InterruptedException e)
 				{
@@ -4821,17 +4810,100 @@ public final class GearSection extends CollapsibleSection
 		}.execute();
 	}
 
+	/**
+	 * P1-B fix: installs {@code result} via {@link #onOptimizerResult}
+	 * unless the search that produced it was launched under a since-stale
+	 * {@link #optimizerGeneration} — i.e. owned-only mode flipped OFF-&gt;ON
+	 * (see {@link #refreshIronmanOwnedOnlyMode}) while price resolution or
+	 * the background {@code SwingWorker} was still running. A stale result
+	 * is dropped entirely: never installed into {@link #lastOptimizerResult},
+	 * never auto-previewed, never used to arm the bank highlight. The "Find
+	 * best setup" buttons are still re-enabled either way — a stale drop
+	 * must not leave them stuck disabled.
+	 */
+	private void installOptimizerResultIfCurrent(GearOptimizer.Result result, int generation)
+	{
+		if (generation != optimizerGeneration)
+		{
+			findBestSetupButton.setEnabled(true);
+			findBestSetupGridButton.setEnabled(true);
+			return;
+		}
+		onOptimizerResult(result);
+	}
+
 	/** Renders a completed {@link GearOptimizer.Result} — called on the EDT by the {@code SwingWorker} above. */
 	private void onOptimizerResult(GearOptimizer.Result result)
 	{
 		findBestSetupButton.setEnabled(true);
 		findBestSetupGridButton.setEnabled(true);
+
+		// P1-A fix: a mandatory monster-gear override the player owns
+		// neither the primary item nor any accepted substitute for is
+		// force-included/force-equipped by GearOptimizer regardless of
+		// budget (see ItemEligibility#mandatoryOverrideItemIds and
+		// GearOptimizer's applyForcedIncludes) — that is correct in every
+		// other mode, but owned-only mode's entire guarantee is that every
+		// recommendation is something the player owns, so `result` here
+		// must never be installed/auto-previewed/bank-highlighted in that
+		// case. Checked ahead of `result` entirely (not derived from it):
+		// the block is a property of the target + ownership, independent of
+		// whatever loadout the optimiser happened to compute around the
+		// forced item.
+		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
+		java.util.Optional<MonsterGearOverride> blockingOverride = OwnedOnlyMandatoryOverrideGate.blockingOverride(
+			ironmanOwnedOnlyPref(), selectedMonster, ownedIds.keySet());
+		if (blockingOverride.isPresent())
+		{
+			MonsterGearOverride blocking = blockingOverride.get();
+			renderOwnedOnlyBlockedState("Cannot recommend a loadout vs " + selectedMonster.name() + ": "
+				+ blocking.itemName() + " (" + slotDisplayName(blocking.slot())
+				+ ") is required and you don't own it — " + blocking.reason());
+			return;
+		}
+		// P2-B fix (Codex finding on PR #19, GearSection.java:5123, "Hide the
+		// blocked message before rendering a later result"): every path below
+		// this point renders a NON-blocked outcome (a normal loadout, an
+		// unchanged-loadout "no upgrade", or the no-usable-weapon state) — hide
+		// the "cannot recommend" label here, the single place every one of
+		// those paths already passes through, so a later successful/no-usable-
+		// weapon result can never leave the earlier blocked target's message
+		// lingering underneath it.
+		optimizerOwnedOnlyBlockedLabel.setVisible(false);
+
+		// P2-A fix (half 1, Codex finding on PR #19, GearSection.java:4789,
+		// "Revalidate every recommended item against current ownership"): the
+		// mandatory-override gate above only covers a MonsterGearOverride's
+		// forced item — an ORDINARY loadout choice the optimiser picked from
+		// the ownedPrices snapshot captured when the search launched (see
+		// withResolvedPrices) can go stale by the time this callback lands,
+		// e.g. the player sells it while price resolution/the background
+		// SwingWorker was still running. Re-check every RESOLVED id (via
+		// optimizerLoadoutSlotMap -> resolvedChoiceItemId, the single choke
+		// point everything downstream of `result` actually shows/applies)
+		// against ownedIds — a LIVE read taken just above, not the stale
+		// snapshot the optimiser searched against — before installing,
+		// previewing, or bank-highlighting anything from `result`.
+		java.util.Optional<java.util.Map.Entry<Integer, Integer>> unownedEntry = OwnedOnlyResultOwnershipGate
+			.firstUnownedEntry(ironmanOwnedOnlyPref(), optimizerLoadoutSlotMap(result), ownedIds.keySet());
+		if (unownedEntry.isPresent())
+		{
+			int unownedSlot = unownedEntry.get().getKey();
+			int unownedItemId = unownedEntry.get().getValue();
+			String unownedSlotName = unownedSlot >= 0 && unownedSlot < SLOT_NAMES.length
+				&& !SLOT_NAMES[unownedSlot].isEmpty() ? SLOT_NAMES[unownedSlot] : ("Slot " + unownedSlot);
+			renderOwnedOnlyBlockedState("Cannot recommend a loadout vs " + selectedMonster.name() + ": "
+				+ itemDisplayName(EquipmentIndexRepository.getInstance(), unownedItemId) + " (" + unownedSlotName
+				+ ") is no longer owned.");
+			return;
+		}
+
 		lastOptimizerResult = result;
 
 		CombatStyle constraint = optimizerConstraint();
 		optimizerResultStyle.setText(result.style() != null
-			? typeLabel(result.style().type())
-			: (constraint != null ? typeLabel(constraint) : "-"));
+			? CombatStyleLabel.of(result.style().type())
+			: (constraint != null ? CombatStyleLabel.of(constraint) : "-"));
 
 		boolean anyChange = hasAnySlotChange(result);
 		boolean noUsableWeapon = result.style() == null;
@@ -4840,7 +4912,7 @@ public final class GearSection extends CollapsibleSection
 			// Style-constrained search found NO loadout that can attack with the
 			// requested type at all (e.g. Magic selected but no magic weapon is
 			// owned or affordable) — say that, not a misleading "no upgrade".
-			optimizerStatusLabel.setText("No usable " + (constraint != null ? typeLabel(constraint) : "")
+			optimizerStatusLabel.setText("No usable " + (constraint != null ? CombatStyleLabel.of(constraint) : "")
 				+ " weapon owned or affordable within budget");
 			optimizerStatusLabel.setVisible(true);
 		}
@@ -4857,7 +4929,7 @@ public final class GearSection extends CollapsibleSection
 			optimizerStatusLabel.setVisible(false);
 		}
 
-		optimizerResultDps.setText(dpsHtml(result.dps().dps()));
+		optimizerResultDps.setText(DpsFormat.html(result.dps().dps()));
 		double delta = result.deltaDps();
 		// Item #6b: no literal triangle glyph — "owned-only DPS -> best-found
 		// DPS", the whole readout coloured green (upgrade) / red (downgrade),
@@ -4866,8 +4938,8 @@ public final class GearSection extends CollapsibleSection
 		java.awt.Color deltaColor = delta > 1e-9 ? DELTA_UP_COLOR
 			: delta < -1e-9 ? DELTA_DOWN_COLOR : java.awt.Color.WHITE;
 		optimizerResultDelta.setForeground(deltaColor);
-		optimizerResultDelta.setText("<html>" + deltaDpsFragment(result.ownedOnlyDps(), delta) + " -> "
-			+ deltaDpsFragment(result.dps().dps(), delta) + "</html>");
+		optimizerResultDelta.setText("<html>" + DpsFormat.deltaFragment(result.ownedOnlyDps(), delta) + " -> "
+			+ DpsFormat.deltaFragment(result.dps().dps(), delta) + "</html>");
 		optimizerResultSpend.setText(formatGp(result.totalSpend()));
 		optimizerResultDpsPerGp.setText(result.totalSpend() > 0
 			? String.format(Locale.ROOT, "%.6f", result.dpsPerGp())
@@ -4876,15 +4948,18 @@ public final class GearSection extends CollapsibleSection
 		// the "Suggested swaps" heading + list) are all meaningless/stale — hide
 		// them entirely and show one big, unmissable line instead. Symmetric:
 		// a subsequent usable result restores the normal layout in the else
-		// branch below.
-		setOptimizerStatRowsVisible(!noUsableWeapon);
+		// branch below. Split in two (issue #11) so ironman owned-only mode
+		// can additionally hide the four upgrade rows without touching
+		// "Optimised for" (which describes the pick, not an upgrade).
+		setOptimizerStyleRowVisible(!noUsableWeapon);
+		setUpgradeStatRowsVisible(OwnedOnlyMode.upgradeStatRowsVisible(ironmanOwnedOnlyPref(), !noUsableWeapon));
 		if (noUsableWeapon)
 		{
 			// A8: a style with no usable weapon at all must never fall through
 			// to the "already best" placeholder below (that phrasing implies
 			// "you're optimal", not "this style can't damage the target") —
 			// show a clear big "0 DPS" line instead.
-			String typeLabel = constraint != null ? typeLabel(constraint) : "";
+			String typeLabel = constraint != null ? CombatStyleLabel.of(constraint) : "";
 			optimizerNoUsableWeaponLabel.setText("No usable " + typeLabel + " weapon earned or affordable — 0 DPS");
 			optimizerNoUsableWeaponLabel.setVisible(true);
 			renderNoUsableWeaponSwapMessage(constraint);
@@ -4940,36 +5015,121 @@ public final class GearSection extends CollapsibleSection
 		}
 	}
 
-	/**
-	 * Item #5: shows/hides the five optimiser stat rows (as their {@code
-	 * PanelWidgets.statRow} row containers — {@code statRow} returns only the
-	 * value {@link JLabel}, so the row itself is {@code value.getParent()})
-	 * together with the "Suggested swaps" heading and swap list, so {@link
-	 * #onOptimizerResult}'s no-usable-weapon state can hide all of them in
-	 * favour of {@link #optimizerNoUsableWeaponLabel} and a subsequent usable
-	 * result can restore them symmetrically.
-	 */
-	private void setOptimizerStatRowsVisible(boolean visible)
+	/** A {@code PanelWidgets.statRow} value label's row container ({@code statRow} returns only the value, so the row is its parent). */
+	private static java.awt.Container statRow(JLabel value)
+	{
+		java.awt.Container parent = value.getParent();
+		return parent != null ? parent : value;
+	}
+
+	/** Shows/hides only the "Optimised for" row — split out of the old combined {@code setOptimizerStatRowsVisible} (issue #11) since owned-only mode must never hide it. */
+	private void setOptimizerStyleRowVisible(boolean visible)
+	{
+		statRow(optimizerResultStyle).setVisible(visible);
+	}
+
+	/** Shows/hides the four upgrade-oriented stat rows + "Suggested swaps" heading/list — the other half of the old combined {@code setOptimizerStatRowsVisible} (issue #11). */
+	private void setUpgradeStatRowsVisible(boolean visible)
 	{
 		for (JLabel value : new JLabel[] {
-			optimizerResultStyle, optimizerResultDps, optimizerResultDelta,
-			optimizerResultSpend, optimizerResultDpsPerGp})
+			optimizerResultDps, optimizerResultDelta, optimizerResultSpend, optimizerResultDpsPerGp})
 		{
-			java.awt.Container parent = value.getParent();
-			(parent != null ? parent : value).setVisible(visible);
+			statRow(value).setVisible(visible);
 		}
 		optimizerSwapListHeading.setVisible(visible);
 		optimizerSwapList.setVisible(visible);
 	}
 
-	/** True if the optimiser's proposed loadout differs from the currently worn gear in at least one slot. */
+	/**
+	 * Re-applies ironman owned-only mode after a post-construction config
+	 * change (issue #11 P2 fix) — setVisible only, no rebuild.
+	 *
+	 * <p>Codex/CodeRabbit finding on PR #19: a "Find best setup" result
+	 * computed while owned-only mode was OFF (a real, possibly non-zero
+	 * budget) used to simply have its upgrade-UI rows hidden here, but the
+	 * result itself — and the what-if override / bank highlight it already
+	 * auto-applied (see the class javadoc's "B8-4 auto-preview" / "B9-4
+	 * auto-arm") — survived untouched, so the panel kept silently
+	 * recommending gear the player might not own while owned-only mode was
+	 * now visibly ON. This is exactly the scenario auto-detect creates:
+	 * flipping the mode ON mid-session, after the player already searched.
+	 *
+	 * <p>Only clears on the OFF-&gt;ON transition specifically (see {@link
+	 * #lastKnownIronmanOwnedOnlyPref}'s javadoc for why "currently on" alone
+	 * is the wrong condition). {@link #resetAllOverrides()} — the existing
+	 * "Revert to current gear" / "Clear preview" action — is reused rather
+	 * than re-running the optimiser: {@code runOptimizer()} always goes
+	 * through {@code runOptimizerSearch}'s real {@code SwingWorker} (even
+	 * with no {@link #priceResolver} wired — see {@code
+	 * runOptimizerSyncForTest}'s javadoc on why that test seam exists at
+	 * all), so it can't complete synchronously with this method's caller
+	 * ({@code OSPulsePlugin#onConfigChanged}, off the EDT via {@code
+	 * invokeLater} either way); {@code resetAllOverrides()} is fully
+	 * synchronous and already exactly clears "every what-if override AND any
+	 * optimiser-applied preview/highlight" in one clean, already-tested step,
+	 * leaving the readout showing the player's real worn gear — never a
+	 * half-torn-down state.
+	 *
+	 * <p>P1-B fix (Codex finding on PR #19, {@code GearSection.java:4843}):
+	 * the {@code lastOptimizerResult != null} guard above only clears a
+	 * result that has already LANDED. A search launched under the previous
+	 * (possibly nonzero) budget — price resolution still in flight, or the
+	 * {@code SwingWorker} still running in the background — has {@link
+	 * #lastOptimizerResult} still {@code null} at the exact moment this
+	 * method runs, so nothing was invalidated; that search then reaches
+	 * {@link #onOptimizerResult} moments later and installs its unowned
+	 * result anyway, auto-applying the preview and arming the bank
+	 * highlight. {@link #optimizerGeneration} closes that gap: it is bumped
+	 * unconditionally on every OFF-&gt;ON transition (not gated on a result
+	 * already existing), every search captures it at launch, and {@link
+	 * #onOptimizerResult} is only ever reached for a captured value that
+	 * still matches — see the call sites that capture {@code
+	 * optimizerGeneration} (e.g. {@link #runOptimizer}).
+	 */
+	public void refreshIronmanOwnedOnlyMode()
+	{
+		boolean ownedOnly = ironmanOwnedOnlyPref();
+		if (ownedOnly && !lastKnownIronmanOwnedOnlyPref)
+		{
+			optimizerGeneration++;
+			if (lastOptimizerResult != null)
+			{
+				resetAllOverrides();
+			}
+		}
+		lastKnownIronmanOwnedOnlyPref = ownedOnly;
+
+		budgetRiskRow.setVisible(OwnedOnlyMode.upgradeUiVisible(ownedOnly));
+		updateBudgetDisplay();
+		setUpgradeStatRowsVisible(OwnedOnlyMode.upgradeStatRowsVisible(ownedOnly, lastOptimizerResult));
+	}
+
+	/**
+	 * True if the optimiser's proposed loadout differs from the currently worn
+	 * gear in at least one slot.
+	 *
+	 * <p><b>The comparison is against the RESOLVED id, not the raw choice.</b>
+	 * When a mode-locked variant is already WORN rather than banked, the
+	 * optimiser is forced to pick its credited plain counterpart (the variant
+	 * itself is excluded from every search), and {@link
+	 * #resolvedChoiceItemId} maps that straight back to the worn id. Comparing
+	 * the raw choice would see live 29617 against choice 21791, call it a
+	 * change, and report an upgrade that is really the item already on the
+	 * player's back. Every live-vs-suggestion comparison — here, {@link
+	 * #renderOptimizerSwapList}'s skip and {@link
+	 * #applyOptimizerResultToOverride}'s — must therefore resolve first, or
+	 * they disagree with what the panel actually shows.
+	 */
 	private boolean hasAnySlotChange(GearOptimizer.Result result)
 	{
 		int[] liveIds = lastGear == null ? new int[GearSnapshot.EQUIPMENT_SLOT_COUNT] : lastGear.equippedItemIds();
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
+		java.util.Set<Integer> heldIds = HeldItemIds.from(lastWealth, lastGear, index);
 		for (GearOptimizer.SlotChoice choice : result.loadout())
 		{
 			int liveId = choice.slotOrdinal() < liveIds.length ? liveIds[choice.slotOrdinal()] : -1;
-			if (liveId != choice.itemId())
+			if (liveId != resolvedChoiceItemId(index, choice, ownedIds, heldIds))
 			{
 				return true;
 			}
@@ -5000,17 +5160,21 @@ public final class GearSection extends CollapsibleSection
 		// variant (e.g. "Masori mask (f)"), not the plain name — buildSwapRow
 		// needs the owned-item pool to make that reverse lookup.
 		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
+		java.util.Set<Integer> heldIds = HeldItemIds.from(lastWealth, lastGear, index);
 		boolean anyRow = false;
 		for (GearOptimizer.SlotChoice choice : result.loadout())
 		{
+			// Resolve BEFORE comparing — see hasAnySlotChange: a worn mode-locked
+			// variant resolves back to itself, and comparing the raw choice would
+			// render a 29617 -> 29617 self-swap row.
+			int resolvedId = resolvedChoiceItemId(index, choice, ownedIds, heldIds);
 			int liveId = choice.slotOrdinal() < liveIds.length ? liveIds[choice.slotOrdinal()] : -1;
-			if (liveId == choice.itemId())
+			if (liveId == resolvedId)
 			{
 				continue; // unchanged — nothing to report for this slot
 			}
 			anyRow = true;
-			optimizerSwapList.add(buildSwapRow(index, choice.slotOrdinal(), liveId,
-				resolvedChoiceItemId(index, choice, ownedIds), choice));
+			optimizerSwapList.add(buildSwapRow(index, choice.slotOrdinal(), liveId, resolvedId, choice));
 			optimizerSwapList.add(Box.createRigidArea(new Dimension(0, 2)));
 		}
 		if (!anyRow)
@@ -5035,13 +5199,53 @@ public final class GearSection extends CollapsibleSection
 	 * #excludedItemIds} (Codex finding #2): if the player excluded their own
 	 * owned variant, the plain id is shown/applied as-is rather than
 	 * resurrecting the excluded item under a different row.
+	 *
+	 * <p><b>What "resolved" means when a mode-locked variant is the source of
+	 * the credit</b> (issue #11 Stage 3; supersedes an earlier attempt that
+	 * unioned {@link #restrictedItemIds()} into the never-substitute set).
+	 * These two rules look like they conflict and do not:
+	 * <ul>
+	 *   <li>A mode-locked id ("(deadman)"/"(bh)"/"(lms)"/"(beta)") is never
+	 *   an optimiser CANDIDATE — {@link #buildOptimizerRequest} excludes
+	 *   every one of them from every search regardless of ownership, and
+	 *   {@code GearSectionGearPoolTest
+	 *   #deadmanNamedItem_isNeverSuggestedByTheOptimizer} locks that in.
+	 *   Nothing here weakens it: the optimiser still cannot pick, score, or
+	 *   recommend one.</li>
+	 *   <li>Once ownership of such a variant has CREDITED its plain
+	 *   counterpart (the entire point of adding " (deadman)" to {@link
+	 *   OwnedVariantResolver#SUFFIXES}), the display must name the item the
+	 *   player actually holds. The credited plain id is not in their bank —
+	 *   {@link #addVariantPlainForm} invented it at price 0 — so showing it
+	 *   tells the player to equip something they do not own, and arms the
+	 *   bank highlight on an id that cannot be there while missing the one
+	 *   that is.</li>
+	 * </ul>
+	 * Blocking the substitution satisfied the first rule by breaking the
+	 * second, which is the strictly worse trade: the recommendation stays
+	 * correct either way (the ids are stat- and requirement-identical — that
+	 * is what {@link OwnedVariantResolver} verifies before crediting at all),
+	 * so the only thing at stake is whether the player is pointed at the
+	 * right physical item. Credit and display must agree; if a mode-locked
+	 * variant is not a usable stand-in it should never have been credited in
+	 * the first place, and that decision lives in {@code SUFFIXES}, not here.
+	 *
+	 * <p>{@code heldItemIds} keeps the earlier fix's real kernel: a
+	 * substitution only ever happens for a choice the player does NOT
+	 * physically hold. If the optimiser picked an id that is genuinely in
+	 * the bank or already worn, that id is returned untouched, so an owned
+	 * plain form can never be swapped out for a mode-locked look-alike the
+	 * player also happens to own. See {@link HeldItemIds} for why the
+	 * ownership map alone cannot answer that.
 	 */
 	private int resolvedChoiceItemId(EquipmentIndexRepository index, GearOptimizer.SlotChoice choice,
-		java.util.Map<Integer, Long> ownedIds)
+		java.util.Map<Integer, Long> ownedIds, java.util.Set<Integer> heldItemIds)
 	{
-		return choice.owned()
-			? OwnedVariantResolver.preferOwnedVariant(index, choice.itemId(), ownedIds, excludedItemIds)
-			: choice.itemId();
+		if (!choice.owned() || heldItemIds.contains(choice.itemId()))
+		{
+			return choice.itemId();
+		}
+		return OwnedVariantResolver.preferOwnedVariant(index, choice.itemId(), ownedIds, excludedItemIds);
 	}
 
 	/**
@@ -5049,13 +5253,51 @@ public final class GearSection extends CollapsibleSection
 	 * found NO usable weapon for at all (owned or affordable), e.g. Magic
 	 * selected against a monster with no owned/affordable magic weapon. The
 	 * list (and its "Suggested swaps" heading) are hidden entirely in this
-	 * state by {@link #setOptimizerStatRowsVisible} — {@link
+	 * state by {@link #setUpgradeStatRowsVisible} — {@link
 	 * #optimizerNoUsableWeaponLabel} is the single visible message now, so
 	 * there is nothing left to render here beyond emptying the list.
 	 */
 	private void renderNoUsableWeaponSwapMessage(CombatStyle constraint)
 	{
 		optimizerSwapList.removeAll();
+	}
+
+	/**
+	 * P1-A fix: the explicit "cannot recommend" state {@link
+	 * #onOptimizerResult} switches to when {@link
+	 * OwnedOnlyMandatoryOverrideGate#blockingOverride} finds owned-only mode
+	 * cannot satisfy a target's mandatory gear override, OR (P2-A half 1 fix)
+	 * when {@link OwnedOnlyResultOwnershipGate} finds an ORDINARY resolved
+	 * loadout id is no longer owned. Mirrors the pre-existing no-usable-weapon
+	 * path exactly: the five upgrade stat rows and swap list hide, a single
+	 * big error-coloured line (the caller-supplied {@code message}) takes
+	 * their place, the bank highlight clears, and no what-if preview is
+	 * applied — nothing from {@code result} is ever installed. Any PREVIOUS
+	 * preview/override (e.g. from a different target searched just before
+	 * this one) is dropped too, so a stale preview can never linger under a
+	 * blocked message.
+	 */
+	private void renderOwnedOnlyBlockedState(String message)
+	{
+		lastOptimizerResult = null;
+		override = LoadoutOverride.empty();
+		optimizerStatusLabel.setVisible(false);
+		setOptimizerStyleRowVisible(false);
+		setUpgradeStatRowsVisible(false);
+		optimizerNoUsableWeaponLabel.setVisible(false);
+		optimizerSwapList.removeAll();
+		optimizerOwnedOnlyBlockedLabel.setText(message);
+		optimizerOwnedOnlyBlockedLabel.setVisible(true);
+		clearOptimizerPreviewButton.setVisible(false);
+		if (bankHighlighter != null)
+		{
+			bankHighlighter.clear();
+		}
+		optimizerResultPanel.setVisible(true);
+		optimizerResultPanel.revalidate();
+		body().revalidate();
+		body().repaint();
+		updateGearGrid(lastGear);
 	}
 
 	/**
@@ -5286,15 +5528,20 @@ public final class GearSection extends CollapsibleSection
 		// item than the row the user actually clicked "Apply" on.
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
+		java.util.Set<Integer> heldIds = HeldItemIds.from(lastWealth, lastGear, index);
 		LoadoutOverride next = LoadoutOverride.empty();
 		for (GearOptimizer.SlotChoice choice : lastOptimizerResult.loadout())
 		{
+			// Resolve BEFORE comparing — see hasAnySlotChange: a worn mode-locked
+			// variant resolves back to itself, and comparing the raw choice would
+			// preview a redundant override of the item already equipped.
+			int resolvedId = resolvedChoiceItemId(index, choice, ownedIds, heldIds);
 			int liveId = choice.slotOrdinal() < liveIds.length ? liveIds[choice.slotOrdinal()] : -1;
-			if (liveId == choice.itemId())
+			if (liveId == resolvedId)
 			{
 				continue; // unchanged — nothing to preview for this slot
 			}
-			next = next.withSlot(choice.slotOrdinal(), resolvedChoiceItemId(index, choice, ownedIds));
+			next = next.withSlot(choice.slotOrdinal(), resolvedId);
 		}
 		// B9-3: a two-handed weapon frees the shield slot. The optimiser empties
 		// the shield internally, but empty slots aren't listed in loadout(), so
@@ -5353,6 +5600,7 @@ public final class GearSection extends CollapsibleSection
 		lastGear = snapshot.getGear();
 		lastWealth = snapshot.getWealth();
 		autoToggleSlayerFromGear();
+		invalidateStaleOwnedOnlyResult();
 		// Finding 4 fix: re-rank before regridding — see applyOverride()'s
 		// comment. Matters here too: a live gear change (e.g. the player
 		// swaps weapon in-game) must not leave a newly-valid weapon crossed
@@ -5360,6 +5608,48 @@ public final class GearSection extends CollapsibleSection
 		rankAndRender();
 		updateGearGrid(lastGear);
 		refreshSummary();
+	}
+
+	/**
+	 * P2-A fix (half 2, Codex finding on PR #19, {@code
+	 * GearSection.java:4789}, "Revalidate every recommended item against
+	 * current ownership"): {@code apply(SessionSnapshot)} above refreshes
+	 * {@link #lastWealth} on every wealth snapshot without ever re-checking
+	 * whatever owned-only result is currently installed — a result that WAS
+	 * fully owned when {@link #onOptimizerResult} installed it (see that
+	 * method's own P2-A half-1 check) can still go stale afterwards if the
+	 * player then drops, sells, or otherwise loses one of its items, and
+	 * nothing was clearing it: {@code lastWealth} just silently moved on
+	 * underneath a preview/bank-highlight the mode's guarantee says must
+	 * never point at an unowned item.
+	 *
+	 * <p>Deliberately a TARGETED check, not a blanket invalidate on every
+	 * call: wealth snapshots arrive frequently (any gear/inventory/bank
+	 * change), so unconditionally clearing {@link #lastOptimizerResult} here
+	 * would flicker the panel and throw away still-valid results on every
+	 * unrelated update. Only actually invalidate when a resolved loadout id
+	 * of the CURRENTLY installed result is no longer owned — otherwise a
+	 * no-op, same as every other {@code apply()} call.
+	 *
+	 * <p>Reuses {@link #resetAllOverrides()} — the same "revert to worn gear"
+	 * path {@link #refreshIronmanOwnedOnlyMode()} already uses on its
+	 * OFF-&gt;ON transition — rather than re-rendering a blocked message: this
+	 * fires mid-session behind a routine wealth update, not a user-initiated
+	 * search, so silently falling back to the player's real worn gear (what
+	 * they're actually equipped with right now) is the least surprising
+	 * outcome, exactly like the OFF-&gt;ON case.
+	 */
+	private void invalidateStaleOwnedOnlyResult()
+	{
+		if (lastOptimizerResult == null || !ironmanOwnedOnlyPref())
+		{
+			return;
+		}
+		if (OwnedOnlyResultOwnershipGate.firstUnownedEntry(true,
+			optimizerLoadoutSlotMap(lastOptimizerResult), ownedPriceMap().keySet()).isPresent())
+		{
+			resetAllOverrides();
+		}
 	}
 
 	/**
@@ -5399,7 +5689,7 @@ public final class GearSection extends CollapsibleSection
 		accuracyValue.setText(CentFormat.html(String.format(Locale.ROOT, "%.1f%%", result.accuracy() * 100.0)));
 		avgHitValue.setText(CentFormat.html(String.format(Locale.ROOT, "%.2f", result.avgHit())));
 		lastDps = result.dps();
-		dpsValue.setText(dpsHtml(lastDps));
+		dpsValue.setText(DpsFormat.html(lastDps));
 		ttkValue.setText(CentFormat.html(formatTtk(result.ttkSeconds())));
 		overkillValue.setText(CentFormat.html(String.format(Locale.ROOT, "%.1f", result.overkillPerKill())));
 		baseEstimateNote.setVisible(result.baseEstimate());
@@ -5837,7 +6127,7 @@ public final class GearSection extends CollapsibleSection
 		if (priceResolver == null)
 		{
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
-				resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()),
+				ItemEligibility.resolveOptimizerPriceSource(id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet()),
 				java.util.Collections.emptyMap(), java.util.Collections.emptySet(), optimizerConstraint());
 			lastOptimizerNeedsProtection = java.util.Collections.emptySet();
 			onOptimizerResult(GearOptimizer.optimize(request));
@@ -5848,12 +6138,12 @@ public final class GearSection extends CollapsibleSection
 		java.util.Set<Integer> candidateIds = new java.util.HashSet<>(index.allItemIds());
 		candidateIds.addAll(ownedPrices.keySet());
 		// Mirror withResolvedPrices: craft-ingredient ids must be priced too.
-		candidateIds.addAll(UNTRADEABLE_CRAFT_INGREDIENT.values());
+		candidateIds.addAll(ItemEligibility.UNTRADEABLE_CRAFT_INGREDIENT.values());
 
 		priceResolver.resolve(candidateIds, lookup ->
 		{
 			GearOptimizer.Request request = buildOptimizerRequest(budget, ownedPrices,
-				resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()),
+				ItemEligibility.resolveOptimizerPriceSource(id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds()),
 				lookup.riskValues(), lookup.needsProtection(), optimizerConstraint());
 			lastOptimizerNeedsProtection = lookup.needsProtection();
 			onOptimizerResult(GearOptimizer.optimize(request));
@@ -5875,7 +6165,7 @@ public final class GearSection extends CollapsibleSection
 
 		if (priceResolver == null)
 		{
-			GearOptimizer.PriceSource priceSource = resolveOptimizerPriceSource(
+			GearOptimizer.PriceSource priceSource = ItemEligibility.resolveOptimizerPriceSource(
 				id -> ownedPrices.getOrDefault(id, 0L), java.util.Collections.emptySet());
 			lastOptimizerNeedsProtection = java.util.Collections.emptySet();
 			applyRankedStyleResults(
@@ -5888,11 +6178,11 @@ public final class GearSection extends CollapsibleSection
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Set<Integer> candidateIds = new java.util.HashSet<>(index.allItemIds());
 		candidateIds.addAll(ownedPrices.keySet());
-		candidateIds.addAll(UNTRADEABLE_CRAFT_INGREDIENT.values());
+		candidateIds.addAll(ItemEligibility.UNTRADEABLE_CRAFT_INGREDIENT.values());
 
 		priceResolver.resolve(candidateIds, lookup ->
 		{
-			GearOptimizer.PriceSource priceSource = resolveOptimizerPriceSource(
+			GearOptimizer.PriceSource priceSource = ItemEligibility.resolveOptimizerPriceSource(
 				id -> lookup.prices().getOrDefault(id, 0L), lookup.untradeableIds());
 			lastOptimizerNeedsProtection = lookup.needsProtection();
 			applyRankedStyleResults(
@@ -5921,6 +6211,60 @@ public final class GearSection extends CollapsibleSection
 		return lastOptimizerResult;
 	}
 
+	/**
+	 * The risk source composed into the most recent {@link
+	 * #buildOptimizerRequest} — captured purely so a test can assert what the
+	 * expensive-item cap would actually charge for an id, which is otherwise
+	 * only observable through a full de-risk search.
+	 */
+	private GearOptimizer.PriceSource lastRiskValueSource;
+
+	/** Test seam: see {@link #lastRiskValueSource}. */
+	GearOptimizer.PriceSource lastRiskValueSourceForTest()
+	{
+		return lastRiskValueSource;
+	}
+
+	/** Test seam: {@link #hasAnySlotChange} — the "No upgrade found" verdict. */
+	boolean hasAnySlotChangeForTest(GearOptimizer.Result result)
+	{
+		return hasAnySlotChange(result);
+	}
+
+	
+
+	/**
+	 * #resolvedChoiceItemId}'s javadoc — the single choke point everything
+	 * the panel actually shows/applies goes through) for an arbitrary result,
+	 * e.g. one captured via {@link #lastOptimizerResultForTest()} before a
+	 * simulated ownership change — lets a test assert on the exact ids the
+	 * P2-A ownership re-check (see {@link OwnedOnlyResultOwnershipGate})
+	 * validates, not the raw un-resolved {@code GearOptimizer.SlotChoice} ids.	 */
+	java.util.Map<Integer, Integer> optimizerLoadoutSlotMapForTest(GearOptimizer.Result result)
+	{
+		return optimizerLoadoutSlotMap(result);
+	}
+
+	/** Test seam: the current owned-only search generation token — see {@link #optimizerGeneration} (P1-B fix). */
+	int optimizerGenerationForTest()
+	{
+		return optimizerGeneration;
+	}
+
+	/**
+	 * Test seam exercising the P1-B generation-token gate directly: simulates
+	 * a search's result finally landing stamped with {@code generation},
+	 * exactly as {@link #installOptimizerResultIfCurrent} does for the real
+	 * async {@code SwingWorker} paths (real end-to-end async timing isn't
+	 * reproducible deterministically in a headless test, so this drives the
+	 * same install-or-drop decision directly with a caller-chosen generation
+	 * captured before an intervening {@link #refreshIronmanOwnedOnlyMode}
+	 * OFF-&gt;ON flip).
+	 */
+	void installOptimizerResultForTest(GearOptimizer.Result result, int generation)
+	{
+		installOptimizerResultIfCurrent(result, generation);
+	}
 	/**
 	 * Test seam: forces a synchronous {@link #updateGearGrid} refresh (e.g.
 	 * right after picking a target) without needing to also drive the
@@ -5953,13 +6297,19 @@ public final class GearSection extends CollapsibleSection
 	GearOptimizer.PriceSource resolveOptimizerPriceSourceForTest(GearOptimizer.PriceSource rawPriceSource,
 		java.util.Set<Integer> untradeableIds)
 	{
-		return resolveOptimizerPriceSource(rawPriceSource, untradeableIds);
+		return ItemEligibility.resolveOptimizerPriceSource(rawPriceSource, untradeableIds);
 	}
 
 	/** Test seam for item #1's budget K/M-toggle + expensive-items fields — see {@link #resolvedBudget}. */
 	long resolvedBudgetForTest()
 	{
 		return resolvedBudget();
+	}
+
+	/** Test seam: the raw stored budget, unaffected by ironman owned-only mode — see {@link #storedBudget()} vs {@link #resolvedBudget()} (issue #11). */
+	long storedBudgetForTest()
+	{
+		return storedBudget();
 	}
 
 	int resolvedExpensiveCountForTest()
@@ -6090,9 +6440,106 @@ public final class GearSection extends CollapsibleSection
 		return findBestSetupButton;
 	}
 
+	/** Test seam: the visible "Find Best" button in the gear grid — see {@link #findBestSetupGridButton} (issue #11's regression guard). */
+	JButton findBestSetupGridButtonForTest()
+	{
+		return findBestSetupGridButton;
+	}
+
+	// ---------------------------- issue #11: ironman owned-only mode test seams
+
+	boolean budgetRiskRowVisibleForTest()
+	{
+		return budgetRiskRow.isVisible();
+	}
+
+	boolean optimizerHeadingVisibleForTest()
+	{
+		return optimizerHeading.isVisible();
+	}
+
+	boolean optimizerStyleSelectorVisibleForTest()
+	{
+		return optimizerStyleSelectorPanel.isVisible();
+	}
+
+	boolean optimizerStyleRowVisibleForTest()
+	{
+		return statRow(optimizerResultStyle).isVisible();
+	}
+
+	boolean optimizerDpsRowVisibleForTest()
+	{
+		return statRow(optimizerResultDps).isVisible();
+	}
+
+	boolean optimizerDeltaRowVisibleForTest()
+	{
+		return statRow(optimizerResultDelta).isVisible();
+	}
+
+	boolean optimizerSpendRowVisibleForTest()
+	{
+		return statRow(optimizerResultSpend).isVisible();
+	}
+
+	boolean optimizerDpsPerGpRowVisibleForTest()
+	{
+		return statRow(optimizerResultDpsPerGp).isVisible();
+	}
+
+	boolean optimizerSwapListVisibleForTest()
+	{
+		return optimizerSwapList.isVisible() && optimizerSwapListHeading.isVisible();
+	}
+
+	// ---------------------------- issue #11: collapsible excluded-items test seams
+
+	boolean excludedItemsCollapsedForTest()
+	{
+		return excludedItemsCollapsed;
+	}
+
+	void clickExcludedHeadingForTest()
+	{
+		toggleExcludedItemsCollapsed();
+	}
+
+	boolean excludedItemsPanelVisibleForTest()
+	{
+		return excludedItemsPanel.isVisible();
+	}
+
+	boolean excludedSearchFieldVisibleForTest()
+	{
+		return excludedSearchField.isVisible();
+	}
+
+	boolean excludedScrollVisibleForTest()
+	{
+		return excludedScroll.isVisible();
+	}
+
+	String excludedHeadingTextForTest()
+	{
+		return excludedHeading.getText();
+	}
+
 	String optimizerStatusTextForTest()
 	{
 		return optimizerStatusLabel.getText();
+	}
+
+	/** Test seam: P1-A's owned-only "cannot recommend" line — visible/non-empty only when {@link OwnedOnlyMandatoryOverrideGate#blockingOverride} blocked the last result. */
+	boolean optimizerOwnedOnlyBlockedVisibleForTest()
+	{
+		return optimizerOwnedOnlyBlockedLabel.isVisible();
+	}
+
+	/** @see #optimizerOwnedOnlyBlockedVisibleForTest() */
+	String optimizerOwnedOnlyBlockedTextForTest()
+	{
+		return optimizerOwnedOnlyBlockedLabel.getText();
 	}
 
 	/** Number of rows currently in the suggested-swaps list (item #6c: one row per changed slot, or one "no changes" row). */
@@ -6403,7 +6850,7 @@ public final class GearSection extends CollapsibleSection
 	 * click anywhere in the row always fires the action exactly once (each
 	 * press is dispatched to exactly one component).
 	 */
-	private static void installRowPressListener(JPanel row, Runnable action, JLabel... children)
+	private static void installRowPressListener(Component row, Runnable action, JLabel... children)
 	{
 		MouseAdapter press = new MouseAdapter()
 		{
@@ -6510,7 +6957,7 @@ public final class GearSection extends CollapsibleSection
 			}
 
 			JLabel dps = new JLabel(result == null ? "—"
-				: best ? dpsHtml(result.dps(), BRAND_ORANGE_HEX) : dpsHtml(result.dps()));
+				: best ? DpsFormat.html(result.dps(), BRAND_ORANGE_HEX) : DpsFormat.html(result.dps()));
 			dps.setFont(FontManager.getRunescapeSmallFont());
 			dps.setForeground(best ? ColorScheme.BRAND_ORANGE : java.awt.Color.WHITE);
 			dps.setToolTipText("DPS autocasting this spell");
@@ -6576,10 +7023,10 @@ public final class GearSection extends CollapsibleSection
 				name.setIcon(icon);
 				name.setIconTextGap(4);
 			}
-			name.setToolTipText(style.name() + " (" + typeLabel(style.type()) + ")");
+			name.setToolTipText(style.name() + " (" + CombatStyleLabel.of(style.type()) + ")");
 
 			JLabel dps = new JLabel(result == null ? "—"
-				: best ? dpsHtml(result.dps(), BRAND_ORANGE_HEX) : dpsHtml(result.dps()));
+				: best ? DpsFormat.html(result.dps(), BRAND_ORANGE_HEX) : DpsFormat.html(result.dps()));
 			dps.setFont(FontManager.getRunescapeSmallFont());
 			dps.setForeground(best ? ColorScheme.BRAND_ORANGE : java.awt.Color.WHITE);
 			dps.setToolTipText("DPS with this attack style");
@@ -6628,7 +7075,7 @@ public final class GearSection extends CollapsibleSection
 				name.setIconTextGap(4);
 			}
 			String targetName = selectedMonster != null ? selectedMonster.name() : "this target";
-			name.setToolTipText(style.name() + " (" + typeLabel(style.type()) + ") — can't damage " + targetName);
+			name.setToolTipText(style.name() + " (" + CombatStyleLabel.of(style.type()) + ") — can't damage " + targetName);
 
 			JLabel dps = new JLabel(String.format(Locale.ROOT, "%.2f", 0.0));
 			dps.setFont(FontManager.getRunescapeSmallFont());
