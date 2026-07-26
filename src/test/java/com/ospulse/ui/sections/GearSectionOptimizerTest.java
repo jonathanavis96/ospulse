@@ -1035,4 +1035,51 @@ public class GearSectionOptimizerTest
 				1_000_000L, risk.priceFor(SARADOMIN_CAPE_PLAIN));
 		});
 	}
+
+	/**
+	 * The boundary where the optimiser's cap stops being able to bind at all:
+	 * an allowance covering every one of the 11 SEARCHABLE slots. The credit
+	 * must survive it, since withdrawing to satisfy a constraint that cannot
+	 * bind would spend the player's budget on a plain copy for nothing.
+	 *
+	 * <p><b>What actually makes this pass today is the allowance guard</b>
+	 * (11 &gt; 0), not the shared activation predicate — reverting
+	 * {@code GearOptimizer.expensiveCapActive} back to a 14-equipment-slot
+	 * lookalike leaves this green, and that is worth stating rather than
+	 * implying the test proves more than it does. The shared predicate is
+	 * kept because the two definitions genuinely disagree for an allowance of
+	 * 11-13, so a duplicated copy would start lying the moment the allowance
+	 * guard is ever loosened. One definition, in the class that owns the cap.
+	 */
+	@Test
+	public void allowanceCoveringEverySearchableSlot_leavesTheCreditAlone()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> riskValues = new java.util.HashMap<>();
+			riskValues.put(SARADOMIN_CAPE_DEADMAN, 40_000_000L);
+			riskValues.put(SARADOMIN_CAPE_PLAIN, 1_000_000L);
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(SARADOMIN_CAPE_PLAIN, 2_000_000L);
+
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(SARADOMIN_CAPE_DEADMAN, "Imbued saradomin cape (deadman)", 1, 40_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null,
+				(ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(
+					prices, java.util.Set.of(), riskValues, java.util.Set.of())));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+			section.setBudgetTextForTest("5M");
+			section.setExpensiveThresholdTextForTest("100k");
+			// 11 == GearOptimizer.SEARCHABLE_SLOTS.length: the cap cannot bind.
+			section.setExpensiveCountTextForTest("11");
+			section.runOptimizerSyncForTest();
+
+			assertEquals("with the cap unable to bind, the credit must stand — the plain id still reports "
+					+ "the held variant's risk because it is still credited, not bought",
+				40_000_000L, section.lastRiskValueSourceForTest().priceFor(SARADOMIN_CAPE_PLAIN));
+		});
+	}
 }

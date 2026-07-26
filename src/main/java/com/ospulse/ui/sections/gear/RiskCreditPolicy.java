@@ -26,11 +26,22 @@ import java.util.function.LongUnaryOperator;
  * as the not-owned suggestion it is. When the condition does not hold nothing
  * changes, so the credit keeps working for every player it helps.
  *
- * <p>All four conditions must hold, and each rules out a case where
+ * <p>All five conditions must hold, and each rules out a case where
  * withdrawing would make things worse:
  * <ul>
  *   <li><b>the cap is active</b> — with no cap there is nothing to de-risk
- *   for, and withdrawing would only make free gear cost money;</li>
+ *   for, and withdrawing would only make free gear cost money. Decided by
+ *   {@code GearOptimizer.expensiveCapActive}, never re-derived here: the
+ *   allowance must be compared against the 11 SEARCHABLE slots, not the 14
+ *   equipment slots, or this reports the cap active while the optimiser has
+ *   it disabled;</li>
+ *   <li><b>the allowance is zero</b> — the cap permits {@code
+ *   expensiveItemCount} items above the threshold, so with any allowance at
+ *   all the held variant may legitimately fit, and withdrawing would spend
+ *   the player's budget on a copy they did not need. Worse, withdrawing
+ *   several credits at once can make a compliant mixed keep-some/buy-some
+ *   loadout unrepresentable. Only at zero can NO over-threshold item be worn,
+ *   which is the one case where the credit is certainly useless;</li>
  *   <li><b>the held variant is over the threshold</b> — otherwise the credit
  *   is already safe and free, which is strictly better than buying;</li>
  *   <li><b>the counterpart is at or under the threshold</b> — buying an
@@ -59,15 +70,19 @@ public final class RiskCreditPolicy
 	 *                      would report the variant's value for both and make
 	 *                      the comparison vacuous)
 	 * @param priceOf       an id's purchase price
-	 * @param capActive     whether the expensive-item cap is switched on
+	 * @param capActive     whether the expensive-item cap can bind at all —
+	 *                      pass {@code GearOptimizer.expensiveCapActive}'s
+	 *                      verdict rather than re-deriving it
+	 * @param allowance     how many over-threshold items the cap permits
 	 * @param threshold     the cap's gp threshold
 	 * @param budget        the search's gp budget
 	 */
 	public static Set<Integer> withdrawnForSaferPurchase(Map<Integer, Integer> creditSources,
-		LongUnaryOperator riskValueOf, LongUnaryOperator priceOf, boolean capActive, long threshold, long budget)
+		LongUnaryOperator riskValueOf, LongUnaryOperator priceOf, boolean capActive, int allowance,
+		long threshold, long budget)
 	{
 		Set<Integer> withdrawn = new HashSet<>();
-		if (!capActive || creditSources.isEmpty())
+		if (!capActive || allowance > 0 || creditSources.isEmpty())
 		{
 			return withdrawn;
 		}

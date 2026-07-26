@@ -35,8 +35,14 @@ public class RiskCreditPolicyTest
 
 	private static Set<Integer> withdraw(LongUnaryOperator risk, long plainPrice, boolean capActive, long budget)
 	{
+		return withdraw(risk, plainPrice, capActive, 0, budget);
+	}
+
+	private static Set<Integer> withdraw(LongUnaryOperator risk, long plainPrice, boolean capActive,
+		int allowance, long budget)
+	{
 		return RiskCreditPolicy.withdrawnForSaferPurchase(credit(), risk, id -> plainPrice,
-			capActive, THRESHOLD, budget);
+			capActive, allowance, THRESHOLD, budget);
 	}
 
 	/** The case the finding describes: risky held variant, safe affordable counterpart. */
@@ -79,5 +85,18 @@ public class RiskCreditPolicyTest
 	public void variantExactlyAtThreshold_keepsTheCredit()
 	{
 		assertEquals(Set.of(), withdraw(risk(THRESHOLD, 1_000_000L), 2_000_000L, true, 5_000_000L));
+	}
+
+	/**
+	 * The cap PERMITS {@code expensiveItemCount} items above the threshold, so
+	 * with any allowance at all the held variant may legitimately fit — and
+	 * the credit is then both compliant and free, which beats spending the
+	 * player's budget on a copy they did not need. Only at zero can no
+	 * over-threshold item be worn at all.
+	 */
+	@Test
+	public void allowanceLeavesRoomForTheRiskyVariant_keepsTheCredit()
+	{
+		assertEquals(Set.of(), withdraw(risk(40_000_000L, 1_000_000L), 2_000_000L, true, 1, 5_000_000L));
 	}
 }

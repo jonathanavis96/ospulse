@@ -4686,13 +4686,13 @@ public final class GearSection extends CollapsibleSection
 		// request's own source reports the variant's value for both ids, which
 		// would make the comparison vacuous.
 		long expensiveThreshold = resolvedExpensiveThreshold();
-		boolean capActive = expensiveThreshold > 0
-			&& resolvedExpensiveCount() < GearSnapshot.EQUIPMENT_SLOT_COUNT;
+		int expensiveAllowance = resolvedExpensiveCount();
 		java.util.Set<Integer> withdrawnCredits = RiskCreditPolicy.withdrawnForSaferPurchase(
 			creditSources,
 			id -> riskValues.getOrDefault((int) id, 0L),
 			id -> priceSource.priceFor((int) id),
-			capActive, expensiveThreshold, budget);
+			GearOptimizer.expensiveCapActive(expensiveThreshold, expensiveAllowance),
+			expensiveAllowance, expensiveThreshold, budget);
 		java.util.Set<Integer> ownedIdsForSearch = ownedPrices.keySet();
 		if (!withdrawnCredits.isEmpty())
 		{

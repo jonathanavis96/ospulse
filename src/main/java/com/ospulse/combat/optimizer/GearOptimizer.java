@@ -777,8 +777,21 @@ public final class GearOptimizer {
      * the pre-cap DPS-only search.
      */
     private static boolean expensiveCapActive(Request request) {
-        return request.expensiveItemThreshold() > 0
-                && request.expensiveItemCount() < SEARCHABLE_SLOTS.length;
+        return expensiveCapActive(request.expensiveItemThreshold(), request.expensiveItemCount());
+    }
+
+    /**
+     * Whether the expensive-item cap can bind at all: a threshold of 0 means
+     * "no cap", and an allowance covering every SEARCHABLE slot can never be
+     * exceeded. Public and parameterised so callers deciding anything on the
+     * cap's behalf share this ONE definition — the count must be compared
+     * against {@link #SEARCHABLE_SLOTS}{@code .length} (11), NOT the 14
+     * equipment slots. Getting that wrong reports the cap active when the
+     * optimiser has it disabled, which is exactly the disagreement this
+     * overload exists to prevent.
+     */
+    public static boolean expensiveCapActive(long threshold, int allowance) {
+        return threshold > 0 && allowance < SEARCHABLE_SLOTS.length;
     }
 
     /**
