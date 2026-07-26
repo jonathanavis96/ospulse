@@ -77,6 +77,8 @@ public class GearSectionOptimizerTest
 
 	private static final int BRONZE_SWORD = 1277;
 	private static final int DRAGON_SCIMITAR = 4587;
+	private static final int MASORI_MASK = 27226;   // plain base form
+	private static final int MASORI_MASK_F = 27235; // owned fortified variant
 
 	private static int[] loadout(int weaponId)
 	{
@@ -860,6 +862,48 @@ public class GearSectionOptimizerTest
 
 			assertEquals(ABYSSAL_WHIP, weaponIdInResult(section.lastOptimizerResultForTest()));
 			assertEquals(1, section.optimizerSwapRowCountForTest());
+		});
+	}
+
+	/**
+	 * The load-bearing layer of the P2 finding ({@code
+	 * GearSection#addVariantPlainForm}), one below {@code
+	 * GearSectionOptimizerStyleTest#excludedOwnedVariant_doesNotReappearInSuggestions}.
+	 * The credit's justification is that the player effectively HAS the plain
+	 * item because they hold the variant — so excluding the variant withdraws
+	 * the backing and the credit must go with it. Otherwise the exclusion
+	 * manufactures a free item out of nothing: the optimiser could recommend
+	 * the plain mask at zero spend when the bank contains no mask at all, and
+	 * the highlighter would point at an id that cannot be there.
+	 *
+	 * <p>Asserted directly on the ownership map, since that is where the
+	 * credit is granted and every downstream surface reads it.
+	 */
+	@Test
+	public void excludedVariant_grantsNoSyntheticOwnershipOfThePlainItem()
+	{
+		onEdt(() ->
+		{
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(MASORI_MASK_F, "Masori mask (f)", 1, 21_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section);
+
+			assertTrue("fixture sanity: the credit must exist BEFORE the exclusion, or the test proves "
+					+ "nothing about withdrawing it",
+				section.ownedPriceMapForTest().containsKey(MASORI_MASK));
+
+			section.excludeItemFromSuggestionsForTest(MASORI_MASK_F);
+
+			assertFalse("excluding the only backing variant must withdraw the synthetic credit — the plain "
+					+ "mask is in no bank and must not be free",
+				section.ownedPriceMapForTest().containsKey(MASORI_MASK));
+			assertTrue("the excluded variant itself is still genuinely owned; exclusion means "
+					+ "\"never suggest\", not \"pretend it is gone\"",
+				section.ownedPriceMapForTest().containsKey(MASORI_MASK_F));
 		});
 	}
 }

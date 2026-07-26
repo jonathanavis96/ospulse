@@ -4138,7 +4138,7 @@ public final class GearSection extends CollapsibleSection
 				if (index.entryFor(stack.getId()) != null)
 				{
 					prices.merge(stack.getId(), Math.max(0L, stack.getUnitValue()), Math::max);
-					addVariantPlainForm(prices, index, stack.getId());
+					addVariantPlainForm(prices, index, stack.getId(), excludedItemIds);
 				}
 			}
 		}
@@ -4153,7 +4153,7 @@ public final class GearSection extends CollapsibleSection
 				if (id > 0 && index.entryFor(id) != null)
 				{
 					prices.putIfAbsent(id, 0L);
-					addVariantPlainForm(prices, index, id);
+					addVariantPlainForm(prices, index, id, excludedItemIds);
 				}
 			}
 		}
@@ -4165,10 +4165,30 @@ public final class GearSection extends CollapsibleSection
 	 * {@link OwnedVariantResolver#SUFFIXES}, marks the plain (suffix-stripped)
 	 * form's item id owned at price 0 too — see {@link #ownedPriceMap}'s
 	 * javadoc for why.
+	 *
+	 * <p><b>An EXCLUDED variant credits nothing.</b> The credit's whole
+	 * justification is that the player effectively has the plain item because
+	 * they hold the variant — but "exclude from suggestions" withdraws the
+	 * variant from every path that could put it in a loadout, so the plain
+	 * counterpart stops being backed by anything. Crediting it anyway lets the
+	 * optimiser recommend, at zero spend, an item that is not in the bank, and
+	 * points the bank highlighter at an id that cannot be there — the
+	 * exclusion would have manufactured a free item out of nothing.
+	 *
+	 * <p>This is the same rule {@link OwnedVariantResolver#preferOwnedVariant}
+	 * already applies at the layer that READS the credit; fixing it here, at
+	 * the layer that GRANTS it, is the load-bearing change — the plain form
+	 * is then simply not owned, so a budgeted search prices it as the genuine
+	 * purchase it would be, instead of teaching every reader of the credit to
+	 * re-check exclusions.
 	 */
 	private static void addVariantPlainForm(java.util.Map<Integer, Long> prices, EquipmentIndexRepository index,
-		int ownedItemId)
+		int ownedItemId, java.util.Set<Integer> excludedItemIds)
 	{
+		if (excludedItemIds != null && excludedItemIds.contains(ownedItemId))
+		{
+			return;
+		}
 		Integer plainId = OwnedVariantResolver.plainFormId(index, ownedItemId);
 		if (plainId != null)
 		{
