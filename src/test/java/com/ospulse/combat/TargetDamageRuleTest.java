@@ -89,26 +89,97 @@ public class TargetDamageRuleTest {
     public void cap_returnsCrushHighestValue_whenCrushIsTheLoadoutsHighestAttackBonus() {
         MonsterCombatRequirement req = MonsterCombatRequirement.damageCap(4, 9, "cap note");
         EquipmentStats crushHighest = gearWithAttackBonuses(10, 10, 50);
-        assertEquals(9, TargetDamageRule.maxHitCapFor(req, crushHighest));
+        assertEquals(9, TargetDamageRule.maxHitCapFor(req, crushHighest, CombatStyle.CRUSH, WHIP));
     }
 
     @Test
     public void cap_returnsBaseValue_whenCrushIsNotTheLoadoutsHighestAttackBonus() {
         MonsterCombatRequirement req = MonsterCombatRequirement.damageCap(4, 9, "cap note");
         EquipmentStats stabHighest = gearWithAttackBonuses(50, 10, 10);
-        assertEquals(4, TargetDamageRule.maxHitCapFor(req, stabHighest));
+        assertEquals(4, TargetDamageRule.maxHitCapFor(req, stabHighest, CombatStyle.STAB, WHIP));
     }
 
     @Test
     public void nullRequirement_returnsNoCap() {
-        assertEquals(-1, TargetDamageRule.maxHitCapFor(null, gearWithAttackBonuses(50, 10, 10)));
+        assertEquals(-1, TargetDamageRule.maxHitCapFor(null, gearWithAttackBonuses(50, 10, 10), CombatStyle.STAB, WHIP));
     }
 
     @Test
     public void weaponGateRequirement_returnsNoCap_typesDoNotBleed() {
         MonsterCombatRequirement gate = MonsterCombatRequirement.weaponGate(
                 Collections.emptySet(), Collections.emptySet(), EnumSet.of(CombatStyle.MAGIC), "gate note");
-        assertEquals(-1, TargetDamageRule.maxHitCapFor(gate, gearWithAttackBonuses(50, 10, 10)));
+        assertEquals(-1, TargetDamageRule.maxHitCapFor(gate, gearWithAttackBonuses(50, 10, 10), CombatStyle.STAB, WHIP));
+    }
+
+    // ---- per-style caps, cap-exempt weapons, and CapMode ----------------------------------
+
+    @Test
+    public void perStyleCap_takesPriorityOverTheFlatValue() {
+        MonsterCombatRequirement req = MonsterCombatRequirement.damageCap(10, -1,
+                Collections.emptySet(),
+                enumMapOf(CombatStyle.RANGED, 3, CombatStyle.MAGIC, 3),
+                MonsterCombatRequirement.CapMode.REROLL, "Verzik-shaped cap note");
+        assertEquals("ranged has its own entry in the per-style map", 3,
+                TargetDamageRule.maxHitCapFor(req, gearWithAttackBonuses(10, 10, 10), CombatStyle.RANGED, WHIP));
+        assertEquals("magic has its own entry in the per-style map", 3,
+                TargetDamageRule.maxHitCapFor(req, gearWithAttackBonuses(10, 10, 10), CombatStyle.MAGIC, WHIP));
+        assertEquals("stab has no per-style entry, so it falls back to the flat value", 10,
+                TargetDamageRule.maxHitCapFor(req, gearWithAttackBonuses(10, 10, 10), CombatStyle.STAB, WHIP));
+    }
+
+    @Test
+    public void perStyleCap_takesPriorityOverCrushHighestToo() {
+        MonsterCombatRequirement req = MonsterCombatRequirement.damageCap(10, 20,
+                Collections.emptySet(),
+                enumMapOf(CombatStyle.CRUSH, 10),
+                MonsterCombatRequirement.CapMode.REROLL, "note");
+        // Crush is the loadout's highest attack bonus, so the OLD logic would answer 20 —
+        // but crush has an explicit per-style entry (10), which must win instead.
+        assertEquals(10, TargetDamageRule.maxHitCapFor(req, gearWithAttackBonuses(1, 1, 50), CombatStyle.CRUSH, WHIP));
+    }
+
+    @Test
+    public void weaponInAllowedItemIds_isWhollyExemptFromTheCap_regardlessOfStyle() {
+        int dawnbringer = 22516;
+        MonsterCombatRequirement req = MonsterCombatRequirement.damageCap(10, -1,
+                new HashSet<>(Arrays.asList(dawnbringer)),
+                enumMapOf(CombatStyle.RANGED, 3, CombatStyle.MAGIC, 3),
+                MonsterCombatRequirement.CapMode.REROLL, "Verzik-shaped cap note, Dawnbringer exempt");
+        assertEquals(-1, TargetDamageRule.maxHitCapFor(req, gearWithAttackBonuses(1, 1, 1), CombatStyle.MAGIC, dawnbringer));
+        assertEquals("a non-exempt weapon still gets the cap", 3,
+                TargetDamageRule.maxHitCapFor(req, gearWithAttackBonuses(1, 1, 1), CombatStyle.MAGIC, WHIP));
+    }
+
+    @Test
+    public void capModeFor_returnsTheRequirementsMode() {
+        MonsterCombatRequirement clamp = MonsterCombatRequirement.damageCap(4, 9, "cap note");
+        assertEquals(MonsterCombatRequirement.CapMode.CLAMP, TargetDamageRule.capModeFor(clamp));
+
+        MonsterCombatRequirement reroll = MonsterCombatRequirement.damageCap(10, -1,
+                Collections.emptySet(), Collections.emptyMap(),
+                MonsterCombatRequirement.CapMode.REROLL, "note");
+        assertEquals(MonsterCombatRequirement.CapMode.REROLL, TargetDamageRule.capModeFor(reroll));
+    }
+
+    @Test
+    public void capModeFor_defaultsToClampForNullOrNonCapRequirements() {
+        assertEquals(MonsterCombatRequirement.CapMode.CLAMP, TargetDamageRule.capModeFor(null));
+        MonsterCombatRequirement gate = MonsterCombatRequirement.weaponGate(
+                Collections.emptySet(), Collections.emptySet(), EnumSet.of(CombatStyle.MAGIC), "gate note");
+        assertEquals(MonsterCombatRequirement.CapMode.CLAMP, TargetDamageRule.capModeFor(gate));
+    }
+
+    private static java.util.Map<CombatStyle, Integer> enumMapOf(CombatStyle style, int value) {
+        java.util.Map<CombatStyle, Integer> map = new java.util.EnumMap<>(CombatStyle.class);
+        map.put(style, value);
+        return map;
+    }
+
+    private static java.util.Map<CombatStyle, Integer> enumMapOf(CombatStyle s1, int v1, CombatStyle s2, int v2) {
+        java.util.Map<CombatStyle, Integer> map = new java.util.EnumMap<>(CombatStyle.class);
+        map.put(s1, v1);
+        map.put(s2, v2);
+        return map;
     }
 
     // ---- A penalty/cap must never gate ---------------------------------------------------

@@ -38,9 +38,16 @@ package com.ospulse.combat;
  * target.name()} via {@link MonsterCombatRequirementRepository}): a {@link
  * MonsterCombatRequirement.Type#DAMAGE_PENALTY} multiplies max hit for an
  * off-style weapon (e.g. Corporeal Beast's half-damage stab), and a {@link
- * MonsterCombatRequirement.Type#DAMAGE_CAP} clamps max hit to a flat ceiling
- * (e.g. The Hueycoatl's tail) — both applied as the final step immediately
- * before {@code finish}/{@code finishFang}; see {@link TargetDamageRule}.
+ * MonsterCombatRequirement.Type#DAMAGE_CAP} ceilings max hit, optionally per
+ * {@link CombatStyle} (e.g. Verzik Vitur phase 1: melee 10, ranged/magic 3)
+ * and optionally exempting a specific weapon entirely (e.g. Dawnbringer) —
+ * both applied as the final step immediately before {@code finish}/{@code
+ * finishFang}; see {@link TargetDamageRule}. A cap's {@link
+ * MonsterCombatRequirement.CapMode} decides HOW it applies: {@code CLAMP}
+ * piles the roll's excess probability mass onto the cap itself (The
+ * Hueycoatl's tail), {@code REROLL} re-rolls a too-high hit uniformly into
+ * {@code 0..cap} (Verzik), which is algebraically just a lower max hit fed
+ * through the ordinary uncapped math — see {@link #applyTargetDamageRules}.
  */
 public final class DpsCalculator {
     private DpsCalculator() {
@@ -399,13 +406,31 @@ public final class DpsCalculator {
      * with no requirement (the overwhelming majority) is unaffected: both
      * {@link TargetDamageRule} methods return their neutral values for a
      * {@code null} requirement.
+     *
+     * <p>The cap's {@link MonsterCombatRequirement.CapMode} decides which
+     * math applies it, not just which number: {@link
+     * MonsterCombatRequirement.CapMode#CLAMP} keeps the roll spanning
+     * {@code 0..afterPenalty} with the cap as a ceiling (the {@link
+     * TargetDamage#cap} channel, consumed by {@code cappedAverageDamagePerAttack}/
+     * {@code cappedExpectedOverkill} in {@link #finish}), while {@link
+     * MonsterCombatRequirement.CapMode#REROLL} needs no special distribution
+     * at all — it is algebraically identical to lowering the max hit to the
+     * cap, so the cap is folded straight into {@code uncapped} here and the
+     * {@code cap} channel is left at {@code -1}, sending it through the
+     * ordinary uncapped path in {@link #finish} instead.
      */
     private static TargetDamage applyTargetDamageRules(int maxHit, Monster target, EquipmentStats gear,
                                                        CombatStyle style, int weaponId) {
         MonsterCombatRequirement req = MonsterCombatRequirementRepository.getInstance()
                 .forMonster(target.name()).orElse(null);
         int afterPenalty = (int) Math.floor(maxHit * TargetDamageRule.damageMultiplierFor(req, weaponId, style));
-        return new TargetDamage(afterPenalty, TargetDamageRule.maxHitCapFor(req, gear));
+        int cap = TargetDamageRule.maxHitCapFor(req, gear, style, weaponId);
+        boolean capBinds = cap >= 0 && cap < afterPenalty;
+        if (capBinds && TargetDamageRule.capModeFor(req) == MonsterCombatRequirement.CapMode.REROLL) {
+            // REROLL ≡ a lower max hit — no capped distribution needed, see the class javadoc above.
+            return new TargetDamage(cap, -1);
+        }
+        return new TargetDamage(afterPenalty, cap);
     }
 
     /**
