@@ -73,17 +73,79 @@ than widening this set.
 
 ### `DAMAGE_CAP` fields
 
-- `maxHitCap` — the ceiling. `-1`/absent means no cap.
+- `maxHitCap` — the flat ceiling. `-1`/absent means no cap.
 - `maxHitCapWhenCrushHighest` — alternative ceiling used when the loadout's crush
   attack bonus beats both its stab and slash bonuses.
+- `maxHitCapByStyle` — optional per-`CombatStyle` override (keys: `STAB` / `SLASH`
+  / `CRUSH` / `RANGED` / `MAGIC`). Takes priority over both fields above for any
+  style it lists; a style it does NOT list falls back to the flat/crush-highest
+  value. Absent/empty means no per-style split — every entry written before this
+  field existed is unaffected. See `TargetDamageRule#maxHitCapFor` for the exact
+  resolution order.
+- `capMode` — `CLAMP` or `REROLL` (absent defaults to `CLAMP`, so every entry
+  written before this field existed keeps its original behaviour byte-for-byte).
+  **These are mechanically different distributions, not two names for the same
+  thing:**
+  - `CLAMP` — the roll stays uniform `0..uncappedMaxHit` and every result above
+    the cap lands ON the cap, piling probability mass there. Implemented by
+    `CombatMath.cappedAverageDamagePerAttack` / `cappedExpectedOverkill`.
+  - `REROLL` — a hit above the cap is re-rolled uniformly into `0..cap`.
+    Implemented by `CombatMath.rerolledAverageDamagePerAttack` /
+    `rerolledExpectedOverkill`.
+
+    ⚠ **Do NOT collapse this to `maxHit = min(maxHit, cap)` through the ordinary
+    formulas.** Ignoring OSRS's "a rolled 0 becomes 1" correction the re-rolled
+    distribution *is* flat over `0..cap` (`P(d) = 1/(M+1) + [(M-cap)/(M+1)]·[1/(cap+1)]`,
+    independent of `d` — proved from first principles in
+    `CombatMathRerollEquivalenceTest`), and that is exactly what makes the shortcut
+    look safe. But the ordinary formulas *carry* that correction, and **a re-rolled
+    0 is a genuine result that must keep its probability mass.** The bump belongs to
+    the damage roll, so it applies before the monster re-rolls and survives only on
+    values that were never re-rolled:
+
+    ```text
+    rerollShare = (M - cap) / ((M + 1)(cap + 1))
+    P(0) = rerollShare
+    P(1) = 2/(M+1) + rerollShare        <- the surviving bump
+    P(v) = 1/(M+1) + rerollShare          for v in 2..cap
+    ```
+
+    giving `E = cap/2 + 1/(M+1)`, valid only for `1 <= cap <= M` — keyed to the
+    TRUE max, not `cap/2 + 1/(cap+1)`. At Verzik's ranged/magic cap of 3 the
+    shortcut overstates by ~15% and hands the overkill DP a zero-free
+    distribution, so TTK is wrong too. Once `cap >= M` nothing is ever
+    re-rolled, so the uncapped maximum applies instead (the ordinary formulas,
+    unmodified). (At `cap == 0` even the bumped 1 re-rolls away and the true
+    mean is exactly 0; the functions are guarded.) **This shortcut shipped once
+    and was caught in review — the flatness result is about the shape only.**
+
+  **Why the split exists:** the OSRS wiki documents these as two different
+  in-game mechanics, not a stylistic choice by this codebase. Verzik Vitur phase
+  1's cap is explicitly a re-roll ("re-rolled to 0-10 damage" / "re-rolled to 0-3
+  damage" — <https://oldschool.runescape.wiki/w/Maximum_damage_cap>), which is
+  why its entry is `REROLL`. The Hueycoatl's tail has **no published wording**
+  either way — `CLAMP` there is a reasonable default reading (the original
+  implementation, unchanged by this feature), not a verified mechanic. Do not
+  treat Hueycoatl's `CLAMP` as confirmation that every future cap should default
+  to clamp semantics; check the source for each new entry.
 - `allowedStyles`: `STAB` / `SLASH` / `CRUSH` / `RANGED` / `MAGIC`. Any style
-  listed here is permitted outright.
-- `allowedItemIds`: specific weapons permitted **regardless of style** — the
-  exception mechanism (a halberd at Zulrah). Verified against
-  `equipment_index.min.json`, never guessed from the wiki.
+  listed here is permitted outright. (Not used by any shipped `DAMAGE_CAP` entry
+  today — `DAMAGE_CAP` never gates, so this field is inert for this type; it
+  exists on the shared shape for `WEAPON_GATE`.)
+- `allowedItemIds`: for `DAMAGE_CAP`, weapons **wholly exempt from the cap**
+  regardless of style — e.g. Dawnbringer at Verzik ("has no damage cap on the
+  boss"). Checked before the per-style map or flat value; see
+  `TargetDamageRule#maxHitCapFor`. Verified against `equipment_index.min.json`,
+  never guessed from the wiki. (For `WEAPON_GATE` this same field instead means
+  "specific weapons permitted regardless of style" — the exception mechanism, a
+  halberd at Zulrah.)
 - `allowedAmmoIds`: for ranged gates such as broad ammunition.
 - `note`: one short sentence, shown verbatim in the panel to explain why a style
-  is greyed out.
+  is greyed out. For Verzik this also flags an UNMODELLED effect: the wiki
+  documents a real accuracy penalty on non-Dawnbringer weapons ("a much lower
+  chance of hitting") but publishes no number for it, so it is deliberately not
+  applied — the note says so, so the readout is not mistaken for a complete
+  model of the fight.
 
 A gate must permit *something* — an entry with no styles and no items would prune
 every candidate. The data test enforces this.
@@ -153,7 +215,9 @@ monster can carry exactly one requirement, of one type. Two real cases are block
 Fix when needed: either store a list per monster and apply all matches, or fold
 optional `damageMultiplier`/`maxHitCap` fields into `WEAPON_GATE`.
 
-**Per-style damage caps.** `DAMAGE_CAP` carries one cap (plus a crush-highest variant),
-but some caps differ by style. **Verzik Vitur phase 1** caps melee at 10 and ranged/magic
-at **3** — a single value would overstate ranged and magic by more than 3x, so no entry
-is shipped rather than a wrong one. Needs a per-style cap field.
+~~**Per-style damage caps.**~~ Fixed — see `maxHitCapByStyle` above. **Verzik
+Vitur phase 1** ships as the first user: melee capped at 10, ranged/magic at 3,
+via `REROLL` mode (a re-roll into `0..cap`, per the wiki's own wording), with
+Dawnbringer listed in `allowedItemIds` as wholly exempt. The Hueycoatl's tail is
+untouched — still one flat cap (plus crush-highest), `CLAMP` mode, no per-style
+map — proving the new optional fields don't disturb an entry that predates them.

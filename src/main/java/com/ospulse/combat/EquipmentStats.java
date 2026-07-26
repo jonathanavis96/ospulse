@@ -33,6 +33,8 @@ public final class EquipmentStats {
     private final DragonHunterWeapon dragonHunterWeapon;
     private final boolean twistedBow;
     private final boolean osmumtensFang;
+    private final boolean twinflameStaff;
+    private final boolean harmonisedNightmareStaff;
     private final PoweredStaff poweredStaff;
     private final Tome tome;
 
@@ -60,6 +62,8 @@ public final class EquipmentStats {
         this.dragonHunterWeapon = b.dragonHunterWeapon;
         this.twistedBow = b.twistedBow;
         this.osmumtensFang = b.osmumtensFang;
+        this.twinflameStaff = b.twinflameStaff;
+        this.harmonisedNightmareStaff = b.harmonisedNightmareStaff;
         this.poweredStaff = b.poweredStaff;
         this.tome = b.tome;
     }
@@ -181,6 +185,25 @@ public final class EquipmentStats {
         return osmumtensFang;
     }
 
+    /**
+     * True when the worn weapon is the Twinflame staff (item id 30634) — its
+     * 6-tick cast speed and elemental Bolt/Blast/Wave second-hit passive
+     * apply to magic casts; see {@link MagicCastSpeed} / {@link
+     * TwinflameSecondHit} / {@link Spell#twinflameEligible()}.
+     */
+    public boolean twinflameStaff() {
+        return twinflameStaff;
+    }
+
+    /**
+     * True when the worn weapon is the Harmonised nightmare staff (item id
+     * 24423) — its 4-tick autocast speed (offensive standard spells only, 5
+     * ticks otherwise) applies to magic casts; see {@link MagicCastSpeed}.
+     */
+    public boolean harmonisedNightmareStaff() {
+        return harmonisedNightmareStaff;
+    }
+
     public PoweredStaff poweredStaff() {
         return poweredStaff;
     }
@@ -218,6 +241,8 @@ public final class EquipmentStats {
         private DragonHunterWeapon dragonHunterWeapon = DragonHunterWeapon.NONE;
         private boolean twistedBow;
         private boolean osmumtensFang;
+        private boolean twinflameStaff;
+        private boolean harmonisedNightmareStaff;
         private PoweredStaff poweredStaff = PoweredStaff.NONE;
         private Tome tome = Tome.NONE;
 
@@ -294,6 +319,16 @@ public final class EquipmentStats {
 
         public Builder osmumtensFang(boolean value) {
             this.osmumtensFang = value;
+            return this;
+        }
+
+        public Builder twinflameStaff(boolean value) {
+            this.twinflameStaff = value;
+            return this;
+        }
+
+        public Builder harmonisedNightmareStaff(boolean value) {
+            this.harmonisedNightmareStaff = value;
             return this;
         }
 
