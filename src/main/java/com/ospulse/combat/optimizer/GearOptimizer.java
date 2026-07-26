@@ -1790,7 +1790,7 @@ public final class GearOptimizer {
             PlayerCombat player = request.playerTemplate.stance(style.stance()).build();
             if (style.type() == CombatStyle.MAGIC) {
                 if (poweredStaff) {
-                    DpsResult r = DpsCalculator.compute(stats, player, CombatStyle.MAGIC, request.target, (Spell) null);
+                    DpsResult r = DpsCalculator.compute(stats, player, CombatStyle.MAGIC, request.target, (Spell) null, weaponId);
                     if (best == null || r.dps() > best.dps()) {
                         best = r;
                         bestStyle = style;
@@ -1812,7 +1812,7 @@ public final class GearOptimizer {
                             // Blast must never inflate a non-Iban's-staff weapon.
                             continue;
                         }
-                        DpsResult r = DpsCalculator.compute(stats, player, CombatStyle.MAGIC, request.target, spell);
+                        DpsResult r = DpsCalculator.compute(stats, player, CombatStyle.MAGIC, request.target, spell, weaponId);
                         if (best == null || r.dps() > best.dps()) {
                             best = r;
                             bestStyle = style;
@@ -1821,7 +1821,7 @@ public final class GearOptimizer {
                     }
                 }
             } else {
-                DpsResult r = DpsCalculator.compute(stats, player, style.type(), request.target, 0);
+                DpsResult r = DpsCalculator.compute(stats, player, style.type(), request.target, 0, weaponId);
                 if (best == null || r.dps() > best.dps()) {
                     best = r;
                     bestStyle = style;

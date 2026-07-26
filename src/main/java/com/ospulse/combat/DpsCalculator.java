@@ -29,9 +29,18 @@ package com.ospulse.combat;
  * finishFang / {@link CombatMath#fangHitChance} /
  * {@link CombatMath#fangAverageDamagePerAttack}). Unknown/unmodelled effects
  * (scythe multi-hit, special
- * attacks, Avarice, Tomes, Tumeken's 3x gear multiplier, ...) are simply not
+ * attacks, Avarice, Tumeken's 3x gear multiplier, ...) are simply not
  * applied — extend this class (and {@link CombatMath}) to add them, gated
  * behind their own "applies when" predicate.
+ *
+ * <p>Per-target damage-magnitude effects (a curated {@link
+ * MonsterCombatRequirement} resolved once per compute call from {@code
+ * target.name()} via {@link MonsterCombatRequirementRepository}): a {@link
+ * MonsterCombatRequirement.Type#DAMAGE_PENALTY} multiplies max hit for an
+ * off-style weapon (e.g. Corporeal Beast's half-damage stab), and a {@link
+ * MonsterCombatRequirement.Type#DAMAGE_CAP} clamps max hit to a flat ceiling
+ * (e.g. The Hueycoatl's tail) — both applied as the final step immediately
+ * before {@code finish}/{@code finishFang}; see {@link TargetDamageRule}.
  */
 public final class DpsCalculator {
     private DpsCalculator() {
@@ -45,10 +54,23 @@ public final class DpsCalculator {
      */
     public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
                                      Monster target, int baseSpellMaxHit) {
+        return compute(gear, player, style, target, baseSpellMaxHit, UNKNOWN_WEAPON_ID);
+    }
+
+    /**
+     * As above, plus the worn weapon's item id — needed to resolve a
+     * per-target {@link MonsterCombatRequirement.Type#DAMAGE_PENALTY} (see
+     * {@link TargetDamageRule#damageMultiplierFor}). Callers that do not know
+     * the weapon id may use the no-arg overload; an unknown id never matches
+     * a curated exemption list, so any penalty for the target still applies
+     * (the conservative default).
+     */
+    public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                     Monster target, int baseSpellMaxHit, int weaponId) {
         if (style == CombatStyle.MAGIC) {
-            return computeMagic(gear, player, target, baseSpellMaxHit, gear.weaponSpeedTicks(), false, null);
+            return computeMagic(gear, player, target, baseSpellMaxHit, gear.weaponSpeedTicks(), false, null, weaponId);
         }
-        return computeNonMagic(gear, player, style, target);
+        return computeNonMagic(gear, player, style, target, weaponId);
     }
 
     /**
@@ -62,31 +84,45 @@ public final class DpsCalculator {
      */
     public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
                                      Monster target, Spell spell) {
+        return compute(gear, player, style, target, spell, UNKNOWN_WEAPON_ID);
+    }
+
+    /**
+     * As above, plus the worn weapon's item id — see {@link #compute(EquipmentStats,
+     * PlayerCombat, CombatStyle, Monster, int, int)} for why it is needed.
+     */
+    public static DpsResult compute(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                     Monster target, Spell spell, int weaponId) {
         if (style != CombatStyle.MAGIC) {
-            return computeNonMagic(gear, player, style, target);
+            return computeNonMagic(gear, player, style, target, weaponId);
         }
         if (gear.poweredStaff().applies()) {
             // Base max hit derives from the boosted level inside computeMagic.
             // Powered staves cast their own built-in "spell" (Magic Dart etc.),
             // which is not a real Spell and carries no element - no weakness bonus.
             return computeMagic(gear, player, target, POWERED_STAFF_SENTINEL, gear.weaponSpeedTicks(),
-                    gear.poweredStaff().approximate(), null);
+                    gear.poweredStaff().approximate(), null, weaponId);
         }
         int baseMaxHit = spell == null ? 0 : spell.baseMaxHit();
         Spell.Element element = spell == null ? null : spell.element();
-        return computeMagic(gear, player, target, baseMaxHit, Spell.CAST_SPEED_TICKS, false, element);
+        return computeMagic(gear, player, target, baseMaxHit, Spell.CAST_SPEED_TICKS, false, element, weaponId);
     }
 
-    private static DpsResult computeNonMagic(EquipmentStats gear, PlayerCombat player, CombatStyle style, Monster target) {
+    /** Sentinel meaning "the worn weapon's item id is not known to this caller". */
+    private static final int UNKNOWN_WEAPON_ID = -1;
+
+    private static DpsResult computeNonMagic(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                             Monster target, int weaponId) {
         if (style == CombatStyle.RANGED) {
-            return computeRanged(gear, player, target);
+            return computeRanged(gear, player, target, weaponId);
         }
-        return computeMelee(gear, player, style, target);
+        return computeMelee(gear, player, style, target, weaponId);
     }
 
     // ---- Melee (STAB/SLASH/CRUSH) -----------------------------------------------------
 
-    private static DpsResult computeMelee(EquipmentStats gear, PlayerCombat player, CombatStyle style, Monster target) {
+    private static DpsResult computeMelee(EquipmentStats gear, PlayerCombat player, CombatStyle style,
+                                          Monster target, int weaponId) {
         int boostedStr = player.assumeBestPotion()
                 ? PotionBoosts.bestMeleeBoostedLevel(player.baseStrength())
                 : player.boostedStrength();
@@ -145,6 +181,7 @@ public final class DpsCalculator {
         // attackRoll themselves — they change how hitChance/avgDamage are
         // derived from them, so this bypasses the generic finish() path.
         boolean fangApplies = gear.osmumtensFang() && style == CombatStyle.STAB;
+        maxHit = applyTargetDamageRules(maxHit, target, gear, style, weaponId);
         if (fangApplies) {
             return finishFang(maxHit, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
         }
@@ -154,7 +191,7 @@ public final class DpsCalculator {
 
     // ---- Ranged -----------------------------------------------------------------------
 
-    private static DpsResult computeRanged(EquipmentStats gear, PlayerCombat player, Monster target) {
+    private static DpsResult computeRanged(EquipmentStats gear, PlayerCombat player, Monster target, int weaponId) {
         int boostedRanged = player.assumeBestPotion()
                 ? PotionBoosts.bestRangedBoostedLevel(player.baseRanged())
                 : player.boostedRanged();
@@ -240,6 +277,7 @@ public final class DpsCalculator {
         int weaponSpeedTicks = gear.weaponSpeedTicks() - (player.stance() == Stance.RAPID ? 1 : 0);
         weaponSpeedTicks = Math.max(1, weaponSpeedTicks);
 
+        maxHit = applyTargetDamageRules(maxHit, target, gear, CombatStyle.RANGED, weaponId);
         return finish(maxHit, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints(), false);
     }
 
@@ -267,7 +305,7 @@ public final class DpsCalculator {
 
     private static DpsResult computeMagic(EquipmentStats gear, PlayerCombat player, Monster target,
                                           int baseSpellMaxHit, int castSpeedTicks, boolean approximate,
-                                          Spell.Element spellElement) {
+                                          Spell.Element spellElement, int weaponId) {
         int boostedMagic = player.assumeBestPotion()
                 ? magicPotionBoostedLevel(player.magicPotionVariant(), player.baseMagic())
                 : player.boostedMagic();
@@ -346,7 +384,26 @@ public final class DpsCalculator {
             maxHit = (int) new Fraction(11, 10).applyFloor(maxHit);
         }
 
+        maxHit = applyTargetDamageRules(maxHit, target, gear, CombatStyle.MAGIC, weaponId);
         return finish(maxHit, accuracyRoll, defenceRoll, castSpeedTicks, target.hitpoints(), approximate);
+    }
+
+    /**
+     * The final max-hit step, shared by all three styles: resolves the
+     * target's curated {@link MonsterCombatRequirement} once (by name, {@code
+     * null} if this monster has none) and applies its damage penalty then its
+     * damage cap, in that order — see {@link TargetDamageRule}. A monster
+     * with no requirement (the overwhelming majority) is unaffected: both
+     * {@link TargetDamageRule} methods return their neutral values for a
+     * {@code null} requirement.
+     */
+    private static int applyTargetDamageRules(int maxHit, Monster target, EquipmentStats gear,
+                                              CombatStyle style, int weaponId) {
+        MonsterCombatRequirement req = MonsterCombatRequirementRepository.getInstance()
+                .forMonster(target.name()).orElse(null);
+        maxHit = (int) Math.floor(maxHit * TargetDamageRule.damageMultiplierFor(req, weaponId, style));
+        int cap = TargetDamageRule.maxHitCapFor(req, gear);
+        return cap >= 0 ? Math.min(maxHit, cap) : maxHit;
     }
 
     // ---- Shared helpers -----------------------------------------------------------------
