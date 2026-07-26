@@ -187,6 +187,8 @@ public final class GearMapper
 		builder.harmonisedNightmareStaff(GearVariants.isHarmonisedNightmareStaff(weaponItemId));
 		builder.poweredStaff(GearVariants.poweredStaffFor(weaponItemId));
 		builder.tonalzticsOfRalosCharged(GearVariants.isTonalzticsOfRalosCharged(weaponItemId));
+		builder.scytheOfVitur(GearVariants.isScytheOfVitur(weaponItemId));
+		builder.colossalBlade(GearVariants.isColossalBlade(weaponItemId));
 		builder.tome(GearVariants.tomeFor(slotItemId(equippedItemIds, SLOT_SHIELD)));
 		builder.voidSet(GearVariants.voidSetFor(
 			slotItemId(equippedItemIds, SLOT_HEAD),

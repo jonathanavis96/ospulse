@@ -38,6 +38,8 @@ public final class EquipmentStats {
     private final PoweredStaff poweredStaff;
     private final Tome tome;
     private final boolean tonalzticsOfRalosCharged;
+    private final boolean scytheOfVitur;
+    private final boolean colossalBlade;
 
     private EquipmentStats(Builder b) {
         this.astab = b.astab;
@@ -68,6 +70,8 @@ public final class EquipmentStats {
         this.poweredStaff = b.poweredStaff;
         this.tome = b.tome;
         this.tonalzticsOfRalosCharged = b.tonalzticsOfRalosCharged;
+        this.scytheOfVitur = b.scytheOfVitur;
+        this.colossalBlade = b.colossalBlade;
     }
 
     public int astab() {
@@ -225,6 +229,25 @@ public final class EquipmentStats {
         return tonalzticsOfRalosCharged;
     }
 
+    /**
+     * True when the worn weapon is any Scythe of Vitur variant (Holy/Sanguine
+     * reskins included) — its target-size-scaled multi-hit cascade applies to
+     * melee attacks; see {@link ScytheCascade}.
+     */
+    public boolean scytheOfVitur() {
+        return scytheOfVitur;
+    }
+
+    /**
+     * True when the worn weapon is the Colossal blade (item id 27021) — a
+     * flat {@code +2 * min(targetSize, 5)} bonus (up to +10) applies to its
+     * melee max hit, stacking with the on-task slayer helm/black mask; see
+     * {@link DpsCalculator#computeMelee}.
+     */
+    public boolean colossalBlade() {
+        return colossalBlade;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -258,6 +281,8 @@ public final class EquipmentStats {
         private PoweredStaff poweredStaff = PoweredStaff.NONE;
         private Tome tome = Tome.NONE;
         private boolean tonalzticsOfRalosCharged;
+        private boolean scytheOfVitur;
+        private boolean colossalBlade;
 
         private Builder() {
         }
@@ -357,6 +382,16 @@ public final class EquipmentStats {
 
         public Builder tonalzticsOfRalosCharged(boolean value) {
             this.tonalzticsOfRalosCharged = value;
+            return this;
+        }
+
+        public Builder scytheOfVitur(boolean value) {
+            this.scytheOfVitur = value;
+            return this;
+        }
+
+        public Builder colossalBlade(boolean value) {
+            this.colossalBlade = value;
             return this;
         }
 

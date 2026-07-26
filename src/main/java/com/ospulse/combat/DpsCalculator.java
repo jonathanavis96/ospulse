@@ -262,6 +262,16 @@ public final class DpsCalculator {
             attackRoll = (int) dh.accuracyMult().applyFloor(attackRoll);
         }
 
+        // Colossal blade: a flat +2*min(targetSize, 5) max-hit bonus (up to
+        // +10), stacking with everything above INCLUDING the slayer/salve
+        // slot and demonbane/dragonbane — this is the weapon's own passive,
+        // a separate additive term (not a multiplicative floor step), added
+        // last so a per-target damage cap (below) applies to the TOTAL,
+        // matching how the game's own displayed max hit already includes it.
+        if (gear.colossalBlade()) {
+            maxHit += 2 * Math.min(target.size(), 5);
+        }
+
         int defenceRoll = CombatMath.npcDefenceRoll(target.defenceLevel(), target.defenceBonus(style));
 
         // Osmumten's fang (and re-skins/cosmetics): two passives, STAB style
@@ -271,10 +281,19 @@ public final class DpsCalculator {
         // attackRoll themselves — they change how hitChance/avgDamage are
         // derived from them, so this bypasses the generic finish() path.
         boolean fangApplies = gear.osmumtensFang() && style == CombatStyle.STAB;
+        // Scythe of Vitur family: hits 1-3x by target size, each hit's max
+        // decaying to 50% of the previous (rounded down) — a genuinely
+        // different distribution from a single roll, so this too bypasses
+        // the generic finish() path entirely; see ScytheCascade.
+        boolean scytheApplies = gear.scytheOfVitur();
         TargetDamage damage = applyTargetDamageRules(maxHit, requirement, gear, style, weaponId);
         maxHit = damage.visibleMaxHit();
         if (fangApplies) {
             return finishFang(damage, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
+        }
+        if (scytheApplies) {
+            return ScytheCascade.finish(damage.uncapped, damage.cap, damage.mode, target.size(), attackRoll,
+                    defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
         }
 
         return finish(damage, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints(), false);

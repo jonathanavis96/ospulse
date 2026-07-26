@@ -241,4 +241,39 @@ public class GearVariantsTest
 		org.junit.Assert.assertFalse(GearVariants.isTonalzticsOfRalosCharged(28919));
 		org.junit.Assert.assertFalse(GearVariants.isTonalzticsOfRalosCharged(-1)); // empty slot
 	}
+
+	// ==== Scythe of Vitur family ==========================================================
+
+	@Test
+	public void isScytheOfVitur_allSixIds_returnTrue()
+	{
+		// Ids verified against the bundled equipment_index.min.json 2026-07-26.
+		int[] scytheIds = {22325, 22486, 25736, 25738, 25739, 25741};
+		for (int id : scytheIds)
+		{
+			org.junit.Assert.assertTrue("id=" + id, GearVariants.isScytheOfVitur(id));
+		}
+	}
+
+	@Test
+	public void isScytheOfVitur_nonScytheWeapon_returnsFalse()
+	{
+		org.junit.Assert.assertFalse(GearVariants.isScytheOfVitur(26219)); // Osmumten's fang
+		org.junit.Assert.assertFalse(GearVariants.isScytheOfVitur(-1));
+	}
+
+	// ==== Colossal blade ===================================================================
+
+	@Test
+	public void isColossalBlade_correctId_returnsTrue()
+	{
+		org.junit.Assert.assertTrue(GearVariants.isColossalBlade(27021));
+	}
+
+	@Test
+	public void isColossalBlade_nonColossalBladeWeapon_returnsFalse()
+	{
+		org.junit.Assert.assertFalse(GearVariants.isColossalBlade(4151)); // Abyssal whip
+		org.junit.Assert.assertFalse(GearVariants.isColossalBlade(-1));
+	}
 }

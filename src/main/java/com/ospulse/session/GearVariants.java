@@ -473,6 +473,41 @@ public final class GearVariants
 		return weaponItemId == TONALZTICS_OF_RALOS_CHARGED;
 	}
 
+	// ==== Scythe of Vitur family (target-size-scaled multi-hit cascade) ==================
+
+	/**
+	 * Scythe of Vitur, Holy scythe of vitur, and Sanguine scythe of vitur,
+	 * each with two ids sharing the same display name in the bundled {@code
+	 * equipment_index.min.json} 2026-07-26 (an uncharged/dyed-cosmetic pair
+	 * per variant, both fully functional): Scythe of vitur (22325, 22486),
+	 * Holy scythe of vitur (25736, 25738), Sanguine scythe of vitur
+	 * (25739, 25741). All six ids carry the identical size-scaled cascade
+	 * passive (the Holy/Sanguine reskins only differ cosmetically/in
+	 * blood-heal flavour, not in the damage mechanic modelled here).
+	 */
+	private static final Set<Integer> SCYTHE_OF_VITUR = setOf(
+		22325, 22486, // Scythe of vitur
+		25736, 25738, // Holy scythe of vitur
+		25739, 25741  // Sanguine scythe of vitur
+	);
+
+	/** True when the worn weapon is any Scythe of Vitur variant (its size-scaled multi-hit cascade applies). */
+	static boolean isScytheOfVitur(int weaponItemId)
+	{
+		return SCYTHE_OF_VITUR.contains(weaponItemId);
+	}
+
+	// ==== Colossal blade (flat target-size max-hit bonus) =================================
+
+	/** Colossal blade — id 27021, verified against the bundled equipment_index.min.json 2026-07-26. */
+	private static final int COLOSSAL_BLADE = 27021;
+
+	/** True when the worn weapon is the Colossal blade (its flat +2*min(size,5) max-hit bonus applies). */
+	static boolean isColossalBlade(int weaponItemId)
+	{
+		return weaponItemId == COLOSSAL_BLADE;
+	}
+
 	// ==== Blowpipe (loads darts internally, ignores worn ammo) ============================
 
 	/**
