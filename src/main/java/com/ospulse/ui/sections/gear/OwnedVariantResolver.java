@@ -1,6 +1,7 @@
 package com.ospulse.ui.sections.gear;
 
 import com.ospulse.combat.EquipmentIndexRepository;
+import com.ospulse.combat.EquipmentRequirementsRepository;
 import com.ospulse.combat.EquipmentStatsRepository;
 
 import java.util.Collections;
@@ -34,9 +35,9 @@ import java.util.Set;
  * <ul>
  *   <li><i>Reward-source/charge duplicates</i> (an imbued ring's three
  *   quest-source copies, Black mask's 0-10 charge levels, the two Imbued god
- *   cape ids per god): every member shares IDENTICAL combat stats — picking
- *   any one of them is always safe, so the historical "first in file order"
- *   behaviour is kept for these.</li>
+ *   cape ids per god): every member shares IDENTICAL combat stats AND
+ *   IDENTICAL equip requirements — picking any one of them is always safe,
+ *   so the historical "first in file order" behaviour is kept for these.</li>
  *   <li><i>Genuinely different items sharing a name</i> — Deadman-mode
  *   crystal helm/body/legs each have an ACTIVE id (real combat stats) and an
  *   INACTIVE id (all-zero stats, cosmetically deactivated) that share the
@@ -46,17 +47,29 @@ import java.util.Set;
  *   optimiser would then compute and recommend DPS the player cannot
  *   actually achieve), and the reverse display lookup must never show the
  *   zero-stat inactive icon for a result actually calculated off the active
- *   id's real stats.
+ *   id's real stats.</li>
+ *   <li><i>Combat-stat-identical but requirement-different</i> — a subtler
+ *   variant of the above: Deadman-mode Imbued god capes and the Dark bow's
+ *   several reward duplicates are combat-stat-IDENTICAL across every field
+ *   {@link EquipmentStatsRepository} models, yet differ on recorded equip
+ *   requirement (e.g. two "Imbued saradomin cape" ids, one requiring magic
+ *   75 and one with no recorded requirement — {@code
+ *   equipment_requirements.min.json}). Stats alone made these look like safe
+ *   "any pick is fine" duplicates; picking file order here would silently
+ *   drop the level gate and recommend/credit gear the player cannot actually
+ *   equip. Requirements are therefore checked as a second, independent
+ *   dimension alongside stats — see {@link #isHomogeneous}.</li>
  * </ul>
  * Both {@link #plainFormId} and {@link #preferOwnedVariant} now detect which
  * case applies via {@link #resolveByStatMatch} / {@link #isHomogeneous}: a
  * name-sharing group is resolved by position ONLY when every member is
- * stat-identical (safe by construction); otherwise the specific member whose
- * stats match the item on the OTHER side of the mapping is required, and
- * {@code null}/the original id (no credit, no substitution) is returned when
- * no exact match exists — over-crediting ownership the player cannot
- * actually reach is the real harm, and a missing credit is visibly absent
- * while a wrong one looks modelled.
+ * BOTH stat-identical and requirement-identical (safe by construction);
+ * otherwise the specific member whose stats AND requirements match the item
+ * on the OTHER side of the mapping is required, and {@code null}/the
+ * original id (no credit, no substitution) is returned when no exact match
+ * exists — over-crediting ownership the player cannot actually reach, or
+ * bypassing a level gate, is the real harm, and a missing credit is visibly
+ * absent while a wrong one looks modelled.
  */
 public final class OwnedVariantResolver
 {
@@ -110,9 +123,10 @@ public final class OwnedVariantResolver
 	 * {@code null} if the item isn't indexed, its name doesn't end in a known
 	 * variant suffix, neither the plain form nor its {@link
 	 * #UNINDEXED_PLAIN_NAME_ALIASES} counterpart is indexed, or the resolved
-	 * name maps to more than one stat-DIFFERENT id and none of them matches
-	 * {@code variantItemId}'s own stats (see class javadoc) — crediting
-	 * nothing is safer than guessing which one the player can actually reach.
+	 * name maps to more than one id that differs in stats and/or equip
+	 * requirements and none of them matches {@code variantItemId}'s own stats
+	 * AND requirements (see class javadoc) — crediting nothing is safer than
+	 * guessing which one the player can actually reach.
 	 */
 	public static Integer plainFormId(EquipmentIndexRepository index, int variantItemId)
 	{
@@ -171,12 +185,14 @@ public final class OwnedVariantResolver
 	 * variant's name — not just the first, so owning a different reward-
 	 * source copy of the same-named variant still resolves correctly.
 	 *
-	 * <p><b>Stat-different name collisions</b> (Deadman crystal armour's
-	 * active/inactive split — see class javadoc): when the variant NAME's
-	 * ids are not all stat-identical, only an owned id whose stats match
-	 * {@code itemId}'s own stats is substituted — never a wrong-state
-	 * duplicate (e.g. an owned zero-stat inactive deadman piece must never
-	 * be displayed for a result actually calculated off the fully-statted
+	 * <p><b>Stat- or requirement-different name collisions</b> (Deadman
+	 * crystal armour's active/inactive split, or Deadman god capes'/Dark
+	 * bow's requirement-only differences — see class javadoc): when the
+	 * variant NAME's ids are not all both stat- and requirement-identical,
+	 * only an owned id whose stats AND requirements match {@code itemId}'s
+	 * own is substituted — never a wrong-state or wrong-level-gate duplicate
+	 * (e.g. an owned zero-stat inactive deadman piece must never be
+	 * displayed for a result actually calculated off the fully-statted
 	 * active plain id).
 	 */
 	public static int preferOwnedVariant(EquipmentIndexRepository index, int itemId, Map<Integer, Long> ownedIds,
@@ -208,7 +224,9 @@ public final class OwnedVariantResolver
 				{
 					continue;
 				}
-				if (homogeneous || sameStats(itemStats, EquipmentStatsRepository.getInstance().statsFor(variantId)))
+				if (homogeneous
+					|| (sameStats(itemStats, EquipmentStatsRepository.getInstance().statsFor(variantId))
+						&& sameRequirements(itemId, variantId)))
 				{
 					return variantId;
 				}
@@ -220,14 +238,16 @@ public final class OwnedVariantResolver
 	/**
 	 * Resolves a name-sharing group of ids to a single id "compatible with"
 	 * {@code referenceItemId}: if every id in {@code candidates} has
-	 * IDENTICAL combat stats (the common case — reward-source/charge
-	 * duplicates, or a (f)/(i) suffix's single plain form), any one of them
-	 * is safe and the first (file order, matching historical behaviour) is
-	 * returned. Otherwise the group holds genuinely DIFFERENT items sharing
-	 * a name (Deadman crystal armour's active/inactive split) and only an
-	 * id whose stats exactly match {@code referenceItemId}'s own is
-	 * trustworthy; {@code null} if none does — see class javadoc for why
-	 * that's the safe answer, not a guess.
+	 * IDENTICAL combat stats AND IDENTICAL equip requirements (the common
+	 * case — reward-source/charge duplicates, or a (f)/(i) suffix's single
+	 * plain form), any one of them is safe and the first (file order,
+	 * matching historical behaviour) is returned. Otherwise the group holds
+	 * items that genuinely differ — either in combat stats (Deadman crystal
+	 * armour's active/inactive split) or in equip requirements alone
+	 * (Deadman god capes, Dark bow's reward duplicates) — and only an id
+	 * whose stats AND requirements exactly match {@code referenceItemId}'s
+	 * own is trustworthy; {@code null} if none does — see class javadoc for
+	 * why that's the safe answer, not a guess.
 	 */
 	private static Integer resolveByStatMatch(EquipmentIndexRepository index, List<Integer> candidates,
 		int referenceItemId)
@@ -243,7 +263,8 @@ public final class OwnedVariantResolver
 		EquipmentStatsRepository.Stats referenceStats = EquipmentStatsRepository.getInstance().statsFor(referenceItemId);
 		for (Integer candidateId : candidates)
 		{
-			if (sameStats(referenceStats, EquipmentStatsRepository.getInstance().statsFor(candidateId)))
+			if (sameStats(referenceStats, EquipmentStatsRepository.getInstance().statsFor(candidateId))
+				&& sameRequirements(referenceItemId, candidateId))
 			{
 				return candidateId;
 			}
@@ -251,13 +272,27 @@ public final class OwnedVariantResolver
 		return null;
 	}
 
-	/** True when every id in {@code ids} (non-empty) shares identical combat stats. */
+	/**
+	 * True when every id in {@code ids} (non-empty) shares identical combat
+	 * stats AND identical equip skill/level requirements. Both must agree:
+	 * {@link EquipmentStatsRepository}'s 14 combat-bonus fields don't capture
+	 * everything a same-named duplicate can differ on — a stat-identical pair
+	 * can still gate on a different skill level (e.g. two "Imbued saradomin
+	 * cape" ids are combat-stat-identical, but one requires magic 75 and the
+	 * other has no recorded requirement at all). Treating that pair as
+	 * "homogeneous" and picking file order would silently drop the level
+	 * gate, so requirements are checked as a second, independent dimension —
+	 * a single-element list is always homogeneous (nothing to disagree with).
+	 */
 	private static boolean isHomogeneous(List<Integer> ids)
 	{
-		EquipmentStatsRepository.Stats first = EquipmentStatsRepository.getInstance().statsFor(ids.get(0));
+		int first = ids.get(0);
+		EquipmentStatsRepository.Stats firstStats = EquipmentStatsRepository.getInstance().statsFor(first);
 		for (int i = 1; i < ids.size(); i++)
 		{
-			if (!sameStats(first, EquipmentStatsRepository.getInstance().statsFor(ids.get(i))))
+			int other = ids.get(i);
+			if (!sameStats(firstStats, EquipmentStatsRepository.getInstance().statsFor(other))
+				|| !sameRequirements(first, other))
 			{
 				return false;
 			}
@@ -278,5 +313,27 @@ public final class OwnedVariantResolver
 			&& a.dmagic() == b.dmagic() && a.drange() == b.drange()
 			&& a.str() == b.str() && a.rstr() == b.rstr()
 			&& a.mdmg() == b.mdmg() && a.prayer() == b.prayer();
+	}
+
+	/**
+	 * True when {@code itemIdA} and {@code itemIdB} carry the EXACT same equip
+	 * skill/level requirements (an absent requirement map counts as "no
+	 * requirements", equal to another absent one, but NOT equal to any
+	 * non-empty requirement map — {@code equipment_requirements.min.json}
+	 * only records an item when it carries at least one requirement, so
+	 * absent means "no requirement recorded in the cache", never "definitely
+	 * ungated"; this comparison is written to be correct either way, since it
+	 * only ever asks "do these two match", not "is this one gated"). Used
+	 * alongside {@link #sameStats} so a duplicate that differs ONLY in its
+	 * level gate (not in combat stats) is never treated as an interchangeable
+	 * "any pick is safe" duplicate — see {@link #isHomogeneous}.
+	 */
+	private static boolean sameRequirements(int itemIdA, int itemIdB)
+	{
+		Map<String, Integer> a = EquipmentRequirementsRepository.getInstance().requirementsFor(itemIdA);
+		Map<String, Integer> b = EquipmentRequirementsRepository.getInstance().requirementsFor(itemIdB);
+		Map<String, Integer> normalizedA = a == null ? Collections.emptyMap() : a;
+		Map<String, Integer> normalizedB = b == null ? Collections.emptyMap() : b;
+		return normalizedA.equals(normalizedB);
 	}
 }

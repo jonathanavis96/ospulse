@@ -133,28 +133,115 @@ public class OwnedVariantResolverTest
 	}
 
 	// Imbued saradomin cape (deadman) 29617 <-> Imbued saradomin cape 24248/21791 —
-	// a Deadman Mode reward duplicate, stat-identical to the real, non-mode-locked
-	// item (see equipment_stats.min.json: both amagic+15/dmagic+15/mdmg+20).
+	// a Deadman Mode reward duplicate, combat-stat-identical to the real,
+	// non-mode-locked item (see equipment_stats.min.json: both amagic+15/
+	// dmagic+15/mdmg+20) BUT NOT requirement-identical: 24248
+	// (MA2_SARADOMIN_CAPE_TROUVER) has no recorded equip requirement, while
+	// 21791 (MA2_SARADOMIN_CAPE) requires magic 75 — matching 29617's own
+	// requirement (see equipment_requirements.min.json). Ids verified via
+	// javap -constants on net.runelite.api.gameval.ItemID (runelite-api jar
+	// on this project's classpath): DEADMAN_MA2_SARADOMIN_CAPE=29617,
+	// MA2_SARADOMIN_CAPE_TROUVER=24248, MA2_SARADOMIN_CAPE=21791.
 	// GearSection.restrictedItemIds() always excludes 29617 itself from optimiser
 	// candidates (mode-locked, regardless of ownership) — issue #11 Stage 3.
+	//
+	// Codex review (P2, post-commit 0623533): the ORIGINAL version of this test
+	// asserted plainFormId(29617) == INDEX.idForName("Imbued saradomin cape"),
+	// which happens to be 24248 (first in file order) — that assertion encoded
+	// the very bug it should have caught: stats-only "homogeneous" comparison
+	// picked file order and silently dropped the magic-75 level gate. Fixed to
+	// assert the specific, requirement-matching id (21791), not whatever
+	// idForName's single-id-per-name pick happens to return.
 	private static final int IMBUED_SARADOMIN_CAPE_DEADMAN = 29617;
+	private static final int IMBUED_SARADOMIN_CAPE_REAL_UNGATED_DUPLICATE = 24248;
+	private static final int IMBUED_SARADOMIN_CAPE_REAL_MAGIC75 = 21791;
 
 	@Test
 	public void plainFormId_deadmanSuffix_resolvesToRealNonModeLockedCounterpart()
 	{
-		Integer expected = INDEX.idForName("Imbued saradomin cape");
-		assertEquals(expected, OwnedVariantResolver.plainFormId(INDEX, IMBUED_SARADOMIN_CAPE_DEADMAN));
+		assertEquals("owning the deadman saradomin cape (requires magic 75) must credit the "
+				+ "requirement-MATCHING real cape (21791), not the ungated duplicate (24248) that "
+				+ "file order would pick — that would silently bypass the level gate",
+			Integer.valueOf(IMBUED_SARADOMIN_CAPE_REAL_MAGIC75),
+			OwnedVariantResolver.plainFormId(INDEX, IMBUED_SARADOMIN_CAPE_DEADMAN));
+	}
+
+	@Test
+	public void plainFormId_deadmanSuffix_neverCreditsRequirementMismatchedDuplicate()
+	{
+		Integer resolved = OwnedVariantResolver.plainFormId(INDEX, IMBUED_SARADOMIN_CAPE_DEADMAN);
+		assertTrue("must not resolve to the ungated duplicate (24248) merely because it shares "
+				+ "identical combat stats with the requirement-matching one",
+			resolved != null && resolved != IMBUED_SARADOMIN_CAPE_REAL_UNGATED_DUPLICATE);
 	}
 
 	@Test
 	public void preferOwnedVariant_ownedDeadmanCape_resolvesFromRealCounterpart()
 	{
-		int realImbuedSaradominCape = INDEX.idForName("Imbued saradomin cape");
-		int resolved = OwnedVariantResolver.preferOwnedVariant(INDEX, realImbuedSaradominCape,
+		int resolved = OwnedVariantResolver.preferOwnedVariant(INDEX, IMBUED_SARADOMIN_CAPE_REAL_MAGIC75,
 			owned(IMBUED_SARADOMIN_CAPE_DEADMAN), null);
 		assertEquals("owning the deadman-mode duplicate must resolve display back to it, exactly like "
 				+ "the (f)/(i) suffixes already do",
 			IMBUED_SARADOMIN_CAPE_DEADMAN, resolved);
+	}
+
+	// Same shape as the saradomin cape, for the other two Deadman god capes — each has an
+	// ungated reward duplicate and a magic-75 real counterpart, combat-stat-identical to
+	// each other. Ids verified via javap -constants on net.runelite.api.gameval.ItemID:
+	// DEADMAN_MA2_GUTHIX_CAPE=29615, MA2_GUTHIX_CAPE_TROUVER=24249 (no requirement),
+	// MA2_GUTHIX_CAPE=21793 (magic 75); DEADMAN_MA2_ZAMORAK_CAPE=29613,
+	// MA2_ZAMORAK_CAPE_TROUVER=24250 (no requirement), MA2_ZAMORAK_CAPE=21795 (magic 75) —
+	// cross-checked against equipment_requirements.min.json.
+	private static final int IMBUED_GUTHIX_CAPE_DEADMAN = 29615;
+	private static final int IMBUED_GUTHIX_CAPE_REAL_MAGIC75 = 21793;
+	private static final int IMBUED_ZAMORAK_CAPE_DEADMAN = 29613;
+	private static final int IMBUED_ZAMORAK_CAPE_REAL_MAGIC75 = 21795;
+
+	@Test
+	public void plainFormId_deadmanGuthixCape_creditsRequirementMatchingRealCounterpart()
+	{
+		assertEquals("owning the deadman guthix cape (requires magic 75) must credit the "
+				+ "requirement-matching real cape (21793), not the ungated duplicate (24249)",
+			Integer.valueOf(IMBUED_GUTHIX_CAPE_REAL_MAGIC75),
+			OwnedVariantResolver.plainFormId(INDEX, IMBUED_GUTHIX_CAPE_DEADMAN));
+	}
+
+	@Test
+	public void plainFormId_deadmanZamorakCape_creditsRequirementMatchingRealCounterpart()
+	{
+		assertEquals("owning the deadman zamorak cape (requires magic 75) must credit the "
+				+ "requirement-matching real cape (21795), not the ungated duplicate (24250)",
+			Integer.valueOf(IMBUED_ZAMORAK_CAPE_REAL_MAGIC75),
+			OwnedVariantResolver.plainFormId(INDEX, IMBUED_ZAMORAK_CAPE_DEADMAN));
+	}
+
+	// Dark bow (deadman) 29611 requires ranged 60. Its plain-name group "Dark bow" has FIVE
+	// ids, all combat-stat-identical (arange 95, everything else 0): 12766/12765/12768/12767
+	// (recolour reward variants, no recorded requirement) and 11235 (the real weapon,
+	// ranged 60 — matching 29611's own requirement). File order in equipment_index.min.json
+	// puts 12766 first, so the old stats-only comparison would have credited an ungated
+	// recolour. Ids verified via javap -constants: DEADMAN_DARKBOW=29611, DARKBOW_BLUE=12766,
+	// DARKBOW_GREEN=12765, DARKBOW=11235, DARKBOW_WHITE=12768, DARKBOW_YELLOW=12767.
+	private static final int DARK_BOW_DEADMAN = 29611;
+	private static final int DARK_BOW_REAL_RANGED60 = 11235;
+	private static final int DARK_BOW_UNGATED_RECOLOUR_FIRST_IN_FILE_ORDER = 12766;
+
+	@Test
+	public void plainFormId_deadmanDarkBow_creditsRequirementMatchingRealCounterpart()
+	{
+		assertEquals("owning the deadman dark bow (requires ranged 60) must credit the real, "
+				+ "requirement-matching weapon (11235), not an ungated recolour",
+			Integer.valueOf(DARK_BOW_REAL_RANGED60),
+			OwnedVariantResolver.plainFormId(INDEX, DARK_BOW_DEADMAN));
+	}
+
+	@Test
+	public void plainFormId_deadmanDarkBow_neverCreditsFirstInFileOrderRecolour()
+	{
+		Integer resolved = OwnedVariantResolver.plainFormId(INDEX, DARK_BOW_DEADMAN);
+		assertTrue("must not resolve to the ungated recolour (12766) merely because it is first "
+				+ "in file order among the five combat-stat-identical \"Dark bow\" ids",
+			resolved != null && resolved != DARK_BOW_UNGATED_RECOLOUR_FIRST_IN_FILE_ORDER);
 	}
 
 	// ==================================================================================
@@ -282,17 +369,22 @@ public class OwnedVariantResolverTest
 	 * so requiring the resolved id's stats to equal the variant's own would be
 	 * wrong for every (f)/(i) case in the bundled data. The property that MUST
 	 * hold universally is: when a plain name resolves to more than one id AND
-	 * those ids are NOT all stat-identical to each other (a genuine same-name
-	 * collision between different items — currently only Deadman crystal
-	 * armour), {@code plainFormId} must resolve to the specific id matching the
-	 * variant's own stats, or {@code null} if none matches — never an
-	 * arbitrary/first-position pick. When the plain name's ids ARE all
-	 * stat-identical (the common case), any pick is safe and unconstrained.
+	 * those ids are NOT all stat-identical AND equip-requirement-identical to
+	 * each other (a genuine same-name collision between different items —
+	 * Deadman crystal armour differs in stats; Deadman god capes and Dark bow
+	 * differ ONLY in equip requirement while being combat-stat-identical, see
+	 * the Codex P2 follow-up section below), {@code plainFormId} must resolve
+	 * to the specific id matching the variant's own stats AND requirements, or
+	 * {@code null} if none matches — never an arbitrary/first-position pick.
+	 * When the plain name's ids ARE all stat- and requirement-identical (the
+	 * common case), any pick is safe and unconstrained.
 	 */
 	@Test
 	public void plainFormId_everySuffix_resolvesCorrectlyForEveryHeterogeneousNameCollision()
 	{
 		EquipmentStatsRepository stats = EquipmentStatsRepository.getInstance();
+		com.ospulse.combat.EquipmentRequirementsRepository requirements =
+			com.ospulse.combat.EquipmentRequirementsRepository.getInstance();
 		Map<String, java.util.List<Integer>> idsByName = new HashMap<>();
 		for (Integer id : INDEX.allItemIds())
 		{
@@ -320,7 +412,7 @@ public class OwnedVariantResolverTest
 				{
 					continue; // no indexed plain form at all — plainFormId must return null, checked separately below
 				}
-				boolean heterogeneous = !allSameStats(stats, plainIds);
+				boolean heterogeneous = !(allSameStats(stats, plainIds) && allSameRequirements(requirements, plainIds));
 
 				for (Integer variantId : e.getValue())
 				{
@@ -328,29 +420,61 @@ public class OwnedVariantResolverTest
 					Integer resolved = OwnedVariantResolver.plainFormId(INDEX, variantId);
 					if (!heterogeneous)
 					{
-						// Safe by construction: any pick is stat-identical to every other, so the only
-						// requirement is that SOME real plain id was returned (never null when one exists).
-						assertTrue("\"" + name + "\" (" + variantId + "): a stat-homogeneous plain-name group "
+						// Safe by construction: any pick is stat- and requirement-identical to every
+						// other, so the only requirement is that SOME real plain id was returned
+						// (never null when one exists).
+						assertTrue("\"" + name + "\" (" + variantId + "): a homogeneous plain-name group "
 								+ "must still resolve to a real member, not null",
 							plainIds.contains(resolved));
 						continue;
 					}
 					heterogeneousGroupsChecked++;
-					// Heterogeneous: the resolved id (if any) MUST match the variant's own stats exactly.
+					// Heterogeneous: the resolved id (if any) MUST match the variant's own stats
+					// AND its own equip requirements exactly.
 					if (resolved != null)
 					{
 						assertTrue("\"" + name + "\" (" + variantId + ") resolved to " + resolved
 								+ ", whose stats do not match the variant's own — a heterogeneous name "
 								+ "collision must only resolve to a stat-matching member, or null",
 							sameStats(stats.statsFor(variantId), stats.statsFor(resolved)));
+						assertTrue("\"" + name + "\" (" + variantId + ") resolved to " + resolved
+								+ ", whose equip requirements do not match the variant's own — a "
+								+ "heterogeneous name collision must never bypass the level gate",
+							sameRequirements(requirements, variantId, resolved));
 					}
 				}
 			}
 		}
 		assertTrue("fixture sanity: at least one variant must exist for a SUFFIXES entry", variantsChecked > 0);
 		assertTrue("fixture sanity: this check must actually exercise a heterogeneous name collision "
-				+ "(Deadman crystal armour) — otherwise it never tests the property it exists for",
+				+ "(Deadman crystal armour and the Deadman god capes/Dark bow) — otherwise it never "
+				+ "tests the property it exists for",
 			heterogeneousGroupsChecked > 0);
+	}
+
+	/** True when every id in {@code ids} shares identical equip requirements (absent counts as empty). */
+	private static boolean allSameRequirements(com.ospulse.combat.EquipmentRequirementsRepository requirements,
+		java.util.List<Integer> ids)
+	{
+		for (Integer id : ids)
+		{
+			if (!sameRequirements(requirements, ids.get(0), id))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/** Requirement-map equality for two item ids, treating an absent map as empty (matches production). */
+	private static boolean sameRequirements(com.ospulse.combat.EquipmentRequirementsRepository requirements,
+		int itemIdA, int itemIdB)
+	{
+		Map<String, Integer> a = requirements.requirementsFor(itemIdA);
+		Map<String, Integer> b = requirements.requirementsFor(itemIdB);
+		Map<String, Integer> normalizedA = a == null ? Collections.emptyMap() : a;
+		Map<String, Integer> normalizedB = b == null ? Collections.emptyMap() : b;
+		return normalizedA.equals(normalizedB);
 	}
 
 	// ==================================================================================
