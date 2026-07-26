@@ -94,6 +94,29 @@ public final class MonsterCombatRequirementRepository {
                         requirement = MonsterCombatRequirement.finisher(
                                 dto.finisherItemIds == null ? Collections.emptySet() : new HashSet<>(dto.finisherItemIds),
                                 dto.note);
+                    } else if (type == MonsterCombatRequirement.Type.DAMAGE_PENALTY) {
+                        Set<CombatStyle> penalisedStyles = EnumSet.noneOf(CombatStyle.class);
+                        if (dto.penalisedStyles != null) {
+                            for (String styleName : dto.penalisedStyles) {
+                                if (styleName == null) {
+                                    continue;
+                                }
+                                try {
+                                    penalisedStyles.add(CombatStyle.valueOf(styleName.trim().toUpperCase(Locale.ROOT)));
+                                } catch (IllegalArgumentException ignored) {
+                                    // unknown style name in the data — skip defensively
+                                }
+                            }
+                        }
+                        requirement = MonsterCombatRequirement.damagePenalty(
+                                dto.allowedItemIds == null ? Collections.emptySet() : new HashSet<>(dto.allowedItemIds),
+                                dto.damageMultiplier == null ? 1.0 : dto.damageMultiplier,
+                                penalisedStyles, dto.note);
+                    } else if (type == MonsterCombatRequirement.Type.DAMAGE_CAP) {
+                        requirement = MonsterCombatRequirement.damageCap(
+                                dto.maxHitCap == null ? -1 : dto.maxHitCap,
+                                dto.maxHitCapWhenCrushHighest == null ? -1 : dto.maxHitCapWhenCrushHighest,
+                                dto.note);
                     } else {
                         requirement = MonsterCombatRequirement.weaponGate(
                                 dto.allowedItemIds == null ? Collections.emptySet() : new HashSet<>(dto.allowedItemIds),
@@ -177,5 +200,9 @@ public final class MonsterCombatRequirementRepository {
         List<String> allowedStyles;
         List<Integer> finisherItemIds;
         String note;
+        Double damageMultiplier;
+        List<String> penalisedStyles;
+        Integer maxHitCap;
+        Integer maxHitCapWhenCrushHighest;
     }
 }
