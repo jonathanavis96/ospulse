@@ -276,4 +276,24 @@ public class GearVariantsTest
 		org.junit.Assert.assertFalse(GearVariants.isColossalBlade(4151)); // Abyssal whip
 		org.junit.Assert.assertFalse(GearVariants.isColossalBlade(-1));
 	}
+
+	// ==== Keris partisan family ============================================================
+
+	@Test
+	public void kerisPartisanFor_allFiveIds()
+	{
+		// Ids verified against the bundled equipment_index.min.json 2026-07-26.
+		assertEquals(com.ospulse.combat.KerisPartisan.PARTISAN, GearVariants.kerisPartisanFor(25979));
+		assertEquals(com.ospulse.combat.KerisPartisan.OF_AMASCUT, GearVariants.kerisPartisanFor(30891));
+		assertEquals(com.ospulse.combat.KerisPartisan.OF_BREACHING, GearVariants.kerisPartisanFor(25981));
+		assertEquals(com.ospulse.combat.KerisPartisan.OF_CORRUPTION, GearVariants.kerisPartisanFor(27287));
+		assertEquals(com.ospulse.combat.KerisPartisan.OF_THE_SUN, GearVariants.kerisPartisanFor(27291));
+	}
+
+	@Test
+	public void kerisPartisanFor_nonKerisWeapon_returnsNone()
+	{
+		assertEquals(com.ospulse.combat.KerisPartisan.NONE, GearVariants.kerisPartisanFor(27021)); // Colossal blade
+		assertEquals(com.ospulse.combat.KerisPartisan.NONE, GearVariants.kerisPartisanFor(-1));
+	}
 }

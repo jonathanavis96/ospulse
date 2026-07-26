@@ -3,14 +3,17 @@ package com.ospulse.session;
 import com.ospulse.combat.DemonbaneWeapon;
 import com.ospulse.combat.DragonHunterWeapon;
 import com.ospulse.combat.EquipmentIndexRepository;
+import com.ospulse.combat.KerisPartisan;
 import com.ospulse.combat.PoweredStaff;
 import com.ospulse.combat.SalveType;
 import com.ospulse.combat.SlayerHeadgear;
 import com.ospulse.combat.Tome;
 import com.ospulse.combat.VoidSet;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -506,6 +509,32 @@ public final class GearVariants
 	static boolean isColossalBlade(int weaponItemId)
 	{
 		return weaponItemId == COLOSSAL_BLADE;
+	}
+
+	// ==== Keris partisan family (vs-Kalphite/Scarabite damage + triple-roll) ==============
+
+	/**
+	 * The five Keris partisan family ids, verified against the bundled
+	 * {@code equipment_index.min.json} 2026-07-26: Keris partisan (25979),
+	 * Keris partisan of amascut (30891, Tombs of Amascut reward), Keris
+	 * partisan of breaching (25981 — the only variant with the additional
+	 * vs-Kalphite accuracy bonus), Keris partisan of corruption (27287),
+	 * Keris partisan of the sun (27291).
+	 */
+	private static final Map<Integer, KerisPartisan> KERIS_PARTISAN_IDS = new HashMap<>();
+	static
+	{
+		KERIS_PARTISAN_IDS.put(25979, KerisPartisan.PARTISAN);
+		KERIS_PARTISAN_IDS.put(30891, KerisPartisan.OF_AMASCUT);
+		KERIS_PARTISAN_IDS.put(25981, KerisPartisan.OF_BREACHING);
+		KERIS_PARTISAN_IDS.put(27287, KerisPartisan.OF_CORRUPTION);
+		KERIS_PARTISAN_IDS.put(27291, KerisPartisan.OF_THE_SUN);
+	}
+
+	/** Maps a worn WEAPON-slot item id to its {@link KerisPartisan} variant ({@link KerisPartisan#NONE} if not a Keris). */
+	public static KerisPartisan kerisPartisanFor(int weaponItemId)
+	{
+		return KERIS_PARTISAN_IDS.getOrDefault(weaponItemId, KerisPartisan.NONE);
 	}
 
 	// ==== Blowpipe (loads darts internally, ignores worn ammo) ============================

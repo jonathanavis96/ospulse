@@ -272,6 +272,21 @@ public final class DpsCalculator {
             maxHit += 2 * Math.min(target.size(), 5);
         }
 
+        // Keris partisan family: +33% damage vs Kalphites/Scarabites, plus
+        // (for "of breaching" only) +33% accuracy — the weapon's own
+        // separate multiplicative step(s), stacking with everything above.
+        // The family's OTHER passive (a 1/51 chance to triple the landed
+        // damage) is a genuinely different distribution and is applied below
+        // via KerisTripleRoll, bypassing the generic finish() path.
+        KerisPartisan keris = gear.kerisPartisan();
+        boolean kerisApplies = keris != KerisPartisan.NONE && target.attributes().contains(MonsterAttribute.KALPHITE);
+        if (kerisApplies) {
+            maxHit = (int) KerisPartisan.DAMAGE_MULT.applyFloor(maxHit);
+            if (keris.hasAccuracyBonus()) {
+                attackRoll = (int) KerisPartisan.DAMAGE_MULT.applyFloor(attackRoll);
+            }
+        }
+
         int defenceRoll = CombatMath.npcDefenceRoll(target.defenceLevel(), target.defenceBonus(style));
 
         // Osmumten's fang (and re-skins/cosmetics): two passives, STAB style
@@ -294,6 +309,10 @@ public final class DpsCalculator {
         if (scytheApplies) {
             return ScytheCascade.finish(damage.uncapped, damage.cap, damage.mode, target.size(), attackRoll,
                     defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
+        }
+        if (kerisApplies) {
+            return KerisTripleRoll.finish(damage.uncapped, damage.cap, damage.mode, attackRoll, defenceRoll,
+                    gear.weaponSpeedTicks(), target.hitpoints());
         }
 
         return finish(damage, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints(), false);

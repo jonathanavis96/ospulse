@@ -189,6 +189,7 @@ public final class GearMapper
 		builder.tonalzticsOfRalosCharged(GearVariants.isTonalzticsOfRalosCharged(weaponItemId));
 		builder.scytheOfVitur(GearVariants.isScytheOfVitur(weaponItemId));
 		builder.colossalBlade(GearVariants.isColossalBlade(weaponItemId));
+		builder.kerisPartisan(GearVariants.kerisPartisanFor(weaponItemId));
 		builder.tome(GearVariants.tomeFor(slotItemId(equippedItemIds, SLOT_SHIELD)));
 		builder.voidSet(GearVariants.voidSetFor(
 			slotItemId(equippedItemIds, SLOT_HEAD),

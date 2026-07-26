@@ -40,6 +40,7 @@ public final class EquipmentStats {
     private final boolean tonalzticsOfRalosCharged;
     private final boolean scytheOfVitur;
     private final boolean colossalBlade;
+    private final KerisPartisan kerisPartisan;
 
     private EquipmentStats(Builder b) {
         this.astab = b.astab;
@@ -72,6 +73,7 @@ public final class EquipmentStats {
         this.tonalzticsOfRalosCharged = b.tonalzticsOfRalosCharged;
         this.scytheOfVitur = b.scytheOfVitur;
         this.colossalBlade = b.colossalBlade;
+        this.kerisPartisan = b.kerisPartisan;
     }
 
     public int astab() {
@@ -248,6 +250,17 @@ public final class EquipmentStats {
         return colossalBlade;
     }
 
+    /**
+     * The worn weapon's {@link KerisPartisan} variant ({@link
+     * KerisPartisan#NONE} if not a Keris) — its vs-Kalphite/Scarabite
+     * damage/accuracy bonus and triple-damage roll apply when the target
+     * carries {@link MonsterAttribute#KALPHITE}; see {@link
+     * DpsCalculator#computeMelee} / {@link KerisTripleRoll}.
+     */
+    public KerisPartisan kerisPartisan() {
+        return kerisPartisan;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -283,6 +296,7 @@ public final class EquipmentStats {
         private boolean tonalzticsOfRalosCharged;
         private boolean scytheOfVitur;
         private boolean colossalBlade;
+        private KerisPartisan kerisPartisan = KerisPartisan.NONE;
 
         private Builder() {
         }
@@ -392,6 +406,11 @@ public final class EquipmentStats {
 
         public Builder colossalBlade(boolean value) {
             this.colossalBlade = value;
+            return this;
+        }
+
+        public Builder kerisPartisan(KerisPartisan value) {
+            this.kerisPartisan = value;
             return this;
         }
 
