@@ -596,9 +596,10 @@ public final class DpsCalculator {
      * maxHit} before this method is reached — it has to travel alongside the
      * true max, which is why this takes the whole {@link TargetDamage} rather
      * than an already-collapsed int. See {@link
-     * CombatMath#cappedFangAverageDamagePerAttack}. Overkill stays on the same
-     * approximation tier as the uncapped path, but against the capped
-     * distribution so it cannot disagree with the average.
+     * CombatMath#cappedFangAverageDamagePerAttack}. Overkill runs on that SAME
+     * distribution via {@link CombatMath#cappedFangExpectedOverkill} — the
+     * average and the overkill must not be drawn from two different models, or
+     * the reported TTK silently disagrees with the reported DPS.
      */
     private static DpsResult finishFang(TargetDamage damage, int attackRoll, int defenceRoll, int weaponSpeedTicks,
                                         int targetHitpoints) {
@@ -608,7 +609,7 @@ public final class DpsCalculator {
                 : CombatMath.fangAverageDamagePerAttack(hitChance, damage.uncapped);
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
         double overkill = damage.isCapped()
-                ? CombatMath.cappedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints)
+                ? CombatMath.cappedFangExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints)
                 : CombatMath.expectedOverkill(damage.uncapped, targetHitpoints);
         double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
         return new DpsResult(damage.visibleMaxHit(), hitChance, dps, avgDamage, ttkSeconds, overkill, false);

@@ -434,6 +434,90 @@ public class TargetDamageRuleTest {
     }
 
     /**
+     * Independent DP over an explicit damage distribution — deliberately built from the
+     * distribution itself rather than from the formula under test, so it can disagree.
+     */
+    private static double bruteForceOverkill(double[] probByDamage, int targetHitpoints) {
+        double[] over = new double[targetHitpoints + 1];
+        for (int h = 1; h <= targetHitpoints; h++) {
+            double sum = 0.0;
+            for (int d = 1; d < probByDamage.length; d++) {
+                if (probByDamage[d] == 0.0) {
+                    continue;
+                }
+                sum += probByDamage[d] * (d >= h ? (d - h) : over[h - d]);
+            }
+            over[h] = sum;
+        }
+        return over[targetHitpoints];
+    }
+
+    /** The fang's compressed roll with each result clamped, as an explicit distribution. */
+    private static double[] cappedFangDistribution(int trueMaxHit, int cap) {
+        int shrink = trueMaxHit * 3 / 20;
+        int lo = shrink;
+        int hi = trueMaxHit - shrink;
+        int top = Math.min(cap, hi);
+        double[] p = new double[top + 1];
+        double n = hi - lo + 1.0;
+        for (int d = lo; d <= hi; d++) {
+            p[Math.min(d, cap)] += 1.0 / n;
+        }
+        return p;
+    }
+
+    @Test
+    public void cappedFangOverkillMatchesABruteForceDp() {
+        for (int max : new int[]{20, 27, 40, 55, 99}) {
+            for (int cap : new int[]{1, 4, 9, 15}) {
+                for (int hp : new int[]{1, 7, 55, 200}) {
+                    assertEquals("max=" + max + " cap=" + cap + " hp=" + hp,
+                        bruteForceOverkill(cappedFangDistribution(max, cap), hp),
+                        CombatMath.cappedFangExpectedOverkill(max, cap, hp), 1e-9);
+                }
+            }
+        }
+    }
+
+    /**
+     * The reported inconsistency. A true max of 40 shrinks to 6..34, so with a cap of 4
+     * EVERY landed hit deals exactly 4 — overkill is whatever a fixed 4-damage hit wastes.
+     * The generic capped distribution still spreads mass over 1..4 and disagrees.
+     */
+    @Test
+    public void cappedFangOverkillIsDeterministicWhenEveryRollExceedsTheCap() {
+        int hp = 50; // 50 = 12 hits of 4 plus 2, so the killing blow wastes 2
+        assertEquals(2.0, CombatMath.cappedFangExpectedOverkill(40, 4, hp), 1e-9);
+        assertTrue("the generic capped model must not agree — that is the defect",
+            Math.abs(CombatMath.cappedExpectedOverkill(40, 4, hp) - 2.0) > 1e-6);
+    }
+
+    /** Overkill and average damage must come from the same distribution end-to-end. */
+    @Test
+    public void cappedFangTtkUsesTheSameDistributionAsItsAverage() {
+        EquipmentStats fangGear = EquipmentStats.builder()
+                .add(80, 60, 40, 30, 70,
+                     20, 20, 20, 20, 20,
+                     64, 60, 10.0, 0)
+                .weaponSpeedTicks(4)
+                .osmumtensFang(true)
+                .build();
+        Monster tail = Monster.builder()
+                .name("The Hueycoatl (Tail)")
+                .hitpoints(50)
+                .defenceLevel(100)
+                .defenceBonuses(50, 50, 50, 50, 50)
+                .magicLevel(100)
+                .build();
+        DpsResult r = DpsCalculator.compute(fangGear, regressionPlayer(), CombatStyle.STAB, tail, 26219);
+
+        assertEquals("overkill must come from the fang's own capped distribution",
+            CombatMath.cappedFangExpectedOverkill(20, 4, 50), r.overkillPerKill(), 1e-9);
+        assertEquals("and TTK must be derived from that same overkill",
+            (50 + r.overkillPerKill()) / r.dps(), r.ttkSeconds(), 1e-9);
+    }
+
+    /**
      * The formula existing is not the same as {@link DpsCalculator} using it. Drives a real fang
      * loadout through the shipped Hueycoatl entry and asserts the average damage is the capped
      * COMPRESSED roll, not the shrink-the-cap result — and that both tail records agree.
