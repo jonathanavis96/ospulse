@@ -149,6 +149,45 @@ public class RevenantWeaponEffectTest {
         assertFalse(RevenantWeapon.NONE.appliesTo(CombatStyle.RANGED));
     }
 
+    // ---- Per-weapon multiplier pinning (verified against the OSRS Wiki 2026-07-27; see
+    // RevenantWeapon's class javadoc for the citations and Thammaron's sceptre's 2022/2023
+    // percentage history). Each assertion is hard-coded independently of RevenantWeapon's own
+    // Fraction fields so a future single-value refactor cannot silently re-symmetrise (or
+    // mis-symmetrise) these without a test noticing. -----------------------------------------
+
+    /** Fraction has no equals()/hashCode() override (see its own javadoc) - compare exact numerator/denominator instead. */
+    private static void assertFractionEquals(long expectedNumerator, long expectedDenominator, Fraction actual) {
+        assertEquals(expectedNumerator, actual.numerator);
+        assertEquals(expectedDenominator, actual.denominator);
+    }
+
+    @Test
+    public void crawsBow_pinnedAt_fiftyPercentAccuracy_fiftyPercentDamage() {
+        assertFractionEquals(3, 2, RevenantWeapon.CRAWS_BOW.accuracyMult());
+        assertFractionEquals(3, 2, RevenantWeapon.CRAWS_BOW.damageMult());
+    }
+
+    @Test
+    public void viggorasChainmace_pinnedAt_fiftyPercentAccuracy_fiftyPercentDamage() {
+        assertFractionEquals(3, 2, RevenantWeapon.VIGGORAS_CHAINMACE.accuracyMult());
+        assertFractionEquals(3, 2, RevenantWeapon.VIGGORAS_CHAINMACE.damageMult());
+    }
+
+    /**
+     * Thammaron's sceptre is CURRENTLY symmetric too (50%/50%, live since the
+     * 25 January 2023 Wilderness Boss Rework) — NOT the pre-2023 asymmetric
+     * 100%/25% a review finding proposed based on stale data. Pinned as its
+     * own independent test (rather than sharing an assertion with the other
+     * two) specifically so a future correction attempt has to overwrite THIS
+     * value, with its citation, instead of silently flowing through a shared
+     * constant.
+     */
+    @Test
+    public void thammaronsSceptre_pinnedAt_fiftyPercentAccuracy_fiftyPercentDamage_currentPostReworkValue() {
+        assertFractionEquals(3, 2, RevenantWeapon.THAMMARONS_SCEPTRE.accuracyMult());
+        assertFractionEquals(3, 2, RevenantWeapon.THAMMARONS_SCEPTRE.damageMult());
+    }
+
     // ---- Regression: no RevenantWeapon, DPS never depends on target name -----------------
 
     @Test
