@@ -103,19 +103,21 @@ than widening this set.
     the damage roll, so it applies before the monster re-rolls and survives only on
     values that were never re-rolled:
 
-    ```
+    ```text
     rerollShare = (M - cap) / ((M + 1)(cap + 1))
     P(0) = rerollShare
     P(1) = 2/(M+1) + rerollShare        <- the surviving bump
     P(v) = 1/(M+1) + rerollShare          for v in 2..cap
     ```
 
-    giving `E = cap/2 + 1/(M+1)` for `cap >= 1` — keyed to the TRUE max, not
-    `cap/2 + 1/(cap+1)`. At Verzik's ranged/magic cap of 3 the shortcut overstates by
-    ~15% and hands the overkill DP a zero-free distribution, so TTK is wrong too.
-    (At `cap == 0` even the bumped 1 re-rolls away and the true mean is exactly 0;
-    the functions are guarded.) **This shortcut shipped once and was caught in
-    review — the flatness result is about the shape only.**
+    giving `E = cap/2 + 1/(M+1)`, valid only for `1 <= cap <= M` — keyed to the
+    TRUE max, not `cap/2 + 1/(cap+1)`. At Verzik's ranged/magic cap of 3 the
+    shortcut overstates by ~15% and hands the overkill DP a zero-free
+    distribution, so TTK is wrong too. Once `cap >= M` nothing is ever
+    re-rolled, so the uncapped maximum applies instead (the ordinary formulas,
+    unmodified). (At `cap == 0` even the bumped 1 re-rolls away and the true
+    mean is exactly 0; the functions are guarded.) **This shortcut shipped once
+    and was caught in review — the flatness result is about the shape only.**
 
   **Why the split exists:** the OSRS wiki documents these as two different
   in-game mechanics, not a stylistic choice by this codebase. Verzik Vitur phase

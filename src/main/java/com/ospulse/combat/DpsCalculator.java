@@ -814,22 +814,43 @@ public final class DpsCalculator {
      * deliberately: reflecting the second hit in only one of the two would
      * leave the reported DPS and TTK disagreeing with each other for every
      * Twinflame-eligible cast.
+     *
+     * <p>Mirrors {@link #finish}'s three-way switch on {@link
+     * TargetDamage#mode} rather than the two-way {@code isCapped()} check
+     * this used to branch on: a {@code REROLL}-capped target (e.g. Verzik
+     * Vitur phase 1's ranged/magic cap of 3) was previously silently routed
+     * through the {@code cappedXxx} (i.e. {@code CLAMP}) helpers for all
+     * three terms, piling excess probability onto the cap instead of
+     * re-rolling it into {@code 0..cap} — the exact same over-general
+     * "REROLL is just a clamp" mistake {@link #finish}/{@link #finishFang}
+     * were already fixed for. {@link TwinflameSecondHit#rerolledSecondHitAverage}/
+     * {@code rerolledCombinedExpectedOverkill} are the exact, zero-aware
+     * REROLL replacements, built from the same distribution {@link
+     * CombatMath#rerolledAverageDamagePerAttack}/{@code
+     * rerolledExpectedOverkill} use so all three terms cannot disagree.
      */
     private static DpsResult finishTwinflame(TargetDamage damage, int attackRoll, int defenceRoll, int castSpeedTicks,
                                               int targetHitpoints) {
         int maxHit = damage.visibleMaxHit();
         double hitChance = CombatMath.hitChance(attackRoll, defenceRoll);
-        double firstHitAvg = damage.isCapped()
-                ? CombatMath.cappedAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap)
-                : CombatMath.averageDamagePerAttack(hitChance, maxHit);
-        double secondHitAvg = damage.isCapped()
-                ? TwinflameSecondHit.cappedSecondHitAverage(hitChance, damage.uncapped, damage.cap)
-                : TwinflameSecondHit.secondHitAverage(hitChance, maxHit);
+        double firstHitAvg;
+        double secondHitAvg;
+        double overkill;
+        if (!damage.isCapped()) {
+            firstHitAvg = CombatMath.averageDamagePerAttack(hitChance, maxHit);
+            secondHitAvg = TwinflameSecondHit.secondHitAverage(hitChance, maxHit);
+            overkill = TwinflameSecondHit.combinedExpectedOverkill(maxHit, targetHitpoints);
+        } else if (damage.mode == MonsterCombatRequirement.CapMode.REROLL) {
+            firstHitAvg = CombatMath.rerolledAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            secondHitAvg = TwinflameSecondHit.rerolledSecondHitAverage(hitChance, damage.uncapped, damage.cap);
+            overkill = TwinflameSecondHit.rerolledCombinedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
+        } else {
+            firstHitAvg = CombatMath.cappedAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            secondHitAvg = TwinflameSecondHit.cappedSecondHitAverage(hitChance, damage.uncapped, damage.cap);
+            overkill = TwinflameSecondHit.cappedCombinedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
+        }
         double avgDamage = firstHitAvg + secondHitAvg;
         double dps = CombatMath.dps(avgDamage, castSpeedTicks);
-        double overkill = damage.isCapped()
-                ? TwinflameSecondHit.cappedCombinedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints)
-                : TwinflameSecondHit.combinedExpectedOverkill(maxHit, targetHitpoints);
         double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
         return new DpsResult(maxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, false);
     }

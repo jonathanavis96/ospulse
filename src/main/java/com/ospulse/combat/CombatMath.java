@@ -189,8 +189,16 @@ final class CombatMath {
      * NOT {@code 1/(cap+1)} — a plain {@code C/2} is closer than the naive
      * {@link #averageDamagePerAttack} call but still drops the bump the kept
      * values (0 and 1, when they land within {@code 0..cap} directly) carry.
+     *
+     * <p>The closed form {@code cap/2 + 1/(uncappedMaxHit+1)} is only valid for
+     * {@code 1 <= cap <= uncappedMaxHit} — nothing is re-rolled once
+     * {@code cap >= uncappedMaxHit}, at which point the uncapped maximum
+     * applies instead.
      */
     static double rerolledAverageDamagePerAttack(double hitChance, int uncappedMaxHit, int cap) {
+        if (cap >= uncappedMaxHit) {
+            return averageDamagePerAttack(hitChance, uncappedMaxHit);
+        }
         if (cap <= 0) {
             // The identity below assumes cap >= 1 (so the bumped value 1 can
             // legitimately survive as "kept" rather than itself needing a
@@ -579,6 +587,31 @@ final class CombatMath {
         if (cap <= 0 || targetHitpoints <= 0) {
             return 0.0;
         }
+        double[] p = rerolledHitsplatDistribution(uncappedMaxHit, cap);
+        return overkillFromExplicitDistribution(p, cap, targetHitpoints);
+    }
+
+    /**
+     * The displayed first-hitsplat distribution for a monster that RE-ROLLS
+     * each hit above a cap back into {@code 0..cap} — the single source of
+     * truth for that distribution's shape, extracted here so {@link
+     * #rerolledExpectedOverkill} and every {@code TwinflameSecondHit}
+     * REROLL-mode method consume the SAME array and can never independently
+     * drift apart (see this class's and {@code TwinflameSecondHit}'s Javadoc
+     * for why that consistency matters — average and overkill/second-hit
+     * disagreeing with each other is exactly the defect class this codebase
+     * has already been bitten by once on this feature).
+     *
+     * <p>Returns a {@code double[cap + 1]} indexed by displayed damage
+     * {@code v}: {@code p[0]} is the re-roll-only share (a genuine, un-bumped
+     * zero), {@code p[1]} additionally carries the ordinary "rolled 0 becomes
+     * 1" bump, and {@code p[2..cap]} are the plain kept share plus their own
+     * re-roll share — see {@link #rerolledAverageDamagePerAttack}'s Javadoc
+     * for the full derivation. Callers must ensure {@code 1 <= cap <
+     * uncappedMaxHit} themselves (mirroring every existing caller's own
+     * boundary guards) — this method does not re-check either bound.
+     */
+    static double[] rerolledHitsplatDistribution(int uncappedMaxHit, int cap) {
         double denom = uncappedMaxHit + 1.0;
         double rerollShare = (uncappedMaxHit - cap) / (denom * (cap + 1.0));
         double[] p = new double[cap + 1];
@@ -587,7 +620,7 @@ final class CombatMath {
         for (int d = 2; d <= cap; d++) {
             p[d] = 1.0 / denom + rerollShare;
         }
-        return overkillFromExplicitDistribution(p, cap, targetHitpoints);
+        return p;
     }
 
     /**
@@ -727,6 +760,37 @@ final class CombatMath {
      * damage roll produced a real, HP-reducing result.
      */
     private static double overkillFromExplicitDistribution(double[] p, int cap, int targetHitpoints) {
+        int[] identity = new int[cap + 1];
+        for (int d = 0; d <= cap; d++) {
+            identity[d] = d;
+        }
+        return overkillFromExplicitDistribution(p, identity, targetHitpoints);
+    }
+
+    /**
+     * As {@link #overkillFromExplicitDistribution(double[], int, int)}, but
+     * for a caller whose landed value {@code v} removes some OTHER amount of
+     * hitpoints than {@code v} itself — e.g. {@code TwinflameSecondHit}'s
+     * combined-hitsplat model, where a displayed first hit of {@code v}
+     * actually removes {@code v + floor(0.4*v)}. {@code amount[v]} gives that
+     * removed quantity for probability index {@code v}; {@code amount[0]} is
+     * never read (index 0 is always excluded from the recurrence, whatever
+     * it would be, since a landed 0 changes nothing).
+     *
+     * <p>Package-private (not {@code private}) specifically so {@code
+     * TwinflameSecondHit} can reuse the SAME zero-mass renormalisation this
+     * class already uses for its own REROLL overkill, rather than that class
+     * growing a second, independently-written copy of the same {@code
+     * (1 - p[0])} correction that could silently drift out of sync with this
+     * one.
+     *
+     * <p><b>Every {@code amount[d]} for {@code d >= 1} must itself be
+     * {@code >= 1}.</b> If some other index also mapped to a zero removal,
+     * that index's mass would need folding into the {@code (1 - p[0])}
+     * denominator too, or {@code over[h]} recurses on itself again — the
+     * exact self-reference bug this whole renormalisation exists to avoid.
+     */
+    static double overkillFromExplicitDistribution(double[] p, int[] amount, int targetHitpoints) {
         double retain = 1.0 - p[0];
         if (retain <= 0.0) {
             return 0.0; // every result is 0 -- can never contribute overkill
@@ -734,8 +798,9 @@ final class CombatMath {
         double[] over = new double[targetHitpoints + 1];
         for (int h = 1; h <= targetHitpoints; h++) {
             double sum = 0.0;
-            for (int d = 1; d <= cap; d++) {
-                sum += p[d] * (d >= h ? (d - h) : over[h - d]);
+            for (int d = 1; d < p.length; d++) {
+                int removed = amount[d];
+                sum += p[d] * (removed >= h ? (removed - h) : over[h - removed]);
             }
             over[h] = sum / retain;
         }
