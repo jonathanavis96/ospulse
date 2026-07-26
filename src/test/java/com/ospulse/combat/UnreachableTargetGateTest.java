@@ -28,6 +28,7 @@ public class UnreachableTargetGateTest {
     private static final int DRAGON_SCIMITAR = 4587;    // 1-tile slash melee
     private static final int NOXIOUS_HALBERD = 29796;   // extended reach — Zulrah's only melee option
     private static final int DARK_BOW = 11235;          // ranged
+    private static final int TRIDENT_OF_THE_SEAS = 11905; // magic
 
     private static MonsterCombatRequirement gateFor(String monsterName) {
         Optional<MonsterCombatRequirement> found =
@@ -90,17 +91,25 @@ public class UnreachableTargetGateTest {
     }
 
     /**
-     * Tekton is immune to ranged. Its bundled defence bonuses read a flat
-     * drange/dmagic of 0, so nothing in the DPS data steers away from ranged —
-     * the gate is the only thing preventing a wrong recommendation.
+     * Tekton is immune to ranged, so that is gated. Its bundled defence bonuses
+     * read a flat drange of 0, so nothing in the DPS data steers away from
+     * ranged on its own.
+     *
+     * <p>Magic is deliberately NOT gated: Tekton takes 80% reduced magic damage,
+     * which is graduated resistance, not immunity. Encoding it as a hard block
+     * would grey out a style that genuinely works, and the dataset's own rule is
+     * that only true immunities become gates. The 80% reduction is modelled
+     * separately as a damage penalty.
      */
     @Test
-    public void tektonRejectsRangedButAllowsMelee() {
+    public void tektonRejectsRangedOnly() {
         MonsterCombatRequirement gate = gateFor("Tekton (Normal)");
         assertFalse("Tekton is immune to ranged",
             gate.permitsWeapon(DARK_BOW, CombatStyle.RANGED, true));
         assertTrue("Tekton is a melee target",
             gate.permitsWeapon(ABYSSAL_WHIP, CombatStyle.SLASH, true));
+        assertTrue("magic is reduced at Tekton, not blocked — it must stay selectable",
+            gate.permitsWeapon(TRIDENT_OF_THE_SEAS, CombatStyle.MAGIC, true));
     }
 
     /**

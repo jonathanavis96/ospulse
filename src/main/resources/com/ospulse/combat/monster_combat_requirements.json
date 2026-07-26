@@ -72,8 +72,8 @@
     {
       "monsters": ["Tekton"],
       "type": "WEAPON_GATE",
-      "allowedStyles": ["STAB", "SLASH", "CRUSH"],
-      "note": "Tekton is immune to ranged and takes 80% reduced magic damage — melee only."
+      "allowedStyles": ["STAB", "SLASH", "CRUSH", "MAGIC"],
+      "note": "Tekton is immune to ranged. Magic works but takes 80% reduced damage, so melee is far better."
     },
     {
       "monsters": ["Tumeken's Warden (Active)"],

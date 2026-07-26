@@ -66,13 +66,20 @@ No regeneration script — this file is hand-maintained curated data.
 ## ⚠ Defence bonuses do NOT encode immunity
 
 **Dusk is completely immune to ranged and magic, yet its bundled defence bonuses
-read a flat `dmagic: 0, drange: 0`.** Tekton, immune to ranged, is the same. The
+read a flat `dmagic: 0, drange: 0`.** Tekton's ranged immunity is the same. The
 bonus fields carry *graduated resistance* only.
 
 So "the DPS data already steers away from that style" is **never** a valid reason
-to skip a gate. Conversely, a monster that is merely *resistant* should NOT get a
-gate — encoding graduated resistance as a hard block is wrong in the other
-direction.
+to skip a gate.
+
+**The converse matters just as much.** A monster that is merely *resistant* must
+NOT get a gate — encoding graduated resistance as a hard block greys out a style
+that genuinely works. Tekton is the worked example of both halves at once: its
+ranged immunity **is** gated, while its 80%-reduced magic is **not**, because
+magic still lands. That reduction is expressed as a damage penalty instead.
+
+Rule of thumb: if the style deals *zero* damage, gate it. If it deals *less*
+damage, model the reduction.
 
 ## Checked and deliberately NOT gated
 
