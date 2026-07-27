@@ -32,6 +32,18 @@ import java.util.Set;
  * any one of them counts as owning the weapon for recommendation purposes,
  * mirroring how {@code OwnedVariantResolver} treats a cosmetic recolour as
  * the same underlying item.
+ *
+ * <p><b>A CHARGE-STATE variant is NOT an alias</b>, even when the game calls
+ * it "the same weapon" narratively. Worked example: 30305 "Arclight
+ * (inactive)" is what a charged Arclight (19675) turns into once its charges
+ * run out — the wiki notes it then "functions identically to Darklight",
+ * keeping only the Weaken special. It has different stats (19675: aslash 38,
+ * str 8, speed 4; 30305: aslash 16, str 13, speed 5, per {@code
+ * equipment_stats.min.json}) and loses the demonbane bonus ({@code
+ * GearVariants#demonbaneWeaponFor} recognises only 19675). Aliasing it would
+ * let an inactive-only owner be recommended, probed, and rendered a weapon
+ * with better stats than the one they actually have. 30305 is therefore
+ * deliberately absent from the Arclight entry's {@link #ownedAliasIds()}.
  */
 public final class SpecWeapon {
     /**
@@ -314,7 +326,17 @@ public final class SpecWeapon {
                     CombatStyle.CRUSH, Stance.AGGRESSIVE,
                     "+25% accuracy, -35% target Defence",
                     (hitChance, maxHit) -> SpecCascadeMath.boostedSingleHit(hitChance, maxHit, 1.25, 1.0)),
-            new SpecWeapon(19675, ids(30305), "Arclight", SpecRole.DEFENCE_DRAIN, 50,
+            // NOT aliased to 30305 "Arclight (inactive)" — that is a charge-state
+            // variant, not a cosmetic recolour of the SAME physical weapon (see
+            // class javadoc). Per the wiki, an exhausted Arclight (19675) turns
+            // into 30305, which "functions identically to Darklight": it keeps
+            // the Weaken special but loses Arclight's own stats and demonbane
+            // bonus (equipment_stats.min.json: 19675 aslash 38/str 8/speed 4 vs
+            // 30305 aslash 16/str 13/speed 5), and {@code
+            // GearVariants#demonbaneWeaponFor} recognises only 19675. Aliasing
+            // it here would recommend/probe/render a better weapon than the one
+            // an inactive-only owner actually has.
+            new SpecWeapon(19675, ids(), "Arclight", SpecRole.DEFENCE_DRAIN, 50,
                     CombatStyle.SLASH, Stance.AGGRESSIVE,
                     "-5% target Attack/Strength/Defence (x2 vs demons)",
                     (hitChance, maxHit) -> SpecCascadeMath.boostedSingleHit(hitChance, maxHit, 1.0, 1.0)),

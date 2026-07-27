@@ -2099,7 +2099,7 @@ public final class GearSection extends CollapsibleSection
 	{
 		if (lastGear == null || selectedMonster == null)
 		{
-			specWeaponCell.refresh(null, itemManager);
+			specWeaponCell.refresh(null, false, itemManager);
 			return;
 		}
 		java.util.Set<Integer> ownedIds = ownedPriceMap().keySet();
@@ -2126,7 +2126,10 @@ public final class GearSection extends CollapsibleSection
 			SpecWeaponSelector.select(selectedMonster, requirement, ownedIds, specExclusions, specRestrictions,
 					baseLevels, wornAmmoId, probe)
 				.orElse(null);
-		specWeaponCell.refresh(recommendation, itemManager);
+		// A target IS selected here (guarded above) — a null recommendation past
+		// this point means nothing owned+legal qualifies, not "no target"
+		// (PR #25 finding), so SpecWeaponCell must be told a target IS selected.
+		specWeaponCell.refresh(recommendation, true, itemManager);
 	}
 
 	/**
@@ -2205,6 +2208,12 @@ public final class GearSection extends CollapsibleSection
 	int specWeaponCellItemIdForTest()
 	{
 		return specWeaponCell.renderedItemIdForTest();
+	}
+
+	/** Test seam (PR #25 finding): {@link #specWeaponCell}'s current tooltip, to distinguish "no target" from "no eligible weapon". */
+	String specWeaponCellTooltipForTest()
+	{
+		return specWeaponCell.getToolTipText();
 	}
 
 	/**

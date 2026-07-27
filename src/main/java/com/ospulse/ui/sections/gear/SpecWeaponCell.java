@@ -39,15 +39,23 @@ public final class SpecWeaponCell extends JLabel {
     }
 
     /**
-     * Rebuilds this cell for {@code recommendation} ({@code null} = no target
-     * selected, or nothing owned+legal qualifies — see {@code
-     * SpecWeaponSelector}). {@code itemManager} may be {@code null} in
-     * headless tests, in which case the icon is skipped but the tooltip still
-     * updates (mirrors {@code GearSection.updateGearGrid}'s own null-safety).
+     * Rebuilds this cell for {@code recommendation} ({@code null} = either no
+     * target selected, or a target IS selected but nothing owned+legal
+     * qualifies — see {@code SpecWeaponSelector}). {@code targetSelected}
+     * disambiguates those two {@code null} cases (PR #25 finding) so the
+     * tooltip never tells a player who already picked a target, and simply
+     * owns no eligible spec weapon for it, to go pick a target — a false
+     * remedy. {@code itemManager} may be {@code null} in headless tests, in
+     * which case the icon is skipped but the tooltip still updates (mirrors
+     * {@code GearSection.updateGearGrid}'s own null-safety).
      */
-    public void refresh(SpecWeaponRecommendation recommendation, ItemManager itemManager) {
+    public void refresh(SpecWeaponRecommendation recommendation, boolean targetSelected, ItemManager itemManager) {
         int id = recommendation == null ? -1 : recommendation.itemId();
-        setToolTipText(recommendation == null ? noTargetTooltip() : recommendation.readoutText());
+        if (recommendation != null) {
+            setToolTipText(recommendation.readoutText());
+        } else {
+            setToolTipText(targetSelected ? noEligibleWeaponTooltip() : noTargetTooltip());
+        }
         if (id == renderedItemId) {
             return;
         }
@@ -64,6 +72,11 @@ public final class SpecWeaponCell extends JLabel {
 
     private static String noTargetTooltip() {
         return "Best spec weapon — pick a target to see a recommendation";
+    }
+
+    /** PR #25 finding: distinct from {@link #noTargetTooltip()} — a target IS selected, but nothing the player owns qualifies. */
+    private static String noEligibleWeaponTooltip() {
+        return "Best spec weapon — no owned, equippable, legal spec weapon qualifies for this target";
     }
 
     /** Test seam: the item id this cell last rendered (or {@code -1}/{@code Integer.MIN_VALUE} before any refresh). */

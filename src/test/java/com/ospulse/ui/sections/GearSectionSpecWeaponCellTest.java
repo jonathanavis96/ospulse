@@ -215,6 +215,43 @@ public class GearSectionSpecWeaponCellTest
 		});
 	}
 
+	// ---- PR #25 finding: "no target" tooltip must not be shown when nothing owned+legal qualifies ----
+
+	@Test
+	public void noTargetSelectedShowsThePickATargetTooltip()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearWielding(DRAGON_CLAWS), null));
+
+			assertEquals("Best spec weapon — pick a target to see a recommendation",
+				section.specWeaponCellTooltipForTest());
+		});
+	}
+
+	@Test
+	public void targetSelectedButNothingOwnedQualifiesShowsTheNoEligibleWeaponTooltipNotThePickATargetOne()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			// Nothing owned at all — a target IS selected, so the cell must not
+			// fall back to the "pick a target" wording, which would be a false
+			// remedy (the player already picked one; they just own no eligible spec).
+			section.apply(snapshotWith(unarmedGearWithAttackLevel(99), null));
+
+			section.searchFieldForTest().setText("cerberus");
+			int index = indexOf(section.monsterListForTest().getModel(), "cerberus");
+			assertTrue("Cerberus must appear in the filtered list", index >= 0);
+			section.monsterListForTest().setSelectedIndex(index);
+
+			assertEquals(-1, section.specWeaponCellItemIdForTest());
+			assertEquals("Best spec weapon — no owned, equippable, legal spec weapon qualifies for this target",
+				section.specWeaponCellTooltipForTest());
+		});
+	}
+
 	@Test
 	public void ownedDamageSpecIsRecommendedAgainstALowDefenceTarget()
 	{

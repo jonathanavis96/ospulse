@@ -493,4 +493,60 @@ public class SpecWeaponSelectorTest {
                 monsterWithDefence(50), null, owned, excludedByAlias, Collections.emptyMap(), -1, fixedProbe(byId));
         assertFalse(rec.isPresent());
     }
+
+    // ---- PR #25 finding: 30305 "Arclight (inactive)" must not be an alias of Arclight ----
+
+    private static final int ARCLIGHT = 19675;
+    private static final int ARCLIGHT_INACTIVE = 30305; // charge-state variant, NOT a cosmetic recolour — see SpecWeapon javadoc
+
+    /** Catalog guard: re-adding 30305 to Arclight's aliases must break this test. */
+    @Test
+    public void arclightInactiveIsNotAnOwnedAliasOfArclight() {
+        SpecWeapon arclight = findCatalogEntry(ARCLIGHT);
+        assertFalse("30305 (Arclight (inactive)) is a charge-state variant, not a cosmetic recolour of the SAME "
+                        + "physical weapon — it must not be in Arclight's ownedAliasIds()",
+                arclight.ownedAliasIds().contains(ARCLIGHT_INACTIVE));
+    }
+
+    /**
+     * Owning ONLY the inactive charge-state variant must not recommend the
+     * (unowned, better-stats) charged Arclight. Arclight is DEFENCE_DRAIN, so
+     * the target defence must be at/above {@link SpecWeaponSelector#HIGH_DEFENCE_THRESHOLD}
+     * for the role to be considered at all — otherwise an empty result would
+     * prove nothing about the alias fix specifically.
+     */
+    @Test
+    public void owningOnlyArclightInactiveDoesNotRecommendArclight() {
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(ARCLIGHT_INACTIVE));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(ARCLIGHT, result(90, 0.95)); // absurdly high — would win if 30305 wrongly counted as owning it
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(SpecWeaponSelector.HIGH_DEFENCE_THRESHOLD), null, owned, fixedProbe(byId));
+        assertFalse("owning only the inactive charge-state variant (30305) must not recommend the charged Arclight "
+                        + "the player does not own",
+                rec.isPresent());
+    }
+
+    /** Sanity check: owning the actual charged Arclight (19675) still produces a recommendation as before. */
+    @Test
+    public void owningArclightItselfStillRecommendsIt() {
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(ARCLIGHT));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(ARCLIGHT, result(40, 0.6));
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(SpecWeaponSelector.HIGH_DEFENCE_THRESHOLD), null, owned, fixedProbe(byId));
+        assertTrue(rec.isPresent());
+        assertEquals(ARCLIGHT, rec.get().itemId());
+    }
+
+    private static SpecWeapon findCatalogEntry(int itemId) {
+        for (SpecWeapon weapon : SpecWeapon.CATALOG) {
+            if (weapon.itemId() == itemId) {
+                return weapon;
+            }
+        }
+        throw new AssertionError("no catalog entry with itemId " + itemId);
+    }
 }
