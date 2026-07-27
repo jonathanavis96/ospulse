@@ -2,12 +2,15 @@
   "reminders": [
     {
       "monsters": ["Zulrah"],
-      "note": "Zulrah's ranged and magic attacks envenom you unless they miss, even through a protection prayer — bring antivenom+, or wear a serpentine helm for outright immunity. A ring of suffering (ri) or ring of recoil chips damage back at the snakelings."
+      "note": "Zulrah's ranged and magic attacks envenom you unless they miss, even through a protection prayer — bring antivenom+, or wear a serpentine helm for outright immunity. A ring of suffering (ri) or ring of recoil chips damage back at the snakelings.",
+      "equipmentItemIds": [12931],
+      "consumableItemIds": [12913, 12915, 12917, 12919, 29824, 29827, 29830, 29833]
     },
     {
       "monsters": ["Vorkath"],
       "note": "Vorkath's dragonfire hits 80 unprotected. A dragonfire shield with a super antifire blocks it completely; a two-handed setup with Protect from Magic and a super antifire brings it down to 10, which is what most players run. His venomous dragonfire, part of the normal rotation, can poison you — bring antivenom(+).",
-      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
+      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003],
+      "consumableItemIds": [21978, 21981, 21984, 21987, 22209, 22212, 22215, 22218, 12913, 12915, 12917, 12919, 29824, 29827, 29830, 29833]
     },
     {
       "monsters": [
@@ -18,7 +21,8 @@
         "Lava dragon", "Frost dragon", "Reanimated dragon"
       ],
       "note": "Breathes dragonfire — Protect from Magic plus an antifire (or extended antifire) potion covers it without needing a shield; a dragonfire shield/ward or anti-dragon shield works too.",
-      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
+      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003],
+      "consumableItemIds": [2452, 2454, 2456, 2458, 11951, 11953, 11955, 11957]
     },
     {
       "monsters": [
@@ -26,33 +30,39 @@
         "Mithril dragon", "Adamant dragon", "Rune dragon"
       ],
       "note": "Metal dragons' dragonfire pierces Protect from Magic, so the prayer alone does nothing. A super antifire potion gives full protection by itself, and an ordinary antifire potion paired with an anti-dragon shield, dragonfire shield, or dragonfire ward does too.",
-      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
+      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003],
+      "consumableItemIds": [21978, 21981, 21984, 21987, 22209, 22212, 22215, 22218, 2452, 2454, 2456, 2458, 11951, 11953, 11955, 11957]
     },
     {
       "monsters": [
         "Alchemical Hydra (Electric)", "Alchemical Hydra (Extinguished)",
         "Alchemical Hydra (Fire)", "Alchemical Hydra (Serpentine)"
       ],
-      "note": "Bring antivenom+. Its poison phase is venom-tier and escalates — plain antipoison only knocks it down to poison, it does not cure it."
+      "note": "Bring antivenom+. Its poison phase is venom-tier and escalates — plain antipoison only knocks it down to poison, it does not cure it.",
+      "consumableItemIds": [12913, 12915, 12917, 12919, 29824, 29827, 29830, 29833]
     },
     {
       "monsters": [
         "Abyssal Sire (Phase 1)", "Abyssal Sire (Phase 2)",
         "Abyssal Sire (Phase 3 (stage 1))", "Abyssal Sire (Phase 3 (stage 2))"
       ],
-      "note": "Bring antipoison. The poison fumes in its first phase start at 8 damage and keep ticking."
+      "note": "Bring antipoison. The poison fumes in its first phase start at 8 damage and keep ticking.",
+      "consumableItemIds": [2446, 175, 177, 179]
     },
     {
       "monsters": ["K'ril Tsutsaroth"],
-      "note": "Bring antidote++ or a sanfew serum. His melee can poison you starting at 16 damage, and it lands even through Protect from Melee."
+      "note": "Bring antidote++ or a sanfew serum. His melee can poison you starting at 16 damage, and it lands even through Protect from Melee.",
+      "consumableItemIds": [5952, 5954, 5956, 5958, 10925, 10927, 10929, 10931]
     },
     {
       "monsters": ["Nex"],
-      "note": "Bring antipoison or antidote++. Her Smoke phase — Smoke Rush and the smoke clouds — can poison you."
+      "note": "Bring antipoison or antidote++. Her Smoke phase — Smoke Rush and the smoke clouds — can poison you.",
+      "consumableItemIds": [2446, 175, 177, 179, 5952, 5954, 5956, 5958]
     },
     {
       "monsters": ["Cerberus"],
-      "note": "Bring antipoison for the walk in — the tunnel to her lair is full of poison spiders. Cerberus herself does not poison you."
+      "note": "Bring antipoison for the walk in — the tunnel to her lair is full of poison spiders. Cerberus herself does not poison you.",
+      "consumableItemIds": [2446, 175, 177, 179]
     }
   ]
 }

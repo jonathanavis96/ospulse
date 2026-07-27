@@ -8,6 +8,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -252,6 +253,109 @@ public class BankRecommendationHighlighterTest
         reset(tagManager, tags, configManager);
         highlighter.reapplyIfArmed();
         verify(tags).openBankTag(eq(BankRecommendationHighlighter.RESERVED_TAG), anyInt());
+    }
+
+    /** Full equipment loadout covering every {@code SLOT_TO_GRID} entry, item id = grid index * 10 for readability. */
+    private static Map<Integer, Integer> fullEquipmentLoadout()
+    {
+        Map<Integer, Integer> m = new LinkedHashMap<>();
+        m.put(0, 10);    // HEAD   -> idx 1  -> id 10
+        m.put(1, 80);    // CAPE   -> idx 8  -> id 80
+        m.put(2, 90);    // AMULET -> idx 9  -> id 90
+        m.put(13, 100);  // AMMO   -> idx 10 -> id 100
+        m.put(3, 160);   // WEAPON -> idx 16 -> id 160
+        m.put(4, 170);   // BODY   -> idx 17 -> id 170
+        m.put(5, 180);   // SHIELD -> idx 18 -> id 180
+        m.put(7, 250);   // LEGS   -> idx 25 -> id 250
+        m.put(9, 320);   // GLOVES -> idx 32 -> id 320
+        m.put(10, 330);  // BOOTS  -> idx 33 -> id 330
+        m.put(12, 340);  // RING   -> idx 34 -> id 340
+        return m;
+    }
+
+    @Test
+    public void consumablesLaidOutBeneathEquipmentGridWithoutOverwritingIt()
+    {
+        highlighter.showInBank(fullEquipmentLoadout(), Arrays.asList(9001, 9002));
+
+        ArgumentCaptor<String> csv = ArgumentCaptor.forClass(String.class);
+        verify(configManager).setConfiguration(eq("banktags"), startsWith("layout_"), csv.capture());
+        String[] cells = csv.getValue().split(",", -1);
+
+        // Every equipment cell keeps exactly the value it had before consumables existed.
+        int[] equipmentIndices = {1, 8, 9, 10, 16, 17, 18, 25, 32, 33, 34};
+        int[] equipmentIds = {10, 80, 90, 100, 160, 170, 180, 250, 320, 330, 340};
+        for (int i = 0; i < equipmentIndices.length; i++)
+        {
+            assertEquals("equipment cell " + equipmentIndices[i] + " must be untouched by consumables",
+                String.valueOf(equipmentIds[i]), cells[equipmentIndices[i]]);
+        }
+
+        // Consumables start on a fresh row beneath the equipment block (index 5*8 = 40).
+        assertEquals(42, cells.length);
+        assertEquals("9001", cells[40]);
+        assertEquals("9002", cells[41]);
+    }
+
+    @Test
+    public void consumableIdsAreTaggedSoTheyPassTheBankTagFilter()
+    {
+        highlighter.showInBank(slot(3, 4151), Arrays.asList(9001, 9002));
+
+        verify(tagManager).addTag(4151, BankRecommendationHighlighter.RESERVED_TAG, false);
+        verify(tagManager).addTag(9001, BankRecommendationHighlighter.RESERVED_TAG, false);
+        verify(tagManager).addTag(9002, BankRecommendationHighlighter.RESERVED_TAG, false);
+    }
+
+    @Test
+    public void idPresentInBothGearAndConsumablesTaggedOnceAndNotDuplicatedInLayout()
+    {
+        // 4151 is recommended gear (weapon slot) AND (hypothetically) also listed
+        // as a consumable — must be tagged exactly once and must not also occupy
+        // a consumables-row cell.
+        highlighter.showInBank(slot(3, 4151), Arrays.asList(4151, 555));
+
+        verify(tagManager, times(1)).addTag(eq(4151), eq(BankRecommendationHighlighter.RESERVED_TAG), eq(false));
+        verify(tagManager).addTag(555, BankRecommendationHighlighter.RESERVED_TAG, false);
+
+        ArgumentCaptor<String> csv = ArgumentCaptor.forClass(String.class);
+        verify(configManager).setConfiguration(eq("banktags"), startsWith("layout_"), csv.capture());
+        String[] cells = csv.getValue().split(",", -1);
+        assertEquals("4151", cells[16]);   // weapon, unaffected
+        assertEquals(41, cells.length);    // only 555 survived into the consumables row
+        assertEquals("555", cells[40]);
+    }
+
+    @Test
+    public void oneArgOverloadProducesIdenticalCsvToTwoArgWithEmptyConsumables()
+    {
+        Map<Integer, Integer> loadout = fullEquipmentLoadout();
+
+        highlighter.showInBank(loadout);
+        ArgumentCaptor<String> csv1 = ArgumentCaptor.forClass(String.class);
+        verify(configManager).setConfiguration(eq("banktags"), startsWith("layout_"), csv1.capture());
+
+        BankRecommendationHighlighter other =
+            new BankRecommendationHighlighter(tags, tagManager, configManager, clientThread);
+        reset(tagManager, tags, configManager);
+        other.showInBank(loadout, java.util.Collections.emptyList());
+        ArgumentCaptor<String> csv2 = ArgumentCaptor.forClass(String.class);
+        verify(configManager).setConfiguration(eq("banktags"), startsWith("layout_"), csv2.capture());
+
+        assertEquals("1-arg overload must behave identically to the 2-arg overload with no consumables",
+            csv1.getValue(), csv2.getValue());
+        String[] cells = csv1.getValue().split(",", -1);
+        assertEquals(35, cells.length);
+    }
+
+    @Test
+    public void oneArgOverloadNeverTagsAnyConsumables()
+    {
+        highlighter.showInBank(slot(3, 4151));
+
+        // Only the single gear item is ever tagged — no consumables path engaged.
+        verify(tagManager, times(1)).addTag(anyInt(), eq(BankRecommendationHighlighter.RESERVED_TAG), eq(false));
+        verify(tagManager).addTag(4151, BankRecommendationHighlighter.RESERVED_TAG, false);
     }
 
     @Test

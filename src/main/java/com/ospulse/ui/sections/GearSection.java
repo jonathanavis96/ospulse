@@ -12,6 +12,8 @@ import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.Monster;
 import com.ospulse.combat.MonsterCombatRequirement;
 import com.ospulse.combat.MonsterCombatRequirementRepository;
+import com.ospulse.combat.MonsterConsumablesReminder;
+import com.ospulse.combat.MonsterConsumablesRepository;
 import com.ospulse.combat.MonsterGearOverride;
 import com.ospulse.combat.MonsterGearOverrideRepository;
 import com.ospulse.combat.MonsterRepository;
@@ -1567,6 +1569,43 @@ public final class GearSection extends CollapsibleSection
 			}
 		}
 		return map;
+	}
+
+	/**
+	 * The "don't forget" consumables items (e.g. an antifire potion) for
+	 * {@link #selectedMonster}, if any, so {@link #bankHighlighter} can lay
+	 * them out beneath the recommended equipment grid alongside the note
+	 * already shown in the side panel (B9-x). Combines {@link
+	 * MonsterConsumablesReminder#equipmentItemIds()} (verified against the
+	 * equipment index) and {@link MonsterConsumablesReminder#consumableItemIds()}
+	 * (verified against the runelite-api jar's {@code ItemID} constants
+	 * instead — potions aren't equipment), equipment ids first, de-duplicated,
+	 * order preserved. Uses {@code lookupName()}, not {@code name()}, so
+	 * synthetic Wilderness twins resolve to the real monster's curated data.
+	 * Empty when there's no target or no reminder — or when the reminder is
+	 * prose-only and carries no item ids at all.
+	 */
+	private java.util.List<Integer> bankConsumableItemIds()
+	{
+		if (selectedMonster == null)
+		{
+			return java.util.Collections.emptyList();
+		}
+		java.util.Optional<MonsterConsumablesReminder> reminder =
+			MonsterConsumablesRepository.getInstance().forMonster(selectedMonster.lookupName());
+		if (!reminder.isPresent())
+		{
+			return java.util.Collections.emptyList();
+		}
+		java.util.LinkedHashSet<Integer> ids = new java.util.LinkedHashSet<>(reminder.get().equipmentItemIds());
+		ids.addAll(reminder.get().consumableItemIds());
+		return new java.util.ArrayList<>(ids);
+	}
+
+	/** Test seam for {@link #bankConsumableItemIds()} — the combined equipment+consumable bank tag ids. */
+	java.util.List<Integer> bankConsumableItemIdsForTest()
+	{
+		return bankConsumableItemIds();
 	}
 
 	private void resetBankHighlightToggle()
@@ -5161,7 +5200,7 @@ public final class GearSection extends CollapsibleSection
 			}
 			else
 			{
-				bankHighlighter.showInBank(optimizerLoadoutSlotMap(result));
+				bankHighlighter.showInBank(optimizerLoadoutSlotMap(result), bankConsumableItemIds());
 			}
 		}
 		optimizerResultPanel.setVisible(true);
@@ -5736,7 +5775,7 @@ public final class GearSection extends CollapsibleSection
 		// silently dropping the filter.
 		if (bankHighlighter != null && bankHighlighter.isArmed() && lastOptimizerResult != null)
 		{
-			bankHighlighter.showInBank(optimizerLoadoutSlotMap(lastOptimizerResult));
+			bankHighlighter.showInBank(optimizerLoadoutSlotMap(lastOptimizerResult), bankConsumableItemIds());
 		}
 
 		// Item #6g: the preview must show the DPS the optimiser actually

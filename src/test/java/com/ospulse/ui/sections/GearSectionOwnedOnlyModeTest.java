@@ -528,7 +528,7 @@ public class GearSectionOwnedOnlyModeTest
 				section.lastOptimizerResultForTest());
 			assertTrue("no what-if override may be auto-applied from a stale result",
 				section.overrideForTest().isEmpty());
-			Mockito.verify(bankHighlighter, Mockito.never()).showInBank(Mockito.anyMap());
+			Mockito.verify(bankHighlighter, Mockito.never()).showInBank(Mockito.anyMap(), Mockito.anyList());
 		});
 	}
 }

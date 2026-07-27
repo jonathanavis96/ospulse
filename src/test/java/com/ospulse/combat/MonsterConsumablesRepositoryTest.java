@@ -12,14 +12,39 @@ public class MonsterConsumablesRepositoryTest
 {
 	static { BundledGson.set(new com.google.gson.Gson()); }
 
-	@Test public void loadsZulrahAsAPureProseReminder()
+	@Test public void loadsZulrahWithSerpentineHelmAndAntivenomIds()
 	{
 		Optional<MonsterConsumablesReminder> r = MonsterConsumablesRepository.getInstance().forMonster("Zulrah");
 		assertTrue(r.isPresent());
 		assertTrue("Zulrah's note must mention antivenom",
 			r.get().note().toLowerCase(java.util.Locale.ROOT).contains("antivenom"));
-		assertTrue("Zulrah's reminder is text-only — no verifiable equipment id exists for it",
-			r.get().equipmentItemIds().isEmpty());
+		assertTrue("Zulrah's serpentine helm alternative is verified equipment (12931)",
+			r.get().equipmentItemIds().contains(12931));
+		assertTrue("Zulrah's antivenom+ consumable ids must be present",
+			r.get().consumableItemIds().containsAll(
+				java.util.Arrays.asList(12913, 12915, 12917, 12919, 29824, 29827, 29830, 29833)));
+	}
+
+	/**
+	 * Regression guard: {@code MonsterConsumablesRepository} used to build
+	 * {@code consumableItemIds}/{@code equipmentItemIds} with a plain
+	 * {@code HashSet}, which discards JSON insertion order before {@link
+	 * MonsterConsumablesReminder} ever wraps it in a {@code LinkedHashSet} —
+	 * the wrapping step faithfully preserves whatever order it is handed, so
+	 * a scrambled hash order survives it unchanged. Zulrah's curated 4-3-2-1
+	 * dose sequence (antivenom+ then extended antivenom+) is the JSON's
+	 * declared order and must come back out in that exact order, not
+	 * hash-bucket order. This fails under the old {@code HashSet}-based
+	 * implementation.
+	 */
+	@Test public void zulrah_consumableItemIds_preserveCuratedJsonInsertionOrder()
+	{
+		Optional<MonsterConsumablesReminder> r = MonsterConsumablesRepository.getInstance().forMonster("Zulrah");
+		assertTrue(r.isPresent());
+		java.util.List<Integer> expectedOrder =
+			java.util.Arrays.asList(12913, 12915, 12917, 12919, 29824, 29827, 29830, 29833);
+		assertEquals("Zulrah's consumable ids must come back in the curated JSON order",
+			expectedOrder, new java.util.ArrayList<>(r.get().consumableItemIds()));
 	}
 
 	@Test public void loadsVorkathWithVerifiedEquipmentIds()
@@ -28,6 +53,68 @@ public class MonsterConsumablesRepositoryTest
 		assertTrue(r.isPresent());
 		// Anti-dragon shield, verified via equipment_index.min.json.
 		assertTrue(r.get().equipmentItemIds().contains(1540));
+	}
+
+	/**
+	 * Vorkath's note calls for a super antifire (twice) and antivenom(+)
+	 * specifically — not the ordinary antifire/antivenom lines the chromatic
+	 * and metal dragon rows use. Ids verified via {@code javap -constants} on
+	 * the runelite-api jar's {@code ItemID} constants; see this class's
+	 * bundled resource README for provenance.
+	 */
+	@Test public void vorkath_hasSuperAntifireAndAntivenomPlusConsumableIds()
+	{
+		Optional<MonsterConsumablesReminder> r = MonsterConsumablesRepository.getInstance().forMonster("Vorkath");
+		assertTrue(r.isPresent());
+		assertFalse("Vorkath must have consumable item ids", r.get().consumableItemIds().isEmpty());
+		assertTrue("Vorkath must include a super antifire dose (21978)",
+			r.get().consumableItemIds().contains(21978));
+		assertTrue("Vorkath must include an extended super antifire dose (22209)",
+			r.get().consumableItemIds().contains(22209));
+		assertTrue("Vorkath must include an antivenom+ dose (12913)",
+			r.get().consumableItemIds().contains(12913));
+		assertTrue("Vorkath must include an extended antivenom+ dose (29824)",
+			r.get().consumableItemIds().contains(29824));
+	}
+
+	/**
+	 * The chromatic dragon row's note says "an antifire (or extended
+	 * antifire) potion" — it must carry those consumable ids now, not just
+	 * the shield equipment ids.
+	 */
+	@Test public void chromaticDragons_haveAntifireConsumableIds()
+	{
+		Optional<MonsterConsumablesReminder> r = MonsterConsumablesRepository.getInstance().forMonster("Red dragon");
+		assertTrue(r.isPresent());
+		assertFalse("chromatic dragons must have consumable item ids", r.get().consumableItemIds().isEmpty());
+		assertTrue("must include an antifire dose (2452)", r.get().consumableItemIds().contains(2452));
+		assertTrue("must include an extended antifire dose (11951)", r.get().consumableItemIds().contains(11951));
+	}
+
+	/**
+	 * The metal dragon row's note says "a super antifire potion gives full
+	 * protection by itself" — it must carry those consumable ids now, not
+	 * just the shield equipment ids.
+	 */
+	/**
+	 * The metal-dragon note offers TWO valid setups — "a super antifire potion gives
+	 * full protection by itself, and an ordinary antifire potion paired with an
+	 * anti-dragon shield, dragonfire shield, or dragonfire ward does too" — so both
+	 * antifire tiers must reach the bank tag. The ordinary family was missed on the
+	 * first pass because the note was read truncated at "and a...", which is why the
+	 * assertion below names the ordinary doses explicitly rather than just checking
+	 * the set is non-empty.
+	 */
+	@Test public void metalDragons_haveBothSuperAndOrdinaryAntifireConsumableIds()
+	{
+		Optional<MonsterConsumablesReminder> r = MonsterConsumablesRepository.getInstance().forMonster("Rune dragon");
+		assertTrue(r.isPresent());
+		assertFalse("metal dragons must have consumable item ids", r.get().consumableItemIds().isEmpty());
+		assertTrue("must include a super antifire dose (21978)", r.get().consumableItemIds().contains(21978));
+		assertTrue("must include an extended super antifire dose (22209)", r.get().consumableItemIds().contains(22209));
+		assertTrue("must include an ordinary antifire dose (2452) — the note's shield combination",
+			r.get().consumableItemIds().contains(2452));
+		assertTrue("must include an extended antifire dose (11951)", r.get().consumableItemIds().contains(11951));
 	}
 
 	@Test public void unknownMonsterEmpty()
@@ -138,7 +225,9 @@ public class MonsterConsumablesRepositoryTest
 			assertTrue(phase + " must resolve", r.isPresent());
 			assertTrue(phase + "'s note must mention antivenom+",
 				r.get().note().toLowerCase(java.util.Locale.ROOT).contains("antivenom+"));
-			assertTrue(phase + "'s reminder is text-only", r.get().equipmentItemIds().isEmpty());
+			assertTrue(phase + "'s reminder has no equipment component", r.get().equipmentItemIds().isEmpty());
+			assertFalse(phase + "'s reminder must carry antivenom+ consumable ids",
+				r.get().consumableItemIds().isEmpty());
 		}
 	}
 
@@ -160,7 +249,9 @@ public class MonsterConsumablesRepositoryTest
 		};
 		for (String phase : phases)
 		{
-			assertTrue(phase + " must resolve", repo.forMonster(phase).isPresent());
+			Optional<MonsterConsumablesReminder> r = repo.forMonster(phase);
+			assertTrue(phase + " must resolve", r.isPresent());
+			assertFalse(phase + " must carry antipoison consumable ids", r.get().consumableItemIds().isEmpty());
 		}
 		assertFalse("Tentacle (Abyssal Sire) is a different monster and must not match",
 			repo.forMonster("Tentacle (Abyssal Sire)").isPresent());
@@ -173,6 +264,7 @@ public class MonsterConsumablesRepositoryTest
 		assertTrue(r.isPresent());
 		assertTrue(r.get().note().contains("Protect from Melee"));
 		assertTrue(r.get().equipmentItemIds().isEmpty());
+		assertFalse("must carry antidote++/sanfew salve consumable ids", r.get().consumableItemIds().isEmpty());
 	}
 
 	/** Nex's Smoke-phase poison reminder must not leak onto the visually-similar Blood Reaver in her chamber. */
@@ -182,6 +274,7 @@ public class MonsterConsumablesRepositoryTest
 		Optional<MonsterConsumablesReminder> nex = repo.forMonster("Nex");
 		assertTrue(nex.isPresent());
 		assertTrue(nex.get().note().toLowerCase(java.util.Locale.ROOT).contains("smoke"));
+		assertFalse("Nex must carry antipoison/antidote++ consumable ids", nex.get().consumableItemIds().isEmpty());
 
 		assertFalse("Blood Reaver (Nex's chamber) is a different monster and must not match Nex's reminder",
 			repo.forMonster("Blood Reaver (Nex's chamber)").isPresent());
@@ -194,5 +287,6 @@ public class MonsterConsumablesRepositoryTest
 		assertTrue(r.isPresent());
 		assertTrue(r.get().note().contains("Cerberus herself does not poison you"));
 		assertTrue(r.get().equipmentItemIds().isEmpty());
+		assertFalse("Cerberus must carry antipoison consumable ids", r.get().consumableItemIds().isEmpty());
 	}
 }

@@ -26,6 +26,7 @@
 | --- | --- |
 | ⚔️ **Gear DPS & max hit** | Live max hit, accuracy, DPS and time‑to‑kill, auto‑filled from your worn gear, boosted stats and prayers. |
 | 🧠 **Gear optimiser** | **Find Best** searches your owned and affordable items for the highest DPS‑per‑GP, respects each monster's required items, and highlights the picks in your bank. |
+| 💥 **Spec weapon & reminders** | Names the special attack worth bringing for the target, plus a "don't forget" note for the consumables that don't fit in a gear slot. |
 | 💰 **Session profit** | Banking‑aware, so bank trips are never counted as losses. |
 | 🎒 **Loot feed** | Built from wealth changes, so it catches *everything* you gain — not just NPC drops. |
 | 📈 **Net worth & XP** | Bank + inventory + equipment + GE, plus XP and levels gained this session. |
@@ -58,6 +59,22 @@ Some kills need a specific item, not just the highest DPS. OSPulse pins the piec
 <img align="left" width="200" hspace="20" vspace="6" src="https://raw.githubusercontent.com/jonathanavis96/ospulse/master/screenshots/gear-incompatible-weapon.png" alt="Kurask target with an incompatible weapon crossed out by a red X">
 
 It also **crosses out** styles and weapons that can't damage the target — an unusable attack style, a weapon a monster is immune to (a leaf‑bladed requirement on **Kurasks**) — so you never set out with gear that can't land a hit.
+
+<br clear="all">
+
+### 💥 Names the special attack worth bringing
+
+<img align="right" width="200" hspace="20" vspace="6" src="https://raw.githubusercontent.com/jonathanavis96/ospulse/master/screenshots/gear-spec-weapon.png" alt="Gear panel with Vorkath selected: the recommended setup grid with a best-spec-weapon cell sitting between the weapon and gloves slots">
+
+A dedicated cell sits between your **weapon** and **gloves**, naming the spec weapon worth taking. It is **role‑aware**, not a damage ranking — a high‑defence boss gets a Dragon warhammer or Bandos godsword rather than claws every time — and it only ever suggests a weapon you **own** and can legally use on that target. It states the effect ("−30% Defence") instead of a DPS number, because a heal, a drain and a big hit aren't comparable on one scale.
+
+<br clear="all">
+
+### 🧪 Reminds you what doesn't go in a gear slot
+
+<img align="left" width="200" hspace="20" vspace="6" src="https://raw.githubusercontent.com/jonathanavis96/ospulse/master/screenshots/gear-consumables-reminder.png" alt="Vorkath reminder text under the potion and prayer icons, explaining dragonfire protection and to bring antivenom+">
+
+Under the potion/prayer row, a curated **"don't forget"** note per target — antivenom for venomous bosses, recoils and rings of suffering for **Zulrah**, antifire and a dragonfire shield for **dragons**. The items it names are highlighted in your bank alongside the recommended gear, so the reminder is still there when you go to collect it.
 
 <br clear="all">
 

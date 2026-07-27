@@ -5,6 +5,7 @@ import static org.junit.Assert.assertTrue;
 
 import java.util.HashSet;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.Test;
 
@@ -51,6 +52,44 @@ public class MonsterConsumablesDataTest {
                 assertTrue("equipment item id not in the equipment index: " + id,
                     index.entryFor(id) != null);
             }
+        }
+    }
+
+    /**
+     * Every {@code consumableItemIds} entry must be a positive int — this is
+     * NOT checked against {@link EquipmentIndexRepository} (potions aren't
+     * equipment; that index has no rows for them), only that the value is
+     * plausible. Deliberately separate from {@link #everyEquipmentItemIdResolves()}
+     * so the two verification channels never get conflated.
+     */
+    @Test
+    public void everyConsumableItemIdIsAPositiveInt() {
+        for (MonsterConsumablesReminder reminder : MonsterConsumablesRepository.getInstance().allReminders()) {
+            for (Integer id : reminder.consumableItemIds()) {
+                assertTrue("consumable item id must be a positive int: " + id, id != null && id > 0);
+            }
+        }
+    }
+
+    /**
+     * The six monsters whose reminders were prose-only before {@code
+     * consumableItemIds} was added (Zulrah, Alchemical Hydra, Abyssal Sire,
+     * K'ril Tsutsaroth, Nex, Cerberus) must each now carry at least one
+     * consumable id, so this gap cannot silently regress to "nothing shows in
+     * the bank".
+     */
+    @Test
+    public void previouslyProseOnlyMonsters_nowHaveConsumableItemIds() {
+        MonsterConsumablesRepository repo = MonsterConsumablesRepository.getInstance();
+        String[] monsters = {
+            "Zulrah", "Alchemical Hydra (Fire)", "Abyssal Sire (Phase 1)",
+            "K'ril Tsutsaroth", "Nex", "Cerberus"
+        };
+        for (String monster : monsters) {
+            Optional<MonsterConsumablesReminder> reminder = repo.forMonster(monster);
+            assertTrue(monster + " must have a curated reminder", reminder.isPresent());
+            assertFalse(monster + " must have at least one consumable item id",
+                reminder.get().consumableItemIds().isEmpty());
         }
     }
 

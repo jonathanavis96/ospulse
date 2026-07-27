@@ -58,18 +58,38 @@ wording belongs in the JSON alone, where it has one source of truth.
   genuinely equipment and therefore verifiable against
   `equipment_index.min.json` (`EquipmentIndexRepository.entryFor`) — a ring,
   a shield. Never a potion/consumable id. Omit the field entirely when a
-  reminder is pure prose (every entry has at least a `note`; not every entry
-  needs ids).
+  reminder has no equipment component (every entry has at least a `note`;
+  not every entry needs ids).
+- `consumableItemIds` (optional array of ints): **only** for inventory
+  consumables (a potion dose — antivenom+, antipoison, antidote++, sanfew
+  salve, extended antivenom+) verified against a **different** source than
+  `equipmentItemIds`: the runelite-api jar's
+  `net.runelite.api.gameval.ItemID` constants (checked via `javap -constants`
+  against the Gradle-cached jar), NOT `equipment_index.min.json` — that index
+  is equipment-only and simply has no rows for potions, so it cannot verify
+  these ids at all. Never guessed from the wiki, same rule as
+  `equipmentItemIds`. Include every dose of a potion family (4/3/2/1) so an
+  item the player doesn't own just doesn't render, rather than needing a
+  dose-family resolver. Omit `BRUTAL_*`/`BR_*` id families — those are
+  mode-locked variants, not a plain dose. Omit the field entirely when a
+  reminder has no verified consumable ids.
 
-## Why ids are optional and text is the payload
+## Why two separate id fields, and why text is still the payload
 
 Most of what a "don't forget" reminder needs to say is an INVENTORY
-consumable (antivenom, antifire potion, antipoison) — `equipment_index.min.json`
-indexes equippable items only, so these ids cannot be verified through the
-one channel this codebase trusts, and guessing them from the wiki is exactly
-what every curated dataset here forbids. So the note carries the full
-information in prose, and `equipmentItemIds` is populated only when an id
-actually clears verification.
+consumable (antivenom, antifire potion, antipoison). `equipment_index.min.json`
+indexes equippable items only, so a potion id can never be verified through
+that channel — which is why `equipmentItemIds` stayed empty for every
+prose-only entry through round 2 of this dataset, even though the note named
+a concrete item. `consumableItemIds` closes that gap with its own,
+equally-strict verification channel (the runelite-api jar's `ItemID`
+constants) instead of relaxing the equipment-index check or guessing from the
+wiki. So the note still carries the full information in prose for every
+entry, `equipmentItemIds` is populated only when an id clears the equipment
+index, and `consumableItemIds` is populated only when an id clears the
+runelite-api jar — two disjoint, independently-verified fields feeding the
+same bank tag (`GearSection#bankConsumableItemIds()` unions both, equipment
+ids first).
 
 ## Adding an entry
 
@@ -87,7 +107,13 @@ actually clears verification.
 2. Look any equipment ids up in `equipment_index.min.json` (or
    `EquipmentIndexRepository.idForName`) — never guess from the wiki.
    `MonsterConsumablesDataTest` enforces this over the whole file.
-3. No regeneration script — this file is hand-maintained curated data.
+3. Look any consumable (potion) ids up in the runelite-api jar's
+   `net.runelite.api.gameval.ItemID` constants (`javap -constants` against
+   the Gradle-cached `runelite-api` jar) — never the equipment index (it has
+   no rows for potions) and never the wiki. `MonsterConsumablesDataTest`
+   enforces every `consumableItemIds` entry is a positive int, separately
+   from the equipment-index check.
+4. No regeneration script — this file is hand-maintained curated data.
 
 ## Ring of suffering — id deliberately omitted
 
@@ -283,4 +309,37 @@ frequency. Per [Zulrah/Strategies](https://oldschool.runescape.wiki/w/Zulrah/Str
 The helm's item id is deliberately not attached: it is head-slot equipment and would need
 verification against `equipment_index.min.json` under the same rule as every other id here. Naming it
 in prose costs nothing and asserts nothing unverified.
+
+## Correction (round 7) — `consumableItemIds` added; six prose-only rows now populate the bank tag
+
+Round 6 shipped the bank-tag wiring (`GearSection#bankConsumableItemIds()`), but it only ever read
+`equipmentItemIds`, so only the three dragon-family entries (which carry shield ids) produced anything
+in the bank — Zulrah, Alchemical Hydra, Abyssal Sire, K'ril Tsutsaroth, Nex, and Cerberus (six of nine
+rows, and most of the dataset's value) rendered nothing, because their items are potions and potions
+are not equipment.
+
+A new, separately-validated field, `consumableItemIds`, closes that gap without touching
+`equipmentItemIds`'s equipment-index verification at all. Every id was extracted via `javap -constants`
+against the Gradle-cached `runelite-api-1.12.33.jar`'s `net.runelite.api.gameval.ItemID` constants — the
+same jar-constants method already established for other id-verification in this repo, just against a
+different constant set than the equipment index. `GearSection#bankConsumableItemIds()` now unions
+`equipmentItemIds()` and `consumableItemIds()` (equipment first, de-duplicated, order preserved) into
+one bank-tag id list.
+
+Ids added, one potion family per row, matching only what each row's own `note` already said (all four
+doses of each family, since an unowned dose simply doesn't render — no dose-family resolver needed):
+
+- **Zulrah** — Antivenom+ (12913, 12915, 12917, 12919) + Extended antivenom+ (29824, 29827, 29830,
+  29833) as `consumableItemIds`. Also gained **12931 (Serpentine helm)** in `equipmentItemIds` — the
+  note's own alternative-to-antivenom+ mention — verified present in `equipment_index.min.json` under
+  that exact display name, unlike the ring of suffering/recoil case above.
+- **Alchemical Hydra** (all four phases) — Antivenom+ + Extended antivenom+, same ids as Zulrah.
+- **Abyssal Sire** (all four phases) — Antipoison (2446, 175, 177, 179).
+- **K'ril Tsutsaroth** — Antidote++ (5952, 5954, 5956, 5958) + Sanfew salve (10925, 10927, 10929,
+  10931).
+- **Nex** — Antipoison + Antidote++ (both families, per the note's "antipoison or antidote++").
+- **Cerberus** — Antipoison.
+
+`BRUTAL_*`/`BR_*` id families for these potions exist in `ItemID` but were deliberately excluded — they
+are mode-locked variants, not a plain dose, and no note here calls for a mode-locked potion.
 
