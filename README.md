@@ -223,6 +223,7 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 - **Monsters that cap or reduce your damage are modelled.** Corporeal Beast halves what non‑corpbane weapons deal, The Hueycoatl's tail caps each hit, and Verzik's first phase re‑rolls anything over its ceiling — all three previously scored as though they hit normally.
 - **The Wilderness now knows which monsters are in it.** The set behind those +50% revenant bonuses grew from 10 variants to 34, adding Fire giants in the Deep Wilderness Dungeon, the Wilderness God Wars Dungeon spiritual mages/rangers/warriors and Aviansies, and more. Two monsters that only *sound* like Wilderness spawns — the Earth Warrior Champion and the bandit champion from The Feud — no longer wrongly grant the bonus.
 - **Powered sceptres attack with their own spell.** Thammaron's and Accursed sceptre were scored as if casting from your spellbook rather than using their built‑in attack.
+- **Equipment stats refreshed from the live game.** Bundled gear data is regenerated from the current OSRS cache, so bonuses match what the game actually uses — including a corrected ranged‑strength value on Pegasian boots that the previous extraction had been reading a point low.
 
 <details>
 <summary><b>0.2.0 — Smarter gear, per‑monster</b></summary>
