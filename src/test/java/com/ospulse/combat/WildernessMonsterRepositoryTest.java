@@ -129,14 +129,12 @@ public class WildernessMonsterRepositoryTest {
                 "Elder Chaos druid",
                 "Mammoth (Normal)",
                 "Earth warrior",
-                "Earth Warrior Champion",
                 "Green dragon (Level 88)",
                 "Black dragon (Level 247)",
                 "Bandit (Bandit Camp) (Level 57)",
                 "Bandit (Bandit Camp) (Level 74)",
                 "Bandit (Level 22)",
                 "Bandit (Level 130)",
-                "Bandit champion",
                 "Guard Bandit",
                 "Rogue (Level 15)",
                 "Rogue (Level 135)",
@@ -232,5 +230,30 @@ public class WildernessMonsterRepositoryTest {
         for (String name : excluded) {
             assertFalse(name + " must NOT be curated as Wilderness-exclusive (see README)", repo.isWilderness(name));
         }
+    }
+
+    /**
+     * PR #24 review round 8 (P2): two species-aggregate false positives
+     * removed from {@code wilderness_monsters.json}.
+     * <ul>
+     * <li>{@code Earth Warrior Champion} can only be fought after receiving
+     * the earth warrior champion scroll as part of the Champions' Challenge
+     * minigame, beneath the Champions' Guild — not the Wilderness. The
+     * plain {@code Earth warrior} entry is unaffected and stays curated.</li>
+     * <li>{@code Bandit champion} is Ali the bandit champion from The Feud
+     * quest, who appears at the northern end of Pollnivneach (the desert) —
+     * not the Wilderness, and not a Champions' Challenge monster either.
+     * The plain {@code Bandit} entries are unaffected and stay curated.</li>
+     * </ul>
+     */
+    @Test
+    public void earthWarriorChampionAndBanditChampion_areNotCurated_butTheirPlainCounterpartsAre() {
+        WildernessMonsterRepository repo = WildernessMonsterRepository.getInstance();
+        assertFalse("Earth Warrior Champion is a Champions' Guild minigame monster, not Wilderness",
+                repo.isWilderness("Earth Warrior Champion"));
+        assertFalse("Bandit champion is Ali the bandit champion (The Feud, Pollnivneach), not Wilderness",
+                repo.isWilderness("Bandit champion"));
+        assertTrue("Earth warrior must still be curated as Wilderness", repo.isWilderness("Earth warrior"));
+        assertTrue("Bandit (Level 22) must still be curated as Wilderness", repo.isWilderness("Bandit (Level 22)"));
     }
 }

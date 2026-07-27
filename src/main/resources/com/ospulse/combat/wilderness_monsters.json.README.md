@@ -89,9 +89,9 @@ hellhound, hobgoblin, imp, knight, maledictus, ork, pyrefiend.
 supplement for non-slayer-assignable bosses, then confirmed monster-by-
 monster against the wiki's own `{{LocLine}}` location data (see the
 companion README for the pipeline): Lava dragon, Elder Chaos druid,
-Mammoth, Earth warrior (+ its champion), Green dragon (Level 88), Black
+Mammoth, Earth warrior, Green dragon (Level 88), Black
 dragon (Level 247), the two Bandit Camp levels (57/74) plus the two
-previously-miscalled Bandit levels (22/130), Bandit champion, Guard Bandit,
+previously-miscalled Bandit levels (22/130), Guard Bandit,
 both Rogues' Castle levels (15/135), both Dark Warriors' Fortress levels
 (8/145), Ankou (Level 98), Black demon (Level 188), Hellhound (Level 136),
 Black Heather, Donny the lad, Speedy Keith, and the Wilderness-only Zombie
@@ -124,6 +124,15 @@ every `Skeleton (Wilderness Agility Course) (N)`.
 - Every untagged non-`(Wilderness Slayer Cave)` Ice giant/Lesser demon/Dust
   devil/Abyssal demon/Greater demon variant not otherwise listed as a
   both-locations entry in `wilderness_variant_monsters.json`.
+- `Earth Warrior Champion` — a P1 finding, removed in PR #24 review round 8:
+  can only be fought after receiving the earth warrior champion scroll as
+  part of the Champions' Challenge minigame, beneath the Champions' Guild —
+  not the Wilderness. Plain `Earth warrior` is unaffected and stays.
+- `Bandit champion` — a P1 finding, removed in PR #24 review round 8: this
+  is Ali the bandit champion from The Feud quest, who appears at the
+  northern end of Pollnivneach (the desert), not the Wilderness and not a
+  Champions' Challenge monster either. Plain `Bandit` entries are
+  unaffected and stay.
 
 See `wilderness_variant_monsters.json.README.md`'s own exclusion list for
 the full accounting of every candidate the generation pass considered and
