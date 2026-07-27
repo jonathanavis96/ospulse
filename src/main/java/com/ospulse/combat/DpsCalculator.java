@@ -674,6 +674,31 @@ public final class DpsCalculator {
      * carries the mode, and each of {@link #finish}/{@link #finishFang}
      * decides for itself what to do with it.
      */
+    /**
+     * <b>Known limitation — the damage PENALTY is applied to the endpoint, not
+     * to the distribution.</b> {@code afterPenalty} below scales the max hit and
+     * every downstream {@code finish*} then models a uniform roll over {@code
+     * 0..afterPenalty}. The game instead scales each ROLLED hit, and scaling a
+     * uniform roll does not yield a uniform roll: for a {@code 0..26} roll under
+     * Corporeal Beast's {@code 0.5x}, the real outcome is {@code P(k)=2/27} for
+     * {@code k} in {@code 0..12} and {@code P(13)=1/27} (mean {@code 169/27 ~
+     * 6.2593}), where this models a uniform {@code 0..13} (mean {@code 6.5}) —
+     * about 3.85% high.
+     *
+     * <p>The displayed max hit is unaffected and correct; what is overstated is
+     * average damage, and hence DPS, overkill and TTK, against every {@code
+     * DAMAGE_PENALTY} target.
+     *
+     * <p><b>Deliberately not fixed piecemeal.</b> This is the single shared site
+     * every style routes through, so the approximation applies to ALL weapons
+     * equally. Correcting it for one weapon would compute that weapon on a
+     * different model from everything it is ranked against, which is worse than
+     * a uniform approximation — the same reasoning that split the spec-weapon
+     * damage-cap gap out whole. A real fix transforms the distribution here, for
+     * everything, and must also settle penalty-versus-cap ordering (the
+     * reference applies the Corp penalty BEFORE other limiters). Pinned by
+     * {@code TargetDamagePenaltyDistributionLimitationTest} (PR #24 round 12).
+     */
     private static TargetDamage applyTargetDamageRules(int maxHit, MonsterCombatRequirement req, EquipmentStats gear,
                                                        CombatStyle style, int weaponId) {
         int afterPenalty = (int) Math.floor(maxHit * TargetDamageRule.damageMultiplierFor(req, weaponId, style));
