@@ -147,4 +147,33 @@ public class WildernessVariantMonsterRepositoryTest {
                     exclusive.isWilderness(v.baseMonster()));
         }
     }
+
+    /**
+     * Every {@code displayName} must end with the literal "(Wilderness)"
+     * suffix - the naming convention that lets a player tell a synthetic
+     * twin apart from its ordinary base entry at a glance.
+     */
+    @Test
+    public void everyDisplayName_endsWithWildernessSuffix() {
+        for (WildernessVariantMonsterRepository.Variant v : WildernessVariantMonsterRepository.getInstance().all()) {
+            assertTrue(v.displayName() + " must end with '(Wilderness)'",
+                    v.displayName().endsWith("(Wilderness)"));
+        }
+    }
+
+    /**
+     * PR #24 review case: revenant weapons (Craw's bow / Viggora's
+     * chainmace / Thammaron's sceptre) lose their +50% bonus against Deep
+     * Wilderness Dungeon's Fire giant (Level 86) unless it has an explicit
+     * "(Wilderness)" variant. Verified against the wiki's {@code {{LocLine}}}
+     * data on 2026-07-27 - see wilderness_variant_monsters.json.README.md.
+     */
+    @Test
+    public void fireGiantLevel86_hasAWildernessVariant_prNumber24ReviewCase() {
+        List<WildernessVariantMonsterRepository.Variant> variants = WildernessVariantMonsterRepository.getInstance().all();
+        boolean found = variants.stream().anyMatch(v ->
+                v.baseMonster().equalsIgnoreCase("Fire giant (Level 86)")
+                        && v.displayName().equalsIgnoreCase("Fire giant (Wilderness)"));
+        assertTrue("Fire giant (Level 86) must have a 'Fire giant (Wilderness)' variant (PR #24 review case)", found);
+    }
 }

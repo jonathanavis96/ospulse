@@ -316,38 +316,70 @@ fallback) or **direct prior research with a wiki citation**:
 | `Lesser demon (Level 94)` | `Lesser demon (Level 94) (Wilderness)` | ...both 82 AND 94 are both-locations levels for this species — stripping both to a bare "Lesser demon (Wilderness)" would collide. |
 | `Hellhound (Level 122)` | `Hellhound (Wilderness)` | Clean per-level LocLine match (122 both; 136 Wilderness-only, exclusive file). |
 
-## Honestly disclosed: what this pass could NOT confidently classify
+## Verified 2026-07-27: 24 of the candidates confirmed and shipped
 
-The raw generator output also flagged the following as candidate "variant"
-entries, purely via the untagged/`{0}`-fallback aggregate signal, with no
-clean per-level match and no direct prior research to back them —
-**deliberately left OUT of the curated file** rather than guessed in:
-**Aviansie** (all 11 level variants — a God Wars Dungeon monster; the
-keyword match is suspected to be a false positive from an unrelated
-LocLine on that page, not independently verified), **Black Knight family**
-(5 cosmetic/state variants + Black Knight Titan + the Port Sarim jail
-variant — Black Knights' Fortress is plausibly Wilderness-adjacent but
-which specific cosmetic variant represents that spawn was not verified),
-**Bloodveld** (GWD/Normal), **Jelly family** (10 colour/charge variants),
-**Skeleton sub-variants beyond the already-exclusive Wilderness Agility
-Course ones** (Barrows/Shayzien Crypts/Ape Atoll/etc. plus generic level
-22/25/45 variants), **Spider family** (Common/Ape Atoll/Stronghold/
-Underground Pass/Ungael, Giant spider, Poison spider, Ice spider, Deadly
-red spider, Shadow spider), **Spiritual mage/ranger/warrior** (all 5 god
-variants each — God Wars Dungeon, almost certainly a false positive),
-**Ice warrior**, **King Scorpion**, **Fire giant**, **Moss giant** (both
-the Iorwerth Dungeon variant, confirmed non-Wilderness by name, and the
-plain Level 42 variant, unverified), **Grizzly bear**, **Lesser Demon
-Champion**, **Greater Nechryael (Regular)** (its sibling `(Wilderness
-Slayer Cave)` entry already covers the Wilderness population; "(Regular)"
-is, by its own name, the non-Wilderness one and should not have inherited
-"variant" status from the species aggregate).
+The candidates the original ("round 2") draft of this file listed as
+"could NOT confidently classify" were re-investigated — not with the
+generator's untagged/`{0}`-fallback aggregate signal that produced the
+false-uncertainty in the first place, but with a direct per-page check
+against the wiki's own `{{LocLine}}` data: for each species page, every
+`{{LocLine}}` block's `location` field was parsed, the location resolved
+to its own wiki page, and treated as Wilderness only if that page's
+infobox states `location = Wilderness` or its intro text gives a
+Wilderness level — checking first for an explicit negation. That
+negation check is exactly what correctly rules out the King Black Dragon
+Lair, which sits inside the Wilderness map area but is textually
+confirmed non-Wilderness. The level was then mapped to a bundled variant
+via the monster infobox's `versionN`/`combatN` field pairs, not via
+level-number pattern matching against the bundled name.
 
-If any of these genuinely have a Wilderness location, they are a real gap
-in current coverage — the fix is the same as always: find the SPECIFIC
-combat level's `{{LocLine}}` location (not the species aggregate), confirm
-it is Wilderness, and add it with that level kept in the `baseMonster`/
-`displayName` pair, following the pattern above.
+Controls confirmed the method both ways: Hill Giant (already shipped,
+known-Wilderness) was correctly re-detected, and King Black Dragon
+(known non-Wilderness) was correctly NOT detected.
+
+24 species/levels were confirmed by this method and are now shipped in
+`wilderness_variant_monsters.json`:
+
+- **Aviansie** — Levels 69, 71, 84, 94, 131, 137 (Wilderness God Wars Dungeon)
+- **Spiritual mage** — Saradomin, Armadyl (Wilderness God Wars Dungeon)
+- **Spiritual ranger** — Bandos, Zamorak, Saradomin, Armadyl (Wilderness God Wars Dungeon)
+- **Spiritual warrior** — Zamorak, Armadyl, Saradomin, Bandos (Wilderness God Wars Dungeon)
+- **Bloodveld (GWD)** — Wilderness God Wars Dungeon
+- **Fire giant (Level 86)**, **Shadow spider** — Deep Wilderness Dungeon
+- **Deadly red spider** — Lava Maze + Ruins (east)
+- **Giant spider (Level 27)** — Lava Dragon Isle
+- **Grizzly bear (Level 21)** — Dark Warriors' Fortress + Ferox Enclave
+- **King Scorpion** — Lava Maze
+- **Poison spider (Level 64)** — Demonic Ruins + Lava Maze Dungeon
+
+## Still unresolved: 12 cases confirmed Wilderness, variant undetermined
+
+These are NOT "probably fine, add them" — the same `{{LocLine}}` method
+above confirms each species/level DOES have a Wilderness location, but
+which specific bundled variant corresponds to that spawn could not be
+determined mechanically (no clean wiki version data, or an ambiguous
+match against the bundled name's own variants). Each needs a targeted,
+manual check before it can be added:
+
+| case | why unresolved |
+|---|---|
+| Aviansie L79, L97 | wiki has two same-level versions ("Level 79 (1)"/"(2)"), cannot tell which is the Wilderness GWD spawn |
+| Spiritual mage L121 | two gods share level 121 (Zamorak, Bandos) |
+| Moss giant L42 | wiki versions "Level 42" and "Level 42 (Varlamore)"; location is Wilderness Pond so Varlamore is almost certainly wrong, but not confirmed |
+| Spider L1 | versions "Common" / "Underground Pass"; location is Wilderness / Ruins (west) |
+| Black Knight L33 | wiki page has no version fields; bundled has 6 state/cosmetic variants |
+| Ice warrior L57 | no wiki versions; bundled has 4 location variants |
+| Ice spider L61 | no wiki versions; bundled has 3 location variants |
+| Jelly L78 | no wiki versions; bundled has 9 colour/charge variants |
+| Skeleton L22, L25 | no wiki versions; bundled has many location variants |
+| Greater Nechryael L200 | already covered by `Greater Nechryael (Wilderness Slayer Cave)` in `wilderness_monsters.json` — deliberately NOT added here, listed only so it is not re-investigated |
+
+If any of these is later resolved (a wiki edit adds distinguishing
+version data, or manual disambiguation via drop tables/quest requirements
+pins down the right variant), add it following the same pattern as the
+24 above: `baseMonster` = the exact bundled name, `displayName` =
+`<species/tag> (Wilderness)`, kept unique per
+`WildernessVariantMonsterRepositoryTest`.
 
 ## Regeneration
 
