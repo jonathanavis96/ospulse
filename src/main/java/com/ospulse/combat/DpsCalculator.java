@@ -459,28 +459,57 @@ public final class DpsCalculator {
         int weaponSpeedTicks = gear.weaponSpeedTicks() - (player.stance() == Stance.RAPID ? 1 : 0);
         weaponSpeedTicks = Math.max(1, weaponSpeedTicks);
 
-        TargetDamage damage = applyTargetDamageRules(maxHit, requirement, gear, CombatStyle.RANGED, weaponId);
-        maxHit = damage.visibleMaxHit();
         // Charged Tonalztics of Ralos: two full, independent damage rolls per
         // attack (neither halved) — bypasses the generic finish() entirely,
         // same shape as finishFang/finishTwinflame; see TonalzticsDualHit.
+        //
+        // ORDERING IS LOAD-BEARING, not a style choice: the weapon's OWN
+        // range shaping (its 75% per-hit reduction, {@code
+        // TonalzticsDualHit.perHitMaxHit}) must run on the RAW, pre-penalty
+        // {@code maxHit} FIRST; the target's damage penalty/cap (Corporeal
+        // Beast's 0.5 multiplier etc., via applyTargetDamageRules) must run
+        // LAST, on that already-reduced per-hit value. {@code
+        // floor(floor(x*a)*b)} and {@code floor(floor(x*b)*a)} do not
+        // commute in general, and reversing the order (applying the target
+        // penalty to the raw max hit, THEN reducing 75%) was a P2 defect —
+        // confirmed against the reference weirdgloop/osrs-dps-calc
+        // implementation, which builds the weapon's own hit distribution
+        // (including its multi-hit/range transform) first and only then
+        // layers the Corp penalty as a further transform over that
+        // already-formed distribution. E.g. a calculated max of 35 against
+        // Corp (0.5x): weapon-first-then-target gives
+        // floor(floor(35*3/4)*0.5) = floor(26*0.5) = 13 (correct); the
+        // reversed order gives floor(floor(35*0.5)*3/4) = floor(17*3/4) = 12
+        // (wrong — one damage point short on every hit). See {@link
+        // TonalzticsDualHit#finishFromPerHit}'s javadoc for the full
+        // rationale. Running the cap through applyTargetDamageRules on the
+        // per-hit value (rather than the raw max hit) is correct and
+        // intended — target damage caps are per-hitsplat, not per-weapon.
         if (gear.tonalzticsOfRalosCharged()) {
-            return TonalzticsDualHit.finish(damage.uncapped, damage.cap, damage.mode, attackRoll, defenceRoll,
-                    weaponSpeedTicks, target.hitpoints());
+            int perHit = TonalzticsDualHit.perHitMaxHit(maxHit);
+            TargetDamage reduced = applyTargetDamageRules(perHit, requirement, gear, CombatStyle.RANGED, weaponId);
+            return TonalzticsDualHit.finishFromPerHit(reduced.uncapped, reduced.cap, reduced.mode, attackRoll,
+                    defenceRoll, weaponSpeedTicks, target.hitpoints());
         }
         // UNCHARGED Tonalztics of Ralos: a SINGLE hit over the same reduced
         // 75% range as the charged form's per-hit roll, per the OSRS Wiki:
         // "Uncharged, the weapon hits a target once for 0-75% of the
         // player's maximum ranged hit." Reuses TonalzticsDualHit's own
         // perHitMaxHit helper (the single source of truth for the 75%
-        // figure) rather than a second constant; the target's cap/mode are
-        // left untouched — only the roll's own range shrinks before the cap
-        // is (or isn't) applied by the generic finish().
+        // figure) rather than a second constant. Same ordering fix as the
+        // charged branch immediately above (see its comment for the worked
+        // example and citation): the weapon's own 75% reduction runs on the
+        // RAW max hit first, and only then does applyTargetDamageRules
+        // resolve the target's penalty/cap against that reduced value — the
+        // target's cap/mode are otherwise left untouched, only the roll's
+        // own range shrinks before the cap is (or isn't) applied by the
+        // generic finish().
         if (gear.tonalzticsOfRalosUncharged()) {
-            TargetDamage reduced = new TargetDamage(
-                    TonalzticsDualHit.perHitMaxHit(damage.uncapped), damage.cap, damage.mode);
+            int perHit = TonalzticsDualHit.perHitMaxHit(maxHit);
+            TargetDamage reduced = applyTargetDamageRules(perHit, requirement, gear, CombatStyle.RANGED, weaponId);
             return finish(reduced, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints(), false);
         }
+        TargetDamage damage = applyTargetDamageRules(maxHit, requirement, gear, CombatStyle.RANGED, weaponId);
         return finish(damage, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints(), false);
     }
 

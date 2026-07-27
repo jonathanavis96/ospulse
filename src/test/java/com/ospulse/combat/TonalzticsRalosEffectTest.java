@@ -1,5 +1,8 @@
 package com.ospulse.combat;
 
+import java.util.Collections;
+import java.util.EnumSet;
+
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -230,5 +233,92 @@ public class TonalzticsRalosEffectTest {
         assertEquals(avg, result.avgHit(), 1e-9);
         assertEquals(dps, result.dps(), 1e-9);
         assertEquals(overkill, result.overkillPerKill(), 1e-9);
+    }
+
+    // ---- P2 review round 11: target damage penalty must apply AFTER the weapon's own
+    // 75% per-hit reduction, never before - the two floor() steps do not commute. See
+    // TonalzticsDualHit#finishFromPerHit's javadoc for the full citation and worked
+    // example this fixture reproduces exactly (calculated max 35 against a Corp-style
+    // 0.5x ranged penalty must floor to 13 per hit, not 12).
+
+    /** Matches no {@code allowedItemIds} entry, so the fixture penalty always applies. */
+    private static final int NON_EXEMPT_WEAPON_ID = 99999;
+
+    /**
+     * +100 arange, +140 rstr, speed 4 - tuned (see the class comment above) so the RAW
+     * calculated max hit (before any Tonalztics reduction and before any target
+     * penalty) is exactly 35: effStr = floor((99+3+8)*1.0) = 110, base =
+     * floor((110*(140+64)+320)/640) = floor(22760/640) = 35.
+     */
+    private static EquipmentStats.Builder corpTunedGear() {
+        return EquipmentStats.builder()
+                .add(0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 140, 0.0, 0)
+                .weaponSpeedTicks(4);
+    }
+
+    /**
+     * A Corporeal-Beast-shaped 0.5 ranged damage penalty, built directly via {@link
+     * MonsterCombatRequirement#damagePenalty} (the same seam {@code
+     * TargetDamageRuleTest} exercises) rather than through the curated repository, so
+     * this test does not depend on the shipped Corp entry's exact shape - only on the
+     * {@code DAMAGE_PENALTY} mechanism {@link TargetDamageRule} implements.
+     */
+    private static MonsterCombatRequirement halfDamagePenalty() {
+        return MonsterCombatRequirement.damagePenalty(
+                Collections.emptySet(), 0.5, EnumSet.of(CombatStyle.RANGED), Collections.emptySet(),
+                "Test fixture: Corp-style 0.5x ranged damage penalty");
+    }
+
+    private static DpsResult computeAgainstPenalisedTarget(EquipmentStats gear, Monster target) {
+        return DpsCalculator.compute(gear, player(), CombatStyle.RANGED, target, 0,
+                NON_EXEMPT_WEAPON_ID, halfDamagePenalty());
+    }
+
+    /**
+     * The exact regression from review: charged Tonalztics against a 0.5-penalty
+     * target must floor the weapon's own 75% reduction FIRST, then the target's
+     * penalty - {@code floor(floor(35*3/4)*0.5) = floor(26*0.5) = 13}. Applying the
+     * penalty first (the prior defect) gives {@code floor(floor(35*0.5)*3/4) =
+     * floor(17*3/4) = 12} instead - one damage point short on every hit. This test
+     * fails immediately if that ordering is ever reverted.
+     */
+    @Test
+    public void charged_againstAHalfDamagePenaltyTarget_perHitFloorsToThirteen_notTwelve() {
+        DpsResult rawUnaffected = compute(corpTunedGear().build(), monster());
+        assertEquals("fixture must produce a raw calculated max hit of 35", 35, rawUnaffected.maxHit());
+
+        DpsResult charged = computeAgainstPenalisedTarget(
+                corpTunedGear().tonalzticsOfRalosCharged(true).build(), monster());
+        assertEquals("charged Tonalztics vs a 0.5-penalty target must reduce weapon-first (13), "
+                + "not target-first (12) - the two floor() steps do not commute",
+                13, charged.maxHit());
+    }
+
+    /** Same fixture and same fix, for the single-hit uncharged form. */
+    @Test
+    public void uncharged_againstAHalfDamagePenaltyTarget_perHitFloorsToThirteen_notTwelve() {
+        DpsResult rawUnaffected = compute(corpTunedGear().build(), monster());
+        assertEquals("fixture must produce a raw calculated max hit of 35", 35, rawUnaffected.maxHit());
+
+        DpsResult uncharged = computeAgainstPenalisedTarget(
+                corpTunedGear().tonalzticsOfRalosUncharged(true).build(), monster());
+        assertEquals("uncharged Tonalztics vs a 0.5-penalty target must reduce weapon-first (13), "
+                + "not target-first (12)",
+                13, uncharged.maxHit());
+    }
+
+    /**
+     * Guards against over-correcting: with NO target damage penalty at all, this
+     * fixture's charged max hit must be exactly {@code floor(35 * 3/4) = 26} - the
+     * ordinary, already-covered 75%-of-raw-max-hit behaviour, untouched by the
+     * penalty-ordering fix above.
+     */
+    @Test
+    public void charged_againstANoPenaltyTarget_isUnaffectedByTheOrderingFix() {
+        DpsResult uncharged = compute(corpTunedGear().build(), monster());
+        DpsResult charged = compute(corpTunedGear().tonalzticsOfRalosCharged(true).build(), monster());
+        assertEquals(35, uncharged.maxHit());
+        assertEquals(26, charged.maxHit());
+        assertEquals((uncharged.maxHit() * 3) / 4, charged.maxHit());
     }
 }
