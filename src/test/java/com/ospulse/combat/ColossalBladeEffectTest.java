@@ -89,6 +89,39 @@ public class ColossalBladeEffectTest {
     }
 
     @Test
+    public void nonPositiveMonsterSize_normalisesToOne() {
+        // Upstream's data uses size 0 to mean "unknown" - never a real
+        // footprint, since an NPC cannot be 0x0. Monster must normalise this
+        // to 1 (the smallest real size) at construction, not leave it at 0
+        // for every consumer to rediscover.
+        assertEquals(1, monster(0).size());
+    }
+
+    @Test
+    public void sizeZeroTarget_colossalBladeStillGetsMinimumBonus() {
+        // Without the Monster-level normalisation this would compute
+        // 2*min(0,5) = +0 instead of the correct 1x1 minimum of +2.
+        DpsResult base = compute(gear().build(), monster(0));
+        DpsResult blade = compute(gear().colossalBlade(true).build(), monster(0));
+        assertEquals(base.maxHit() + 2, blade.maxHit());
+    }
+
+    @Test
+    public void sizeZeroTarget_scytheStillResolvesToSingleHit() {
+        // Pin ScytheCascade.hitsForSize's existing (coincidentally correct)
+        // fall-through behaviour for size 0, so the Monster-level
+        // normalisation above cannot silently change scythe hit counts.
+        assertEquals(1, ScytheCascade.hitsForSize(0));
+        assertEquals(ScytheCascade.hitsForSize(1), ScytheCascade.hitsForSize(0));
+
+        EquipmentStats scythe = gear().scytheOfVitur(true).build();
+        DpsResult size0 = compute(scythe, monster(0));
+        DpsResult size1 = compute(scythe, monster(1));
+        assertEquals(size1.maxHit(), size0.maxHit());
+        assertEquals(size1.dps(), size0.dps(), 1e-9);
+    }
+
+    @Test
     public void unaffectedLoadout_regression_targetSizeNeverChangesMaxHitWithoutColossalBlade() {
         // A weapon that is NOT the Colossal blade must be byte-identical to
         // before this stage across every target size - the flag gate is the

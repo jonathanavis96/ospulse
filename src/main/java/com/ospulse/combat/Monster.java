@@ -41,7 +41,13 @@ public final class Monster {
         this.dmagic = b.dmagic;
         this.drange = b.drange;
         this.magicLevel = b.magicLevel;
-        this.size = b.size;
+        // Upstream uses 0 (and, defensively, any non-positive value) to mean
+        // "size unknown" - never a genuine monster footprint, since an NPC
+        // cannot be 0x0. Normalise to the smallest real size, 1x1, here at
+        // the model boundary so every consumer (Colossal blade's
+        // +2*min(size,5) bonus, ScytheCascade's hit count, etc.) sees a
+        // realistic size without each call site having to special-case it.
+        this.size = b.size > 0 ? b.size : 1;
         this.attributes = Collections.unmodifiableSet(EnumSet.copyOf(
                 b.attributes.isEmpty() ? EnumSet.noneOf(MonsterAttribute.class) : b.attributes));
         this.attackSpeedTicks = b.attackSpeedTicks;
