@@ -78,7 +78,11 @@ public final class MonsterConsumablesRepository {
                     Set<Integer> equipmentItemIds = dto.equipmentItemIds == null
                         ? Collections.emptySet()
                         : new HashSet<>(dto.equipmentItemIds);
-                    MonsterConsumablesReminder reminder = new MonsterConsumablesReminder(dto.note, equipmentItemIds);
+                    Set<Integer> consumableItemIds = dto.consumableItemIds == null
+                        ? Collections.emptySet()
+                        : new HashSet<>(dto.consumableItemIds);
+                    MonsterConsumablesReminder reminder =
+                        new MonsterConsumablesReminder(dto.note, equipmentItemIds, consumableItemIds);
                     for (String monsterName : dto.monsters) {
                         if (monsterName == null || monsterName.isEmpty()) {
                             continue;
@@ -151,5 +155,6 @@ public final class MonsterConsumablesRepository {
         List<String> monsters;
         String note;
         List<Integer> equipmentItemIds;
+        List<Integer> consumableItemIds;
     }
 }

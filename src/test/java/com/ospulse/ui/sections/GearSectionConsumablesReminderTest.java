@@ -107,6 +107,32 @@ public class GearSectionConsumablesReminderTest
 		return -1;
 	}
 
+	private static int indexOfExact(ListModel<String> model, String name)
+	{
+		for (int i = 0; i < model.getSize(); i++)
+		{
+			if (model.getElementAt(i).equalsIgnoreCase(name))
+			{
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	/**
+	 * Exact-match variant of {@link #pickMonster}, needed for "Nex" — the
+	 * substring "nex" also matches "Blood Reaver (Nex's chamber)", which can
+	 * sort ahead of "Nex" alphabetically and get picked instead by a
+	 * contains-based lookup.
+	 */
+	private static void pickMonsterExact(GearSection section, String name)
+	{
+		section.searchFieldForTest().setText(name);
+		int index = indexOfExact(section.monsterListForTest().getModel(), name);
+		assertTrue(name + " must appear exactly in the filtered list", index >= 0);
+		section.monsterListForTest().setSelectedIndex(index);
+	}
+
 	private static void pickMonster(GearSection section, String name)
 	{
 		section.searchFieldForTest().setText(name);
@@ -167,6 +193,57 @@ public class GearSectionConsumablesReminderTest
 			pickMonster(section, "Cow");
 			assertFalse("must clear once a target with no reminder is picked",
 				section.consumablesReminderVisibleForTest());
+		});
+	}
+
+	/**
+	 * Regression guard for the "6 of 9 rows show nothing in the bank" gap:
+	 * before {@code consumableItemIds} existed, these six monsters' reminders
+	 * were prose-only and {@code bankConsumableItemIds()} returned nothing for
+	 * them because it only ever read {@code equipmentItemIds}. Each must now
+	 * yield at least one id via the combined equipment+consumable path.
+	 */
+	@Test
+	public void previouslyProseOnlyMonsters_nowYieldBankConsumableItemIds()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(emptyGearSnapshot());
+
+			String[] monsters = {
+				"Zulrah (Serpentine)", "Alchemical Hydra (Fire)", "Abyssal Sire (Phase 1)",
+				"K'ril Tsutsaroth", "Cerberus"
+			};
+			for (String monster : monsters)
+			{
+				pickMonster(section, monster);
+				assertFalse(monster + " must yield at least one bank consumable item id",
+					section.bankConsumableItemIdsForTest().isEmpty());
+			}
+			// "Nex" needs an exact match — the substring "nex" also matches
+			// "Blood Reaver (Nex's chamber)", which can sort ahead of "Nex"
+			// alphabetically and get picked instead by a contains-based lookup.
+			pickMonsterExact(section, "Nex");
+			assertFalse("Nex must yield at least one bank consumable item id",
+				section.bankConsumableItemIdsForTest().isEmpty());
+		});
+	}
+
+	/** Zulrah's combined bank ids must include the serpentine helm alongside the antivenom+ potion ids. */
+	@Test
+	public void zulrah_bankConsumableItemIds_includeSerpentineHelmAndAntivenomIds()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(emptyGearSnapshot());
+			pickMonster(section, "Zulrah");
+
+			List<Integer> ids = section.bankConsumableItemIdsForTest();
+			assertTrue("must include the serpentine helm (12931)", ids.contains(12931));
+			assertTrue("must include an antivenom+/extended antivenom+ dose",
+				ids.contains(12913) || ids.contains(29824));
 		});
 	}
 }

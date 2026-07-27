@@ -12,14 +12,17 @@ public class MonsterConsumablesRepositoryTest
 {
 	static { BundledGson.set(new com.google.gson.Gson()); }
 
-	@Test public void loadsZulrahAsAPureProseReminder()
+	@Test public void loadsZulrahWithSerpentineHelmAndAntivenomIds()
 	{
 		Optional<MonsterConsumablesReminder> r = MonsterConsumablesRepository.getInstance().forMonster("Zulrah");
 		assertTrue(r.isPresent());
 		assertTrue("Zulrah's note must mention antivenom",
 			r.get().note().toLowerCase(java.util.Locale.ROOT).contains("antivenom"));
-		assertTrue("Zulrah's reminder is text-only — no verifiable equipment id exists for it",
-			r.get().equipmentItemIds().isEmpty());
+		assertTrue("Zulrah's serpentine helm alternative is verified equipment (12931)",
+			r.get().equipmentItemIds().contains(12931));
+		assertTrue("Zulrah's antivenom+ consumable ids must be present",
+			r.get().consumableItemIds().containsAll(
+				java.util.Arrays.asList(12913, 12915, 12917, 12919, 29824, 29827, 29830, 29833)));
 	}
 
 	@Test public void loadsVorkathWithVerifiedEquipmentIds()
@@ -138,7 +141,9 @@ public class MonsterConsumablesRepositoryTest
 			assertTrue(phase + " must resolve", r.isPresent());
 			assertTrue(phase + "'s note must mention antivenom+",
 				r.get().note().toLowerCase(java.util.Locale.ROOT).contains("antivenom+"));
-			assertTrue(phase + "'s reminder is text-only", r.get().equipmentItemIds().isEmpty());
+			assertTrue(phase + "'s reminder has no equipment component", r.get().equipmentItemIds().isEmpty());
+			assertFalse(phase + "'s reminder must carry antivenom+ consumable ids",
+				r.get().consumableItemIds().isEmpty());
 		}
 	}
 
@@ -160,7 +165,9 @@ public class MonsterConsumablesRepositoryTest
 		};
 		for (String phase : phases)
 		{
-			assertTrue(phase + " must resolve", repo.forMonster(phase).isPresent());
+			Optional<MonsterConsumablesReminder> r = repo.forMonster(phase);
+			assertTrue(phase + " must resolve", r.isPresent());
+			assertFalse(phase + " must carry antipoison consumable ids", r.get().consumableItemIds().isEmpty());
 		}
 		assertFalse("Tentacle (Abyssal Sire) is a different monster and must not match",
 			repo.forMonster("Tentacle (Abyssal Sire)").isPresent());
@@ -173,6 +180,7 @@ public class MonsterConsumablesRepositoryTest
 		assertTrue(r.isPresent());
 		assertTrue(r.get().note().contains("Protect from Melee"));
 		assertTrue(r.get().equipmentItemIds().isEmpty());
+		assertFalse("must carry antidote++/sanfew salve consumable ids", r.get().consumableItemIds().isEmpty());
 	}
 
 	/** Nex's Smoke-phase poison reminder must not leak onto the visually-similar Blood Reaver in her chamber. */
@@ -182,6 +190,7 @@ public class MonsterConsumablesRepositoryTest
 		Optional<MonsterConsumablesReminder> nex = repo.forMonster("Nex");
 		assertTrue(nex.isPresent());
 		assertTrue(nex.get().note().toLowerCase(java.util.Locale.ROOT).contains("smoke"));
+		assertFalse("Nex must carry antipoison/antidote++ consumable ids", nex.get().consumableItemIds().isEmpty());
 
 		assertFalse("Blood Reaver (Nex's chamber) is a different monster and must not match Nex's reminder",
 			repo.forMonster("Blood Reaver (Nex's chamber)").isPresent());
@@ -194,5 +203,6 @@ public class MonsterConsumablesRepositoryTest
 		assertTrue(r.isPresent());
 		assertTrue(r.get().note().contains("Cerberus herself does not poison you"));
 		assertTrue(r.get().equipmentItemIds().isEmpty());
+		assertFalse("Cerberus must carry antipoison consumable ids", r.get().consumableItemIds().isEmpty());
 	}
 }

@@ -1575,10 +1575,15 @@ public final class GearSection extends CollapsibleSection
 	 * The "don't forget" consumables items (e.g. an antifire potion) for
 	 * {@link #selectedMonster}, if any, so {@link #bankHighlighter} can lay
 	 * them out beneath the recommended equipment grid alongside the note
-	 * already shown in the side panel (B9-x). Uses {@code lookupName()}, not
-	 * {@code name()}, so synthetic Wilderness twins resolve to the real
-	 * monster's curated data. Empty when there's no target or no reminder —
-	 * or when the reminder is prose-only and carries no item ids.
+	 * already shown in the side panel (B9-x). Combines {@link
+	 * MonsterConsumablesReminder#equipmentItemIds()} (verified against the
+	 * equipment index) and {@link MonsterConsumablesReminder#consumableItemIds()}
+	 * (verified against the runelite-api jar's {@code ItemID} constants
+	 * instead — potions aren't equipment), equipment ids first, de-duplicated,
+	 * order preserved. Uses {@code lookupName()}, not {@code name()}, so
+	 * synthetic Wilderness twins resolve to the real monster's curated data.
+	 * Empty when there's no target or no reminder — or when the reminder is
+	 * prose-only and carries no item ids at all.
 	 */
 	private java.util.List<Integer> bankConsumableItemIds()
 	{
@@ -1592,7 +1597,15 @@ public final class GearSection extends CollapsibleSection
 		{
 			return java.util.Collections.emptyList();
 		}
-		return new java.util.ArrayList<>(reminder.get().equipmentItemIds());
+		java.util.LinkedHashSet<Integer> ids = new java.util.LinkedHashSet<>(reminder.get().equipmentItemIds());
+		ids.addAll(reminder.get().consumableItemIds());
+		return new java.util.ArrayList<>(ids);
+	}
+
+	/** Test seam for {@link #bankConsumableItemIds()} — the combined equipment+consumable bank tag ids. */
+	java.util.List<Integer> bankConsumableItemIdsForTest()
+	{
+		return bankConsumableItemIds();
 	}
 
 	private void resetBankHighlightToggle()
