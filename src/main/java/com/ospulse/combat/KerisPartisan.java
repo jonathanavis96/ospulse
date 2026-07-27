@@ -26,12 +26,17 @@ package com.ospulse.combat;
  * MonsterAttribute#KALPHITE} — see {@link Monster#attributes()}. The
  * bundled monster data confirms every Kalphite/Scarab-family monster this
  * matters for (Kalphite Queen's both forms, Kalphite Guardian, Kalphite
- * Worker/Soldier, every "Scarab"-named monster) carries this attribute,
- * with a handful of narrow exceptions (a few Tombs of Amascut scarab
- * entries and one Construction Kalphite soldier variant lack the tag in
- * the bundled data) — see {@code KerisPartisanEffectTest} for the verified
- * list; that data gap is a bundled-monster-data completeness issue, not
- * something this stage's item-mechanic wiring can fix.
+ * Worker/Soldier, every "Scarab"-named monster) carries this attribute.
+ *
+ * <p>Four entries do NOT carry it — three Tombs of Amascut / Beneath Cursed
+ * Sands scarab variants and the Construction Kalphite soldier — and that is
+ * <b>correct, not a data gap</b>: the bonus does not fire on them in game
+ * (confirmed in-client 2026-07-27), and upstream plus the OSRS Wiki's own
+ * infoboxes both agree. It is recorded here because the wiki's {@code
+ * Kalphite (attribute)} page states the effect "also applies to all
+ * scabarites", which makes attribute-absence look like an oversight until
+ * you check — see {@code KerisPartisanEffectTest} for the evidence, so this
+ * is not re-investigated.
  */
 public enum KerisPartisan {
     NONE(Fraction.ONE, false),
