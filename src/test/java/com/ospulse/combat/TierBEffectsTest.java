@@ -251,6 +251,41 @@ public class TierBEffectsTest {
         assertEquals(20, PoweredStaff.TRIDENT_OF_THE_SEAS.maxHitAt(75));
     }
 
+    /**
+     * P1 fix: Thammaron's sceptre ({@code floor(Magic/3) - 8}) and Accursed
+     * sceptre ({@code floor(Magic/3) - 6}), verified from the OSRS Wiki's
+     * "Maximum hit" section on each weapon's page. The wiki's own stated
+     * anchor for the Accursed sceptre — max hit of 17 at level 70 Magic — is
+     * asserted explicitly, since {@code floor(70/3) - 6 = 23 - 6 = 17} is the
+     * cross-check the offset was derived from. Also asserts the Accursed
+     * sceptre's hit is 1-2 higher than Thammaron's at several levels, per the
+     * wiki's "+1 or +2 higher" comparison, and that swapping the two offsets
+     * (or dropping either constant) would break these fixed literals.
+     */
+    @Test
+    public void poweredStaves_thammaronsAndAccursedSceptre_deriveMaxHitFromBoostedMagicLevel() {
+        // Wiki's own stated anchor: Accursed sceptre max hit is exactly 17 at Magic 70.
+        assertEquals(17, PoweredStaff.ACCURSED_SCEPTRE.maxHitAt(70));
+        // floor(70/3) - 8 = 23 - 8 = 15 for Thammaron's at the same level.
+        assertEquals(15, PoweredStaff.THAMMARONS_SCEPTRE.maxHitAt(70));
+
+        // At 99 magic: floor(99/3) = 33, so Thammaron's = 33-8 = 25, Accursed = 33-6 = 27.
+        assertEquals(25, PoweredStaff.THAMMARONS_SCEPTRE.maxHitAt(99));
+        assertEquals(27, PoweredStaff.ACCURSED_SCEPTRE.maxHitAt(99));
+
+        // Accursed sceptre is always exactly 2 higher than Thammaron's — the
+        // shared floor(Magic/3) term cancels out, leaving only the -6 vs -8
+        // offset difference (matching the wiki's "+1 or +2 higher"
+        // description, which the -6/-8 constants were cross-checked
+        // against). This fails immediately if the two offsets are swapped.
+        // (magic must be high enough that neither side has hit the max(0, ...)
+        // floor - Thammaron's needs floor(magic/3) >= 8, i.e. magic >= 24.)
+        for (int magic : new int[]{24, 33, 70, 71, 72, 99}) {
+            int gap = PoweredStaff.ACCURSED_SCEPTRE.maxHitAt(magic) - PoweredStaff.THAMMARONS_SCEPTRE.maxHitAt(magic);
+            assertEquals("magic=" + magic, 2, gap);
+        }
+    }
+
     @Test
     public void poweredStaff_overridesSpellAndUsesWeaponSpeed() {
         EquipmentStats trident = EquipmentStats.builder()

@@ -383,8 +383,21 @@ public final class GearVariants
 	 * (same cross-check caveat): Trident of the seas 11905 (full)/11907,
 	 * Trident of the swamp 12899, Sanguinesti staff 22323 (+ Holy 25731),
 	 * Tumeken's shadow 27275. Uncharged variants can't attack and are
-	 * deliberately excluded; the enhanced "(e)" tridents and Accursed/Warped
-	 * sceptres are TODO pending id + formula verification.
+	 * deliberately excluded; the enhanced "(e)" tridents and the Warped
+	 * sceptre are still TODO pending id + formula verification.
+	 *
+	 * <p><b>Thammaron's sceptre (22555) and Accursed sceptre (27665)</b> are
+	 * modelled here too, per {@code weapon_categories.min.json} classifying
+	 * both as {@code "powered staff"} — see {@link PoweredStaff}'s javadoc
+	 * for the two formulas and their wiki cross-checks. Only the CHARGED ids
+	 * are mapped: the uncharged forms (22552 Thammaron's, 27662 Accursed)
+	 * cannot attack at all (same reasoning as every other uncharged powered
+	 * staff above), and the "(a)" cosmetic variants (27788 Thammaron's (a),
+	 * 27679 Accursed (a)) are classified as plain {@code "staff"} — NOT
+	 * {@code "powered staff"} — in the bundled data, so they are deliberately
+	 * left unmapped here (they still carry the Wilderness +50% bonus via
+	 * {@link RevenantWeapon}, which is a separate, already-modelled
+	 * mechanic).
 	 */
 	static PoweredStaff poweredStaffFor(int weaponItemId)
 	{
@@ -400,6 +413,10 @@ public final class GearVariants
 				return PoweredStaff.SANGUINESTI_STAFF;
 			case 27275:
 				return PoweredStaff.TUMEKENS_SHADOW;
+			case 22555:
+				return PoweredStaff.THAMMARONS_SCEPTRE;
+			case 27665:
+				return PoweredStaff.ACCURSED_SCEPTRE;
 			default:
 				return PoweredStaff.NONE;
 		}

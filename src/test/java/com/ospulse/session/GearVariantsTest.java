@@ -411,6 +411,41 @@ public class GearVariantsTest
 		assertEquals(com.ospulse.combat.RevenantWeapon.NONE, GearVariants.revenantWeaponFor(-1));
 	}
 
+	// ==== Powered staves (Thammaron's / Accursed sceptre) =================================
+
+	/**
+	 * P1 fix: the charged Thammaron's sceptre and Accursed sceptre are
+	 * classified {@code "powered staff"} in the bundled {@code
+	 * weapon_categories.min.json} (verified directly against that file), so
+	 * {@code poweredStaffFor} must resolve them instead of leaving the
+	 * optimizer to evaluate impossible spellbook casts for them. Hard-coded
+	 * against the specific enum constants (not a generic "not NONE" check) so
+	 * this fails if the ids were ever swapped between the two constants.
+	 */
+	@Test
+	public void poweredStaffFor_chargedThammaronsAndAccursedSceptre()
+	{
+		assertEquals(com.ospulse.combat.PoweredStaff.THAMMARONS_SCEPTRE, GearVariants.poweredStaffFor(22555)); // Thammaron's sceptre
+		assertEquals(com.ospulse.combat.PoweredStaff.ACCURSED_SCEPTRE, GearVariants.poweredStaffFor(27665)); // Accursed sceptre
+	}
+
+	/**
+	 * The uncharged forms cannot attack (same reasoning as every other
+	 * uncharged powered staff), and the "(a)" cosmetic variants are
+	 * classified plain {@code "staff"} (NOT {@code "powered staff"}) in the
+	 * bundled data — verified directly against {@code
+	 * weapon_categories.min.json} before writing this test. All four must
+	 * stay {@code NONE}.
+	 */
+	@Test
+	public void poweredStaffFor_unchargedAndCosmeticSceptreVariants_returnNone()
+	{
+		assertEquals(com.ospulse.combat.PoweredStaff.NONE, GearVariants.poweredStaffFor(22552)); // Thammaron's sceptre (uncharged)
+		assertEquals(com.ospulse.combat.PoweredStaff.NONE, GearVariants.poweredStaffFor(27662)); // Accursed sceptre (uncharged)
+		assertEquals(com.ospulse.combat.PoweredStaff.NONE, GearVariants.poweredStaffFor(27788)); // Thammaron's sceptre (a) - plain "staff" category
+		assertEquals(com.ospulse.combat.PoweredStaff.NONE, GearVariants.poweredStaffFor(27679)); // Accursed sceptre (a) - plain "staff" category
+	}
+
 	// ==== Crystal armour set + crystal bow / Bow of Faerdhinen ============================
 
 	@Test
