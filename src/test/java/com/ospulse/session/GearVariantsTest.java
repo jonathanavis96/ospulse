@@ -262,6 +262,63 @@ public class GearVariantsTest
 		org.junit.Assert.assertFalse(GearVariants.isScytheOfVitur(-1));
 	}
 
+	/**
+	 * The uncharged scythe ids (22486 / 25738 / 25741) are deliberately IN
+	 * {@code isScytheOfVitur} — charging buys stats only, not the multi-hit
+	 * cascade. This pins BOTH halves of that claim so neither can rot:
+	 *
+	 * <ol>
+	 * <li>the uncharged ids still report the cascade, and</li>
+	 * <li>they are genuinely the weaker CHARGE STATE, not a cosmetic dye —
+	 * their bundled stats are lower by exactly the deltas the OSRS Wiki
+	 * enumerates for charging ("+20 stab/crush, +50 slash attack bonus
+	 * ... and +25 strength bonus").</li>
+	 * </ol>
+	 *
+	 * <p>Half (2) is what makes this test discriminating. Without it a future
+	 * reader could "fix" a PR-review finding by dropping the uncharged ids on
+	 * the theory that they only hit once, and half (1) alone would look like
+	 * an arbitrary assertion defending a bug. The stat deltas are the
+	 * evidence that the weaker uncharged DPS already falls out of its own
+	 * stats, so keeping the cascade does not inflate it. (PR #24, rounds 4-5.)
+	 */
+	@Test
+	public void scytheChargeState_unchargedKeepsCascadeAndIsWeakerOnStatsAlone()
+	{
+		// {charged, uncharged} per cosmetic variant, bundled equipment_stats.min.json.
+		int[][] chargedUnchargedPairs = {
+			{22325, 22486}, // Scythe of vitur
+			{25736, 25738}, // Holy scythe of vitur
+			{25739, 25741}  // Sanguine scythe of vitur
+		};
+		com.ospulse.combat.EquipmentStatsRepository stats =
+			com.ospulse.combat.EquipmentStatsRepository.getInstance();
+
+		for (int[] pair : chargedUnchargedPairs)
+		{
+			int charged = pair[0];
+			int uncharged = pair[1];
+
+			// (1) Both charge states cascade — the passive is not bought by charging.
+			org.junit.Assert.assertTrue("charged id=" + charged, GearVariants.isScytheOfVitur(charged));
+			org.junit.Assert.assertTrue("uncharged id=" + uncharged, GearVariants.isScytheOfVitur(uncharged));
+
+			// (2) The uncharged form is weaker purely on stats, by the wiki's own deltas.
+			com.ospulse.combat.EquipmentStatsRepository.Stats c = stats.statsFor(charged);
+			com.ospulse.combat.EquipmentStatsRepository.Stats u = stats.statsFor(uncharged);
+			org.junit.Assert.assertNotNull("charged stats id=" + charged, c);
+			org.junit.Assert.assertNotNull("uncharged stats id=" + uncharged, u);
+
+			assertEquals("stab delta, id=" + uncharged, 20, c.astab() - u.astab());
+			assertEquals("slash delta, id=" + uncharged, 50, c.aslash() - u.aslash());
+			assertEquals("crush delta, id=" + uncharged, 20, c.acrush() - u.acrush());
+			assertEquals("strength delta, id=" + uncharged, 25, c.str() - u.str());
+
+			// Same attack speed: charging changes bonuses, not the weapon's tick rate.
+			assertEquals("speed, id=" + uncharged, c.aspeed(), u.aspeed());
+		}
+	}
+
 	// ==== Colossal blade ===================================================================
 
 	@Test

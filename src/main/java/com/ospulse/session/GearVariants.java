@@ -482,12 +482,27 @@ public final class GearVariants
 	/**
 	 * Scythe of Vitur, Holy scythe of vitur, and Sanguine scythe of vitur,
 	 * each with two ids sharing the same display name in the bundled {@code
-	 * equipment_index.min.json} 2026-07-26 (an uncharged/dyed-cosmetic pair
-	 * per variant, both fully functional): Scythe of vitur (22325, 22486),
-	 * Holy scythe of vitur (25736, 25738), Sanguine scythe of vitur
-	 * (25739, 25741). All six ids carry the identical size-scaled cascade
-	 * passive (the Holy/Sanguine reskins only differ cosmetically/in
-	 * blood-heal flavour, not in the damage mechanic modelled here).
+	 * equipment_index.min.json} 2026-07-26 — a CHARGED and an UNCHARGED id
+	 * per cosmetic variant (three dyes x two charge states): Scythe of vitur
+	 * (22325 charged, 22486 uncharged), Holy scythe of vitur (25736, 25738),
+	 * Sanguine scythe of vitur (25739, 25741).
+	 *
+	 * <p><b>The uncharged ids belong in this set.</b> Charging a scythe buys
+	 * STATS ONLY, not the cascade: the OSRS Wiki's Scythe of vitur page
+	 * states "While the scythe can be used uncharged, it is drastically
+	 * stronger by charging it; once charged, it gains +20 stab/crush, +50
+	 * slash attack bonus, +4 slash and +10 crush defence bonus and +25
+	 * strength bonus" — an exhaustive list of what charging grants, and the
+	 * size-scaled multi-hit passive is not on it (the page describes that
+	 * passive in a separate sentence, unconditioned on charge state). Those
+	 * deltas are exactly what the bundled {@code equipment_stats.min.json}
+	 * already carries (22325 stab/slash/crush/str 70/125/30/75 vs 22486's
+	 * 50/75/10/50), so the uncharged form's weaker DPS falls out of its own
+	 * stats — it is NOT inflated by keeping the cascade here. Dropping these
+	 * three ids would instead UNDER-model them, silently reverting an
+	 * uncharged scythe to a single hit it does not actually lose. Pinned by
+	 * {@code GearVariantsTest#scytheChargeState_unchargedKeepsCascadeAndIsWeakerOnStatsAlone}.
+	 * (Reviewed twice, PR #24 rounds 4 and 5.)
 	 */
 	private static final Set<Integer> SCYTHE_OF_VITUR = setOf(
 		22325, 22486, // Scythe of vitur
