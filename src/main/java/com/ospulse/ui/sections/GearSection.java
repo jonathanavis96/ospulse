@@ -2109,7 +2109,7 @@ public final class GearSection extends CollapsibleSection
 		java.util.Map<String, Integer> baseLevels = currentBaseLevels();
 		int wornAmmoId = effectiveAmmoId();
 		MonsterCombatRequirement requirement =
-			MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.name()).orElse(null);
+			MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.lookupName()).orElse(null);
 		int[] baseItemIds = WhatIfLoadout.effectiveItemIds(lastGear.equippedItemIds(), override);
 		int blowpipeDartRangedStrength = currentBlowpipeDart().rangedStrength();
 		SpecWeaponSelector.DpsProbe probe = weapon ->
