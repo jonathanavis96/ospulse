@@ -569,23 +569,48 @@ public final class GearVariants
 	// ==== Revenant weapons (Wilderness-only +50% accuracy/damage) ========================
 
 	/**
-	 * Craw's bow (22547 base / 22550 — same display name, both fully
-	 * statted per the bundled {@code equipment_stats.min.json}), Viggora's
-	 * chainmace (22542 / 22545), Thammaron's sceptre (22552 / 22555) and its
-	 * "(a)" ether-enhanced reskin (27785 / 27788) — all verified against the
-	 * bundled {@code equipment_index.min.json} 2026-07-26.
+	 * ONLY the CHARGED id of each revenant-cave weapon belongs in this map.
+	 * The OSRS Wiki is explicit that the +50% Wilderness accuracy/damage
+	 * passive requires the weapon to be charged with revenant ether — e.g.
+	 * "When an ursine chainmace is charged with revenant ether, an
+	 * additional 50% melee accuracy and damage boost is applied when
+	 * attacking any NPC in the Wilderness" (same wording, mutatis mutandis,
+	 * for Accursed sceptre / magic and Webweaver bow / ranged). The
+	 * Uncharged id of each pair carries NO such bonus and must map to
+	 * {@link RevenantWeapon#NONE}.
+	 *
+	 * <p>Crucially, the Uncharged and Charged forms of each weapon have
+	 * IDENTICAL combat stats in the bundled {@code equipment_stats.min.json}
+	 * (the only differing field is the trailing slot-hint, -1 vs 3, which is
+	 * not a combat stat) — verified 2026-07-27. So nothing else absorbs the
+	 * missing bonus for an uncharged id: mapping one here would be a straight
+	 * +50% over-credit, not a harmless approximation.
+	 *
+	 * <p>Upgrade/Uncharged→Charged id pairs (both ids verified against the
+	 * bundled {@code equipment_index.min.json} 2026-07-27; only the second id
+	 * of each pair is mapped below):
+	 * <ul>
+	 * <li>Craw's bow: 22547 (uncharged) / 22550 (charged) — {@link RevenantWeapon#CRAWS_BOW}</li>
+	 * <li>Webweaver bow: 27652 (uncharged) / 27655 (charged) — {@link RevenantWeapon#CRAWS_BOW} (ranged)</li>
+	 * <li>Viggora's chainmace: 22542 (uncharged) / 22545 (charged) — {@link RevenantWeapon#VIGGORAS_CHAINMACE}</li>
+	 * <li>Ursine chainmace: 27657 (uncharged) / 27660 (charged) — {@link RevenantWeapon#VIGGORAS_CHAINMACE} (melee)</li>
+	 * <li>Thammaron's sceptre: 22552 (uncharged) / 22555 (charged) — {@link RevenantWeapon#THAMMARONS_SCEPTRE}</li>
+	 * <li>Thammaron's sceptre (a): 27785 (uncharged) / 27788 (charged) — {@link RevenantWeapon#THAMMARONS_SCEPTRE}</li>
+	 * <li>Accursed sceptre: 27662 (uncharged) / 27665 (charged) — {@link RevenantWeapon#THAMMARONS_SCEPTRE} (magic)</li>
+	 * <li>Accursed sceptre (a): 27676 (uncharged) / 27679 (charged) — {@link RevenantWeapon#THAMMARONS_SCEPTRE}</li>
+	 * </ul>
 	 */
 	private static final Map<Integer, RevenantWeapon> REVENANT_WEAPON_IDS = new HashMap<>();
 	static
 	{
-		REVENANT_WEAPON_IDS.put(22547, RevenantWeapon.CRAWS_BOW);
 		REVENANT_WEAPON_IDS.put(22550, RevenantWeapon.CRAWS_BOW);
-		REVENANT_WEAPON_IDS.put(22542, RevenantWeapon.VIGGORAS_CHAINMACE);
+		REVENANT_WEAPON_IDS.put(27655, RevenantWeapon.CRAWS_BOW);
 		REVENANT_WEAPON_IDS.put(22545, RevenantWeapon.VIGGORAS_CHAINMACE);
-		REVENANT_WEAPON_IDS.put(22552, RevenantWeapon.THAMMARONS_SCEPTRE);
+		REVENANT_WEAPON_IDS.put(27660, RevenantWeapon.VIGGORAS_CHAINMACE);
 		REVENANT_WEAPON_IDS.put(22555, RevenantWeapon.THAMMARONS_SCEPTRE);
-		REVENANT_WEAPON_IDS.put(27785, RevenantWeapon.THAMMARONS_SCEPTRE);
 		REVENANT_WEAPON_IDS.put(27788, RevenantWeapon.THAMMARONS_SCEPTRE);
+		REVENANT_WEAPON_IDS.put(27665, RevenantWeapon.THAMMARONS_SCEPTRE);
+		REVENANT_WEAPON_IDS.put(27679, RevenantWeapon.THAMMARONS_SCEPTRE);
 	}
 
 	/** Maps a worn WEAPON-slot item id to its {@link RevenantWeapon} ({@link RevenantWeapon#NONE} if not one). */

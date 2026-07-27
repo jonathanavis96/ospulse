@@ -370,17 +370,38 @@ public class GearVariantsTest
 	// ==== Revenant weapons ==================================================================
 
 	@Test
-	public void revenantWeaponFor_allEightIds()
+	public void revenantWeaponFor_allEightChargedIds()
 	{
-		// Ids verified against the bundled equipment_index.min.json 2026-07-26.
-		assertEquals(com.ospulse.combat.RevenantWeapon.CRAWS_BOW, GearVariants.revenantWeaponFor(22547));
-		assertEquals(com.ospulse.combat.RevenantWeapon.CRAWS_BOW, GearVariants.revenantWeaponFor(22550));
-		assertEquals(com.ospulse.combat.RevenantWeapon.VIGGORAS_CHAINMACE, GearVariants.revenantWeaponFor(22542));
-		assertEquals(com.ospulse.combat.RevenantWeapon.VIGGORAS_CHAINMACE, GearVariants.revenantWeaponFor(22545));
-		assertEquals(com.ospulse.combat.RevenantWeapon.THAMMARONS_SCEPTRE, GearVariants.revenantWeaponFor(22552));
-		assertEquals(com.ospulse.combat.RevenantWeapon.THAMMARONS_SCEPTRE, GearVariants.revenantWeaponFor(22555));
-		assertEquals(com.ospulse.combat.RevenantWeapon.THAMMARONS_SCEPTRE, GearVariants.revenantWeaponFor(27785));
-		assertEquals(com.ospulse.combat.RevenantWeapon.THAMMARONS_SCEPTRE, GearVariants.revenantWeaponFor(27788));
+		// Ids verified against the bundled equipment_index.min.json 2026-07-27.
+		// Only the CHARGED id of each Uncharged/Charged pair carries the
+		// +50% Wilderness bonus - see revenantWeaponFor_allEightUnchargedIds_returnNone.
+		assertEquals(com.ospulse.combat.RevenantWeapon.CRAWS_BOW, GearVariants.revenantWeaponFor(22550)); // Craw's bow
+		assertEquals(com.ospulse.combat.RevenantWeapon.CRAWS_BOW, GearVariants.revenantWeaponFor(27655)); // Webweaver bow
+		assertEquals(com.ospulse.combat.RevenantWeapon.VIGGORAS_CHAINMACE, GearVariants.revenantWeaponFor(22545)); // Viggora's chainmace
+		assertEquals(com.ospulse.combat.RevenantWeapon.VIGGORAS_CHAINMACE, GearVariants.revenantWeaponFor(27660)); // Ursine chainmace
+		assertEquals(com.ospulse.combat.RevenantWeapon.THAMMARONS_SCEPTRE, GearVariants.revenantWeaponFor(22555)); // Thammaron's sceptre
+		assertEquals(com.ospulse.combat.RevenantWeapon.THAMMARONS_SCEPTRE, GearVariants.revenantWeaponFor(27788)); // Thammaron's sceptre (a)
+		assertEquals(com.ospulse.combat.RevenantWeapon.THAMMARONS_SCEPTRE, GearVariants.revenantWeaponFor(27665)); // Accursed sceptre
+		assertEquals(com.ospulse.combat.RevenantWeapon.THAMMARONS_SCEPTRE, GearVariants.revenantWeaponFor(27679)); // Accursed sceptre (a)
+	}
+
+	@Test
+	public void revenantWeaponFor_allEightUnchargedIds_returnNone()
+	{
+		// P1 fix: the Uncharged form of each revenant-cave weapon has
+		// IDENTICAL combat stats to its Charged counterpart in
+		// equipment_stats.min.json, but the wiki is explicit the +50%
+		// Wilderness bonus requires the weapon to be charged with revenant
+		// ether - so an Uncharged id must resolve to NONE. This must fail
+		// if any of these ids is re-added to REVENANT_WEAPON_IDS.
+		assertEquals(com.ospulse.combat.RevenantWeapon.NONE, GearVariants.revenantWeaponFor(22547)); // Craw's bow (uncharged)
+		assertEquals(com.ospulse.combat.RevenantWeapon.NONE, GearVariants.revenantWeaponFor(27652)); // Webweaver bow (uncharged)
+		assertEquals(com.ospulse.combat.RevenantWeapon.NONE, GearVariants.revenantWeaponFor(22542)); // Viggora's chainmace (uncharged)
+		assertEquals(com.ospulse.combat.RevenantWeapon.NONE, GearVariants.revenantWeaponFor(27657)); // Ursine chainmace (uncharged)
+		assertEquals(com.ospulse.combat.RevenantWeapon.NONE, GearVariants.revenantWeaponFor(22552)); // Thammaron's sceptre (uncharged)
+		assertEquals(com.ospulse.combat.RevenantWeapon.NONE, GearVariants.revenantWeaponFor(27785)); // Thammaron's sceptre (a) (uncharged)
+		assertEquals(com.ospulse.combat.RevenantWeapon.NONE, GearVariants.revenantWeaponFor(27662)); // Accursed sceptre (uncharged)
+		assertEquals(com.ospulse.combat.RevenantWeapon.NONE, GearVariants.revenantWeaponFor(27676)); // Accursed sceptre (a) (uncharged)
 	}
 
 	@Test
