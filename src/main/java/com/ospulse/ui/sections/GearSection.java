@@ -19,10 +19,14 @@ import com.ospulse.combat.OffensivePrayer;
 import com.ospulse.combat.PlayerCombat;
 import com.ospulse.combat.PoweredStaff;
 import com.ospulse.combat.Spell;
+import com.ospulse.combat.SpecWeapon;
+import com.ospulse.combat.SpecWeaponRecommendation;
+import com.ospulse.combat.SpecWeaponSelector;
 import com.ospulse.combat.Stance;
 import com.ospulse.combat.WeaponCategory;
 import com.ospulse.combat.WeaponCategoryRepository;
 import com.ospulse.combat.WeaponStyle;
+import com.ospulse.combat.optimizer.BundledSlotStatsLookup;
 import com.ospulse.combat.optimizer.GearOptimizer;
 import com.ospulse.combat.optimizer.LoadoutOverride;
 import com.ospulse.combat.optimizer.WhatIfLoadout;
@@ -51,6 +55,7 @@ import com.ospulse.ui.sections.gear.OwnedOnlyResultOwnershipGate;
 import com.ospulse.ui.sections.gear.OwnedVariantResolver;
 import com.ospulse.ui.sections.gear.RiskCreditPolicy;
 import com.ospulse.ui.sections.gear.RoundedButton;
+import com.ospulse.ui.sections.gear.SpecWeaponCell;
 import com.ospulse.ui.sections.gear.StyleGrid;
 import com.ospulse.ui.sections.gear.VariantCreditSources;
 import com.ospulse.wealth.WealthSnapshot;
@@ -198,6 +203,15 @@ public final class GearSection extends CollapsibleSection
 		9, 10, 12,
 	};
 
+	/**
+	 * The flat {@link #SLOT_GRID} index of the previously-unused filler cell
+	 * directly below WEAPON (index 6) and above GLOVES (index 12) — where the
+	 * "best spec weapon" pseudo-slot (design spec §8) is placed. The OTHER
+	 * {@code -1} filler in the grid (index 11, beside LEGS) stays a plain
+	 * blank filler.
+	 */
+	private static final int SPEC_WEAPON_GRID_INDEX = 9;
+
 	private static final String[] SLOT_NAMES = {
 		"Head", "Cape", "Amulet", "Weapon", "Body", "Shield", "", "Legs",
 		"", "Gloves", "Boots", "", "Ring", "Ammo",
@@ -313,6 +327,15 @@ public final class GearSection extends CollapsibleSection
 
 	private final JLabel[] slotLabels = new JLabel[GearSnapshot.EQUIPMENT_SLOT_COUNT];
 	private final int[] renderedSlotIds = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
+	/**
+	 * The "best spec weapon" pseudo-slot cell (design spec §8) — placed at
+	 * {@code SLOT_GRID}'s unused flat filler index 9 (directly below WEAPON,
+	 * above GLOVES). Deliberately NOT part of {@link #slotLabels}/{@link
+	 * #renderedSlotIds}: those arrays are sized/indexed by the 14 REAL
+	 * {@code EquipmentInventorySlot} ordinals, and this pseudo-slot has no
+	 * ordinal of its own — see {@link SpecWeaponCell}'s class javadoc.
+	 */
+	private final SpecWeaponCell specWeaponCell = new SpecWeaponCell(SLOT_W, SLOT_H);
 
 	/** Fixed row height (row content + the 2px inter-row gap) used to size {@link #stylesScroll}'s viewport. */
 	private static final int STYLE_ROW_HEIGHT = 22;
@@ -1609,6 +1632,13 @@ public final class GearSection extends CollapsibleSection
 			int slotOrdinal = SLOT_GRID[i];
 			if (slotOrdinal < 0)
 			{
+				if (i == SPEC_WEAPON_GRID_INDEX)
+				{
+					// Design spec §8: "it'd fit nicely between the weapon and
+					// glove slots" — exactly this otherwise-unused filler cell.
+					grid.add(specWeaponCell);
+					continue;
+				}
 				JLabel filler = new JLabel();
 				filler.setOpaque(false);
 				grid.add(filler);
@@ -2027,6 +2057,163 @@ public final class GearSection extends CollapsibleSection
 		syncOptimizerStyleSelector();
 
 		updateOutputs();
+		updateSpecWeaponCell();
+	}
+
+	/**
+	 * Recomputes {@link #specWeaponCell} for the currently selected target
+	 * (design spec §8). Reuses the SAME weapon-slot-swap machinery {@code
+	 * GearOptimizer} already relies on for ordinary candidate scoring ({@link
+	 * WhatIfLoadout#effectiveItemIds} + {@link GearMapper#buildEquipmentStats})
+	 * so every curated spec candidate is scored through the real {@code
+	 * DpsCalculator}/{@code CombatMath} pipeline against the real target, with
+	 * every other worn slot and every boost toggle held exactly as they are
+	 * for the main readout — never a separate, drifting mini-calculator.
+	 *
+	 * <p>Every constraint the ordinary optimiser already enforces is threaded
+	 * through here via the SAME seam rather than a second copy (PR #25
+	 * findings): {@link #excludedItemIds} (the user's alias-symmetric
+	 * "Exclude from suggestions" set) and {@link
+	 * ItemEligibility#restrictedItemIds} (permanent, per-id mode-lock
+	 * restrictions) are kept as TWO separate sets rather than merged into one
+	 * — a round-2 fix: merging a restricted alias id (e.g. Voidwaker
+	 * (deadman) 29607) into the same set the alias-symmetric {@code
+	 * SpecWeapon.isExcluded} consumes wrongly suppressed the whole family
+	 * (the ordinary, perfectly legal Voidwaker 27690 too), since {@link
+	 * ItemEligibility#restrictedItemIds} is a per-id restriction, not a
+	 * family-wide one. {@link #currentBaseLevels} (the exact
+	 * map fed to {@code Request.playerBaseLevels}, which {@link
+	 * SpecWeaponSelector#select} passes to {@link
+	 * com.ospulse.combat.SpecWeapon#canEquip} — owning a Voidwaker at 60
+	 * Attack does not mean it can be equipped), {@link #effectiveAmmoId} (fed
+	 * to {@code MonsterCombatRequirement.permitsAmmo} for an ammo-gated
+	 * target, since {@code permitsWeapon} alone deliberately accepts a
+	 * worn-ammo-capable weapon type without checking which ammo is actually
+	 * loaded), and the {@link WhatIfLoadout#isTwoHanded} 2H/shield collapse
+	 * below (a two-handed candidate — e.g. Dragon claws — must clear the
+	 * shield slot exactly as {@link LoadoutOverride#withWeaponSlot} does for
+	 * an ordinary weapon-slot swap, or the scored stat total includes a
+	 * shield the player could never actually have equipped alongside it).
+	 */
+	private void updateSpecWeaponCell()
+	{
+		if (lastGear == null || selectedMonster == null)
+		{
+			specWeaponCell.refresh(null, false, itemManager);
+			return;
+		}
+		java.util.Set<Integer> ownedIds = ownedPriceMap().keySet();
+		// Kept as TWO separate sets — see the method javadoc's round-2 fix note.
+		java.util.Set<Integer> specExclusions = new java.util.LinkedHashSet<>(excludedItemIds);
+		java.util.Set<Integer> specRestrictions = ItemEligibility.restrictedItemIds();
+		java.util.Map<String, Integer> baseLevels = currentBaseLevels();
+		int wornAmmoId = effectiveAmmoId();
+		MonsterCombatRequirement requirement =
+			MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.name()).orElse(null);
+		int[] baseItemIds = WhatIfLoadout.effectiveItemIds(lastGear.equippedItemIds(), override);
+		int blowpipeDartRangedStrength = currentBlowpipeDart().rangedStrength();
+		SpecWeaponSelector.DpsProbe probe = weapon ->
+		{
+			WeaponStyle style = weapon.resolvedStyle(weaponRepo);
+			if (style == null)
+			{
+				return null;
+			}
+			EquipmentStats swappedStats = swappedEquipmentStats(baseItemIds, weapon, blowpipeDartRangedStrength);
+			return computeAgainst(swappedStats, style, weapon.itemId());
+		};
+		SpecWeaponRecommendation recommendation =
+			SpecWeaponSelector.select(selectedMonster, requirement, ownedIds, specExclusions, specRestrictions,
+					baseLevels, wornAmmoId, probe)
+				.orElse(null);
+		// A target IS selected here (guarded above) — a null recommendation past
+		// this point means nothing owned+legal qualifies, not "no target"
+		// (PR #25 finding), so SpecWeaponCell must be told a target IS selected.
+		specWeaponCell.refresh(recommendation, true, itemManager);
+	}
+
+	/**
+	 * {@link EquipmentStats} for {@code liveItemIds} with {@code weapon}
+	 * swapped into the weapon slot — the same swap-one-slot machinery
+	 * {@code GearOptimizer} uses for ordinary candidate scoring, plus the
+	 * SAME 2H/shield collapse {@link LoadoutOverride#withWeaponSlot} applies
+	 * for an ordinary weapon-slot swap (PR #25 finding 3): a two-handed
+	 * candidate (e.g. Dragon claws) clears the shield slot rather than
+	 * scoring alongside it, since the two can never actually coexist and
+	 * summing both would credit an impossible stat total.
+	 *
+	 * <p>{@code blowpipeDartRangedStrength} is threaded through to {@link
+	 * GearMapper}'s 4-arg overload (round-3 fix) so a Toxic blowpipe
+	 * candidate is scored with the player's actually-configured dart ({@link
+	 * #currentBlowpipeDart}), not the 3-arg overload's hard-coded Dragon-dart
+	 * default — a probe scored against a dart the player never loaded is
+	 * stronger than their real loadout and can wrongly outrank another owned
+	 * spec.
+	 */
+	private static EquipmentStats swappedEquipmentStats(int[] liveItemIds, SpecWeapon weapon, int blowpipeDartRangedStrength)
+	{
+		int[] swapped = liveItemIds.clone();
+		swapped[WhatIfLoadout.WEAPON_SLOT] = weapon.itemId();
+		if (WhatIfLoadout.isTwoHanded(weapon.itemId()))
+		{
+			swapped[WhatIfLoadout.SHIELD_SLOT] = LoadoutOverride.EMPTIED;
+		}
+		return GearMapper.buildEquipmentStats(swapped, WhatIfLoadout.WEAPON_SLOT, BundledSlotStatsLookup.INSTANCE,
+			blowpipeDartRangedStrength);
+	}
+
+	/**
+	 * Test seam (PR #25 finding 3): the {@link EquipmentStats} {@link
+	 * #updateSpecWeaponCell} would score {@code weapon} against, given the
+	 * CURRENT live/what-if loadout — lets a test assert directly on the
+	 * resulting bonuses (e.g. that an equipped shield's strength bonus is
+	 * excluded for a two-handed candidate) without depending on a specific
+	 * ranking outcome through the full DPS pipeline. Mirrors {@link
+	 * #updateSpecWeaponCell}'s own use of {@link #currentBlowpipeDart} so a
+	 * blowpipe candidate is scored the exact same way here as it would be
+	 * live.
+	 */
+	EquipmentStats swappedEquipmentStatsForTest(SpecWeapon weapon)
+	{
+		int[] baseItemIds = WhatIfLoadout.effectiveItemIds(lastGear.equippedItemIds(), override);
+		return swappedEquipmentStats(baseItemIds, weapon, currentBlowpipeDart().rangedStrength());
+	}
+
+	/**
+	 * The player's base skill levels (lowercase skill-name keys), shared by
+	 * {@link #buildOptimizerRequest} (feeds {@code
+	 * GearOptimizer.Request.playerBaseLevels}) and {@link
+	 * #updateSpecWeaponCell} (feeds {@code SpecWeaponSelector.select}) so
+	 * both consumers of the equip-requirement gate read the exact same map
+	 * instead of two independently-maintained copies. {@code null} caller
+	 * guard: both call sites already require {@link #lastGear} to be
+	 * non-null before reaching here.
+	 */
+	private java.util.Map<String, Integer> currentBaseLevels()
+	{
+		java.util.Map<String, Integer> baseLevels = new java.util.HashMap<>();
+		baseLevels.put("attack", lastGear.baseAttack());
+		baseLevels.put("strength", lastGear.baseStrength());
+		baseLevels.put("defence", lastGear.baseDefence());
+		baseLevels.put("ranged", lastGear.baseRanged());
+		baseLevels.put("magic", lastGear.baseMagic());
+		baseLevels.put("prayer", lastGear.basePrayer());
+		baseLevels.put("hitpoints", lastGear.baseHitpoints());
+		baseLevels.put("slayer", lastGear.baseSlayer());
+		baseLevels.put("agility", lastGear.baseAgility());
+		return baseLevels;
+	}
+
+	/** Test seam: {@link #specWeaponCell}'s last-rendered item id for the current target (-1/{@code Integer.MIN_VALUE} if none). */
+	int specWeaponCellItemIdForTest()
+	{
+		return specWeaponCell.renderedItemIdForTest();
+	}
+
+	/** Test seam (PR #25 finding): {@link #specWeaponCell}'s current tooltip, to distinguish "no target" from "no eligible weapon". */
+	String specWeaponCellTooltipForTest()
+	{
+		return specWeaponCell.getToolTipText();
 	}
 
 	/**
@@ -3948,6 +4135,14 @@ public final class GearSection extends CollapsibleSection
 	 * cached {@link #lastOptimizerResult} would just show the stale result (which
 	 * still contains the excluded item), which is why we re-optimise here — the
 	 * same pattern the style selector uses (see {@link #runOptimizer}).
+	 *
+	 * <p>PR #25 finding 4: {@link #updateSpecWeaponCell} also reads {@link
+	 * #excludedItemIds}, so it must be refreshed here too — otherwise the
+	 * "Exclude from suggestions" action would correctly stop the OPTIMISER
+	 * from suggesting an item while leaving a stale spec-weapon cell still
+	 * showing it, exactly the kind of silent non-application this action's
+	 * own history (shipped stage 4 at the reporter's explicit request) warns
+	 * against.
 	 */
 	private void excludeItemFromSuggestions(int itemId)
 	{
@@ -3957,6 +4152,7 @@ public final class GearSection extends CollapsibleSection
 		}
 		saveExcludedItemsPref();
 		renderExcludedItemsList();
+		updateSpecWeaponCell();
 		if (lastOptimizerResult != null)
 		{
 			runOptimizer();
@@ -3967,7 +4163,8 @@ public final class GearSection extends CollapsibleSection
 	 * Removes {@code itemId} from {@link #excludedItemIds}, persists the change,
 	 * refreshes the viewer, and — if a search is on screen — re-optimises so the
 	 * item can immediately reappear as a suggestion. The counterpart to
-	 * {@link #excludeItemFromSuggestions}.
+	 * {@link #excludeItemFromSuggestions}; also refreshes {@link
+	 * #specWeaponCell} for the same reason (see that method's javadoc).
 	 */
 	private void removeExcludedItem(int itemId)
 	{
@@ -3977,6 +4174,7 @@ public final class GearSection extends CollapsibleSection
 		}
 		saveExcludedItemsPref();
 		renderExcludedItemsList();
+		updateSpecWeaponCell();
 		if (lastOptimizerResult != null)
 		{
 			runOptimizer();
@@ -4694,16 +4892,7 @@ public final class GearSection extends CollapsibleSection
 		// optimiser never recommends gear they can't wield at their current
 		// levels. Combat skills come straight from the live snapshot; Agility /
 		// Slayer requirements (crystal gear, slayer helm) are now included too.
-		java.util.Map<String, Integer> baseLevels = new java.util.HashMap<>();
-		baseLevels.put("attack", lastGear.baseAttack());
-		baseLevels.put("strength", lastGear.baseStrength());
-		baseLevels.put("defence", lastGear.baseDefence());
-		baseLevels.put("ranged", lastGear.baseRanged());
-		baseLevels.put("magic", lastGear.baseMagic());
-		baseLevels.put("prayer", lastGear.basePrayer());
-		baseLevels.put("hitpoints", lastGear.baseHitpoints());
-		baseLevels.put("slayer", lastGear.baseSlayer());
-		baseLevels.put("agility", lastGear.baseAgility());
+		java.util.Map<String, Integer> baseLevels = currentBaseLevels();
 
 		return GearOptimizer.Request
 			.builder(liveIds, target, template)
