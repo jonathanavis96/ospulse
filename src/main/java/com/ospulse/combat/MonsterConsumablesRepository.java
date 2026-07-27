@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -77,10 +77,10 @@ public final class MonsterConsumablesRepository {
                     }
                     Set<Integer> equipmentItemIds = dto.equipmentItemIds == null
                         ? Collections.emptySet()
-                        : new HashSet<>(dto.equipmentItemIds);
+                        : new LinkedHashSet<>(dto.equipmentItemIds);
                     Set<Integer> consumableItemIds = dto.consumableItemIds == null
                         ? Collections.emptySet()
-                        : new HashSet<>(dto.consumableItemIds);
+                        : new LinkedHashSet<>(dto.consumableItemIds);
                     MonsterConsumablesReminder reminder =
                         new MonsterConsumablesReminder(dto.note, equipmentItemIds, consumableItemIds);
                     for (String monsterName : dto.monsters) {

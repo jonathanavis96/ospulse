@@ -9,7 +9,8 @@
     {
       "monsters": ["Vorkath"],
       "note": "Vorkath's dragonfire hits 80 unprotected. A dragonfire shield with a super antifire blocks it completely; a two-handed setup with Protect from Magic and a super antifire brings it down to 10, which is what most players run. His venomous dragonfire, part of the normal rotation, can poison you — bring antivenom(+).",
-      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
+      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003],
+      "consumableItemIds": [21978, 21981, 21984, 21987, 22209, 22212, 22215, 22218, 12913, 12915, 12917, 12919, 29824, 29827, 29830, 29833]
     },
     {
       "monsters": [
@@ -20,7 +21,8 @@
         "Lava dragon", "Frost dragon", "Reanimated dragon"
       ],
       "note": "Breathes dragonfire — Protect from Magic plus an antifire (or extended antifire) potion covers it without needing a shield; a dragonfire shield/ward or anti-dragon shield works too.",
-      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
+      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003],
+      "consumableItemIds": [2452, 2454, 2456, 2458, 11951, 11953, 11955, 11957]
     },
     {
       "monsters": [
@@ -28,7 +30,8 @@
         "Mithril dragon", "Adamant dragon", "Rune dragon"
       ],
       "note": "Metal dragons' dragonfire pierces Protect from Magic, so the prayer alone does nothing. A super antifire potion gives full protection by itself, and an ordinary antifire potion paired with an anti-dragon shield, dragonfire shield, or dragonfire ward does too.",
-      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003]
+      "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003],
+      "consumableItemIds": [21978, 21981, 21984, 21987, 22209, 22212, 22215, 22218]
     },
     {
       "monsters": [

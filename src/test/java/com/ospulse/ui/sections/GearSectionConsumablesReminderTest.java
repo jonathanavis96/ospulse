@@ -246,4 +246,35 @@ public class GearSectionConsumablesReminderTest
 				ids.contains(12913) || ids.contains(29824));
 		});
 	}
+
+	/**
+	 * Vorkath's combined bank tag path ({@code bankConsumableItemIdsForTest})
+	 * must return the curated equipment ids first, then the curated
+	 * consumable ids in their JSON insertion order — {@code
+	 * bankConsumableItemIds()} builds a {@code LinkedHashSet} seeded with
+	 * {@code equipmentItemIds()} before adding {@code consumableItemIds()},
+	 * so this is only correct end-to-end once the repository itself stops
+	 * scrambling the consumable order via {@code HashSet}.
+	 */
+	@Test
+	public void vorkath_bankConsumableItemIds_equipmentFirstThenCuratedConsumableOrder()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(emptyGearSnapshot());
+			pickMonster(section, "Vorkath (Post-quest)");
+
+			List<Integer> ids = section.bankConsumableItemIdsForTest();
+			List<Integer> expectedEquipment = Arrays.asList(1540, 11710, 11283, 11284, 22002, 22003);
+			List<Integer> expectedConsumables = Arrays.asList(
+				21978, 21981, 21984, 21987, 22209, 22212, 22215, 22218,
+				12913, 12915, 12917, 12919, 29824, 29827, 29830, 29833);
+
+			assertEquals("equipment ids must come first, in their curated order",
+				expectedEquipment, ids.subList(0, expectedEquipment.size()));
+			assertEquals("consumable ids must follow, in their curated JSON order",
+				expectedConsumables, ids.subList(expectedEquipment.size(), ids.size()));
+		});
+	}
 }

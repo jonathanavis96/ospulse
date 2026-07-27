@@ -25,12 +25,84 @@ public class MonsterConsumablesRepositoryTest
 				java.util.Arrays.asList(12913, 12915, 12917, 12919, 29824, 29827, 29830, 29833)));
 	}
 
+	/**
+	 * Regression guard: {@code MonsterConsumablesRepository} used to build
+	 * {@code consumableItemIds}/{@code equipmentItemIds} with a plain
+	 * {@code HashSet}, which discards JSON insertion order before {@link
+	 * MonsterConsumablesReminder} ever wraps it in a {@code LinkedHashSet} —
+	 * the wrapping step faithfully preserves whatever order it is handed, so
+	 * a scrambled hash order survives it unchanged. Zulrah's curated 4-3-2-1
+	 * dose sequence (antivenom+ then extended antivenom+) is the JSON's
+	 * declared order and must come back out in that exact order, not
+	 * hash-bucket order. This fails under the old {@code HashSet}-based
+	 * implementation.
+	 */
+	@Test public void zulrah_consumableItemIds_preserveCuratedJsonInsertionOrder()
+	{
+		Optional<MonsterConsumablesReminder> r = MonsterConsumablesRepository.getInstance().forMonster("Zulrah");
+		assertTrue(r.isPresent());
+		java.util.List<Integer> expectedOrder =
+			java.util.Arrays.asList(12913, 12915, 12917, 12919, 29824, 29827, 29830, 29833);
+		assertEquals("Zulrah's consumable ids must come back in the curated JSON order",
+			expectedOrder, new java.util.ArrayList<>(r.get().consumableItemIds()));
+	}
+
 	@Test public void loadsVorkathWithVerifiedEquipmentIds()
 	{
 		Optional<MonsterConsumablesReminder> r = MonsterConsumablesRepository.getInstance().forMonster("Vorkath");
 		assertTrue(r.isPresent());
 		// Anti-dragon shield, verified via equipment_index.min.json.
 		assertTrue(r.get().equipmentItemIds().contains(1540));
+	}
+
+	/**
+	 * Vorkath's note calls for a super antifire (twice) and antivenom(+)
+	 * specifically — not the ordinary antifire/antivenom lines the chromatic
+	 * and metal dragon rows use. Ids verified via {@code javap -constants} on
+	 * the runelite-api jar's {@code ItemID} constants; see this class's
+	 * bundled resource README for provenance.
+	 */
+	@Test public void vorkath_hasSuperAntifireAndAntivenomPlusConsumableIds()
+	{
+		Optional<MonsterConsumablesReminder> r = MonsterConsumablesRepository.getInstance().forMonster("Vorkath");
+		assertTrue(r.isPresent());
+		assertFalse("Vorkath must have consumable item ids", r.get().consumableItemIds().isEmpty());
+		assertTrue("Vorkath must include a super antifire dose (21978)",
+			r.get().consumableItemIds().contains(21978));
+		assertTrue("Vorkath must include an extended super antifire dose (22209)",
+			r.get().consumableItemIds().contains(22209));
+		assertTrue("Vorkath must include an antivenom+ dose (12913)",
+			r.get().consumableItemIds().contains(12913));
+		assertTrue("Vorkath must include an extended antivenom+ dose (29824)",
+			r.get().consumableItemIds().contains(29824));
+	}
+
+	/**
+	 * The chromatic dragon row's note says "an antifire (or extended
+	 * antifire) potion" — it must carry those consumable ids now, not just
+	 * the shield equipment ids.
+	 */
+	@Test public void chromaticDragons_haveAntifireConsumableIds()
+	{
+		Optional<MonsterConsumablesReminder> r = MonsterConsumablesRepository.getInstance().forMonster("Red dragon");
+		assertTrue(r.isPresent());
+		assertFalse("chromatic dragons must have consumable item ids", r.get().consumableItemIds().isEmpty());
+		assertTrue("must include an antifire dose (2452)", r.get().consumableItemIds().contains(2452));
+		assertTrue("must include an extended antifire dose (11951)", r.get().consumableItemIds().contains(11951));
+	}
+
+	/**
+	 * The metal dragon row's note says "a super antifire potion gives full
+	 * protection by itself" — it must carry those consumable ids now, not
+	 * just the shield equipment ids.
+	 */
+	@Test public void metalDragons_haveSuperAntifireConsumableIds()
+	{
+		Optional<MonsterConsumablesReminder> r = MonsterConsumablesRepository.getInstance().forMonster("Rune dragon");
+		assertTrue(r.isPresent());
+		assertFalse("metal dragons must have consumable item ids", r.get().consumableItemIds().isEmpty());
+		assertTrue("must include a super antifire dose (21978)", r.get().consumableItemIds().contains(21978));
+		assertTrue("must include an extended super antifire dose (22209)", r.get().consumableItemIds().contains(22209));
 	}
 
 	@Test public void unknownMonsterEmpty()
