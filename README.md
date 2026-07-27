@@ -144,6 +144,7 @@ Full technical detail (the single class involved, threading, provenance and buil
 - **Min loot value** — hide loot‑feed items below this GE value.
 - **Include rune pouch / looting bag** — count pouch/bag contents in tracked wealth.
 - **Hide unprotectable items** — off by default; keeps rare untradeables that can't be protected on death (fire cape, fighter torso, imbued capes) out of **Find Best** recommendations. They count against the expensive‑item risk cap either way — this only decides whether the optimiser may recommend equipping one.
+- **Ironman: owned gear only** — restricts **Find Best** to gear you already own and hides the upgrade‑oriented budget/spend UI. Set **per account**, so an ironman and a main sharing one client keep separate choices; it turns itself on the first time an ironman logs in, and turning it off is remembered rather than silently re‑enabled.
 - **Enable price trends** — off by default; the only setting that can cause a network call (see above).
 - **Trend window** / **Holdings page size** — trend look‑back and rows per Top Holdings page.
 - **Panel sections** — independently show/hide each of the seven sections (Session, Loot, XP, Gear, Grand Exchange, Wealth, Top Holdings), applied live without restarting.
@@ -162,22 +163,17 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 
 ## 📝 Changelog
 
-### Unreleased
-
-**🔧 Fixed**
-
-- **Crafting at a loss now reads as a loss.** Making potions whose ingredients cost more than the result left Profit unchanged — the ingredient cost silently disappeared from Profit and was absorbed into the Bank line, so a losing herblore run could still look like a gain. Skilling is now tracked as an episode: your inputs are charged, the item you made is no longer counted as "loot" you found, and Profit shows the real margin — negative when you lose money. Covers Herblore, Crafting, Fletching, Smithing and Cooking.
-- **Loot picked up without a kill now reaches the loot feed.** The feed only ever showed what RuneLite's Loot Tracker broadcast, so anything it missed — notably bird nests searched without a menu click — never appeared, even though your wealth clearly moved. OSPulse now watches your inventory directly, so that loot lands under **Inventory (unattributed)**. Loot from kills is unchanged and can't be counted twice.
-- **The GE panel no longer calls every sale a loss.** A sell offer was always drawn red with a down arrow — the colour meant "this is a sell", not "you lost money" — so selling at your listed price looked exactly like a disaster. Direction is now neutral, and red/green means what it means everywhere else in the plugin: your real profit or loss on the flip, net of tax, updating as the offer fills. Items you never bought on the GE show no profit figure, since their value already counted as loot when you picked them up.
-
 <!-- 0.2.1 is the version declared in build.gradle + runelite-plugin.properties and is
      what master builds as. It is NOT yet the version served by the Plugin Hub: the
      hub manifest pins a commit SHA, so going live still needs a PR against
      runelite/plugin-hub bumping commit= to the master tip.
-     When work resumes after that release, add a fresh "### Unreleased" block ABOVE
-     this one and stage new user-facing lines there; on the next release, rename it to
-     its version, collapse the previous version into a <details> block as below, and
-     cut the manifest PR. -->
+     Because 0.2.1 has never actually shipped, everything landed since it was first
+     drafted belongs IN this section rather than in an "Unreleased" block above it —
+     users will receive it all as one release. Keep adding here until the manifest PR
+     merges.
+     After that release, add a fresh "### Unreleased" block ABOVE this one and stage new
+     user-facing lines there; on the next release, rename it to its version, collapse the
+     previous version into a <details> block as below, and cut the manifest PR. -->
 ### 0.2.1 — Truthful wealth, readable numbers
 
 **✨ New**
@@ -193,6 +189,11 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 - 🔢 **Clearer numbers everywhere.** DPS, Accuracy, Avg hit, TTK, Overkill and your gp figures all read the same way: the number and its unit (`k`/`m`/`b`/`%`) stay bright while the decimals dim back, so **1.98** can't be mistaken for *198* — all at normal text size.
 - 🏹 **The ammo slot names your ammo.** Reads "Rada's blessing 4 — Ammo slot (live)" instead of generic slot text, so similar‑looking ammo is no longer indistinguishable.
 - 🎭 **Recommendations name the variant you own.** Shows "Masori mask (f)" rather than the plain "Masori mask", with the icon, preview and bank highlight all agreeing.
+- 💥 **Best spec weapon, right in the gear picker.** A new cell between your weapon and gloves names the special attack worth bringing — and it is role‑aware rather than damage‑obsessed, so a high‑defence boss suggests a Dragon warhammer or Bandos godsword instead of endlessly recommending claws. It only ever names a weapon you own and can legally use on that target, and it states the effect ("−30% Defence") rather than a DPS number, because heals, drains and damage aren't comparable on one scale.
+- 🧪 **A "don't forget" reminder under prayers and potions.** Curated per target — antivenom for venomous bosses, recoils and rings of suffering for Zulrah, antifire and a dragonfire shield for dragons, and so on — so the consumables that don't show up in a gear slot stop being the thing you notice on the boat over.
+- 🧍 **Ironman owned‑only mode.** One switch hides everything about buying upgrades — "Extra GP to spend", "best DPS found", "vs owned only", "total spend", "DPS per GP spent" and the whole suggested‑swaps section — so the panel only ever talks about gear you actually have. It turns itself on the first time an ironman logs in, and it remembers the choice per account, so an ironman and a main sharing one client each keep their own setting.
+- 🗂️ **"Excluded from suggestions" now collapses.** A click on the heading folds the list away, the same way the loot section already works, so a long exclusion list stops crowding out the panel.
+- 🚫 **More targets that refuse the wrong style.** OSPulse already knew a monster could be immune to a style; it now knows for **Zulrah**, **Kraken**, **Cave kraken**, **The Leviathan**, **Dawn**, **Tekton** and both **Wardens**. No more being told to bring a tentacle whip to Zulrah.
 
 **🔧 Fixed**
 
@@ -207,6 +208,21 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 - **Attack‑style DPS was cut in half by the panel edge.** The styles list could render past its own right‑hand edge, so a style's DPS showed as "5." with the rest hidden under the scroll bar — worst on the ranged, slash and crush lists. The list now always fits the panel width, so every DPS reads in full.
 - **Attack‑style names are no longer cut short.** "Longrange", "Pummel" and "Pound" could render as "Longran…". Styles still pair into two compact columns wherever they fit, but a lone odd style now takes the full bottom row — so a bow reads Accurate and Rapid side by side with Longrange spanning beneath — and any weapon whose names genuinely can't fit two columns (chinchompas) gets a full‑width list instead. The best style no longer carries a ★, since its name and DPS are already orange and it starts selected.
 - **Session toggles tidied up.** The tick boxes for "GE positions", "Bank" and "Show breakdown" now follow their names instead of leading them, so every name lines up with "Profit" and "GE flip" above and all three boxes share one column. The boxes are smaller and the rows now sit exactly as tight as the rest of the breakdown.
+- **Crafting at a loss now reads as a loss.** Making potions whose ingredients cost more than the result left Profit unchanged — the ingredient cost silently disappeared from Profit and was absorbed into the Bank line, so a losing herblore run could still look like a gain. Skilling is now tracked as an episode: your inputs are charged, the item you made is no longer counted as "loot" you found, and Profit shows the real margin — negative when you lose money. Covers Herblore, Crafting, Fletching, Smithing and Cooking.
+- **Loot picked up without a kill now reaches the loot feed.** The feed only ever showed what RuneLite's Loot Tracker broadcast, so anything it missed — notably bird nests searched without a menu click — never appeared, even though your wealth clearly moved. OSPulse now watches your inventory directly, so that loot lands under **Inventory (unattributed)**. Loot from kills is unchanged and can't be counted twice.
+- **The GE panel no longer calls every sale a loss.** A sell offer was always drawn red with a down arrow — the colour meant "this is a sell", not "you lost money" — so selling at your listed price looked exactly like a disaster. Direction is now neutral, and red/green means what it means everywhere else in the plugin: your real profit or loss on the flip, net of tax, updating as the offer fills. Items you never bought on the GE show no profit figure, since their value already counted as loot when you picked them up.
+- **Gear with a cosmetic override now counts as owned.** An imbued god cape wearing the deadman cosmetic didn't register as the cape you own, so the optimiser kept recommending the plain Mage Arena 1 cape sitting next to it. Cosmetic and charged suffixes now credit the real item.
+- **Twinflame staff and Harmonised nightmare staff cast at their true speed.** Both were scored at the standard cast speed, and the Twinflame's second hit wasn't modelled at all — so the staff ranked spells against each other wrongly, showing Fire Surge above Fire Wave when the opposite is true with a Twinflame equipped.
+- **Six weapon passives that silently skewed every ranking.** Each was simply absent from the maths, so the weapon looked mediocre exactly where it is best:
+  - **Scythe of Vitur** hits up to three times by target size, each hit half the last — it was scored as a single hit, so it ranked far below its real DPS at the large bosses it is BiS at.
+  - **Colossal blade** gains flat max hit with target size, worth 20–30% on multi‑tile bosses.
+  - **Keris partisan** family deals +33% to Kalphites and Scarabites (with a 1/51 triple hit) — enough to flip Kalphite Queen rankings. The *of amascut* variant correctly gets +15% rather than +33%.
+  - **Tonalztics of Ralos** fires two independent rolls when charged; modelling one roughly halved its DPS. Uncharged, it correctly hits once for 0–75%.
+  - **Craw's bow, Viggora's chainmace and Thammaron's sceptre** — plus their **Webweaver / Ursine / Accursed** upgrades — gain +50% accuracy *and* damage against anything in the Wilderness while charged with ether. Without it they looked ordinary at exactly the wilderness bosses they are made for.
+  - **Crystal armour with a crystal bow or Bow of Faerdhinen** is a set effect (+15% damage, +30% accuracy) that isn't in the per‑piece stats, so BOFA read materially weaker than it is.
+- **Monsters that cap or reduce your damage are modelled.** Corporeal Beast halves what non‑corpbane weapons deal, The Hueycoatl's tail caps each hit, and Verzik's first phase re‑rolls anything over its ceiling — all three previously scored as though they hit normally.
+- **The Wilderness now knows which monsters are in it.** The set behind those +50% revenant bonuses grew from 10 variants to 34, adding Fire giants in the Deep Wilderness Dungeon, the Wilderness God Wars Dungeon spiritual mages/rangers/warriors and Aviansies, and more. Two monsters that only *sound* like Wilderness spawns — the Earth Warrior Champion and the bandit champion from The Feud — no longer wrongly grant the bonus.
+- **Powered sceptres attack with their own spell.** Thammaron's and Accursed sceptre were scored as if casting from your spellbook rather than using their built‑in attack.
 
 <details>
 <summary><b>0.2.0 — Smarter gear, per‑monster</b></summary>
