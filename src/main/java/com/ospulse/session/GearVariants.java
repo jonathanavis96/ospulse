@@ -617,6 +617,24 @@ public final class GearVariants
 	 * <li>Accursed sceptre (a): 27676 (uncharged) / 27679 (charged) — {@link RevenantWeapon#THAMMARONS_SCEPTRE}</li>
 	 * </ul>
 	 */
+	/**
+	 * <b>Known limitation — the optimiser cannot recommend BUYING one of these.</b>
+	 * Only charged ids appear above (correctly: the passive needs ether). The
+	 * charged forms are not purchasable, and the tradeable uncharged forms
+	 * deliberately carry no passive, so a Wilderness optimisation can rank a
+	 * revenant weapon below alternatives for a player who does not already own
+	 * one — even though they could buy the uncharged item and charge it.
+	 *
+	 * <p>This is a MISSING FEATURE, not a regression. Mapping the uncharged ids
+	 * would "fix" it only by reintroducing the defect this branch removed:
+	 * granting +50% to a genuinely uncharged worn weapon. The real fix is an
+	 * acquisition/state model in the optimiser — price a charged candidate from
+	 * its tradeable base plus ether, while still scoring a worn uncharged item
+	 * without the passive. That is general (scythe, Sanguinesti, tridents and
+	 * the blowpipe all have the same buy-then-charge shape), so it belongs at
+	 * the optimiser's pricing layer rather than in this id map. Raised on PR #24
+	 * review round 13.
+	 */
 	private static final Map<Integer, RevenantWeapon> REVENANT_WEAPON_IDS = new HashMap<>();
 	static
 	{
