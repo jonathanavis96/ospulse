@@ -242,6 +242,19 @@ public class GearVariantsTest
 		org.junit.Assert.assertFalse(GearVariants.isTonalzticsOfRalosCharged(-1)); // empty slot
 	}
 
+	@Test
+	public void isTonalzticsOfRalosUncharged_unchargedId_returnsTrue()
+	{
+		org.junit.Assert.assertTrue(GearVariants.isTonalzticsOfRalosUncharged(28919));
+	}
+
+	@Test
+	public void isTonalzticsOfRalosUncharged_chargedIdOrEmptySlot_returnsFalse()
+	{
+		org.junit.Assert.assertFalse(GearVariants.isTonalzticsOfRalosUncharged(28922));
+		org.junit.Assert.assertFalse(GearVariants.isTonalzticsOfRalosUncharged(-1)); // empty slot
+	}
+
 	// ==== Scythe of Vitur family ==========================================================
 
 	@Test

@@ -38,6 +38,7 @@ public final class EquipmentStats {
     private final PoweredStaff poweredStaff;
     private final Tome tome;
     private final boolean tonalzticsOfRalosCharged;
+    private final boolean tonalzticsOfRalosUncharged;
     private final boolean scytheOfVitur;
     private final boolean colossalBlade;
     private final KerisPartisan kerisPartisan;
@@ -73,6 +74,7 @@ public final class EquipmentStats {
         this.poweredStaff = b.poweredStaff;
         this.tome = b.tome;
         this.tonalzticsOfRalosCharged = b.tonalzticsOfRalosCharged;
+        this.tonalzticsOfRalosUncharged = b.tonalzticsOfRalosUncharged;
         this.scytheOfVitur = b.scytheOfVitur;
         this.colossalBlade = b.colossalBlade;
         this.kerisPartisan = b.kerisPartisan;
@@ -236,6 +238,18 @@ public final class EquipmentStats {
     }
 
     /**
+     * True when the worn weapon is the UNCHARGED Tonalztics of Ralos (item id
+     * 28919) — fires a SINGLE hit over the same reduced 75% range as the
+     * charged form's per-hit roll (not an ordinary full-range 0..M single
+     * hit); see {@link TonalzticsDualHit#perHitMaxHit} and {@link
+     * com.ospulse.combat.DpsCalculator}'s ranged compute method. The charged
+     * variant (28922) leaves this {@code false}.
+     */
+    public boolean tonalzticsOfRalosUncharged() {
+        return tonalzticsOfRalosUncharged;
+    }
+
+    /**
      * True when the worn weapon is any Scythe of Vitur variant (Holy/Sanguine
      * reskins included) — its target-size-scaled multi-hit cascade applies to
      * melee attacks; see {@link ScytheCascade}.
@@ -323,6 +337,7 @@ public final class EquipmentStats {
         private PoweredStaff poweredStaff = PoweredStaff.NONE;
         private Tome tome = Tome.NONE;
         private boolean tonalzticsOfRalosCharged;
+        private boolean tonalzticsOfRalosUncharged;
         private boolean scytheOfVitur;
         private boolean colossalBlade;
         private KerisPartisan kerisPartisan = KerisPartisan.NONE;
@@ -427,6 +442,11 @@ public final class EquipmentStats {
 
         public Builder tonalzticsOfRalosCharged(boolean value) {
             this.tonalzticsOfRalosCharged = value;
+            return this;
+        }
+
+        public Builder tonalzticsOfRalosUncharged(boolean value) {
+            this.tonalzticsOfRalosUncharged = value;
             return this;
         }
 

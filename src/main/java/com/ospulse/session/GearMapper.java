@@ -187,6 +187,7 @@ public final class GearMapper
 		builder.harmonisedNightmareStaff(GearVariants.isHarmonisedNightmareStaff(weaponItemId));
 		builder.poweredStaff(GearVariants.poweredStaffFor(weaponItemId));
 		builder.tonalzticsOfRalosCharged(GearVariants.isTonalzticsOfRalosCharged(weaponItemId));
+		builder.tonalzticsOfRalosUncharged(GearVariants.isTonalzticsOfRalosUncharged(weaponItemId));
 		builder.scytheOfVitur(GearVariants.isScytheOfVitur(weaponItemId));
 		builder.colossalBlade(GearVariants.isColossalBlade(weaponItemId));
 		builder.kerisPartisan(GearVariants.kerisPartisanFor(weaponItemId));

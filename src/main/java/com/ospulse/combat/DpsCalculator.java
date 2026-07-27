@@ -466,6 +466,19 @@ public final class DpsCalculator {
             return TonalzticsDualHit.finish(damage.uncapped, damage.cap, damage.mode, attackRoll, defenceRoll,
                     weaponSpeedTicks, target.hitpoints());
         }
+        // UNCHARGED Tonalztics of Ralos: a SINGLE hit over the same reduced
+        // 75% range as the charged form's per-hit roll, per the OSRS Wiki:
+        // "Uncharged, the weapon hits a target once for 0-75% of the
+        // player's maximum ranged hit." Reuses TonalzticsDualHit's own
+        // perHitMaxHit helper (the single source of truth for the 75%
+        // figure) rather than a second constant; the target's cap/mode are
+        // left untouched — only the roll's own range shrinks before the cap
+        // is (or isn't) applied by the generic finish().
+        if (gear.tonalzticsOfRalosUncharged()) {
+            TargetDamage reduced = new TargetDamage(
+                    TonalzticsDualHit.perHitMaxHit(damage.uncapped), damage.cap, damage.mode);
+            return finish(reduced, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints(), false);
+        }
         return finish(damage, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints(), false);
     }
 

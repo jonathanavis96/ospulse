@@ -454,11 +454,16 @@ public final class GearVariants
 	// ==== Tonalztics of Ralos (charged dual-hit passive) ==================================
 
 	/**
-	 * Tonalztics of Ralos, UNCHARGED — no combat passive; ids from the
-	 * bundled {@code equipment_index.min.json} 2026-07-26 (both ids share the
-	 * display name "Tonalztics of ralos"; the charged/uncharged distinction
-	 * is not in the name, only in which id the game hands out after charging
-	 * with Ralos's blessing).
+	 * Tonalztics of Ralos, UNCHARGED — ids from the bundled {@code
+	 * equipment_index.min.json} 2026-07-26 (both ids share the display name
+	 * "Tonalztics of ralos"; the charged/uncharged distinction is not in the
+	 * name, only in which id the game hands out after charging with Ralos's
+	 * blessing). Still rolls the SAME reduced 75% range as the charged
+	 * form's per-hit roll — it just fires it once, not twice — per the OSRS
+	 * Wiki: "Uncharged, the weapon hits a target once for 0-75% of the
+	 * player's maximum ranged hit." See {@code TonalzticsDualHit#perHitMaxHit}
+	 * (the single source of truth for the 75% figure) and
+	 * {@code DpsCalculator#computeRanged}'s uncharged branch.
 	 */
 	private static final int TONALZTICS_OF_RALOS_UNCHARGED = 28919;
 
@@ -466,8 +471,10 @@ public final class GearVariants
 	 * Tonalztics of Ralos, CHARGED — fires two full, independent damage
 	 * rolls per attack (neither halved), per the OSRS Wiki: "the weapon will
 	 * hit twice, with two independent damage rolls". Only this charged id
-	 * carries the passive; the uncharged variant behaves as an ordinary
-	 * single-hit ranged weapon and is deliberately excluded below.
+	 * carries the dual-hit passive; the uncharged variant is a single hit
+	 * over that same reduced 75% range (see {@link
+	 * #TONALZTICS_OF_RALOS_UNCHARGED}), not an ordinary full-range 0..M
+	 * single-hit weapon.
 	 */
 	private static final int TONALZTICS_OF_RALOS_CHARGED = 28922;
 
@@ -475,6 +482,12 @@ public final class GearVariants
 	static boolean isTonalzticsOfRalosCharged(int weaponItemId)
 	{
 		return weaponItemId == TONALZTICS_OF_RALOS_CHARGED;
+	}
+
+	/** True when the worn weapon is the UNCHARGED Tonalztics of Ralos (single hit over the reduced 75% range). */
+	static boolean isTonalzticsOfRalosUncharged(int weaponItemId)
+	{
+		return weaponItemId == TONALZTICS_OF_RALOS_UNCHARGED;
 	}
 
 	// ==== Scythe of Vitur family (target-size-scaled multi-hit cascade) ==================

@@ -6,17 +6,27 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 /**
- * Charged Tonalztics of Ralos (item id 28922) — two full, INDEPENDENTLY
- * ACCURACY-ROLLED hits per attack, each dealing 0-75% of the calculated
- * weapon max hit (NOT 0-100%, per the OSRS Wiki "Multi-hit weapons"
- * comparison table — see {@link TonalzticsDualHit}'s class javadoc for the
- * citation and the two prior mis-readings this stage corrects). The
- * uncharged variant (28919) is an ordinary single-roll ranged weapon and
- * must produce byte-identical DPS to a plain ranged weapon of the same
- * stats — the regression this test proves is that {@code
- * tonalzticsOfRalosCharged() == false} (the default, and the only state
- * {@link com.ospulse.session.GearVariants#isTonalzticsOfRalosCharged} ever
- * returns for anything other than id 28922) never touches {@link
+ * Tonalztics of Ralos, both charge states.
+ *
+ * <p>CHARGED (item id 28922): two full, INDEPENDENTLY ACCURACY-ROLLED hits
+ * per attack, each dealing 0-75% of the calculated weapon max hit (NOT
+ * 0-100%, per the OSRS Wiki "Multi-hit weapons" comparison table — see
+ * {@link TonalzticsDualHit}'s class javadoc for the citation and the two
+ * prior mis-readings this stage corrects).
+ *
+ * <p>UNCHARGED (item id 28919): per the OSRS Wiki, "Uncharged, the weapon
+ * hits a target once for 0-75% of the player's maximum ranged hit" — a
+ * SINGLE hit over that SAME reduced 75% range, NOT an ordinary full-range
+ * 0..M single-hit weapon (a prior P1 defect this stage also fixes). Both
+ * charge states therefore share the identical per-hit range; only the hit
+ * count differs.
+ *
+ * <p>The regression the "unrelatedWeapon" test below proves is that {@code
+ * tonalzticsOfRalosCharged() == false} and {@code
+ * tonalzticsOfRalosUncharged() == false} (the default, and the only state
+ * {@link com.ospulse.session.GearVariants#isTonalzticsOfRalosCharged}/{@link
+ * com.ospulse.session.GearVariants#isTonalzticsOfRalosUncharged} ever return
+ * for anything other than ids 28922/28919) never touches {@link
  * DpsCalculator}'s generic path at all.
  */
 public class TonalzticsRalosEffectTest {
@@ -139,6 +149,83 @@ public class TonalzticsRalosEffectTest {
         double dps = CombatMath.dps(avg, 4);
 
         assertEquals(maxHit, result.maxHit());
+        assertEquals(hitChance, result.accuracy(), 1e-12);
+        assertEquals(avg, result.avgHit(), 1e-9);
+        assertEquals(dps, result.dps(), 1e-9);
+        assertEquals(overkill, result.overkillPerKill(), 1e-9);
+    }
+
+    /**
+     * The discriminating P1 regression test: the UNCHARGED Tonalztics must
+     * NOT be an ordinary full-range 0..M single-hit weapon (the prior
+     * defect, which inflated its max hit/DPS by 1/0.75 ~= 33%) — it rolls a
+     * SINGLE hit over the SAME reduced 75% range the charged form uses per
+     * hit. {@code fullRangeBaseline} below is a plain weapon of identical
+     * stats with neither Tonalztics flag set — exactly the shape of the old
+     * (wrong) uncharged model — so this test fails immediately if the
+     * uncharged branch in {@code DpsCalculator#computeRanged} is ever
+     * reverted/removed.
+     */
+    @Test
+    public void uncharged_reportsSeventyFivePercentMaxHit_andIsStrictlyLessThanTheOldFullRangeModel() {
+        DpsResult fullRangeBaseline = compute(gear().build(), monster()); // the old (wrong) uncharged model
+        DpsResult uncharged = compute(gear().tonalzticsOfRalosUncharged(true).build(), monster());
+
+        // Accuracy is unaffected by the reduced-range roll - only the damage side changes.
+        assertEquals(fullRangeBaseline.accuracy(), uncharged.accuracy(), 1e-12);
+        // Uncharged max hit is 75% of the calculated (full-range) max hit, floored.
+        assertEquals((fullRangeBaseline.maxHit() * 3) / 4, uncharged.maxHit());
+        assertTrue("uncharged max hit must be strictly less than the old full 0..M model "
+                + "(75% < 100%) - this is the exact P1 defect this stage fixes",
+                uncharged.maxHit() < fullRangeBaseline.maxHit());
+        assertTrue("uncharged average damage must be strictly less than the old full-range model",
+                uncharged.avgHit() < fullRangeBaseline.avgHit());
+    }
+
+    /**
+     * Uncharged must remain a SINGLE hit: same reduced per-hit range as the
+     * charged form, but roughly HALF its average damage (exactly half here,
+     * since neither branch is capped, by linearity of expectation over the
+     * identical per-hit distribution) - not equal to the charged form's
+     * doubled-up average.
+     */
+    @Test
+    public void uncharged_isSingleHit_averageIsExactlyHalfTheChargedForms() {
+        DpsResult uncharged = compute(gear().tonalzticsOfRalosUncharged(true).build(), monster());
+        DpsResult charged = compute(gear().tonalzticsOfRalosCharged(true).build(), monster());
+
+        // Same reduced 75% range for both - only the hit COUNT differs.
+        assertEquals(uncharged.maxHit(), charged.maxHit());
+        assertTrue(uncharged.avgHit() < charged.avgHit());
+        assertEquals(2.0 * uncharged.avgHit(), charged.avgHit(), 1e-6);
+    }
+
+    /**
+     * End-to-end wiring check, mirroring {@code
+     * charged_endToEnd_matchesTonalzticsDualHitFormulaDirectly} above:
+     * recomputes the expected result independently via the plain
+     * single-roll formulas over {@link TonalzticsDualHit#perHitMaxHit}, to
+     * prove the {@code DpsCalculator} wiring - not just the isolated 75%
+     * math - is correct.
+     */
+    @Test
+    public void uncharged_endToEnd_matchesSingleReducedRangeRollDirectly() {
+        EquipmentStats unchargedGear = gear().tonalzticsOfRalosUncharged(true).build();
+        Monster target = monster();
+        DpsResult result = compute(unchargedGear, target);
+
+        int effStr = CombatMath.effectiveMeleeOrRangedLevel(99, 1.0, 3, 8, 1.0);
+        int effAtt = CombatMath.effectiveMeleeOrRangedLevel(99, 1.0, 3, 8, 1.0);
+        int maxHit = CombatMath.meleeOrRangedMaxHit(effStr, 150, Fraction.ONE);
+        int attackRoll = CombatMath.meleeOrRangedAttackRoll(effAtt, 100, Fraction.ONE);
+        int defenceRoll = CombatMath.npcDefenceRoll(100, 50);
+        int perHit = TonalzticsDualHit.perHitMaxHit(maxHit);
+        double hitChance = CombatMath.hitChance(attackRoll, defenceRoll);
+        double avg = DamageDistribution.averageDamagePerAttack(hitChance, perHit);
+        double overkill = DamageDistribution.expectedOverkill(perHit, target.hitpoints());
+        double dps = CombatMath.dps(avg, 4);
+
+        assertEquals(perHit, result.maxHit());
         assertEquals(hitChance, result.accuracy(), 1e-12);
         assertEquals(avg, result.avgHit(), 1e-9);
         assertEquals(dps, result.dps(), 1e-9);
