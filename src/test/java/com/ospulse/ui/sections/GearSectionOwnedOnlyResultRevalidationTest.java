@@ -212,7 +212,7 @@ public class GearSectionOwnedOnlyResultRevalidationTest
 				section.lastOptimizerResultForTest());
 			assertTrue("no what-if override may be auto-applied from an unowned result",
 				section.overrideForTest().isEmpty());
-			Mockito.verify(bankHighlighter, Mockito.never()).showInBank(Mockito.anyMap());
+			Mockito.verify(bankHighlighter, Mockito.never()).showInBank(Mockito.anyMap(), Mockito.anyList());
 		});
 	}
 
@@ -244,7 +244,7 @@ public class GearSectionOwnedOnlyResultRevalidationTest
 				section.lastOptimizerResultForTest() != null);
 			assertFalse("sanity: the auto-preview applied an override",
 				section.overrideForTest().isEmpty());
-			Mockito.verify(bankHighlighter, Mockito.atLeastOnce()).showInBank(Mockito.anyMap());
+			Mockito.verify(bankHighlighter, Mockito.atLeastOnce()).showInBank(Mockito.anyMap(), Mockito.anyList());
 			Mockito.clearInvocations(bankHighlighter);
 
 			// The player sells the Dragon scimitar — a later, routine wealth

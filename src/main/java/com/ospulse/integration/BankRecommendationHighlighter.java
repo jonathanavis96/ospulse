@@ -6,8 +6,11 @@ import net.runelite.client.plugins.banktags.BankTagsService;
 import net.runelite.client.plugins.banktags.TagManager;
 import net.runelite.client.util.Text;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -50,6 +53,8 @@ public class BankRecommendationHighlighter
     private static final int BANK_COLS = 8;
     /** Flat layout array length — index 34 (ring) is the last equipment cell. */
     private static final int LAYOUT_SIZE = 35;
+    /** First flat index of the row immediately beneath the equipment block (row 5). */
+    private static final int CONSUMABLES_START = 5 * BANK_COLS;
 
     /**
      * Equipment slot ordinal -> flat bank-grid index (row*8 + col), mirroring the
@@ -80,6 +85,10 @@ public class BankRecommendationHighlighter
 
     // slot ordinal -> item id. Written on the EDT, read on the client thread.
     private Map<Integer, Integer> current = new LinkedHashMap<>();
+    // Consumable item ids (potions etc.) to tag/lay out beneath the equipment
+    // grid — order-preserving, deduplicated, and disjoint from current's
+    // values (see showInBank). Written on the EDT, read on the client thread.
+    private List<Integer> currentConsumables = new ArrayList<>();
     // Written on the EDT (showInBank/clear), read on the client thread (reapplyIfArmed).
     private volatile boolean armed;
     // Written on the EDT (suspend/resume via the panel's HierarchyListener), read on
@@ -102,9 +111,27 @@ public class BankRecommendationHighlighter
 
     /**
      * Show the given recommended items, keyed by equipment slot ordinal so they
-     * can be laid out in the equipment grid.
+     * can be laid out in the equipment grid. Equivalent to calling the
+     * consumables-aware overload with an empty list.
      */
     public void showInBank(Map<Integer, Integer> slotToItemId)
+    {
+        showInBank(slotToItemId, null);
+    }
+
+    /**
+     * Show the given recommended equipment (keyed by slot ordinal, laid out in
+     * the equipment grid as before) plus a "don't forget" consumables list
+     * (e.g. an antifire potion) tagged and placed on a fresh row beneath the
+     * equipment block. Layout contract: equipment always occupies the fixed
+     * grid rows (indices 0–34 via {@link #SLOT_TO_GRID}); consumables start at
+     * the first cell of the next full row after that block (index {@code 5 *
+     * BANK_COLS}) and fill left-to-right, never touching an equipment cell.
+     * Only the equipment-bearing subset of a monster's consumables reminder
+     * can ever appear here — prose-only reminders (e.g. Zulrah's antivenom
+     * note) carry no item ids and so have nothing to pass.
+     */
+    public void showInBank(Map<Integer, Integer> slotToItemId, List<Integer> consumableItemIds)
     {
         if (bankTags == null || tagManager == null || configManager == null
             || clientThread == null || slotToItemId == null)
@@ -119,11 +146,24 @@ public class BankRecommendationHighlighter
                 snapshot.put(e.getKey(), e.getValue());
             }
         }
+        List<Integer> consumablesSnapshot = new ArrayList<>();
+        if (consumableItemIds != null)
+        {
+            java.util.Set<Integer> seen = new LinkedHashSet<>();
+            for (Integer id : consumableItemIds)
+            {
+                if (id != null && id > 0 && !snapshot.containsValue(id) && seen.add(id))
+                {
+                    consumablesSnapshot.add(id);
+                }
+            }
+        }
         armed = true;
         suspended = false;
         clientThread.invoke(() ->
         {
             current = snapshot;
+            currentConsumables = consumablesSnapshot;
             applyReserved();
         });
     }
@@ -193,6 +233,7 @@ public class BankRecommendationHighlighter
         clientThread.invoke(() ->
         {
             current = new LinkedHashMap<>();
+            currentConsumables = new ArrayList<>();
             tagManager.removeTag(RESERVED_TAG);
             configManager.unsetConfiguration(BANKTAGS_GROUP, LAYOUT_KEY);
             configManager.unsetConfiguration(BTL_GROUP, BTL_LAYOUT_KEY);
@@ -208,6 +249,10 @@ public class BankRecommendationHighlighter
         {
             tagManager.addTag(id, RESERVED_TAG, false);
         }
+        for (int id : currentConsumables)
+        {
+            tagManager.addTag(id, RESERVED_TAG, false);
+        }
         writeLayout();
         // Keep Bank Tag Layouts (if installed) off our reserved tag — see the
         // BTL_* constants. Must precede openBankTag so the first rebuild after
@@ -216,10 +261,17 @@ public class BankRecommendationHighlighter
         bankTags.openBankTag(RESERVED_TAG, OPEN_OPTIONS);
     }
 
-    /** Persist the equipment-grid layout as the banktags {@code layout_<tag>} CSV the client auto-loads. */
+    /**
+     * Persist the equipment-grid layout, plus any consumables on a fresh row
+     * beneath it, as the banktags {@code layout_<tag>} CSV the client
+     * auto-loads.
+     */
     private void writeLayout()
     {
-        int[] grid = new int[LAYOUT_SIZE];
+        int size = currentConsumables.isEmpty()
+            ? LAYOUT_SIZE
+            : CONSUMABLES_START + currentConsumables.size();
+        int[] grid = new int[size];
         Arrays.fill(grid, -1);                            // -1 = empty cell
         for (Map.Entry<Integer, Integer> e : current.entrySet())
         {
@@ -228,6 +280,10 @@ public class BankRecommendationHighlighter
             {
                 grid[idx] = e.getValue();
             }
+        }
+        for (int i = 0; i < currentConsumables.size(); i++)
+        {
+            grid[CONSUMABLES_START + i] = currentConsumables.get(i);
         }
         StringBuilder csv = new StringBuilder();
         for (int i = 0; i < grid.length; i++)
