@@ -201,6 +201,46 @@ public class RevenantWeaponEffectTest {
         assertFractionEquals(3, 2, RevenantWeapon.THAMMARONS_SCEPTRE.damageMult());
     }
 
+    // ---- P1 finding: King Black Dragon's LAIR is explicitly not the Wilderness (OSRS Wiki's
+    // "King Black Dragon Lair" page: "the lair itself is not the Wilderness" / "isn't in the
+    // Wilderness" / "not considered the Wilderness"), even though its entrance sits inside
+    // level 42 Wilderness - so it must not be treated as a Wilderness target. These go through
+    // the REAL bundled MonsterRepository/WildernessMonsterRepository data (not a hand-built
+    // fixture), since the bug lives in the curated data, not in DpsCalculator's gating logic. --
+
+    @Test
+    public void kingBlackDragon_isNotAWildernessTarget_revenantWeaponsHaveNoEffect() {
+        Monster kbd = MonsterRepository.getInstance().byName("King Black Dragon")
+                .orElseThrow(() -> new AssertionError("King Black Dragon must resolve against the bundled monster data"));
+        assertFalse("King Black Dragon's lair is explicitly not the Wilderness (OSRS Wiki) - "
+                + "it must not be flagged as a Wilderness target", kbd.isWildernessTarget());
+
+        DpsResult base = DpsCalculator.compute(rangedGear().build(), player(), CombatStyle.RANGED, kbd, 0);
+        DpsResult craws = DpsCalculator.compute(
+                rangedGear().revenantWeapon(RevenantWeapon.CRAWS_BOW).build(), player(), CombatStyle.RANGED, kbd, 0);
+        assertEquals("Craw's bow must not get the +50% Wilderness bonus against King Black Dragon",
+                base.maxHit(), craws.maxHit());
+        assertEquals(base.dps(), craws.dps(), 1e-9);
+    }
+
+    /**
+     * Regression pin so the King Black Dragon fix above cannot over-correct: a genuinely
+     * Wilderness-exclusive boss from the same curated data must still get the bonus.
+     */
+    @Test
+    public void callisto_isStillAWildernessTarget_revenantWeaponsStillApply() {
+        Monster callisto = MonsterRepository.getInstance().byName("Callisto")
+                .orElseThrow(() -> new AssertionError("Callisto must resolve against the bundled monster data"));
+        assertTrue("Callisto is a genuine Wilderness boss and must stay a Wilderness target",
+                callisto.isWildernessTarget());
+
+        DpsResult base = DpsCalculator.compute(rangedGear().build(), player(), CombatStyle.RANGED, callisto, 0);
+        DpsResult craws = DpsCalculator.compute(
+                rangedGear().revenantWeapon(RevenantWeapon.CRAWS_BOW).build(), player(), CombatStyle.RANGED, callisto, 0);
+        assertEquals((int) Math.floor(base.maxHit() * 1.5), craws.maxHit());
+        assertTrue("accuracy must still improve at a genuine Wilderness target", craws.accuracy() > base.accuracy());
+    }
+
     // ---- Regression: no RevenantWeapon, DPS never depends on target name -----------------
 
     @Test

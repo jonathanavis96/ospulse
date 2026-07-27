@@ -45,11 +45,29 @@ public class WildernessMonsterRepositoryTest {
         String[] bosses = {
                 "Callisto", "Artio", "Venenatis", "Spindel",
                 "Vet'ion (Normal)", "Vet'ion (Enraged)", "Calvar'ion (Normal)", "Calvar'ion (Enraged)",
-                "Chaos Elemental", "Chaos Fanatic", "Crazy archaeologist", "Scorpia", "King Black Dragon",
+                "Chaos Elemental", "Chaos Fanatic", "Crazy archaeologist", "Scorpia",
+                // King Black Dragon is deliberately NOT here - see
+                // kingBlackDragonLair_isNotCurated below (P1 finding).
         };
         for (String boss : bosses) {
             assertTrue(boss + " must be curated as Wilderness", repo.isWilderness(boss));
         }
+    }
+
+    /**
+     * King Black Dragon's entrance sits inside level 42 Wilderness, but the OSRS Wiki's own
+     * "King Black Dragon Lair" page is explicit that the fight itself is not: "however the lair
+     * itself is not the Wilderness" / "The lair itself isn't in the Wilderness, but players are
+     * in the Wilderness until they pull the lever" / "As the lair itself is not considered the
+     * Wilderness, players can use any means of teleportation to leave." The generation pass
+     * mis-classified it by wiki category membership (its entrance page's category) rather than
+     * its actual combat location - a P1 finding, since it caused the revenant weapons' +50%
+     * accuracy/damage bonus to apply against KBD when it must not.
+     */
+    @Test
+    public void kingBlackDragonLair_isNotCurated() {
+        assertFalse("King Black Dragon's lair is explicitly not the Wilderness (OSRS Wiki)",
+                WildernessMonsterRepository.getInstance().isWilderness("King Black Dragon"));
     }
 
     @Test
@@ -188,6 +206,7 @@ public class WildernessMonsterRepositoryTest {
     public void namesWithNoWildernessLocationAtAll_orOnlyViaASeparateVariant_areNotDirectlyCurated() {
         WildernessMonsterRepository repo = WildernessMonsterRepository.getInstance();
         String[] excluded = {
+                "King Black Dragon", // lair is explicitly not the Wilderness (see kingBlackDragonLair_isNotCurated)
                 "Black dragon (Echo)",
                 "Chaos druid warrior", // zero Wilderness location at all (Yanille / Slepe roof only)
                 "Reanimated chaos druid",

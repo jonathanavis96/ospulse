@@ -75,7 +75,9 @@ silently doing nothing):
 **Bosses** — the Wilderness bosses reported as under-modelled at exactly
 this class of weapon: Callisto/Artio, Venenatis/Spindel, Vet'ion/Calvar'ion
 (both Normal and Enraged forms), Chaos Elemental, Chaos Fanatic, Crazy
-archaeologist, Scorpia (+ its guardian and offspring), King Black Dragon.
+archaeologist, Scorpia (+ its guardian and offspring). King Black Dragon is
+NOT here — see the "Confirmed to have NO Wilderness location at all" section
+below; it was a P1 finding caught after this pass first shipped.
 
 **Revenants** — the other common Wilderness target for these exact weapons,
 since Craw's bow/Viggora's chainmace/Thammaron's sceptre are themselves
@@ -105,6 +107,15 @@ every `Skeleton (Wilderness Agility Course) (N)`.
 
 ## Confirmed to have NO Wilderness location at all (excluded from both files)
 
+- `King Black Dragon` — the generation pass mis-classified this by wiki
+  category membership: KBD's *entrance* (western Lava Maze Dungeon ladder)
+  is inside level 42 Wilderness, but its own "King Black Dragon Lair" wiki
+  page is explicit that the fight itself is not: "however the lair itself
+  is not the Wilderness"; "The lair itself isn't in the Wilderness, but
+  players are in the Wilderness until they pull the lever"; "As the lair
+  itself is not considered the Wilderness, players can use any means of
+  teleportation to leave." Caught as a P1 finding after this file first
+  shipped — see `WildernessMonsterRepositoryTest#kingBlackDragonLair_isNotCurated`.
 - `Black dragon (Echo)` — an Echo-boss instanced variant, not a field spawn.
 - `Chaos druid warrior` — confirmed Yanille Agility Dungeon / Slepe church
   roof only.
