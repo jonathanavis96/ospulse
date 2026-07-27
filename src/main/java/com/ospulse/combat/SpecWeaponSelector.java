@@ -261,6 +261,29 @@ public final class SpecWeaponSelector {
         return Optional.ofNullable(bestByRole(eligible, SpecRole.HEAL, probe));
     }
 
+    /**
+     * <b>Known limitation — not target-damage-cap aware.</b> {@link
+     * DpsResult#maxHit()} is the target's VISIBLE max hit ({@code
+     * DpsCalculator.finish} sets it from {@code TargetDamage.visibleMaxHit()},
+     * i.e. {@code min(uncapped, cap)}), so at a damage-capped target — The
+     * Hueycoatl's tail ({@code CLAMP}), Verzik Vitur phase 1 ({@code REROLL}) —
+     * the {@code expectedDamagePerUse} call below applies the special's boosts
+     * and multi-hit cascade to a number the cap has already been folded into,
+     * as if it were the weapon's uncapped base roll. The boosted hitsplat can
+     * then exceed the target's ceiling, and multi-hit specials lose the real
+     * uncapped distribution before each hitsplat is capped or re-rolled.
+     *
+     * <p>This distorts the SCORE and so can reorder the recommendation at those
+     * targets; it never reaches the player as a displayed max hit. Fixing it
+     * means carrying the uncapped max, the cap and the {@code CapMode} from
+     * {@link DpsCalculator} through {@link DpsResult} into every {@code
+     * SpecWeapon.DamageModel} and applying the cap per hitsplat in all six
+     * model families, including {@link SpecCascadeMath}'s reverse-engineered
+     * claw/dagger branch enumerations. Deliberately deferred to its own change
+     * rather than done partially — making some model families cap-aware and not
+     * others would skew the cross-weapon comparison this method exists to make.
+     * Pinned by {@code SpecWeaponDamageCapLimitationTest} (PR #25 round 4).
+     */
     private static SpecWeaponRecommendation bestByRole(List<SpecWeapon> eligible, SpecRole role, DpsProbe probe) {
         SpecWeapon bestWeapon = null;
         double bestScore = Double.NEGATIVE_INFINITY;
