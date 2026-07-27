@@ -1,6 +1,7 @@
 package com.ospulse.combat;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -83,5 +84,72 @@ public class SpecWeaponCatalogDataTest {
             }
             assertTrue("no curated spec weapon tagged " + role, found);
         }
+    }
+
+    /**
+     * Guards the recurring bug class this class's javadoc warns about: a
+     * charge-state variant (e.g. an empty/uncharged weapon) mis-filed as an
+     * {@link SpecWeapon#ownedAliasIds()} cosmetic recolour, which would let an
+     * owner of only that variant be recommended, probed, and rendered a
+     * weapon they cannot actually use. Every alias id's combat stats
+     * ({@code equipment_stats.min.json}, excluding the trailing slot-hint
+     * field — see {@code EquipmentStatsRepository.Stats}, which already drops
+     * it) must exactly match the canonical id's.
+     *
+     * <p><b>This is a floor, not a proof.</b> Identical combat stats are
+     * NECESSARY but NOT SUFFICIENT evidence of a genuine alias: the confirmed
+     * regression 12924 "Toxic blowpipe (empty)" has IDENTICAL combat stats to
+     * the charged 12926 (both are 0 damage/accuracy bonus rows) yet cannot
+     * perform the special attack at all until recharged with scales and
+     * darts. A stat mismatch proves a bad alias; a stat match does NOT prove
+     * a good one — a new alias id still needs its wiki infobox version
+     * checked (the {@code |version1=}/{@code |id1=} fields) for a
+     * charge/state label ("Empty", "Inactive", "Uncharged"/"Charged", ...)
+     * before being added here, exactly as this catalog's javadoc already
+     * requires for 30305 "Arclight (inactive)".
+     */
+    @Test
+    public void everyAliasHasIdenticalCombatStatsToItsCanonicalId() {
+        EquipmentStatsRepository stats = EquipmentStatsRepository.getInstance();
+        for (SpecWeapon weapon : SpecWeapon.CATALOG) {
+            EquipmentStatsRepository.Stats canonical = stats.statsFor(weapon.itemId());
+            assertNotNull("no combat stats for canonical id " + weapon.itemId() + " (" + weapon.displayName() + ")",
+                    canonical);
+            for (int alias : weapon.ownedAliasIds()) {
+                EquipmentStatsRepository.Stats aliasStats = stats.statsFor(alias);
+                assertNotNull("no combat stats for alias id " + alias + " (" + weapon.displayName() + ")",
+                        aliasStats);
+                assertEquals("alias " + alias + " has different combat stats than canonical " + weapon.itemId()
+                                + " (" + weapon.displayName() + ") — likely a charge/state variant mis-filed as an alias",
+                        describe(canonical), describe(aliasStats));
+            }
+        }
+    }
+
+    /**
+     * Pins the two confirmed regressions by name so they can never silently
+     * creep back into {@link SpecWeapon#ownedAliasIds()} anywhere in the
+     * catalog: 12924 "Toxic blowpipe (empty)" (cannot special until charged
+     * with scales/darts) and 30305 "Arclight (inactive)" (loses its stats and
+     * demonbane bonus once exhausted — see the class javadoc's worked
+     * example).
+     */
+    @Test
+    public void confirmedChargeStateRegressionsAreNeverAliased() {
+        for (SpecWeapon weapon : SpecWeapon.CATALOG) {
+            assertFalse("12924 'Toxic blowpipe (empty)' must never be an alias (" + weapon.displayName() + ")",
+                    weapon.ownedAliasIds().contains(12924));
+            assertFalse("30305 'Arclight (inactive)' must never be an alias (" + weapon.displayName() + ")",
+                    weapon.ownedAliasIds().contains(30305));
+        }
+    }
+
+    private static String describe(EquipmentStatsRepository.Stats s) {
+        return "astab=" + s.astab() + " aslash=" + s.aslash() + " acrush=" + s.acrush()
+                + " amagic=" + s.amagic() + " arange=" + s.arange()
+                + " dstab=" + s.dstab() + " dslash=" + s.dslash() + " dcrush=" + s.dcrush()
+                + " dmagic=" + s.dmagic() + " drange=" + s.drange()
+                + " str=" + s.str() + " rstr=" + s.rstr() + " mdmg=" + s.mdmg()
+                + " prayer=" + s.prayer() + " aspeed=" + s.aspeed();
     }
 }

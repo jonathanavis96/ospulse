@@ -296,7 +296,17 @@ public final class SpecWeapon {
                     CombatStyle.SLASH, Stance.AGGRESSIVE,
                     "3-hit cascade + stacking burn",
                     SpecCascadeMath::burningClawsExpectedDamage),
-            new SpecWeapon(12926, ids(12924), "Toxic blowpipe", SpecRole.DAMAGE, 50,
+            // NOT aliased to 12924 "Toxic blowpipe (empty)" — that is a charge-state
+            // variant, not a cosmetic recolour of the SAME physical weapon (see
+            // class javadoc). Per the wiki infobox (Toxic blowpipe: version1
+            // "Empty"/id1 12924, version2 "Charged"/id2 12926), 12924 has
+            // identical combat stats to 12926 in equipment_stats.min.json, yet
+            // an empty blowpipe cannot perform the special attack at all until
+            // recharged with scales and darts — proof that identical stats
+            // alone are NOT sufficient evidence of a valid alias (see
+            // SpecWeaponCatalogDataTest). Aliasing it would recommend, probe,
+            // and render a weapon an empty-only owner cannot actually use.
+            new SpecWeapon(12926, ids(), "Toxic blowpipe", SpecRole.DAMAGE, 50,
                     CombatStyle.RANGED, Stance.RAPID,
                     "+100% accuracy, +50% damage, heals 50% of damage dealt",
                     (hitChance, maxHit) -> SpecCascadeMath.boostedSingleHit(hitChance, maxHit, 2.0, 1.5)),
