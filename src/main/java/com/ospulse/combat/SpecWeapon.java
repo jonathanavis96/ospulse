@@ -177,6 +177,31 @@ public final class SpecWeapon {
     }
 
     /**
+     * True if at least one of {@link #itemId()} or {@link #ownedAliasIds()}
+     * is BOTH owned ({@code ownedItemIds}) AND NOT restricted ({@code
+     * restrictedItemIds}) — round-3 fix. Checking the restriction against
+     * the canonical id alone (as {@code SpecWeaponSelector} previously did)
+     * let a player who owns ONLY a restricted alias (e.g. the deadman-locked
+     * Voidwaker 29607) still be recommended the ordinary Voidwaker 27690
+     * they never actually owned, since {@link #isOwned} succeeds
+     * family-wide while the restriction only ever looked at 27690. A player
+     * who owns the canonical id itself is unaffected: that id, being
+     * unrestricted, satisfies this check on its own, so a restricted alias
+     * still never suppresses a genuinely owned, unrestricted family member.
+     */
+    public boolean hasOwnedUnrestrictedId(Set<Integer> ownedItemIds, Set<Integer> restrictedItemIds) {
+        if (ownedItemIds.contains(itemId) && !restrictedItemIds.contains(itemId)) {
+            return true;
+        }
+        for (int alias : ownedAliasIds) {
+            if (ownedItemIds.contains(alias) && !restrictedItemIds.contains(alias)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * True if a player at {@code baseLevels} can equip this weapon, per
      * {@link EquipmentRequirementsRepository#canEquip} — BUT resolved across
      * the whole family ({@link #itemId()} plus every {@link #ownedAliasIds()}

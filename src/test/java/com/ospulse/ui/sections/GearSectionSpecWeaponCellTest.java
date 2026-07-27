@@ -1,6 +1,9 @@
 package com.ospulse.ui.sections;
 
+import com.ospulse.OSPulseConfig;
+import com.ospulse.combat.BlowpipeDart;
 import com.ospulse.combat.EquipmentStats;
+import com.ospulse.combat.EquipmentStatsRepository;
 import com.ospulse.combat.SpecWeapon;
 import com.ospulse.model.ItemStack;
 import com.ospulse.session.GearSnapshot;
@@ -8,7 +11,10 @@ import com.ospulse.session.SessionSnapshot;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.wealth.WealthSnapshot;
 
+import net.runelite.client.config.ConfigManager;
+
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import javax.swing.ListModel;
 import javax.swing.SwingUtilities;
@@ -35,6 +41,7 @@ public class GearSectionSpecWeaponCellTest
 	private static final int DRAGON_WARHAMMER = 13576;
 	private static final int VOIDWAKER = 27690;
 	private static final int VOIDWAKER_DEADMAN = 29607; // alias of VOIDWAKER; mode-locked by name (bug C)
+	private static final int TOXIC_BLOWPIPE = 12926;
 
 	private static void onEdt(Runnable body)
 	{
@@ -472,6 +479,56 @@ public class GearSectionSpecWeaponCellTest
 
 			assertEquals("Exclude from suggestions must apply to the spec cell exactly as it does to the optimiser",
 				-1, section.specWeaponCellItemIdForTest());
+		});
+	}
+
+	// ---- Round-3 finding: score the blowpipe spec probe with the configured dart --------
+
+	/**
+	 * When the user has picked a dart below Dragon (e.g. Mithril, 9 ranged
+	 * strength), the swapped stats {@link GearSection#updateSpecWeaponCell}
+	 * scores the Toxic blowpipe spec candidate against must use THAT dart's
+	 * ranged strength, not the hard-coded Dragon-dart default (35) baked into
+	 * {@code GearMapper.buildEquipmentStats}'s 3-arg overload. Otherwise the
+	 * probe is stronger than the player's real loadout and can outrank
+	 * another owned spec it should not beat.
+	 */
+	@Test
+	public void blowpipeSpecCandidateIsScoredWithTheConfiguredDartNotTheHardcodedDragonDefault()
+	{
+		onEdt(() ->
+		{
+			ConfigManager configManager = Mockito.mock(ConfigManager.class);
+			Mockito.when(configManager.getConfiguration(OSPulseConfig.GROUP, BlowpipeDart.CONFIG_KEY))
+				.thenReturn("MITHRIL");
+			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
+			section.apply(snapshotWith(gearWielding(TOXIC_BLOWPIPE), null));
+
+			SpecWeapon blowpipe = specWeaponByItemId(TOXIC_BLOWPIPE);
+			EquipmentStats stats = section.swappedEquipmentStatsForTest(blowpipe);
+
+			int blowpipeOwnRstr = EquipmentStatsRepository.getInstance().statsFor(TOXIC_BLOWPIPE).rstr();
+			assertEquals("test assumes the bundled Toxic blowpipe rstr — if this fails the bundled data changed",
+				20, blowpipeOwnRstr);
+			assertEquals("the configured Mithril dart (9 rstr) must be used, not the hard-coded Dragon default (35)",
+				blowpipeOwnRstr + BlowpipeDart.MITHRIL.rangedStrength(), stats.rstr());
+		});
+	}
+
+	/** Pin: the Dragon-dart default (no config picked, or explicitly Dragon) must still yield the same 35 rstr as before. */
+	@Test
+	public void blowpipeSpecCandidateDefaultsToDragonDartRstrWhenNoneIsConfigured()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearWielding(TOXIC_BLOWPIPE), null));
+
+			SpecWeapon blowpipe = specWeaponByItemId(TOXIC_BLOWPIPE);
+			EquipmentStats stats = section.swappedEquipmentStatsForTest(blowpipe);
+
+			int blowpipeOwnRstr = EquipmentStatsRepository.getInstance().statsFor(TOXIC_BLOWPIPE).rstr();
+			assertEquals(blowpipeOwnRstr + BlowpipeDart.DRAGON.rangedStrength(), stats.rstr());
 		});
 	}
 }

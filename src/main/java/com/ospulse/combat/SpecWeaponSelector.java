@@ -138,18 +138,25 @@ public final class SpecWeaponSelector {
      *                           candidate.
      * @param restrictedItemIds  standing, permanent per-ID restrictions (e.g.
      *                           {@code ItemEligibility.restrictedItemIds()} —
-     *                           Deadman/BH/LMS/beta-locked ids). Deliberately
-     *                           NOT alias-symmetric and NOT merged with
-     *                           {@code excludedItemIds}: a restricted id is
-     *                           checked only against {@link
-     *                           SpecWeapon#itemId()} directly (round-2 fix —
-     *                           merging it into the alias-symmetric exclusion
-     *                           set previously suppressed an entire family,
-     *                           e.g. Voidwaker (deadman) 29607 being
-     *                           restricted wrongly excluded the ordinary,
-     *                           perfectly legal Voidwaker 27690, since 29607
-     *                           is only an {@code ownedAliasIds} entry of
-     *                           that catalog row, not its own row).
+     *                           Deadman/BH/LMS/beta-locked ids). NOT merged
+     *                           with {@code excludedItemIds}: a restriction
+     *                           is checked per-ID against whichever id(s) the
+     *                           player actually owns ({@link
+     *                           SpecWeapon#hasOwnedUnrestrictedId}, round-3
+     *                           fix), not family-wide like {@code
+     *                           excludedItemIds} and not against the
+     *                           canonical id alone. Round-2 fix: merging it
+     *                           into the alias-symmetric exclusion set
+     *                           previously suppressed an entire family, e.g.
+     *                           Voidwaker (deadman) 29607 being restricted
+     *                           wrongly excluded the ordinary, perfectly
+     *                           legal Voidwaker 27690. Round-3 fix: checking
+     *                           only the canonical id then swung too far the
+     *                           other way — a player who owned ONLY the
+     *                           restricted alias 29607 (never 27690) was
+     *                           still recommended 27690, because 27690 itself
+     *                           was unrestricted even though the player never
+     *                           owned it.
      * @param playerBaseLevels   the player's base skill levels (lowercase
      *                           skill-name keys, e.g. {@code "attack"}), fed
      *                           straight to {@link SpecWeapon#canEquip} — the
@@ -190,11 +197,15 @@ public final class SpecWeaponSelector {
             if (weapon.isExcluded(exclusions)) {
                 continue; // "Exclude from suggestions" — same rule an ordinary candidate obeys.
             }
-            if (restrictions.contains(weapon.itemId())) {
-                // Per-ID only, deliberately NOT alias-symmetric — see the
-                // @param javadoc above. A restricted ALIAS (e.g. the deadman
-                // recolour) must not suppress this row when the row's own
-                // canonical id is not itself restricted.
+            if (!weapon.hasOwnedUnrestrictedId(ownedItemIds, restrictions)) {
+                // Per-ID, applied to whichever id(s) are actually owned —
+                // see the @param javadoc above and {@link
+                // SpecWeapon#hasOwnedUnrestrictedId} (round-3 fix). A
+                // restricted ALIAS (e.g. the deadman recolour) must not
+                // suppress this row when the player owns a DIFFERENT,
+                // unrestricted id in the same family (e.g. the canonical
+                // id) — but must reject it when the only id the player
+                // actually owns IS the restricted one.
                 continue;
             }
             if (!weapon.canEquip(playerBaseLevels)) {

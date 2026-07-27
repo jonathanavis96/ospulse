@@ -2111,6 +2111,7 @@ public final class GearSection extends CollapsibleSection
 		MonsterCombatRequirement requirement =
 			MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.name()).orElse(null);
 		int[] baseItemIds = WhatIfLoadout.effectiveItemIds(lastGear.equippedItemIds(), override);
+		int blowpipeDartRangedStrength = currentBlowpipeDart().rangedStrength();
 		SpecWeaponSelector.DpsProbe probe = weapon ->
 		{
 			WeaponStyle style = weapon.resolvedStyle(weaponRepo);
@@ -2118,7 +2119,7 @@ public final class GearSection extends CollapsibleSection
 			{
 				return null;
 			}
-			EquipmentStats swappedStats = swappedEquipmentStats(baseItemIds, weapon);
+			EquipmentStats swappedStats = swappedEquipmentStats(baseItemIds, weapon, blowpipeDartRangedStrength);
 			return computeAgainst(swappedStats, style, weapon.itemId());
 		};
 		SpecWeaponRecommendation recommendation =
@@ -2137,8 +2138,16 @@ public final class GearSection extends CollapsibleSection
 	 * candidate (e.g. Dragon claws) clears the shield slot rather than
 	 * scoring alongside it, since the two can never actually coexist and
 	 * summing both would credit an impossible stat total.
+	 *
+	 * <p>{@code blowpipeDartRangedStrength} is threaded through to {@link
+	 * GearMapper}'s 4-arg overload (round-3 fix) so a Toxic blowpipe
+	 * candidate is scored with the player's actually-configured dart ({@link
+	 * #currentBlowpipeDart}), not the 3-arg overload's hard-coded Dragon-dart
+	 * default — a probe scored against a dart the player never loaded is
+	 * stronger than their real loadout and can wrongly outrank another owned
+	 * spec.
 	 */
-	private static EquipmentStats swappedEquipmentStats(int[] liveItemIds, SpecWeapon weapon)
+	private static EquipmentStats swappedEquipmentStats(int[] liveItemIds, SpecWeapon weapon, int blowpipeDartRangedStrength)
 	{
 		int[] swapped = liveItemIds.clone();
 		swapped[WhatIfLoadout.WEAPON_SLOT] = weapon.itemId();
@@ -2146,7 +2155,8 @@ public final class GearSection extends CollapsibleSection
 		{
 			swapped[WhatIfLoadout.SHIELD_SLOT] = LoadoutOverride.EMPTIED;
 		}
-		return GearMapper.buildEquipmentStats(swapped, WhatIfLoadout.WEAPON_SLOT, BundledSlotStatsLookup.INSTANCE);
+		return GearMapper.buildEquipmentStats(swapped, WhatIfLoadout.WEAPON_SLOT, BundledSlotStatsLookup.INSTANCE,
+			blowpipeDartRangedStrength);
 	}
 
 	/**
@@ -2155,12 +2165,15 @@ public final class GearSection extends CollapsibleSection
 	 * CURRENT live/what-if loadout — lets a test assert directly on the
 	 * resulting bonuses (e.g. that an equipped shield's strength bonus is
 	 * excluded for a two-handed candidate) without depending on a specific
-	 * ranking outcome through the full DPS pipeline.
+	 * ranking outcome through the full DPS pipeline. Mirrors {@link
+	 * #updateSpecWeaponCell}'s own use of {@link #currentBlowpipeDart} so a
+	 * blowpipe candidate is scored the exact same way here as it would be
+	 * live.
 	 */
 	EquipmentStats swappedEquipmentStatsForTest(SpecWeapon weapon)
 	{
 		int[] baseItemIds = WhatIfLoadout.effectiveItemIds(lastGear.equippedItemIds(), override);
-		return swappedEquipmentStats(baseItemIds, weapon);
+		return swappedEquipmentStats(baseItemIds, weapon, currentBlowpipeDart().rangedStrength());
 	}
 
 	/**

@@ -32,6 +32,8 @@ public class SpecWeaponSelectorTest {
     private static final int BANDOS_GODSWORD = 11804;
     private static final int SARADOMIN_GODSWORD = 11806;
     private static final int ZARYTE_CROSSBOW = 26374;
+    private static final int VOIDWAKER = 27690;
+    private static final int VOIDWAKER_DEADMAN = 29607; // alias of VOIDWAKER, mode-locked by name
 
     private static Monster monsterWithDefence(int defenceLevel) {
         return Monster.builder().name("Test monster").hitpoints(100).defenceLevel(defenceLevel)
@@ -272,6 +274,52 @@ public class SpecWeaponSelectorTest {
                 monsterWithDefence(50), null, owned, Collections.emptySet(), sufficientAttack, -1, fixedProbe(byId));
         assertTrue(rec.isPresent());
         assertEquals(DRAGON_DAGGER, rec.get().itemId());
+    }
+
+    // ---- Round-3 finding: restriction must apply to the actually-owned family member -----
+
+    /**
+     * When the ONLY owned id in the family is the restricted alias (e.g. a
+     * mode-locked Voidwaker (deadman) 29607), the canonical 27690 was never
+     * actually owned — {@link SpecWeapon#isOwned} succeeds family-wide, but
+     * the restriction check must reject THIS weapon rather than checking the
+     * canonical id (which is unrestricted) and letting an item the player
+     * does not own through.
+     */
+    @Test
+    public void restrictionAppliesToTheActuallyOwnedFamilyMember() {
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(VOIDWAKER_DEADMAN));
+        Set<Integer> restrictions = new HashSet<>(java.util.Arrays.asList(VOIDWAKER_DEADMAN));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(VOIDWAKER, result(40, 0.6));
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), null, owned, Collections.emptySet(), restrictions,
+                Collections.emptyMap(), -1, fixedProbe(byId));
+        assertFalse("the only owned id (29607) is restricted — no unrestricted owned id exists, "
+                        + "so an ordinary Voidwaker the player never owned must not be recommended",
+                rec.isPresent());
+    }
+
+    /**
+     * Preserves the ordinary-owner case: a player who owns the canonical
+     * 27690 itself must still get the recommendation even though the
+     * (unowned) deadman alias 29607 is restricted — restriction must not
+     * become family-wide again.
+     */
+    @Test
+    public void restrictedAliasDoesNotSuppressAnActuallyOwnedCanonicalId() {
+        Set<Integer> owned = new HashSet<>(java.util.Arrays.asList(VOIDWAKER));
+        Set<Integer> restrictions = new HashSet<>(java.util.Arrays.asList(VOIDWAKER_DEADMAN));
+        java.util.Map<Integer, DpsResult> byId = new java.util.HashMap<>();
+        byId.put(VOIDWAKER, result(40, 0.6));
+
+        Optional<SpecWeaponRecommendation> rec = SpecWeaponSelector.select(
+                monsterWithDefence(50), null, owned, Collections.emptySet(), restrictions,
+                Collections.emptyMap(), -1, fixedProbe(byId));
+        assertTrue("the owned canonical id is itself unrestricted, so it must still be recommended",
+                rec.isPresent());
+        assertEquals(VOIDWAKER, rec.get().itemId());
     }
 
     // ---- PR #25 finding 2: ranged specs need worn-ammo validation ------------------------
