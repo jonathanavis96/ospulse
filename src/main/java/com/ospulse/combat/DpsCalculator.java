@@ -293,18 +293,20 @@ public final class DpsCalculator {
             maxHit += 2 * Math.min(target.size(), 5);
         }
 
-        // Keris partisan family: +33% damage vs Kalphites/Scarabites, plus
-        // (for "of breaching" only) +33% accuracy — the weapon's own
-        // separate multiplicative step(s), stacking with everything above.
-        // The family's OTHER passive (a 1/51 chance to triple the landed
+        // Keris partisan family: a per-variant damage bonus vs
+        // Kalphites/Scarabites (+33% for most variants, but only +15% for
+        // "of amascut" — see KerisPartisan's javadoc), plus (for "of
+        // breaching" only) +33% accuracy — the weapon's own separate
+        // multiplicative step(s), stacking with everything above. The
+        // family's OTHER passive (a 1/51 chance to triple the landed
         // damage) is a genuinely different distribution and is applied below
         // via KerisTripleRoll, bypassing the generic finish() path.
         KerisPartisan keris = gear.kerisPartisan();
         boolean kerisApplies = keris != KerisPartisan.NONE && target.attributes().contains(MonsterAttribute.KALPHITE);
         if (kerisApplies) {
-            maxHit = (int) KerisPartisan.DAMAGE_MULT.applyFloor(maxHit);
+            maxHit = (int) keris.damageMultiplier().applyFloor(maxHit);
             if (keris.hasAccuracyBonus()) {
-                attackRoll = (int) KerisPartisan.DAMAGE_MULT.applyFloor(attackRoll);
+                attackRoll = (int) keris.damageMultiplier().applyFloor(attackRoll);
             }
         }
 

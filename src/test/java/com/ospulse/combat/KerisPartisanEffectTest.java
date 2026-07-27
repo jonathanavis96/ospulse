@@ -11,8 +11,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
- * Keris partisan family — +33% damage vs Kalphites/Scarabites (every
- * variant), an ADDITIONAL +33% accuracy for "of breaching" only, and a 1/51
+ * Keris partisan family — +33% damage vs Kalphites/Scarabites for most
+ * variants, but only +15% for "of amascut" (the Jewel of Amascut upgrade
+ * trades damage bonus for base stats — see {@link KerisPartisan}'s
+ * javadoc), an ADDITIONAL +33% accuracy for "of breaching" only, and a 1/51
  * chance to triple the landed damage (every variant); see {@link
  * KerisPartisan}/{@link KerisTripleRoll}. Gated on {@link
  * MonsterAttribute#KALPHITE} per the design spec's explicit instruction to
@@ -128,6 +130,68 @@ public class KerisPartisanEffectTest {
         assertEquals(base.accuracy(), keris.accuracy(), 1e-12);
     }
 
+    /**
+     * The over-credit bug fix: {@code OF_AMASCUT} (Keris partisan of
+     * amascut, item id 30891) gets only +15% damage, not the +33% every
+     * other variant carries — the Jewel of Amascut upgrade "decreas[es]
+     * damage bonus against Kalphites and Scabarites" (OSRS Wiki) and
+     * weirdgloop/osrs-dps-calc's {@code PlayerVsNPCCalc.ts} special-cases
+     * exactly this variant to {@code [115, 100]}. Expected values are
+     * hard-coded literals derived independently of {@link KerisPartisan}'s
+     * own {@code damageMultiplier()} field, and the base max hit is
+     * confirmed (via an explicit assertion) to floor DIFFERENTLY at 115%
+     * vs 133% — so this test cannot pass if amascut is reverted to 133/100.
+     */
+    @Test
+    public void ofAmascut_getsFifteenPercentDamage_whileOtherVariantsGetThirtyThreePercent() {
+        Monster kalphite = monster(EnumSet.of(MonsterAttribute.KALPHITE));
+        DpsResult base = compute(gear().build(), kalphite);
+
+        int expectedAmascutMaxHit = (int) Math.floor(base.maxHit() * 115.0 / 100.0);
+        int expectedOtherMaxHit = (int) Math.floor(base.maxHit() * 133.0 / 100.0);
+        assertTrue("test fixture must produce different floors for 115% vs 133% "
+                        + "or this test would not be discriminating",
+                expectedAmascutMaxHit != expectedOtherMaxHit);
+
+        DpsResult amascut = compute(gear().kerisPartisan(KerisPartisan.OF_AMASCUT).build(), kalphite);
+        assertEquals(expectedAmascutMaxHit, amascut.maxHit());
+
+        for (KerisPartisan variant : new KerisPartisan[]{
+                KerisPartisan.PARTISAN, KerisPartisan.OF_BREACHING,
+                KerisPartisan.OF_CORRUPTION, KerisPartisan.OF_THE_SUN}) {
+            DpsResult result = compute(gear().kerisPartisan(variant).build(), kalphite);
+            assertEquals("variant=" + variant, expectedOtherMaxHit, result.maxHit());
+        }
+    }
+
+    /**
+     * Pins "of breaching"'s accuracy bonus at the wiki's +33% figure via a
+     * hard-coded literal (not {@link KerisPartisan#OF_BREACHING}'s own
+     * {@code damageMultiplier()} field), recomputed independently through
+     * {@link CombatMath} and {@link KerisTripleRoll#finish}. Guards against
+     * breaching's accuracy step ever being accidentally collapsed onto
+     * amascut's +15% damage figure.
+     */
+    @Test
+    public void ofBreaching_accuracyBonusIsThirtyThreePercent_notAmascutsFifteen() {
+        Monster kalphite = monster(EnumSet.of(MonsterAttribute.KALPHITE));
+        EquipmentStats kerisGear = gear().kerisPartisan(KerisPartisan.OF_BREACHING).build();
+        DpsResult result = compute(kerisGear, kalphite);
+
+        int effStr = CombatMath.effectiveMeleeOrRangedLevel(99, 1.0, 3, 8, 1.0);
+        int effAtt = CombatMath.effectiveMeleeOrRangedLevel(99, 1.0, 0, 8, 1.0);
+        int baseMaxHit = CombatMath.meleeOrRangedMaxHit(effStr, 100, Fraction.ONE);
+        int baseAttackRoll = CombatMath.meleeOrRangedAttackRoll(effAtt, 80, Fraction.ONE);
+
+        int expectedMaxHit = (int) Math.floor(baseMaxHit * 133.0 / 100.0);
+        int expectedAttackRoll = (int) Math.floor(baseAttackRoll * 133.0 / 100.0);
+        int defenceRoll = CombatMath.npcDefenceRoll(100, 50);
+        DpsResult expected = KerisTripleRoll.finish(expectedMaxHit, -1, MonsterCombatRequirement.CapMode.CLAMP,
+                expectedAttackRoll, defenceRoll, 4, kalphite.hitpoints());
+
+        assertEquals(expected.accuracy(), result.accuracy(), 1e-12);
+    }
+
     @Test
     public void nonKalphiteTarget_hasNoEffect_anyVariant() {
         Monster nonKalphite = monster(EnumSet.noneOf(MonsterAttribute.class));
@@ -231,8 +295,8 @@ public class KerisPartisanEffectTest {
         int effAtt = CombatMath.effectiveMeleeOrRangedLevel(99, 1.0, 0, 8, 1.0); // AGGRESSIVE: no attack-side style bonus
         int baseMaxHit = CombatMath.meleeOrRangedMaxHit(effStr, 100, Fraction.ONE);
         int baseAttackRoll = CombatMath.meleeOrRangedAttackRoll(effAtt, 80, Fraction.ONE);
-        int maxHit = (int) KerisPartisan.DAMAGE_MULT.applyFloor(baseMaxHit);
-        int attackRoll = (int) KerisPartisan.DAMAGE_MULT.applyFloor(baseAttackRoll); // breaching: accuracy bonus too
+        int maxHit = (int) KerisPartisan.OF_BREACHING.damageMultiplier().applyFloor(baseMaxHit);
+        int attackRoll = (int) KerisPartisan.OF_BREACHING.damageMultiplier().applyFloor(baseAttackRoll); // breaching: accuracy bonus too
         int defenceRoll = CombatMath.npcDefenceRoll(100, 50);
         DpsResult expected = KerisTripleRoll.finish(maxHit, -1, MonsterCombatRequirement.CapMode.CLAMP,
                 attackRoll, defenceRoll, 4, kalphite.hitpoints());
