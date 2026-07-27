@@ -3,14 +3,18 @@ package com.ospulse.session;
 import com.ospulse.combat.DemonbaneWeapon;
 import com.ospulse.combat.DragonHunterWeapon;
 import com.ospulse.combat.EquipmentIndexRepository;
+import com.ospulse.combat.KerisPartisan;
 import com.ospulse.combat.PoweredStaff;
+import com.ospulse.combat.RevenantWeapon;
 import com.ospulse.combat.SalveType;
 import com.ospulse.combat.SlayerHeadgear;
 import com.ospulse.combat.Tome;
 import com.ospulse.combat.VoidSet;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -379,8 +383,21 @@ public final class GearVariants
 	 * (same cross-check caveat): Trident of the seas 11905 (full)/11907,
 	 * Trident of the swamp 12899, Sanguinesti staff 22323 (+ Holy 25731),
 	 * Tumeken's shadow 27275. Uncharged variants can't attack and are
-	 * deliberately excluded; the enhanced "(e)" tridents and Accursed/Warped
-	 * sceptres are TODO pending id + formula verification.
+	 * deliberately excluded; the enhanced "(e)" tridents and the Warped
+	 * sceptre are still TODO pending id + formula verification.
+	 *
+	 * <p><b>Thammaron's sceptre (22555) and Accursed sceptre (27665)</b> are
+	 * modelled here too, per {@code weapon_categories.min.json} classifying
+	 * both as {@code "powered staff"} — see {@link PoweredStaff}'s javadoc
+	 * for the two formulas and their wiki cross-checks. Only the CHARGED ids
+	 * are mapped: the uncharged forms (22552 Thammaron's, 27662 Accursed)
+	 * cannot attack at all (same reasoning as every other uncharged powered
+	 * staff above), and the "(a)" cosmetic variants (27788 Thammaron's (a),
+	 * 27679 Accursed (a)) are classified as plain {@code "staff"} — NOT
+	 * {@code "powered staff"} — in the bundled data, so they are deliberately
+	 * left unmapped here (they still carry the Wilderness +50% bonus via
+	 * {@link RevenantWeapon}, which is a separate, already-modelled
+	 * mechanic).
 	 */
 	static PoweredStaff poweredStaffFor(int weaponItemId)
 	{
@@ -396,6 +413,10 @@ public final class GearVariants
 				return PoweredStaff.SANGUINESTI_STAFF;
 			case 27275:
 				return PoweredStaff.TUMEKENS_SHADOW;
+			case 22555:
+				return PoweredStaff.THAMMARONS_SCEPTRE;
+			case 27665:
+				return PoweredStaff.ACCURSED_SCEPTRE;
 			default:
 				return PoweredStaff.NONE;
 		}
@@ -445,6 +466,287 @@ public final class GearVariants
 	static boolean isHarmonisedNightmareStaff(int weaponItemId)
 	{
 		return weaponItemId == HARMONISED_NIGHTMARE_STAFF;
+	}
+
+	// ==== Tonalztics of Ralos (charged dual-hit passive) ==================================
+
+	/**
+	 * Tonalztics of Ralos, UNCHARGED — ids from the bundled {@code
+	 * equipment_index.min.json} 2026-07-26 (both ids share the display name
+	 * "Tonalztics of ralos"; the charged/uncharged distinction is not in the
+	 * name, only in which id the game hands out after charging with Ralos's
+	 * blessing). Still rolls the SAME reduced 75% range as the charged
+	 * form's per-hit roll — it just fires it once, not twice — per the OSRS
+	 * Wiki: "Uncharged, the weapon hits a target once for 0-75% of the
+	 * player's maximum ranged hit." See {@code TonalzticsDualHit#perHitMaxHit}
+	 * (the single source of truth for the 75% figure) and
+	 * {@code DpsCalculator#computeRanged}'s uncharged branch.
+	 */
+	private static final int TONALZTICS_OF_RALOS_UNCHARGED = 28919;
+
+	/**
+	 * Tonalztics of Ralos, CHARGED — fires two full, independent damage
+	 * rolls per attack (neither halved), per the OSRS Wiki: "the weapon will
+	 * hit twice, with two independent damage rolls". Only this charged id
+	 * carries the dual-hit passive; the uncharged variant is a single hit
+	 * over that same reduced 75% range (see {@link
+	 * #TONALZTICS_OF_RALOS_UNCHARGED}), not an ordinary full-range 0..M
+	 * single-hit weapon.
+	 */
+	private static final int TONALZTICS_OF_RALOS_CHARGED = 28922;
+
+	/** True when the worn weapon is the CHARGED Tonalztics of Ralos (its dual-hit passive applies). */
+	static boolean isTonalzticsOfRalosCharged(int weaponItemId)
+	{
+		return weaponItemId == TONALZTICS_OF_RALOS_CHARGED;
+	}
+
+	/** True when the worn weapon is the UNCHARGED Tonalztics of Ralos (single hit over the reduced 75% range). */
+	static boolean isTonalzticsOfRalosUncharged(int weaponItemId)
+	{
+		return weaponItemId == TONALZTICS_OF_RALOS_UNCHARGED;
+	}
+
+	// ==== Scythe of Vitur family (target-size-scaled multi-hit cascade) ==================
+
+	/**
+	 * Scythe of Vitur, Holy scythe of vitur, and Sanguine scythe of vitur,
+	 * each with two ids sharing the same display name in the bundled {@code
+	 * equipment_index.min.json} 2026-07-26 — a CHARGED and an UNCHARGED id
+	 * per cosmetic variant (three dyes x two charge states): Scythe of vitur
+	 * (22325 charged, 22486 uncharged), Holy scythe of vitur (25736, 25738),
+	 * Sanguine scythe of vitur (25739, 25741).
+	 *
+	 * <p><b>The uncharged ids belong in this set.</b> Charging a scythe buys
+	 * STATS ONLY, not the cascade: the OSRS Wiki's Scythe of vitur page
+	 * states "While the scythe can be used uncharged, it is drastically
+	 * stronger by charging it; once charged, it gains +20 stab/crush, +50
+	 * slash attack bonus, +4 slash and +10 crush defence bonus and +25
+	 * strength bonus" — an exhaustive list of what charging grants, and the
+	 * size-scaled multi-hit passive is not on it (the page describes that
+	 * passive in a separate sentence, unconditioned on charge state). Those
+	 * deltas are exactly what the bundled {@code equipment_stats.min.json}
+	 * already carries (22325 stab/slash/crush/str 70/125/30/75 vs 22486's
+	 * 50/75/10/50), so the uncharged form's weaker DPS falls out of its own
+	 * stats — it is NOT inflated by keeping the cascade here. Dropping these
+	 * three ids would instead UNDER-model them, silently reverting an
+	 * uncharged scythe to a single hit it does not actually lose. Pinned by
+	 * {@code GearVariantsTest#scytheChargeState_unchargedKeepsCascadeAndIsWeakerOnStatsAlone}.
+	 * (Reviewed twice, PR #24 rounds 4 and 5.)
+	 */
+	private static final Set<Integer> SCYTHE_OF_VITUR = setOf(
+		22325, 22486, // Scythe of vitur
+		25736, 25738, // Holy scythe of vitur
+		25739, 25741  // Sanguine scythe of vitur
+	);
+
+	/** True when the worn weapon is any Scythe of Vitur variant (its size-scaled multi-hit cascade applies). */
+	static boolean isScytheOfVitur(int weaponItemId)
+	{
+		return SCYTHE_OF_VITUR.contains(weaponItemId);
+	}
+
+	// ==== Colossal blade (flat target-size max-hit bonus) =================================
+
+	/** Colossal blade — id 27021, verified against the bundled equipment_index.min.json 2026-07-26. */
+	private static final int COLOSSAL_BLADE = 27021;
+
+	/** True when the worn weapon is the Colossal blade (its flat +2*min(size,5) max-hit bonus applies). */
+	static boolean isColossalBlade(int weaponItemId)
+	{
+		return weaponItemId == COLOSSAL_BLADE;
+	}
+
+	// ==== Keris partisan family (vs-Kalphite/Scarabite damage + triple-roll) ==============
+
+	/**
+	 * The five Keris partisan family ids, verified against the bundled
+	 * {@code equipment_index.min.json} 2026-07-26: Keris partisan (25979),
+	 * Keris partisan of amascut (30891, Tombs of Amascut reward), Keris
+	 * partisan of breaching (25981 — the only variant with the additional
+	 * vs-Kalphite accuracy bonus), Keris partisan of corruption (27287),
+	 * Keris partisan of the sun (27291).
+	 */
+	private static final Map<Integer, KerisPartisan> KERIS_PARTISAN_IDS = new HashMap<>();
+	static
+	{
+		KERIS_PARTISAN_IDS.put(25979, KerisPartisan.PARTISAN);
+		KERIS_PARTISAN_IDS.put(30891, KerisPartisan.OF_AMASCUT);
+		KERIS_PARTISAN_IDS.put(25981, KerisPartisan.OF_BREACHING);
+		KERIS_PARTISAN_IDS.put(27287, KerisPartisan.OF_CORRUPTION);
+		KERIS_PARTISAN_IDS.put(27291, KerisPartisan.OF_THE_SUN);
+	}
+
+	/** Maps a worn WEAPON-slot item id to its {@link KerisPartisan} variant ({@link KerisPartisan#NONE} if not a Keris). */
+	public static KerisPartisan kerisPartisanFor(int weaponItemId)
+	{
+		return KERIS_PARTISAN_IDS.getOrDefault(weaponItemId, KerisPartisan.NONE);
+	}
+
+	// ==== Revenant weapons (Wilderness-only +50% accuracy/damage) ========================
+
+	/**
+	 * ONLY the CHARGED id of each revenant-cave weapon belongs in this map.
+	 * The OSRS Wiki is explicit that the +50% Wilderness accuracy/damage
+	 * passive requires the weapon to be charged with revenant ether — e.g.
+	 * "When an ursine chainmace is charged with revenant ether, an
+	 * additional 50% melee accuracy and damage boost is applied when
+	 * attacking any NPC in the Wilderness" (same wording, mutatis mutandis,
+	 * for Accursed sceptre / magic and Webweaver bow / ranged). The
+	 * Uncharged id of each pair carries NO such bonus and must map to
+	 * {@link RevenantWeapon#NONE}.
+	 *
+	 * <p>Crucially, the Uncharged and Charged forms of each weapon have
+	 * IDENTICAL combat stats in the bundled {@code equipment_stats.min.json}
+	 * (the only differing field is the trailing slot-hint, -1 vs 3, which is
+	 * not a combat stat) — verified 2026-07-27. So nothing else absorbs the
+	 * missing bonus for an uncharged id: mapping one here would be a straight
+	 * +50% over-credit, not a harmless approximation.
+	 *
+	 * <p>Upgrade/Uncharged→Charged id pairs (both ids verified against the
+	 * bundled {@code equipment_index.min.json} 2026-07-27; only the second id
+	 * of each pair is mapped below):
+	 * <ul>
+	 * <li>Craw's bow: 22547 (uncharged) / 22550 (charged) — {@link RevenantWeapon#CRAWS_BOW}</li>
+	 * <li>Webweaver bow: 27652 (uncharged) / 27655 (charged) — {@link RevenantWeapon#CRAWS_BOW} (ranged)</li>
+	 * <li>Viggora's chainmace: 22542 (uncharged) / 22545 (charged) — {@link RevenantWeapon#VIGGORAS_CHAINMACE}</li>
+	 * <li>Ursine chainmace: 27657 (uncharged) / 27660 (charged) — {@link RevenantWeapon#VIGGORAS_CHAINMACE} (melee)</li>
+	 * <li>Thammaron's sceptre: 22552 (uncharged) / 22555 (charged) — {@link RevenantWeapon#THAMMARONS_SCEPTRE}</li>
+	 * <li>Thammaron's sceptre (a): 27785 (uncharged) / 27788 (charged) — {@link RevenantWeapon#THAMMARONS_SCEPTRE}</li>
+	 * <li>Accursed sceptre: 27662 (uncharged) / 27665 (charged) — {@link RevenantWeapon#THAMMARONS_SCEPTRE} (magic)</li>
+	 * <li>Accursed sceptre (a): 27676 (uncharged) / 27679 (charged) — {@link RevenantWeapon#THAMMARONS_SCEPTRE}</li>
+	 * </ul>
+	 */
+	/**
+	 * <b>Known limitation — the optimiser cannot recommend BUYING one of these.</b>
+	 * Only charged ids appear above (correctly: the passive needs ether). The
+	 * charged forms are not purchasable, and the tradeable uncharged forms
+	 * deliberately carry no passive, so a Wilderness optimisation can rank a
+	 * revenant weapon below alternatives for a player who does not already own
+	 * one — even though they could buy the uncharged item and charge it.
+	 *
+	 * <p>This is a MISSING FEATURE, not a regression. Mapping the uncharged ids
+	 * would "fix" it only by reintroducing the defect this branch removed:
+	 * granting +50% to a genuinely uncharged worn weapon. The real fix is an
+	 * acquisition/state model in the optimiser — price a charged candidate from
+	 * its tradeable base plus ether, while still scoring a worn uncharged item
+	 * without the passive. That is general (scythe, Sanguinesti, tridents and
+	 * the blowpipe all have the same buy-then-charge shape), so it belongs at
+	 * the optimiser's pricing layer rather than in this id map. Raised on PR #24
+	 * review round 13.
+	 */
+	private static final Map<Integer, RevenantWeapon> REVENANT_WEAPON_IDS = new HashMap<>();
+	static
+	{
+		REVENANT_WEAPON_IDS.put(22550, RevenantWeapon.CRAWS_BOW);
+		REVENANT_WEAPON_IDS.put(27655, RevenantWeapon.CRAWS_BOW);
+		REVENANT_WEAPON_IDS.put(22545, RevenantWeapon.VIGGORAS_CHAINMACE);
+		REVENANT_WEAPON_IDS.put(27660, RevenantWeapon.VIGGORAS_CHAINMACE);
+		REVENANT_WEAPON_IDS.put(22555, RevenantWeapon.THAMMARONS_SCEPTRE);
+		REVENANT_WEAPON_IDS.put(27788, RevenantWeapon.THAMMARONS_SCEPTRE);
+		REVENANT_WEAPON_IDS.put(27665, RevenantWeapon.THAMMARONS_SCEPTRE);
+		REVENANT_WEAPON_IDS.put(27679, RevenantWeapon.THAMMARONS_SCEPTRE);
+	}
+
+	/** Maps a worn WEAPON-slot item id to its {@link RevenantWeapon} ({@link RevenantWeapon#NONE} if not one). */
+	public static RevenantWeapon revenantWeaponFor(int weaponItemId)
+	{
+		return REVENANT_WEAPON_IDS.getOrDefault(weaponItemId, RevenantWeapon.NONE);
+	}
+
+	// ==== Crystal armour set + crystal bow / Bow of Faerdhinen set effect =================
+
+	/**
+	 * ACTIVE (charged, fully-statted), OVERWORLD-usable Crystal helm ids —
+	 * verified against the bundled {@code equipment_stats.min.json}
+	 * 2026-07-26 by checking every combat-bonus field is nonzero: the
+	 * pre-rework single "Crystal helm" (23971), the "beta" leftover
+	 * (25495), and each of the seven Elf clan cosmetic recolours that got an
+	 * armour reskin — Hefin/Ithell/Iorwerth/Trahaearn/Cadarn/Crwys/Amlodd
+	 * (27705/27717/27729/27741/27753/27765/27777) plus the deadman-mode
+	 * cosmetic (33031). Meilyr has NO armour recolour in the bundled data
+	 * (only a weapon one) — verified, not assumed. The INACTIVE
+	 * (uncharged/broken, all-zero-stat) counterpart of every one of these —
+	 * a SEPARATE id sharing the identical display name — is deliberately
+	 * EXCLUDED: crediting a zero-stat inactive piece with the active set
+	 * bonus is exactly the prior P1-class defect the design spec warns
+	 * about for this mechanic.
+	 *
+	 * <p><b>The basic/attuned/perfected tier ids (23886-23888) are
+	 * deliberately EXCLUDED here too</b> — per review finding, these are The
+	 * Gauntlet's INSTANCE-ONLY crystal equipment (see {@link
+	 * com.ospulse.ui.sections.gear.ItemEligibility#isGauntletOnlyItem}'s own
+	 * javadoc: "made from crystal shards in the instance, unusable/lost the
+	 * moment the player leaves"), not the overworld Crystal armour set this
+	 * mechanic models. {@code ItemEligibility} already treats the whole
+	 * 23840-23903 range as Gauntlet-only for optimiser-candidate purposes;
+	 * crediting them here as well — even from a LIVE equipped-gear read
+	 * while literally inside the Gauntlet — would apply the overworld set's
+	 * +15%/+30% bonus to gear that cannot exist outside that instance. The
+	 * Gauntlet's own basic/attuned/perfected tiers have their own (unrelated,
+	 * unmodelled) mechanics — out of scope here, not silently approximated.
+	 */
+	private static final Set<Integer> ACTIVE_CRYSTAL_HELM = setOf(
+		23971, 25495,
+		27705, 27717, 27729, 27741, 27753, 27765, 27777, 33031
+	);
+
+	/** ACTIVE, overworld-usable Crystal body ids — same provenance/exclusion notes as {@link #ACTIVE_CRYSTAL_HELM}. */
+	private static final Set<Integer> ACTIVE_CRYSTAL_BODY = setOf(
+		23975, 25496,
+		27697, 27709, 27721, 27733, 27745, 27757, 27769, 33023
+	);
+
+	/** ACTIVE, overworld-usable Crystal legs ids — same provenance/exclusion notes as {@link #ACTIVE_CRYSTAL_HELM}. */
+	private static final Set<Integer> ACTIVE_CRYSTAL_LEGS = setOf(
+		23979, 25497,
+		27701, 27713, 27725, 27737, 27749, 27761, 27773, 33027
+	);
+
+	/**
+	 * ACTIVE, overworld-usable Crystal bow AND Bow of Faerdhinen ids —
+	 * verified the same way as the armour pieces: the pre-rework single
+	 * "Crystal bow" (23983), charged Bow of Faerdhinen (25865) and every one
+	 * of its "(c)" cosmetic recolours (25867 plain, 25884 Ithell, 25886
+	 * Iorwerth, 25888 Trahaearn, 25890 Cadarn, 25892 Crwys, 25894 Meilyr,
+	 * 25896 Amlodd, 33021 deadman). The UNCHARGED Bow of Faerdhinen (25862,
+	 * all-zero stats) is deliberately EXCLUDED — same "don't credit the
+	 * inactive piece" reasoning. The basic/attuned/perfected Crystal bow
+	 * tier ids (23901-23903) are ALSO deliberately excluded — same
+	 * Gauntlet-instance-only reasoning as {@link #ACTIVE_CRYSTAL_HELM}.
+	 */
+	private static final Set<Integer> ACTIVE_CRYSTAL_BOW = setOf(
+		23983,
+		25865, 25867, 25884, 25886, 25888, 25890, 25892, 25894, 25896, 33021
+	);
+
+	/**
+	 * True when the HEAD/BODY/LEGS slots all carry an ACTIVE Crystal armour
+	 * piece — the "full armour set" half of the §9f condition; see {@link
+	 * #isActiveCrystalBowOrFaerdhinen} for the weapon half. Both must hold
+	 * for the set's +15% damage/+30% accuracy bonus to apply (see {@code
+	 * DpsCalculator#computeRanged}).
+	 *
+	 * <p><b>Modelled as all-or-nothing</b>, mirroring {@link VoidSet}'s own
+	 * all-or-nothing precedent — the OSRS Wiki documents the 30%/15% total
+	 * as a sum of PER-PIECE contributions (helm 5%/2.5%, body 15%/7.5%, legs
+	 * 10%/5%), so a partial set (e.g. body+legs but no helm) technically
+	 * grants a partial bonus in-game. That per-piece partial credit is NOT
+	 * modelled here — only the full-set case the design spec explicitly
+	 * calls out ("Full set: +15% damage/+30% accuracy") — a disclosed,
+	 * deliberate simplification, not an oversight.
+	 */
+	public static boolean isActiveCrystalArmourSet(int headItemId, int bodyItemId, int legsItemId)
+	{
+		return ACTIVE_CRYSTAL_HELM.contains(headItemId)
+			&& ACTIVE_CRYSTAL_BODY.contains(bodyItemId)
+			&& ACTIVE_CRYSTAL_LEGS.contains(legsItemId);
+	}
+
+	/** True when the worn weapon is an ACTIVE Crystal bow or Bow of Faerdhinen variant. */
+	public static boolean isActiveCrystalBowOrFaerdhinen(int weaponItemId)
+	{
+		return ACTIVE_CRYSTAL_BOW.contains(weaponItemId);
 	}
 
 	// ==== Blowpipe (loads darts internally, ignores worn ammo) ============================

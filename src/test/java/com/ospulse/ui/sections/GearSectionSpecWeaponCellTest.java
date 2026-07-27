@@ -351,6 +351,45 @@ public class GearSectionSpecWeaponCellTest
 		});
 	}
 
+	// ---- PR #24 finding: spec-weapon cell must resolve synthetic targets via lookupName() ----
+
+	/**
+	 * A synthetic Wilderness Aviansie twin (e.g. "Aviansie (Level 69)
+	 * (Wilderness)", see {@code WildernessVariantMonsterRepository}/{@code
+	 * MonsterRepository#appendWildernessVariantTwins}) is named with a
+	 * trailing "(Wilderness)" marker that {@code MonsterNameKey.baseName}
+	 * strips only ONE parenthetical off, leaving "Aviansie (Level 69)" —
+	 * which does not match the curated "Aviansie" weapon-gate key. Before
+	 * this fix, {@code updateSpecWeaponCell} looked the requirement up by
+	 * {@code selectedMonster.name()} (the synthetic display name) and found
+	 * nothing, so the real "flies - Ranged/Magic only" gate silently
+	 * vanished and a melee-only spec like Dragon claws could be recommended
+	 * against a flying target. {@code lookupName()} resolves to the real
+	 * base monster ("Aviansie (Level 69)"), whose OWN base-name fallback
+	 * ("aviansie") does match the curated gate.
+	 */
+	@Test
+	public void syntheticWildernessAviansieStillAppliesTheRealMeleeGate()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			// Only a melee DAMAGE spec is owned; the genuine Aviansie combat
+			// requirement (see monster_combat_requirements.json) permits only
+			// Ranged/Magic — a flying target.
+			section.apply(snapshotWith(gearWielding(DRAGON_CLAWS), null));
+
+			section.searchFieldForTest().setText("aviansie");
+			int index = indexOf(section.monsterListForTest().getModel(), "wilderness");
+			assertTrue("a synthetic Wilderness Aviansie twin must appear in the filtered list", index >= 0);
+			section.monsterListForTest().setSelectedIndex(index);
+
+			assertEquals("dragon claws is melee-only and must still be excluded by Aviansie's real gate "
+					+ "even against the synthetic Wilderness twin",
+				-1, section.specWeaponCellItemIdForTest());
+		});
+	}
+
 	// ---- Round 2 finding (a): mode restrictions must not be family-wide ------------------
 
 	/**

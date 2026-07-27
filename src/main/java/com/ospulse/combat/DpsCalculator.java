@@ -27,15 +27,36 @@ package com.ospulse.combat;
  * hitChance/avgDamage formulas replace the generic ones entirely rather than
  * being a multiplicative step on maxHit/attackRoll — see computeMelee /
  * finishFang / {@link DamageDistribution#fangHitChance} /
- * {@link DamageDistribution#fangAverageDamagePerAttack}). Unknown/unmodelled effects
- * (scythe multi-hit, special
- * attacks, Avarice, Tumeken's 3x gear multiplier, ...) are simply not
- * applied — extend this class (and {@link CombatMath}) to add them, gated
- * behind their own "applies when" predicate.
+ * {@link DamageDistribution#fangAverageDamagePerAttack}). Six further
+ * multi-hit/conditional-bonus mechanics (design spec §9, each behind its own
+ * "applies when" predicate): the Scythe of Vitur family's target-size-scaled
+ * 1-3x cascade (own bespoke hitChance/average pair, see {@link
+ * ScytheCascade}/finishScythe-equivalent bypass in computeMelee), Colossal
+ * blade's flat {@code +2*min(size,5)} max hit, the Keris partisan family's
+ * vs-Kalphite/Scarabite +33% damage(+accuracy for "of breaching")/1-in-51
+ * triple-damage roll (see {@link KerisPartisan}/{@link KerisTripleRoll}),
+ * the charged Tonalztics of Ralos's two full independent damage rolls (see
+ * {@link TonalzticsDualHit}), the revenant weapons' (Craw's bow/Viggora's
+ * chainmace/Thammaron's sceptre) +50% accuracy/damage vs a Wilderness target
+ * — gated on {@link Monster#isWildernessTarget()}, true for both genuinely
+ * Wilderness-exclusive monsters ({@link WildernessMonsterRepository}) and a
+ * player-selected synthetic "(Wilderness)" twin of a both-locations monster
+ * ({@link WildernessVariantMonsterRepository}; see {@link
+ * Monster#lookupName()} for how every OTHER lookup resolves such a twin back
+ * to its real underlying monster) — and the
+ * Crystal armour set + Crystal bow/Bow of Faerdhinen's +15% damage/+30%
+ * accuracy (see {@code EquipmentStats#crystalSetBonusActive}). Remaining
+ * unmodelled effects (special attacks, Avarice, Tumeken's 3x gear
+ * multiplier, ...) are simply not applied — extend this class (and {@link
+ * CombatMath}/{@link DamageDistribution}) to add them, gated behind their
+ * own "applies when" predicate.
  *
  * <p>Per-target damage-magnitude effects (a curated {@link
  * MonsterCombatRequirement}, resolved once per compute call from {@code
- * target.name()} via {@link MonsterCombatRequirementRepository} by the
+ * target.lookupName()} — {@link Monster#lookupName()}, NOT {@link
+ * Monster#name()}, so a synthetic Wilderness-variant target resolves the
+ * SAME requirement its real underlying monster would — via {@link
+ * MonsterCombatRequirementRepository} by the
  * overloads below that don't take one explicitly, or supplied directly by a
  * caller — such as {@code GearOptimizer} — that already resolved its own,
  * which then takes priority instead of a second, independent lookup here; see
@@ -198,7 +219,7 @@ public final class DpsCalculator {
      * lookup, byte-identical to the old behaviour.
      */
     private static MonsterCombatRequirement resolveRequirement(Monster target) {
-        return MonsterCombatRequirementRepository.getInstance().forMonster(target.name()).orElse(null);
+        return MonsterCombatRequirementRepository.getInstance().forMonster(target.lookupName()).orElse(null);
     }
 
     private static DpsResult computeNonMagic(EquipmentStats gear, PlayerCombat player, CombatStyle style,
@@ -262,6 +283,42 @@ public final class DpsCalculator {
             attackRoll = (int) dh.accuracyMult().applyFloor(attackRoll);
         }
 
+        // Colossal blade: a flat +2*min(targetSize, 5) max-hit bonus (up to
+        // +10), stacking with everything above INCLUDING the slayer/salve
+        // slot and demonbane/dragonbane — this is the weapon's own passive,
+        // a separate additive term (not a multiplicative floor step), added
+        // last so a per-target damage cap (below) applies to the TOTAL,
+        // matching how the game's own displayed max hit already includes it.
+        if (gear.colossalBlade()) {
+            maxHit += 2 * Math.min(target.size(), 5);
+        }
+
+        // Keris partisan family: a per-variant damage bonus vs
+        // Kalphites/Scarabites (+33% for most variants, but only +15% for
+        // "of amascut" — see KerisPartisan's javadoc), plus (for "of
+        // breaching" only) +33% accuracy — the weapon's own separate
+        // multiplicative step(s), stacking with everything above. The
+        // family's OTHER passive (a 1/51 chance to triple the landed
+        // damage) is a genuinely different distribution and is applied below
+        // via KerisTripleRoll, bypassing the generic finish() path.
+        KerisPartisan keris = gear.kerisPartisan();
+        boolean kerisApplies = keris != KerisPartisan.NONE && target.attributes().contains(MonsterAttribute.KALPHITE);
+        if (kerisApplies) {
+            maxHit = (int) keris.damageMultiplier().applyFloor(maxHit);
+            if (keris.hasAccuracyBonus()) {
+                attackRoll = (int) keris.damageMultiplier().applyFloor(attackRoll);
+            }
+        }
+
+        // Viggora's chainmace (revenant weapon): +50% accuracy AND damage vs
+        // any Wilderness NPC, while charged with ether (assumed — see
+        // RevenantWeapon) — the weapon's own separate multiplicative step.
+        RevenantWeapon revenant = gear.revenantWeapon();
+        if (revenant.appliesTo(style) && target.isWildernessTarget()) {
+            maxHit = (int) revenant.damageMult().applyFloor(maxHit);
+            attackRoll = (int) revenant.accuracyMult().applyFloor(attackRoll);
+        }
+
         int defenceRoll = CombatMath.npcDefenceRoll(target.defenceLevel(), target.defenceBonus(style));
 
         // Osmumten's fang (and re-skins/cosmetics): two passives, STAB style
@@ -271,10 +328,23 @@ public final class DpsCalculator {
         // attackRoll themselves — they change how hitChance/avgDamage are
         // derived from them, so this bypasses the generic finish() path.
         boolean fangApplies = gear.osmumtensFang() && style == CombatStyle.STAB;
+        // Scythe of Vitur family: hits 1-3x by target size, each hit's max
+        // decaying to 50% of the previous (rounded down) — a genuinely
+        // different distribution from a single roll, so this too bypasses
+        // the generic finish() path entirely; see ScytheCascade.
+        boolean scytheApplies = gear.scytheOfVitur();
         TargetDamage damage = applyTargetDamageRules(maxHit, requirement, gear, style, weaponId);
         maxHit = damage.visibleMaxHit();
         if (fangApplies) {
             return finishFang(damage, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
+        }
+        if (scytheApplies) {
+            return ScytheCascade.finish(damage.uncapped, damage.cap, damage.mode, target.size(), attackRoll,
+                    defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
+        }
+        if (kerisApplies) {
+            return KerisTripleRoll.finish(damage.uncapped, damage.cap, damage.mode, attackRoll, defenceRoll,
+                    gear.weaponSpeedTicks(), target.hitpoints());
         }
 
         return finish(damage, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints(), false);
@@ -363,14 +433,83 @@ public final class DpsCalculator {
             maxHit = (int) new Fraction(dmgPct, 100).applyFloor(maxHit);
         }
 
+        // Craw's bow (revenant weapon): +50% accuracy AND damage vs any
+        // Wilderness NPC, while charged with ether (assumed — see
+        // RevenantWeapon) — the weapon's own separate multiplicative step,
+        // stacking with everything above (including a folded slayer helm).
+        RevenantWeapon revenant = gear.revenantWeapon();
+        if (revenant.appliesTo(CombatStyle.RANGED) && target.isWildernessTarget()) {
+            maxHit = (int) revenant.damageMult().applyFloor(maxHit);
+            attackRoll = (int) revenant.accuracyMult().applyFloor(attackRoll);
+        }
+
+        // Crystal armour set (full ACTIVE helm+body+legs) + an ACTIVE Crystal
+        // bow/Bow of Faerdhinen: a conditional weapon+armour combo, not baked
+        // into per-piece stats — +15% damage/+30% accuracy, its own separate
+        // multiplicative step (see EquipmentStats#crystalSetBonusActive /
+        // GearVariants for the active/inactive-piece distinction).
+        if (gear.crystalSetBonusActive()) {
+            maxHit = (int) new Fraction(23, 20).applyFloor(maxHit); // +15%
+            attackRoll = (int) new Fraction(13, 10).applyFloor(attackRoll); // +30%
+        }
+
         int defenceRoll = CombatMath.npcDefenceRoll(target.defenceLevel(), target.drange());
 
         // Rapid attack style reduces the weapon's attack speed by 1 tick.
         int weaponSpeedTicks = gear.weaponSpeedTicks() - (player.stance() == Stance.RAPID ? 1 : 0);
         weaponSpeedTicks = Math.max(1, weaponSpeedTicks);
 
+        // Charged Tonalztics of Ralos: two full, independent damage rolls per
+        // attack (neither halved) — bypasses the generic finish() entirely,
+        // same shape as finishFang/finishTwinflame; see TonalzticsDualHit.
+        //
+        // ORDERING IS LOAD-BEARING, not a style choice: the weapon's OWN
+        // range shaping (its 75% per-hit reduction, {@code
+        // TonalzticsDualHit.perHitMaxHit}) must run on the RAW, pre-penalty
+        // {@code maxHit} FIRST; the target's damage penalty/cap (Corporeal
+        // Beast's 0.5 multiplier etc., via applyTargetDamageRules) must run
+        // LAST, on that already-reduced per-hit value. {@code
+        // floor(floor(x*a)*b)} and {@code floor(floor(x*b)*a)} do not
+        // commute in general, and reversing the order (applying the target
+        // penalty to the raw max hit, THEN reducing 75%) was a P2 defect —
+        // confirmed against the reference weirdgloop/osrs-dps-calc
+        // implementation, which builds the weapon's own hit distribution
+        // (including its multi-hit/range transform) first and only then
+        // layers the Corp penalty as a further transform over that
+        // already-formed distribution. E.g. a calculated max of 35 against
+        // Corp (0.5x): weapon-first-then-target gives
+        // floor(floor(35*3/4)*0.5) = floor(26*0.5) = 13 (correct); the
+        // reversed order gives floor(floor(35*0.5)*3/4) = floor(17*3/4) = 12
+        // (wrong — one damage point short on every hit). See {@link
+        // TonalzticsDualHit#finishFromPerHit}'s javadoc for the full
+        // rationale. Running the cap through applyTargetDamageRules on the
+        // per-hit value (rather than the raw max hit) is correct and
+        // intended — target damage caps are per-hitsplat, not per-weapon.
+        if (gear.tonalzticsOfRalosCharged()) {
+            int perHit = TonalzticsDualHit.perHitMaxHit(maxHit);
+            TargetDamage reduced = applyTargetDamageRules(perHit, requirement, gear, CombatStyle.RANGED, weaponId);
+            return TonalzticsDualHit.finishFromPerHit(reduced.uncapped, reduced.cap, reduced.mode, attackRoll,
+                    defenceRoll, weaponSpeedTicks, target.hitpoints());
+        }
+        // UNCHARGED Tonalztics of Ralos: a SINGLE hit over the same reduced
+        // 75% range as the charged form's per-hit roll, per the OSRS Wiki:
+        // "Uncharged, the weapon hits a target once for 0-75% of the
+        // player's maximum ranged hit." Reuses TonalzticsDualHit's own
+        // perHitMaxHit helper (the single source of truth for the 75%
+        // figure) rather than a second constant. Same ordering fix as the
+        // charged branch immediately above (see its comment for the worked
+        // example and citation): the weapon's own 75% reduction runs on the
+        // RAW max hit first, and only then does applyTargetDamageRules
+        // resolve the target's penalty/cap against that reduced value — the
+        // target's cap/mode are otherwise left untouched, only the roll's
+        // own range shrinks before the cap is (or isn't) applied by the
+        // generic finish().
+        if (gear.tonalzticsOfRalosUncharged()) {
+            int perHit = TonalzticsDualHit.perHitMaxHit(maxHit);
+            TargetDamage reduced = applyTargetDamageRules(perHit, requirement, gear, CombatStyle.RANGED, weaponId);
+            return finish(reduced, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints(), false);
+        }
         TargetDamage damage = applyTargetDamageRules(maxHit, requirement, gear, CombatStyle.RANGED, weaponId);
-        maxHit = damage.visibleMaxHit();
         return finish(damage, attackRoll, defenceRoll, weaponSpeedTicks, target.hitpoints(), false);
     }
 
@@ -478,6 +617,15 @@ public final class DpsCalculator {
             maxHit = (int) new Fraction(11, 10).applyFloor(maxHit);
         }
 
+        // Thammaron's sceptre (revenant weapon): +50% accuracy AND damage vs
+        // any Wilderness NPC, while charged with ether (assumed — see
+        // RevenantWeapon) — the weapon's own separate multiplicative step.
+        RevenantWeapon revenant = gear.revenantWeapon();
+        if (revenant.appliesTo(CombatStyle.MAGIC) && target.isWildernessTarget()) {
+            maxHit = (int) revenant.damageMult().applyFloor(maxHit);
+            accuracyRoll = (int) revenant.accuracyMult().applyFloor(accuracyRoll);
+        }
+
         TargetDamage damage = applyTargetDamageRules(maxHit, requirement, gear, CombatStyle.MAGIC, weaponId);
         maxHit = damage.visibleMaxHit();
         if (twinflameSecondHit) {
@@ -501,7 +649,7 @@ public final class DpsCalculator {
      * the public {@code compute(...)} overloads that do NOT accept a {@link
      * MonsterCombatRequirement} parameter (the original API) look it up
      * themselves via {@link #resolveRequirement} — exactly the {@code
-     * MonsterCombatRequirementRepository.getInstance().forMonster(target.name())}
+     * MonsterCombatRequirementRepository.getInstance().forMonster(target.lookupName())}
      * call this method used to make internally — and pass that (possibly
      * {@code null}) result down through {@code computeNonMagic}/{@code
      * computeMelee}/{@code computeRanged}/{@code computeMagic} to here
@@ -525,6 +673,31 @@ public final class DpsCalculator {
      * same defect for {@code REROLL} instead. {@link TargetDamage} therefore
      * carries the mode, and each of {@link #finish}/{@link #finishFang}
      * decides for itself what to do with it.
+     */
+    /**
+     * <b>Known limitation — the damage PENALTY is applied to the endpoint, not
+     * to the distribution.</b> {@code afterPenalty} below scales the max hit and
+     * every downstream {@code finish*} then models a uniform roll over {@code
+     * 0..afterPenalty}. The game instead scales each ROLLED hit, and scaling a
+     * uniform roll does not yield a uniform roll: for a {@code 0..26} roll under
+     * Corporeal Beast's {@code 0.5x}, the real outcome is {@code P(k)=2/27} for
+     * {@code k} in {@code 0..12} and {@code P(13)=1/27} (mean {@code 169/27 ~
+     * 6.2593}), where this models a uniform {@code 0..13} (mean {@code 6.5}) —
+     * about 3.85% high.
+     *
+     * <p>The displayed max hit is unaffected and correct; what is overstated is
+     * average damage, and hence DPS, overkill and TTK, against every {@code
+     * DAMAGE_PENALTY} target.
+     *
+     * <p><b>Deliberately not fixed piecemeal.</b> This is the single shared site
+     * every style routes through, so the approximation applies to ALL weapons
+     * equally. Correcting it for one weapon would compute that weapon on a
+     * different model from everything it is ranked against, which is worse than
+     * a uniform approximation — the same reasoning that split the spec-weapon
+     * damage-cap gap out whole. A real fix transforms the distribution here, for
+     * everything, and must also settle penalty-versus-cap ordering (the
+     * reference applies the Corp penalty BEFORE other limiters). Pinned by
+     * {@code TargetDamagePenaltyDistributionLimitationTest} (PR #24 round 12).
      */
     private static TargetDamage applyTargetDamageRules(int maxHit, MonsterCombatRequirement req, EquipmentStats gear,
                                                        CombatStyle style, int weaponId) {

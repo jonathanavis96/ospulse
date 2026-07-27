@@ -201,7 +201,7 @@ public final class ItemEligibility
 			return Collections.emptySet();
 		}
 		Set<Integer> ids = new LinkedHashSet<>();
-		for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(target.name()))
+		for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(target.lookupName()))
 		{
 			int id = ownedOnly
 				? OwnedOnlyMandatoryOverrideGate.ownedOnlySatisfyingItemId(override, ownedIds)

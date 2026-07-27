@@ -1895,7 +1895,7 @@ public final class GearSection extends CollapsibleSection
 		if (slot == WEAPON_SLOT)
 		{
 			MonsterCombatRequirement combatReq =
-				MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.name()).orElse(null);
+				MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.lookupName()).orElse(null);
 			// selectedStyle is null when EVERY style was gated out — i.e. the
 			// weapon has no attack style that can damage this target (the
 			// Kurask-with-a-whip case), which is itself invalid.
@@ -1915,7 +1915,7 @@ public final class GearSection extends CollapsibleSection
 		// must only flag invalid when the slot has an override AND shownId
 		// satisfies NONE of them — not as soon as any single entry mismatches.
 		boolean sawOverrideForSlot = false;
-		for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(selectedMonster.name()))
+		for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(selectedMonster.lookupName()))
 		{
 			if (override.slot().slotOrdinal() != slot)
 			{
@@ -2109,7 +2109,7 @@ public final class GearSection extends CollapsibleSection
 		java.util.Map<String, Integer> baseLevels = currentBaseLevels();
 		int wornAmmoId = effectiveAmmoId();
 		MonsterCombatRequirement requirement =
-			MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.name()).orElse(null);
+			MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.lookupName()).orElse(null);
 		int[] baseItemIds = WhatIfLoadout.effectiveItemIds(lastGear.equippedItemIds(), override);
 		int blowpipeDartRangedStrength = currentBlowpipeDart().rangedStrength();
 		SpecWeaponSelector.DpsProbe probe = weapon ->
@@ -2430,7 +2430,7 @@ public final class GearSection extends CollapsibleSection
 		// instead rendered as greyed, non-interactive rows below the ranked
 		// ones. Ordinary monsters (no requirement) are unaffected.
 		MonsterCombatRequirement combatReq = selectedMonster == null ? null
-			: MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.name()).orElse(null);
+			: MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.lookupName()).orElse(null);
 		int gateWeaponId = effectiveWeaponId();
 		int gateAmmoId = effectiveAmmoId();
 
@@ -3305,7 +3305,7 @@ public final class GearSection extends CollapsibleSection
 			: java.awt.Color.WHITE);
 		updateGearOverrideNote();
 		updateCombatRequirementNote();
-		consumablesReminderPanel.refresh(selectedMonster == null ? null : selectedMonster.name());
+		consumablesReminderPanel.refresh(selectedMonster == null ? null : selectedMonster.lookupName());
 	}
 
 	/**
@@ -3338,7 +3338,7 @@ public final class GearSection extends CollapsibleSection
 		gearOverrideNotePanel.removeAll();
 		List<MonsterGearOverride> overrides = selectedMonster == null
 			? Collections.emptyList()
-			: MonsterGearOverrideRepository.getInstance().forMonster(selectedMonster.name());
+			: MonsterGearOverrideRepository.getInstance().forMonster(selectedMonster.lookupName());
 		java.util.Set<Integer> ownedIds = overrides.isEmpty() ? Collections.emptySet() : ownedPriceMap().keySet();
 		for (MonsterGearOverride override : overrides)
 		{
@@ -3400,7 +3400,7 @@ public final class GearSection extends CollapsibleSection
 		if (selectedMonster != null)
 		{
 			java.util.Optional<MonsterCombatRequirement> req =
-				MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.name());
+				MonsterCombatRequirementRepository.getInstance().forMonster(selectedMonster.lookupName());
 			if (req.isPresent() && !req.get().note().isEmpty())
 			{
 				combatReqNotePanel.add(AdvisoryNoteRenderer.wrappingNote("⚠ " + req.get().note(), ColorScheme.BRAND_ORANGE));
@@ -4944,7 +4944,7 @@ public final class GearSection extends CollapsibleSection
 			// Monster combat gate (e.g. Kurask): restrict weapon/ammo candidates
 			// to what can actually damage the selected target.
 			.combatRequirement(target == null ? null
-				: MonsterCombatRequirementRepository.getInstance().forMonster(target.name()).orElse(null))
+				: MonsterCombatRequirementRepository.getInstance().forMonster(target.lookupName()).orElse(null))
 			.playerBaseLevels(baseLevels)
 			.build();
 	}

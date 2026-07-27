@@ -186,6 +186,17 @@ public final class GearMapper
 		builder.twinflameStaff(GearVariants.isTwinflameStaff(weaponItemId));
 		builder.harmonisedNightmareStaff(GearVariants.isHarmonisedNightmareStaff(weaponItemId));
 		builder.poweredStaff(GearVariants.poweredStaffFor(weaponItemId));
+		builder.tonalzticsOfRalosCharged(GearVariants.isTonalzticsOfRalosCharged(weaponItemId));
+		builder.tonalzticsOfRalosUncharged(GearVariants.isTonalzticsOfRalosUncharged(weaponItemId));
+		builder.scytheOfVitur(GearVariants.isScytheOfVitur(weaponItemId));
+		builder.colossalBlade(GearVariants.isColossalBlade(weaponItemId));
+		builder.kerisPartisan(GearVariants.kerisPartisanFor(weaponItemId));
+		builder.revenantWeapon(GearVariants.revenantWeaponFor(weaponItemId));
+		builder.crystalSetBonusActive(GearVariants.isActiveCrystalBowOrFaerdhinen(weaponItemId)
+			&& GearVariants.isActiveCrystalArmourSet(
+				slotItemId(equippedItemIds, SLOT_HEAD),
+				slotItemId(equippedItemIds, SLOT_BODY),
+				slotItemId(equippedItemIds, SLOT_LEGS)));
 		builder.tome(GearVariants.tomeFor(slotItemId(equippedItemIds, SLOT_SHIELD)));
 		builder.voidSet(GearVariants.voidSetFor(
 			slotItemId(equippedItemIds, SLOT_HEAD),

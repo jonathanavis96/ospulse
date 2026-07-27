@@ -352,17 +352,7 @@ final class DamageDistribution {
         if (cap <= 0 || targetHitpoints <= 0) {
             return 0.0;
         }
-        double denom = uncappedMaxHit + 1.0;
-        double[] p = new double[cap + 1];
-        if (cap == 1) {
-            p[1] = 1.0;
-        } else {
-            p[1] = 2.0 / denom;
-            for (int d = 2; d <= cap - 1; d++) {
-                p[d] = 1.0 / denom;
-            }
-            p[cap] = (uncappedMaxHit - cap + 1.0) / denom;
-        }
+        double[] p = cappedHitsplatDistribution(uncappedMaxHit, cap);
         double[] over = new double[targetHitpoints + 1];
         for (int h = 1; h <= targetHitpoints; h++) {
             double sum = 0.0;
@@ -435,6 +425,43 @@ final class DamageDistribution {
         p[1] = 2.0 / denom + rerollShare;
         for (int d = 2; d <= cap; d++) {
             p[d] = 1.0 / denom + rerollShare;
+        }
+        return p;
+    }
+
+    /**
+     * The displayed first-hitsplat distribution for a monster that CLAMPS
+     * each hit above a cap onto the cap itself — the single source of truth
+     * for that distribution's shape, extracted here (from what was
+     * previously an inline array build in {@link #cappedExpectedOverkill})
+     * so every caller (that method, and any multi-hit mechanic that needs to
+     * convolve several capped hits together, e.g. a decaying-cascade or
+     * dual-hit weapon against a capped target) consumes the SAME array and
+     * cannot silently drift apart, mirroring why {@link
+     * #rerolledHitsplatDistribution} exists as its own method rather than
+     * being inlined at each call site.
+     *
+     * <p>Returns a {@code double[cap + 1]} indexed by displayed damage
+     * {@code v}: {@code p[1]} carries the ordinary "rolled 0 becomes 1"
+     * bump ({@code 2/(uncappedMaxHit+1)}), {@code p[2..cap-1]} are the plain
+     * kept share, and {@code p[cap]} additionally piles on every raw result
+     * from {@code cap} to {@code uncappedMaxHit} (the excess probability
+     * mass a clamp — unlike a re-roll — leaves stacked on the cap itself).
+     * Callers must ensure {@code 1 <= cap < uncappedMaxHit} themselves
+     * (mirroring {@link #rerolledHitsplatDistribution}'s own contract) —
+     * this method does not re-check either bound.
+     */
+    static double[] cappedHitsplatDistribution(int uncappedMaxHit, int cap) {
+        double denom = uncappedMaxHit + 1.0;
+        double[] p = new double[cap + 1];
+        if (cap == 1) {
+            p[1] = 1.0;
+        } else {
+            p[1] = 2.0 / denom;
+            for (int d = 2; d <= cap - 1; d++) {
+                p[d] = 1.0 / denom;
+            }
+            p[cap] = (uncappedMaxHit - cap + 1.0) / denom;
         }
         return p;
     }

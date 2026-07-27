@@ -80,7 +80,7 @@ public final class OwnedOnlyMandatoryOverrideGate
 		{
 			return Optional.empty();
 		}
-		for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(target.name()))
+		for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(target.lookupName()))
 		{
 			if (!ownedIds.contains(ownedOnlySatisfyingItemId(override, ownedIds)))
 			{

@@ -23,7 +23,28 @@ public final class DpsResult {
         this.baseEstimate = baseEstimate;
     }
 
-    /** The largest hit possible with this setup. */
+    /**
+     * The standard displayed maximum hit for this setup — the conventional/
+     * nominal figure the OSRS Wiki and other calculators (GearScape, etc.)
+     * quote, matching {@code DpsCalculator.finishFang}'s precedent of always
+     * reporting the TRUE (unshrunk) max hit "matching how the wiki/GearScape
+     * display it" rather than some other in-model number.
+     *
+     * <p><b>Rare damage-multiplying procs are deliberately excluded from
+     * this number</b>, even though they raise the true largest possible hit.
+     * Worked example: the Keris partisan family's 1/51 "puncturing" chance
+     * triples the landed damage (see {@link KerisTripleRoll}), so the true
+     * largest possible hit on a given attack is {@code 3 * maxHit()} — but
+     * {@link KerisTripleRoll#finish} returns the ordinary pre-triple
+     * {@code visibleMaxHit} here, not {@code 3x} it, because reporting the
+     * tripled figure for a 1-in-51 event would make this number disagree
+     * with every other calculator and with the number players actually
+     * quote for the weapon. The proc is NOT silently dropped, though — it is
+     * fully reflected in {@link #dps()}, {@link #avgHit()}, {@link
+     * #ttkSeconds()}, and {@link #overkillPerKill()}, all of which fold in
+     * its extra expected damage. Only this accessor reports the
+     * conventional/nominal figure instead of the true theoretical maximum.
+     */
     public int maxHit() {
         return maxHit;
     }

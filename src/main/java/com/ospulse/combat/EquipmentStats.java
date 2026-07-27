@@ -37,6 +37,13 @@ public final class EquipmentStats {
     private final boolean harmonisedNightmareStaff;
     private final PoweredStaff poweredStaff;
     private final Tome tome;
+    private final boolean tonalzticsOfRalosCharged;
+    private final boolean tonalzticsOfRalosUncharged;
+    private final boolean scytheOfVitur;
+    private final boolean colossalBlade;
+    private final KerisPartisan kerisPartisan;
+    private final RevenantWeapon revenantWeapon;
+    private final boolean crystalSetBonusActive;
 
     private EquipmentStats(Builder b) {
         this.astab = b.astab;
@@ -66,6 +73,13 @@ public final class EquipmentStats {
         this.harmonisedNightmareStaff = b.harmonisedNightmareStaff;
         this.poweredStaff = b.poweredStaff;
         this.tome = b.tome;
+        this.tonalzticsOfRalosCharged = b.tonalzticsOfRalosCharged;
+        this.tonalzticsOfRalosUncharged = b.tonalzticsOfRalosUncharged;
+        this.scytheOfVitur = b.scytheOfVitur;
+        this.colossalBlade = b.colossalBlade;
+        this.kerisPartisan = b.kerisPartisan;
+        this.revenantWeapon = b.revenantWeapon;
+        this.crystalSetBonusActive = b.crystalSetBonusActive;
     }
 
     public int astab() {
@@ -213,6 +227,83 @@ public final class EquipmentStats {
         return tome;
     }
 
+    /**
+     * True when the worn weapon is the CHARGED Tonalztics of Ralos (item id
+     * 28922) — fires two full, independent damage rolls per attack rather
+     * than the ordinary single roll; see {@link TonalzticsDualHit}. The
+     * uncharged variant (28919) leaves this {@code false}.
+     */
+    public boolean tonalzticsOfRalosCharged() {
+        return tonalzticsOfRalosCharged;
+    }
+
+    /**
+     * True when the worn weapon is the UNCHARGED Tonalztics of Ralos (item id
+     * 28919) — fires a SINGLE hit over the same reduced 75% range as the
+     * charged form's per-hit roll (not an ordinary full-range 0..M single
+     * hit); see {@link TonalzticsDualHit#perHitMaxHit} and {@link
+     * com.ospulse.combat.DpsCalculator}'s ranged compute method. The charged
+     * variant (28922) leaves this {@code false}.
+     */
+    public boolean tonalzticsOfRalosUncharged() {
+        return tonalzticsOfRalosUncharged;
+    }
+
+    /**
+     * True when the worn weapon is any Scythe of Vitur variant (Holy/Sanguine
+     * reskins included) — its target-size-scaled multi-hit cascade applies to
+     * melee attacks; see {@link ScytheCascade}.
+     */
+    public boolean scytheOfVitur() {
+        return scytheOfVitur;
+    }
+
+    /**
+     * True when the worn weapon is the Colossal blade (item id 27021) — a
+     * flat {@code +2 * min(targetSize, 5)} bonus (up to +10) applies to its
+     * melee max hit, stacking with the on-task slayer helm/black mask; see
+     * {@link DpsCalculator#computeMelee}.
+     */
+    public boolean colossalBlade() {
+        return colossalBlade;
+    }
+
+    /**
+     * The worn weapon's {@link KerisPartisan} variant ({@link
+     * KerisPartisan#NONE} if not a Keris) — its vs-Kalphite/Scarabite
+     * damage/accuracy bonus and triple-damage roll apply when the target
+     * carries {@link MonsterAttribute#KALPHITE}; see {@link
+     * DpsCalculator#computeMelee} / {@link KerisTripleRoll}.
+     */
+    public KerisPartisan kerisPartisan() {
+        return kerisPartisan;
+    }
+
+    /**
+     * The worn weapon's {@link RevenantWeapon} ({@link RevenantWeapon#NONE}
+     * if not one) — Craw's bow / Viggora's chainmace / Thammaron's sceptre's
+     * +50% accuracy/damage vs any Wilderness NPC; see {@link
+     * DpsCalculator}'s per-style compute methods and {@link
+     * WildernessMonsterRepository}.
+     */
+    public RevenantWeapon revenantWeapon() {
+        return revenantWeapon;
+    }
+
+    /**
+     * True when the loadout wears the full ACTIVE Crystal armour set (head +
+     * body + legs) AND wields an ACTIVE Crystal bow / Bow of Faerdhinen
+     * variant — the conditional weapon+armour combo's +15% damage/+30%
+     * accuracy applies to ranged attacks; see {@link
+     * com.ospulse.session.GearVariants#isActiveCrystalArmourSet}/{@link
+     * com.ospulse.session.GearVariants#isActiveCrystalBowOrFaerdhinen} for
+     * how this is resolved (both computed once by {@code GearMapper}, since
+     * it is the only place with access to every relevant slot).
+     */
+    public boolean crystalSetBonusActive() {
+        return crystalSetBonusActive;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -245,6 +336,13 @@ public final class EquipmentStats {
         private boolean harmonisedNightmareStaff;
         private PoweredStaff poweredStaff = PoweredStaff.NONE;
         private Tome tome = Tome.NONE;
+        private boolean tonalzticsOfRalosCharged;
+        private boolean tonalzticsOfRalosUncharged;
+        private boolean scytheOfVitur;
+        private boolean colossalBlade;
+        private KerisPartisan kerisPartisan = KerisPartisan.NONE;
+        private RevenantWeapon revenantWeapon = RevenantWeapon.NONE;
+        private boolean crystalSetBonusActive;
 
         private Builder() {
         }
@@ -339,6 +437,41 @@ public final class EquipmentStats {
 
         public Builder poweredStaff(PoweredStaff value) {
             this.poweredStaff = value;
+            return this;
+        }
+
+        public Builder tonalzticsOfRalosCharged(boolean value) {
+            this.tonalzticsOfRalosCharged = value;
+            return this;
+        }
+
+        public Builder tonalzticsOfRalosUncharged(boolean value) {
+            this.tonalzticsOfRalosUncharged = value;
+            return this;
+        }
+
+        public Builder scytheOfVitur(boolean value) {
+            this.scytheOfVitur = value;
+            return this;
+        }
+
+        public Builder colossalBlade(boolean value) {
+            this.colossalBlade = value;
+            return this;
+        }
+
+        public Builder kerisPartisan(KerisPartisan value) {
+            this.kerisPartisan = value;
+            return this;
+        }
+
+        public Builder revenantWeapon(RevenantWeapon value) {
+            this.revenantWeapon = value;
+            return this;
+        }
+
+        public Builder crystalSetBonusActive(boolean value) {
+            this.crystalSetBonusActive = value;
             return this;
         }
 
