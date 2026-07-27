@@ -83,31 +83,50 @@ public class KerisPartisanEffectTest {
     }
 
     /**
-     * <b>Honest, verified gap</b> (per the design spec's explicit
-     * instruction: "verify Scarabites carry it; if they do not, say so
-     * rather than assuming"): a handful of Tombs of Amascut scarab entries
-     * and one Construction-minigame Kalphite soldier variant do NOT carry
-     * {@link MonsterAttribute#KALPHITE} in the currently bundled monster
-     * data, even though they are Kalphite/Scarab creatures in-game. This is
-     * a bundled-monster-data completeness gap, not something this stage's
-     * item-mechanic wiring (which correctly uses the attribute, per spec)
-     * can fix — flagged here so it is not silently lost. If a future data
-     * refresh adds the attribute to these, this test will start failing and
-     * should be updated to the "must carry" list above instead of deleted.
+     * <b>Verified CORRECT, not a gap</b> — these four genuinely do not take the
+     * Keris bonus, so the bundled data is right to withhold the attribute.
+     *
+     * <p>This was originally recorded as a suspected bundled-data completeness
+     * gap, on the reasoning that they are Kalphite/Scarab creatures in-game and
+     * every sibling carries the attribute. Three checks and one in-client
+     * observation settled it the other way:
+     *
+     * <ol>
+     * <li>upstream {@code weirdgloop/osrs-dps-calc} has all four with empty
+     *     {@code attributes}, while {@code Scarab Swarm (Normal)},
+     *     {@code Kalphite Soldier} and every other sibling carry
+     *     {@code kalphite};</li>
+     * <li>the OSRS Wiki's own infoboxes likewise carry no
+     *     {@code attributes = kalphite} on these four, and do on the siblings;</li>
+     * <li>the wiki's {@code Kalphite (attribute)} page does say "the effect also
+     *     applies to all scabarites", which is why attribute-absence alone could
+     *     NOT settle it — that sentence is what kept this open; and</li>
+     * <li>in-client confirmation (Jonathan, 2026-07-27) that the bonus does not
+     *     in fact fire on them.</li>
+     * </ol>
+     *
+     * <p>So all three data sources agree with the game, and the gate keying off
+     * {@link MonsterAttribute#KALPHITE} produces the right answer here.
+     *
+     * <p><b>If this test ever starts failing</b>, a data refresh has ADDED the
+     * attribute to one of these — which would contradict the in-client
+     * observation above. Investigate the refresh rather than moving the name
+     * into the "must carry" list, and re-verify in game before trusting it.
      */
     @Test
-    public void bundledData_knownGap_someToaScarabsAndOneConstructionVariantLackTheAttribute() {
+    public void bundledData_toaScarabsAndConstructionKalphite_correctlyLackTheAttribute() {
         MonsterRepository repo = MonsterRepository.getInstance();
-        String[] missingKalphiteTag = {
+        String[] correctlyWithoutKalphite = {
                 "Scarab (Tombs of Amascut)",
                 "Scarab Swarm (Tombs of Amascut)",
                 "Scarab Swarm (Beneath Cursed Sands)",
                 "Kalphite soldier (Construction)",
         };
-        for (String name : missingKalphiteTag) {
+        for (String name : correctlyWithoutKalphite) {
             Optional<Monster> m = repo.byName(name);
             assertTrue(name + " must exist in the bundled data", m.isPresent());
-            assertFalse(name + " is a known gap in the bundled data (does NOT carry KALPHITE)",
+            assertFalse(name + " correctly does NOT carry KALPHITE — the Keris bonus does not "
+                            + "fire on it in game (confirmed in-client 2026-07-27)",
                     m.get().attributes().contains(MonsterAttribute.KALPHITE));
         }
     }
