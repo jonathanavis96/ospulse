@@ -187,6 +187,12 @@ final class KerisTripleRoll {
         double avgDamage = averageDamagePerAttack(baseAverage);
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
         double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
+        // Deliberately returning visibleMaxHit (NOT 3x it) even though the 1/51
+        // puncture roll can triple the landed damage: DpsResult#maxHit()'s
+        // contract is the standard/displayed max hit, matching the wiki and
+        // other calculators, not the true theoretical maximum with a rare proc
+        // included - see that javadoc for the full rationale. The proc is
+        // still fully reflected in dps/avgDamage/ttkSeconds/overkill above.
         return new DpsResult(visibleMaxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, false);
     }
 }

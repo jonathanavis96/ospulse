@@ -285,6 +285,45 @@ public class KerisPartisanEffectTest {
         assertEquals(onKalphite.dps(), onNonKalphite.dps(), 1e-9);
     }
 
+    /**
+     * P2 review finding, resolved as "fix the contract text, not the
+     * number" (see {@link DpsResult#maxHit()}'s javadoc and the note at
+     * {@link KerisTripleRoll#finish}'s return site): {@code maxHit()} is the
+     * STANDARD displayed max hit, matching the wiki/GearScape convention —
+     * the 1/51 puncture proc that can triple the landed damage is
+     * deliberately excluded from it, even though the true largest possible
+     * hit is {@code 3x} that number. This test pins BOTH halves of that
+     * contract so a future change cannot silently regress either direction:
+     * {@code maxHit()} must equal the ordinary pre-triple visible max (never
+     * {@code 3x} it), while {@code dps()} must still be strictly greater
+     * than the identical setup with the triple proc's contribution removed
+     * — proving the proc is accounted for somewhere, just not in
+     * {@code maxHit()}.
+     */
+    @Test
+    public void maxHit_isThePreTripleVisibleMax_whileDpsStrictlyReflectsTheTripleProc() {
+        Monster kalphite = monster(EnumSet.of(MonsterAttribute.KALPHITE));
+        EquipmentStats kerisGear = gear().kerisPartisan(KerisPartisan.PARTISAN).build();
+        DpsResult keris = compute(kerisGear, kalphite);
+
+        int effStr = CombatMath.effectiveMeleeOrRangedLevel(99, 1.0, 3, 8, 1.0);
+        int baseMaxHit = CombatMath.meleeOrRangedMaxHit(effStr, 100, Fraction.ONE);
+        int expectedVisibleMaxHit = (int) Math.floor(baseMaxHit * 133.0 / 100.0);
+
+        assertEquals("maxHit() must be the pre-triple visible max, not 3x it",
+                expectedVisibleMaxHit, keris.maxHit());
+        assertTrue("maxHit() must not accidentally equal the tripled figure",
+                keris.maxHit() != 3 * expectedVisibleMaxHit);
+
+        // Same setup with the triple proc's contribution removed: the plain
+        // 0..maxHit average (no 53/51 rescale) fed through the same dps formula.
+        double avgWithoutTripleProc = DamageDistribution.averageDamagePerAttack(keris.accuracy(), keris.maxHit());
+        double dpsWithoutTripleProc = CombatMath.dps(avgWithoutTripleProc, kerisGear.weaponSpeedTicks());
+
+        assertTrue("dps() must be strictly greater than the same setup without the triple proc",
+                keris.dps() > dpsWithoutTripleProc);
+    }
+
     @Test
     public void endToEnd_matchesKerisTripleRollFormulaDirectly() {
         Monster kalphite = monster(EnumSet.of(MonsterAttribute.KALPHITE));
