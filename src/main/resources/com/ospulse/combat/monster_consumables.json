@@ -31,7 +31,7 @@
       ],
       "note": "Metal dragons' dragonfire pierces Protect from Magic, so the prayer alone does nothing. A super antifire potion gives full protection by itself, and an ordinary antifire potion paired with an anti-dragon shield, dragonfire shield, or dragonfire ward does too.",
       "equipmentItemIds": [1540, 11710, 11283, 11284, 22002, 22003],
-      "consumableItemIds": [21978, 21981, 21984, 21987, 22209, 22212, 22215, 22218]
+      "consumableItemIds": [21978, 21981, 21984, 21987, 22209, 22212, 22215, 22218, 2452, 2454, 2456, 2458, 11951, 11953, 11955, 11957]
     },
     {
       "monsters": [

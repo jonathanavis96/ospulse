@@ -96,13 +96,25 @@ public class MonsterConsumablesRepositoryTest
 	 * protection by itself" — it must carry those consumable ids now, not
 	 * just the shield equipment ids.
 	 */
-	@Test public void metalDragons_haveSuperAntifireConsumableIds()
+	/**
+	 * The metal-dragon note offers TWO valid setups — "a super antifire potion gives
+	 * full protection by itself, and an ordinary antifire potion paired with an
+	 * anti-dragon shield, dragonfire shield, or dragonfire ward does too" — so both
+	 * antifire tiers must reach the bank tag. The ordinary family was missed on the
+	 * first pass because the note was read truncated at "and a...", which is why the
+	 * assertion below names the ordinary doses explicitly rather than just checking
+	 * the set is non-empty.
+	 */
+	@Test public void metalDragons_haveBothSuperAndOrdinaryAntifireConsumableIds()
 	{
 		Optional<MonsterConsumablesReminder> r = MonsterConsumablesRepository.getInstance().forMonster("Rune dragon");
 		assertTrue(r.isPresent());
 		assertFalse("metal dragons must have consumable item ids", r.get().consumableItemIds().isEmpty());
 		assertTrue("must include a super antifire dose (21978)", r.get().consumableItemIds().contains(21978));
 		assertTrue("must include an extended super antifire dose (22209)", r.get().consumableItemIds().contains(22209));
+		assertTrue("must include an ordinary antifire dose (2452) — the note's shield combination",
+			r.get().consumableItemIds().contains(2452));
+		assertTrue("must include an extended antifire dose (11951)", r.get().consumableItemIds().contains(11951));
 	}
 
 	@Test public void unknownMonsterEmpty()
