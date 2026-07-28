@@ -129,7 +129,7 @@ public final class SessionEngine
 	 * the net-worth delta until the bank-side rise lands (settling the entry,
 	 * see {@link #reconcileBankMovement}), an offsetting tracked-side rise
 	 * cancels it (equip flicker / an in-flight withdrawal netting against it,
-	 * see {@link #trackOpenTrackedSwing}), or it expires after
+	 * see {@link #trackOpenSwing}), or it expires after
 	 * {@link #BANK_TRANSFER_SETTLE_WINDOW_MS}. FIFO. (The symmetric
 	 * withdrawal-direction debt from a confirmed stale re-read lives in
 	 * {@link #pendingStaleBankDrop}.)
@@ -157,7 +157,7 @@ public final class SessionEngine
 	 * The shape is also observationally identical to the player genuinely
 	 * depositing the withdrawal straight back, so the fold stands — arming
 	 * this suspicion changes nothing on its own. It only lets
-	 * {@link #trackOpenTrackedSwing} intercept the one continuation a genuine
+	 * {@link #trackOpenSwing} intercept the one continuation a genuine
 	 * re-deposit can never produce: the tracked side snapping forward again
 	 * to exactly {@link #revertSuspectTracked} with the bank reading unmoved.
 	 * {@code revertSuspectAmount == 0} means no suspicion is armed; cleared
@@ -1013,7 +1013,7 @@ public final class SessionEngine
 			// TRUE -> FALSE: bank just closed. The close snapshot can carry a
 			// last-instant deposit whose bank side is still in flight — hold
 			// it pending exactly like a mid-visit one.
-			trackOpenTrackedSwing(current, bankDelta, tsMs);
+			trackOpenSwing(current, bankDelta, tsMs);
 			if (!sawBankBeforeTransition)
 			{
 				// The bank value never became visible during the visit, so no
@@ -1110,7 +1110,7 @@ public final class SessionEngine
 	 * genuinely re-depositing the withdrawal, for which the fold is correct —
 	 * but its exact-undo shape arms {@link #maybeSuspectStaleReread}, letting
 	 * the one continuation a genuine re-deposit cannot produce be held out of
-	 * profit (see {@link #trackOpenTrackedSwing}), with the overstated bank
+	 * profit (see {@link #trackOpenSwing}), with the overstated bank
 	 * reading owed back via {@link #pendingStaleBankDrop}: a later drop pays
 	 * that debt down before anything is classified, so the correction moves
 	 * nothing whenever it lands.
@@ -1122,7 +1122,7 @@ public final class SessionEngine
 	 *
 	 * @return the observed bank movement (0 if none / bank unknown), so a
 	 *         caller diffing tracked wealth over the same observation can
-	 *         pair the two sides (see {@link #trackOpenTrackedSwing}).
+	 *         pair the two sides (see {@link #trackOpenSwing}).
 	 */
 	private long reconcileBankMovement(WealthSnapshot current, long tsMs)
 	{
@@ -1254,7 +1254,7 @@ public final class SessionEngine
 	 * genuinely depositing the withdrawal straight back, and for that case
 	 * the fold is correct); arming the suspicion merely records what a stale
 	 * re-read would look like one observation later, for
-	 * {@link #trackOpenTrackedSwing} to intercept.
+	 * {@link #trackOpenSwing} to intercept.
 	 *
 	 * @return whether the suspicion was armed by this movement.
 	 */
@@ -1308,7 +1308,7 @@ public final class SessionEngine
 	 * mistaken deposit fold ({@code baseline += rise}) and records the drop the
 	 * still-overstated bank reading owes (see {@link #pendingStaleBankDrop}), so
 	 * a later bank drop settles it to nothing. Shared by the open-bank swing
-	 * ({@link #trackOpenTrackedSwing}) and the closed-bank diff ({@link
+	 * ({@link #trackOpenSwing}) and the closed-bank diff ({@link
 	 * #update}), because the snap-forward can arrive after the bank has closed —
 	 * flowing through the closed-path loot diff, which would otherwise book it
 	 * as a fresh gain.
@@ -1356,7 +1356,7 @@ public final class SessionEngine
 	 * a visible bank value — with no bank channel to ever settle against, a
 	 * hold would just delay the pre-live blind-visit accounting.
 	 */
-	private void trackOpenTrackedSwing(WealthSnapshot current, long bankDelta, long tsMs)
+	private void trackOpenSwing(WealthSnapshot current, long bankDelta, long tsMs)
 	{
 		if (previous == null || !current.isBankKnown() || !bankAnchorKnown)
 		{
@@ -1400,7 +1400,7 @@ public final class SessionEngine
 	 * them straight into the bank — the collection box's "Bank" button, which
 	 * never opens the bank interface, so {@link #bankOpen} stays false — drops
 	 * tracked wealth with no offsetting item swing for the loot diff to see and
-	 * no {@link #trackOpenTrackedSwing} deposit hold (that only runs while
+	 * no {@link #trackOpenSwing} deposit hold (that only runs while
 	 * banking). Left alone the drop books straight to profit as a phantom loss,
 	 * while the matching bank rise is mis-classified as a passive revaluation
 	 * (see {@link #reconcileBankMovement}). Registering the collectable drop as
@@ -1743,7 +1743,7 @@ public final class SessionEngine
 					}
 				}
 			}
-			trackOpenTrackedSwing(current, bankDelta, tsMs);
+			trackOpenSwing(current, bankDelta, tsMs);
 			logUpdateBreakdown(current, 0L, 0L, 0L, 0L, 0L, 0L);
 			this.previous = current;
 			return;
@@ -1794,7 +1794,7 @@ public final class SessionEngine
 
 		// A confirmed stale re-read's inventory snap-forward can arrive after
 		// the bank has closed, flowing here instead of through
-		// trackOpenTrackedSwing. Intercept it before the loot diff so the
+		// trackOpenSwing. Intercept it before the loot diff so the
 		// re-served withdrawal is held out of profit rather than booked as a
 		// gain. Any real bank movement this observation would already have
 		// cleared the suspicion in reconcileBankMovement, so the whole tracked
@@ -3229,7 +3229,7 @@ public final class SessionEngine
 		// In-flight deposits (tracked drop observed, lagged bank rise not
 		// yet) are still owned wealth: add them back so a transfer is
 		// zero-sum even mid-lag. They settle/cancel/expire via
-		// reconcileBankMovement / trackOpenTrackedSwing.
+		// reconcileBankMovement / trackOpenSwing.
 		long pendingSettle = pendingSettleTotal();
 		long deployedHeld = deployedValue();
 		long deathHeld = atDeathValue();

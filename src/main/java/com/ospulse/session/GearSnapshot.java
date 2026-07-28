@@ -3,6 +3,9 @@ package com.ospulse.session;
 import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.OffensivePrayer;
 
+import lombok.Getter;
+import lombok.experimental.Accessors;
+
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -23,6 +26,7 @@ import java.util.Set;
  * {@code com.ospulse.combat} DPS engine. This keeps the gear-&gt;DPS mapping
  * pure and unit-testable without a running game client.
  */
+@Accessors(fluent = true)
 public final class GearSnapshot
 {
 	/** {@code net.runelite.api.EquipmentInventorySlot.values().length} — kept in sync manually since this class has no RuneLite dependency. */
@@ -31,24 +35,43 @@ public final class GearSnapshot
 	private static final GearSnapshot EMPTY = builder().build();
 
 	private final int[] equippedItemIds;
+	@Getter
 	private final int baseAttack;
+	@Getter
 	private final int boostedAttack;
+	@Getter
 	private final int baseStrength;
+	@Getter
 	private final int boostedStrength;
+	@Getter
 	private final int baseDefence;
+	@Getter
 	private final int boostedDefence;
+	@Getter
 	private final int baseRanged;
+	@Getter
 	private final int boostedRanged;
+	@Getter
 	private final int baseMagic;
+	@Getter
 	private final int boostedMagic;
+	@Getter
 	private final int basePrayer;
+	@Getter
 	private final int boostedPrayer;
+	@Getter
 	private final int baseHitpoints;
+	@Getter
 	private final int boostedHitpoints;
+	@Getter
 	private final int baseSlayer;
+	@Getter
 	private final int boostedSlayer;
+	@Getter
 	private final int baseAgility;
+	@Getter
 	private final int boostedAgility;
+	@Getter
 	private final Set<OffensivePrayer> activePrayers;
 	/**
 	 * TODO Phase 2+: on-task Slayer detection is not wired to a live client
@@ -56,6 +79,7 @@ public final class GearSnapshot
 	 * always {@code false} for now, so Slayer helm(i)/black mask(i) on-task
 	 * bonuses never apply until this is read live.
 	 */
+	@Getter
 	private final boolean onSlayerTask;
 	/**
 	 * Pre-summed loadout-wide {@link EquipmentStats}, resolved once on the
@@ -141,106 +165,6 @@ public final class GearSnapshot
 	public int itemIdAt(int slotOrdinal)
 	{
 		return slotOrdinal >= 0 && slotOrdinal < equippedItemIds.length ? equippedItemIds[slotOrdinal] : -1;
-	}
-
-	public int baseAttack()
-	{
-		return baseAttack;
-	}
-
-	public int boostedAttack()
-	{
-		return boostedAttack;
-	}
-
-	public int baseStrength()
-	{
-		return baseStrength;
-	}
-
-	public int boostedStrength()
-	{
-		return boostedStrength;
-	}
-
-	public int baseDefence()
-	{
-		return baseDefence;
-	}
-
-	public int boostedDefence()
-	{
-		return boostedDefence;
-	}
-
-	public int baseRanged()
-	{
-		return baseRanged;
-	}
-
-	public int boostedRanged()
-	{
-		return boostedRanged;
-	}
-
-	public int baseMagic()
-	{
-		return baseMagic;
-	}
-
-	public int boostedMagic()
-	{
-		return boostedMagic;
-	}
-
-	public int basePrayer()
-	{
-		return basePrayer;
-	}
-
-	public int boostedPrayer()
-	{
-		return boostedPrayer;
-	}
-
-	public int baseHitpoints()
-	{
-		return baseHitpoints;
-	}
-
-	public int boostedHitpoints()
-	{
-		return boostedHitpoints;
-	}
-
-	public int baseSlayer()
-	{
-		return baseSlayer;
-	}
-
-	public int boostedSlayer()
-	{
-		return boostedSlayer;
-	}
-
-	public int baseAgility()
-	{
-		return baseAgility;
-	}
-
-	public int boostedAgility()
-	{
-		return boostedAgility;
-	}
-
-	public Set<OffensivePrayer> activePrayers()
-	{
-		return activePrayers;
-	}
-
-	public boolean onSlayerTask()
-	{
-		return onSlayerTask;
 	}
 
 	/**

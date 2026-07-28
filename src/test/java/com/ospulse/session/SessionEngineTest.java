@@ -863,7 +863,7 @@ public class SessionEngineTest
 		// The previously un-intercepted edge of the stale re-read fix: the
 		// inventory's forward snap-back arrives AFTER the bank has fully
 		// closed, so it flows through the closed-bank loot diff rather than
-		// trackOpenTrackedSwing (which carried the confirm logic). The confirm
+		// trackOpenSwing (which carried the confirm logic). The confirm
 		// must fire on the closed path too — otherwise the withdrawal books as
 		// +w phantom profit that sticks until the next visit corrects the bank
 		// reading.

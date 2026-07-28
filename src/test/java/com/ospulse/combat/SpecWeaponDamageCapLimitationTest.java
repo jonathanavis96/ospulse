@@ -70,7 +70,7 @@ public class SpecWeaponDamageCapLimitationTest {
 
         // Pins the defect precisely: the score equals a plain uncapped 0..6 roll,
         // so the cap that produced the 4 has vanished from the calculation.
-        assertEquals(DamageDistribution.averageDamagePerAttack(certainHit, boostedMax), scored, 1e-9);
+        assertEquals(DamageDistribution.averageDamage(certainHit, boostedMax), scored, 1e-9);
         assertTrue("boosted roll must exceed the cap for this to be a real gap", boostedMax > cappedMaxHit);
     }
 
@@ -89,7 +89,7 @@ public class SpecWeaponDamageCapLimitationTest {
         double certainHit = 1.0;
 
         double scored = blowpipe().expectedDamagePerUse(certainHit, cappedMaxHit);
-        double clampCorrect = DamageDistribution.cappedAverageDamagePerAttack(certainHit, boostedMax, cap);
+        double clampCorrect = DamageDistribution.cappedAverageDamage(certainHit, boostedMax, cap);
 
         assertEquals(19.0 / 7.0, clampCorrect, 1e-9);   // 2.714...
         assertEquals(22.0 / 7.0, scored, 1e-9);         // 3.142...

@@ -116,7 +116,7 @@ public class ScytheCascadeMathTest {
         for (double hitChance : hitChances) {
             int[] maxHits = ScytheCascade.cascadeMaxHits(30, 1);
             double expected = bruteForceAverage(hitChance, maxHits);
-            double actual = ScytheCascade.averageDamagePerAttack(hitChance, 30, 1);
+            double actual = ScytheCascade.averageDamage(hitChance, 30, 1);
             assertEquals("hitChance=" + hitChance, expected, actual, DELTA);
         }
     }
@@ -126,7 +126,7 @@ public class ScytheCascadeMathTest {
         double[] hitChances = {1.0, 0.85, 0.4};
         for (double hitChance : hitChances) {
             double expected = bruteForceAverage(hitChance, ScytheCascade.cascadeMaxHits(24, 2));
-            double actual = ScytheCascade.averageDamagePerAttack(hitChance, 24, 2);
+            double actual = ScytheCascade.averageDamage(hitChance, 24, 2);
             assertEquals("hitChance=" + hitChance, expected, actual, DELTA);
         }
     }
@@ -138,7 +138,7 @@ public class ScytheCascadeMathTest {
         for (int base : baseMaxHits) {
             for (double hitChance : hitChances) {
                 double expected = bruteForceAverage(hitChance, ScytheCascade.cascadeMaxHits(base, 3));
-                double actual = ScytheCascade.averageDamagePerAttack(hitChance, base, 3);
+                double actual = ScytheCascade.averageDamage(hitChance, base, 3);
                 assertEquals("base=" + base + " hitChance=" + hitChance, expected, actual, DELTA);
             }
         }
@@ -177,8 +177,8 @@ public class ScytheCascadeMathTest {
         // A 1x1 target degenerates to exactly the ordinary single-hit case.
         double hitChance = 0.77;
         int maxHit = 33;
-        assertEquals(DamageDistribution.averageDamagePerAttack(hitChance, maxHit),
-                ScytheCascade.averageDamagePerAttack(hitChance, maxHit, 1), DELTA);
+        assertEquals(DamageDistribution.averageDamage(hitChance, maxHit),
+                ScytheCascade.averageDamage(hitChance, maxHit, 1), DELTA);
         assertEquals(DamageDistribution.expectedOverkill(maxHit, 50),
                 ScytheCascade.expectedOverkill(hitChance, maxHit, 1, 50), DELTA);
     }
@@ -188,15 +188,15 @@ public class ScytheCascadeMathTest {
     @Test
     public void cappedAverage_capAtOrAboveMaxHitDelegatesToUncapped() {
         double hitChance = 0.6;
-        double expected = ScytheCascade.averageDamagePerAttack(hitChance, 47, 3);
-        assertEquals(expected, ScytheCascade.cappedAverageDamagePerAttack(hitChance, 47, 3, 99), DELTA);
+        double expected = ScytheCascade.averageDamage(hitChance, 47, 3);
+        assertEquals(expected, ScytheCascade.cappedAverageDamage(hitChance, 47, 3, 99), DELTA);
     }
 
     @Test
     public void rerolledAverage_capAtOrAboveMaxHitDelegatesToUncapped() {
         double hitChance = 0.6;
-        double expected = ScytheCascade.averageDamagePerAttack(hitChance, 47, 3);
-        assertEquals(expected, ScytheCascade.rerolledAverageDamagePerAttack(hitChance, 47, 3, 99), DELTA);
+        double expected = ScytheCascade.averageDamage(hitChance, 47, 3);
+        assertEquals(expected, ScytheCascade.rerolledAverageDamage(hitChance, 47, 3, 99), DELTA);
     }
 
     @Test
@@ -235,7 +235,7 @@ public class ScytheCascadeMathTest {
             }
             expectedSum += sum / (m + 1.0);
         }
-        double actual = ScytheCascade.cappedAverageDamagePerAttack(hitChance, 47, 3, cap);
+        double actual = ScytheCascade.cappedAverageDamage(hitChance, 47, 3, cap);
         assertEquals(expectedSum, actual, DELTA);
     }
 }

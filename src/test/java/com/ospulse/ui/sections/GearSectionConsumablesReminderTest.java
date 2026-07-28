@@ -199,7 +199,7 @@ public class GearSectionConsumablesReminderTest
 	/**
 	 * Regression guard for the "6 of 9 rows show nothing in the bank" gap:
 	 * before {@code consumableItemIds} existed, these six monsters' reminders
-	 * were prose-only and {@code bankConsumableItemIds()} returned nothing for
+	 * were prose-only and {@code bankConsumableIds()} returned nothing for
 	 * them because it only ever read {@code equipmentItemIds}. Each must now
 	 * yield at least one id via the combined equipment+consumable path.
 	 */
@@ -251,7 +251,7 @@ public class GearSectionConsumablesReminderTest
 	 * Vorkath's combined bank tag path ({@code bankConsumableItemIdsForTest})
 	 * must return the curated equipment ids first, then the curated
 	 * consumable ids in their JSON insertion order — {@code
-	 * bankConsumableItemIds()} builds a {@code LinkedHashSet} seeded with
+	 * bankConsumableIds()} builds a {@code LinkedHashSet} seeded with
 	 * {@code equipmentItemIds()} before adding {@code consumableItemIds()},
 	 * so this is only correct end-to-end once the repository itself stops
 	 * scrambling the consumable order via {@code HashSet}.

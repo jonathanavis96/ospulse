@@ -27,7 +27,7 @@ package com.ospulse.combat;
  * hitChance/avgDamage formulas replace the generic ones entirely rather than
  * being a multiplicative step on maxHit/attackRoll — see computeMelee /
  * finishFang / {@link DamageDistribution#fangHitChance} /
- * {@link DamageDistribution#fangAverageDamagePerAttack}). Six further
+ * {@link DamageDistribution#fangAverageDamage}). Six further
  * multi-hit/conditional-bonus mechanics (design spec §9, each behind its own
  * "applies when" predicate): the Scythe of Vitur family's target-size-scaled
  * 1-3x cascade (own bespoke hitChance/average pair, see {@link
@@ -73,17 +73,17 @@ package com.ospulse.combat;
  * piles the roll's excess probability mass onto the cap itself (The
  * Hueycoatl's tail), {@code REROLL} re-rolls a too-high hit uniformly into
  * {@code 0..cap} (Verzik). Even for the GENERIC 0..maxHit roll this is NOT
- * simply {@link DamageDistribution#averageDamagePerAttack}/{@link
+ * simply {@link DamageDistribution#averageDamage}/{@link
  * DamageDistribution#expectedOverkill} fed the cap as maxHit — that shape equivalence
  * (a re-roll into {@code 0..cap} of a uniform {@code 0..M} roll is exactly a
  * uniform {@code 0..cap} roll) is real, but those two methods ALSO bake in
  * the ordinary "rolled 0 becomes 1" bump, which belongs to the ORIGINAL roll
  * and does not apply a second time to the re-roll's own genuine zero —
- * {@link DamageDistribution#rerolledAverageDamagePerAttack}/{@code
+ * {@link DamageDistribution#rerolledAverageDamage}/{@code
  * rerolledExpectedOverkill} get this right; see {@link #finish}. Osmumten's
  * fang needs its own re-rolled formulas for a different reason (its
  * compressed roll isn't 0..M to begin with) — see {@link #finishFang} and
- * {@link DamageDistribution#rerolledFangAverageDamagePerAttack}.
+ * {@link DamageDistribution#rerolledFangAverageDamage}.
  */
 public final class DpsCalculator {
     private DpsCalculator() {
@@ -323,7 +323,7 @@ public final class DpsCalculator {
 
         // Osmumten's fang (and re-skins/cosmetics): two passives, STAB style
         // only (the double-accuracy-roll passive was restricted to Stab by the
-        // 17 Jan 2024 update — see DamageDistribution.fangHitChance/fangAverageDamagePerAttack
+        // 17 Jan 2024 update — see DamageDistribution.fangHitChance/fangAverageDamage
         // for the exact formulas + citation). Neither passive changes maxHit or
         // attackRoll themselves — they change how hitChance/avgDamage are
         // derived from them, so this bypasses the generic finish() path.
@@ -715,13 +715,13 @@ public final class DpsCalculator {
      * roll stays {@code 0..uncapped} and everything above {@code cap} lands
      * ON the cap — collapsing {@code uncapped} and {@code cap} into one
      * number loses the probability mass that piles up there (see {@link
-     * DamageDistribution#cappedAverageDamagePerAttack}). Under {@code REROLL} the
+     * DamageDistribution#cappedAverageDamage}). Under {@code REROLL} the
      * distribution's SHAPE reduces to a plain {@code 0..cap} roll, but its
      * mean still depends on {@code uncapped}: the ordinary "rolled 0 becomes
      * 1" bump belongs to the ORIGINAL {@code 0..uncapped} roll (see {@link
-     * DamageDistribution#rerolledAverageDamagePerAttack}'s {@code 1/(uncapped+1)}
+     * DamageDistribution#rerolledAverageDamage}'s {@code 1/(uncapped+1)}
      * term) — collapsing to just {@code cap} and feeding it through the
-     * ordinary {@link DamageDistribution#averageDamagePerAttack} would apply that
+     * ordinary {@link DamageDistribution#averageDamage} would apply that
      * bump a second time, to the re-roll's own genuine zero, and overstate
      * the mean. {@link #finishFang} needs the same three kept apart for a
      * different reason on top: it must compress its own {@code lo..hi} roll
@@ -875,21 +875,21 @@ public final class DpsCalculator {
      * uniform-{@code 0..maxHit} roll used by every style except Osmumten's
      * fang (see {@link #finishFang} for that one). Uncapped: the ordinary
      * formulas. {@code CLAMP}: the roll stays {@code 0..uncapped} with excess
-     * mass piled on the cap ({@code cappedAverageDamagePerAttack}/
+     * mass piled on the cap ({@code cappedAverageDamage}/
      * {@code cappedExpectedOverkill}). {@code REROLL}: a re-roll into
      * {@code 0..cap} of a uniform {@code 0..M} roll is EXACTLY a uniform
      * {@code 0..cap} roll — BUT that equivalence is about the shape of the
      * distribution only, not the "rolled 0 becomes 1" bump: the bump belongs
      * to the ORIGINAL {@code 0..M} roll (it happens first), and the re-roll
      * into {@code 0..cap} is a separate, later step with its own genuine
-     * zero. Feeding the cap into {@link DamageDistribution#averageDamagePerAttack}/
+     * zero. Feeding the cap into {@link DamageDistribution#averageDamage}/
      * {@link DamageDistribution#expectedOverkill} (as if it were a plain {@code
      * 0..cap} weapon roll) therefore overstates the mean by the bump's
      * {@code 1/(cap+1)} term where the correct term is {@code 1/(M+1)} — at
      * Verzik's ranged/magic cap of 3 that reports 1.75 instead of the true
      * ~1.524, a 14.8% overstatement (the same over-general-equivalence
      * mistake the fang's re-rolled formulas were built to avoid, caught in
-     * the same review). {@link DamageDistribution#rerolledAverageDamagePerAttack}/
+     * the same review). {@link DamageDistribution#rerolledAverageDamage}/
      * {@code rerolledExpectedOverkill} are the exact, zero-aware versions.
      * Overkill always uses the SAME distribution as avgDamage in every
      * branch, since TTK is derived from both together.
@@ -901,13 +901,13 @@ public final class DpsCalculator {
         double avgDamage;
         double overkill;
         if (!damage.isCapped()) {
-            avgDamage = DamageDistribution.averageDamagePerAttack(hitChance, maxHit);
+            avgDamage = DamageDistribution.averageDamage(hitChance, maxHit);
             overkill = DamageDistribution.expectedOverkill(maxHit, targetHitpoints);
         } else if (damage.mode == MonsterCombatRequirement.CapMode.REROLL) {
-            avgDamage = DamageDistribution.rerolledAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            avgDamage = DamageDistribution.rerolledAverageDamage(hitChance, damage.uncapped, damage.cap);
             overkill = DamageDistribution.rerolledExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
         } else {
-            avgDamage = DamageDistribution.cappedAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            avgDamage = DamageDistribution.cappedAverageDamage(hitChance, damage.uncapped, damage.cap);
             overkill = DamageDistribution.cappedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
         }
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
@@ -923,7 +923,7 @@ public final class DpsCalculator {
      * Osmumten's fang variant of {@link #finish}: uses the fang's own
      * double-accuracy-roll hit chance and compressed-damage-roll average
      * damage (see {@link DamageDistribution#fangHitChance} /
-     * {@link DamageDistribution#fangAverageDamagePerAttack} for the formulas +
+     * {@link DamageDistribution#fangAverageDamage} for the formulas +
      * citation). {@code maxHit} in the returned {@link DpsResult} is left as
      * the TRUE (unshrunk) max hit, matching how the wiki/GearScape display it
      * — only the roll range feeding avgDamage is compressed.
@@ -940,7 +940,7 @@ public final class DpsCalculator {
      * true max (and the {@link MonsterCombatRequirement.CapMode}), which is
      * why this takes the whole {@link TargetDamage} rather than an
      * already-collapsed int. {@code CLAMP}: {@link
-     * DamageDistribution#cappedFangAverageDamagePerAttack} / {@code
+     * DamageDistribution#cappedFangAverageDamage} / {@code
      * cappedFangExpectedOverkill} — both against the fang's own
      * compressed-and-clamped distribution, so the average and the overkill
      * cannot disagree (an earlier version of this ran overkill on the
@@ -949,7 +949,7 @@ public final class DpsCalculator {
      * {@code REROLL}: unlike the generic path, this is NOT algebraically a
      * lower max hit — the fang would re-derive a different, much narrower
      * compression from a lowered max — so it needs its own EXACT formula,
-     * {@link DamageDistribution#rerolledFangAverageDamagePerAttack} / {@code
+     * {@link DamageDistribution#rerolledFangAverageDamage} / {@code
      * rerolledFangExpectedOverkill}, built from the same {@code lo..hi}
      * distribution for both, for exactly the same reason.
      */
@@ -959,13 +959,13 @@ public final class DpsCalculator {
         double avgDamage;
         double overkill;
         if (!damage.isCapped()) {
-            avgDamage = DamageDistribution.fangAverageDamagePerAttack(hitChance, damage.uncapped);
+            avgDamage = DamageDistribution.fangAverageDamage(hitChance, damage.uncapped);
             overkill = DamageDistribution.expectedOverkill(damage.uncapped, targetHitpoints);
         } else if (damage.mode == MonsterCombatRequirement.CapMode.REROLL) {
-            avgDamage = DamageDistribution.rerolledFangAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            avgDamage = DamageDistribution.rerolledFangAverageDamage(hitChance, damage.uncapped, damage.cap);
             overkill = DamageDistribution.rerolledFangExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
         } else {
-            avgDamage = DamageDistribution.cappedFangAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            avgDamage = DamageDistribution.cappedFangAverageDamage(hitChance, damage.uncapped, damage.cap);
             overkill = DamageDistribution.cappedFangExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
         }
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
@@ -999,7 +999,7 @@ public final class DpsCalculator {
      * were already fixed for. {@link TwinflameSecondHit#rerolledSecondHitAverage}/
      * {@code rerolledCombinedExpectedOverkill} are the exact, zero-aware
      * REROLL replacements, built from the same distribution {@link
-     * DamageDistribution#rerolledAverageDamagePerAttack}/{@code
+     * DamageDistribution#rerolledAverageDamage}/{@code
      * rerolledExpectedOverkill} use so all three terms cannot disagree.
      */
     private static DpsResult finishTwinflame(TargetDamage damage, int attackRoll, int defenceRoll, int castSpeedTicks,
@@ -1010,15 +1010,15 @@ public final class DpsCalculator {
         double secondHitAvg;
         double overkill;
         if (!damage.isCapped()) {
-            firstHitAvg = DamageDistribution.averageDamagePerAttack(hitChance, maxHit);
+            firstHitAvg = DamageDistribution.averageDamage(hitChance, maxHit);
             secondHitAvg = TwinflameSecondHit.secondHitAverage(hitChance, maxHit);
             overkill = TwinflameSecondHit.combinedExpectedOverkill(maxHit, targetHitpoints);
         } else if (damage.mode == MonsterCombatRequirement.CapMode.REROLL) {
-            firstHitAvg = DamageDistribution.rerolledAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            firstHitAvg = DamageDistribution.rerolledAverageDamage(hitChance, damage.uncapped, damage.cap);
             secondHitAvg = TwinflameSecondHit.rerolledSecondHitAverage(hitChance, damage.uncapped, damage.cap);
             overkill = TwinflameSecondHit.rerolledCombinedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
         } else {
-            firstHitAvg = DamageDistribution.cappedAverageDamagePerAttack(hitChance, damage.uncapped, damage.cap);
+            firstHitAvg = DamageDistribution.cappedAverageDamage(hitChance, damage.uncapped, damage.cap);
             secondHitAvg = TwinflameSecondHit.cappedSecondHitAverage(hitChance, damage.uncapped, damage.cap);
             overkill = TwinflameSecondHit.cappedCombinedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
         }

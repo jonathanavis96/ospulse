@@ -26,7 +26,7 @@ import static org.junit.Assert.assertTrue;
  * is now {@code hidden} from the settings panel, so the ONLY way to change it
  * is right-clicking the blowpipe in the gear panel's WEAPON slot — a "Set
  * darts" submenu nested in the existing "Exclude from suggestions" popup (see
- * {@code GearSection#buildExcludeItemPopup}/{@code populateBlowpipeDartSubmenu}).
+ * {@code GearSection#buildExcludePopup}/{@code populateBlowpipeDartSubmenu}).
  * Picking a dart must persist it to config and immediately re-rank the
  * readout (mirrors the potion-variant right-click swap — see
  * {@code GearSectionPotionVariantTest}). No Mockito/fake {@code ConfigManager}

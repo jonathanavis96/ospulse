@@ -8,7 +8,7 @@ import org.junit.Test;
 
 /**
  * The generic {@code REROLL} damage cap's mean is NOT the same as feeding the
- * cap through the ordinary {@link DamageDistribution#averageDamagePerAttack}/{@link
+ * cap through the ordinary {@link DamageDistribution#averageDamage}/{@link
  * DamageDistribution#expectedOverkill}, even though the RE-ROLLED distribution's
  * SHAPE is exactly a uniform {@code 0..cap} roll (proved in {@link
  * CombatMathRerollEquivalenceTest}).
@@ -19,14 +19,14 @@ import org.junit.Test;
  * happened, once, to the original {@code 0..M} roll; the monster then
  * re-rolls anything still above the cap uniformly into {@code 0..cap}, and
  * THAT re-roll can and does produce a genuine, un-bumped zero. Applying the
- * bump a second time (by calling {@code averageDamagePerAttack(hitChance,
+ * bump a second time (by calling {@code averageDamage(hitChance,
  * cap)}) overstates the mean — at Verzik's ranged/magic cap of 3 that reports
  * 1.75 instead of the true {@code 1.5 + 1/(M+1)}, a real loadout's true M
  * putting that around 1.524 — this is exactly the mistake the fang's
  * re-rolled formulas were built to avoid one review cycle earlier, just not
  * yet caught on the generic path.
  *
- * <p>{@link DamageDistribution#rerolledAverageDamagePerAttack}/{@code
+ * <p>{@link DamageDistribution#rerolledAverageDamage}/{@code
  * rerolledExpectedOverkill} are the exact, zero-aware replacements, wired
  * into {@link DpsCalculator#finish}'s {@code REROLL} branch.
  */
@@ -60,7 +60,7 @@ public class RerolledDamageBumpTest {
             int cap = pair[1];
             assertEquals("M=" + m + " cap=" + cap,
                 bruteForceRerolledMean(m, cap),
-                DamageDistribution.rerolledAverageDamagePerAttack(1.0, m, cap) , 1e-12);
+                DamageDistribution.rerolledAverageDamage(1.0, m, cap) , 1e-12);
         }
     }
 
@@ -72,15 +72,15 @@ public class RerolledDamageBumpTest {
             int cap = pair[1];
             double expected = cap / 2.0 + 1.0 / (m + 1.0);
             assertEquals("M=" + m + " cap=" + cap,
-                expected, DamageDistribution.rerolledAverageDamagePerAttack(1.0, m, cap), 1e-12);
+                expected, DamageDistribution.rerolledAverageDamage(1.0, m, cap), 1e-12);
         }
     }
 
     /** The naive "just feed the cap through the ordinary formula" bug this method replaces. */
     @Test
     public void isNotTheNaiveOrdinaryFormulaFedTheCap() {
-        double correct = DamageDistribution.rerolledAverageDamagePerAttack(1.0, 40, 3);
-        double naive = DamageDistribution.averageDamagePerAttack(1.0, 3); // the bug: bumps the re-roll's own zero
+        double correct = DamageDistribution.rerolledAverageDamage(1.0, 40, 3);
+        double naive = DamageDistribution.averageDamage(1.0, 3); // the bug: bumps the re-roll's own zero
         assertNotEquals(naive, correct, 1e-9);
         assertTrue("the naive formula overstates the mean by double-applying the bump", naive > correct);
     }
@@ -90,7 +90,7 @@ public class RerolledDamageBumpTest {
     @Test
     public void verzikRangedMagicCapOfThree_mustNotReportOnePointSevenFive() {
         for (int m : new int[]{20, 40, 99, 250}) {
-            double result = DamageDistribution.rerolledAverageDamagePerAttack(1.0, m, 3);
+            double result = DamageDistribution.rerolledAverageDamage(1.0, m, 3);
             assertNotEquals("M=" + m, 1.75, result, 1e-9);
             assertEquals("M=" + m, 1.5 + 1.0 / (m + 1.0), result, 1e-12);
         }
@@ -166,7 +166,7 @@ public class RerolledDamageBumpTest {
         assertEquals("cap must actually bind", 3, r.maxHit());
         assertTrue("sanity: true max hit must exceed the cap", control.maxHit() > 3);
 
-        double expectedAvg = DamageDistribution.rerolledAverageDamagePerAttack(r.accuracy(), control.maxHit(), 3);
+        double expectedAvg = DamageDistribution.rerolledAverageDamage(r.accuracy(), control.maxHit(), 3);
         assertEquals(expectedAvg, r.avgHit(), 1e-9);
         assertNotEquals("must not be the naive bumped-cap average", 1.75, r.avgHit(), 1e-6);
 
@@ -187,7 +187,7 @@ public class RerolledDamageBumpTest {
         assertEquals("cap must actually bind", 3, r.maxHit());
         assertTrue("sanity: true max hit must exceed the cap", control.maxHit() > 3);
 
-        double expectedAvg = DamageDistribution.rerolledAverageDamagePerAttack(r.accuracy(), control.maxHit(), 3);
+        double expectedAvg = DamageDistribution.rerolledAverageDamage(r.accuracy(), control.maxHit(), 3);
         assertEquals(expectedAvg, r.avgHit(), 1e-9);
 
         double expectedOverkill = DamageDistribution.rerolledExpectedOverkill(control.maxHit(), 3, verzikP1().hitpoints());

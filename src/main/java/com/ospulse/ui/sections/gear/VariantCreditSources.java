@@ -22,7 +22,7 @@ import java.util.Set;
  *
  * <ul>
  *   <li>the display, which must name the item the player actually holds (see
- *   {@link HeldItemIds} and {@code GearSection#resolvedChoiceItemId});</li>
+ *   {@link HeldItemIds} and {@code GearSection#resolvedItemId});</li>
  *   <li>the expensive-item risk cap, which must price what the player is
  *   actually told to <b>risk</b>. A tradeable cosmetic — Deadman AGS, Dark
  *   bow, Bowfa — can be worth a different amount from its ordinary

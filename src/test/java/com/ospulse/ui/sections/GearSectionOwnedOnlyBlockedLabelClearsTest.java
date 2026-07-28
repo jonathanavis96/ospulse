@@ -22,7 +22,7 @@ import static org.junit.Assert.assertTrue;
 /**
  * P2-B fix (Codex finding on PR #19, {@code GearSection.java:5123}, "Hide
  * the blocked message before rendering a later result"): {@code
- * optimizerOwnedOnlyBlockedLabel} (the P1-A "cannot recommend" line) was made
+ * ownedOnlyBlockedLabel} (the P1-A "cannot recommend" line) was made
  * visible by {@code renderOwnedOnlyBlockedState} but never hidden by any
  * successful or no-usable-weapon path — so once a search was blocked for a
  * target with an unsatisfiable mandatory-gear requirement (e.g. Rune dragon /

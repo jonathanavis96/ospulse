@@ -24,11 +24,11 @@ public final class MonsterCombatRequirement
      * <li>{@link #CLAMP} — the roll stays uniform {@code 0..uncappedMaxHit}
      * and every result above the cap lands ON the cap, piling probability
      * mass there (e.g. The Hueycoatl's tail). See
-     * {@link DamageDistribution#cappedAverageDamagePerAttack}/
+     * {@link DamageDistribution#cappedAverageDamage}/
      * {@link DamageDistribution#cappedExpectedOverkill}.</li>
      * <li>{@link #REROLL} — a hit above the cap is re-rolled uniformly into
      * {@code 0..cap} (e.g. Verzik Vitur phase 1). Use
-     * {@link DamageDistribution#rerolledAverageDamagePerAttack}/
+     * {@link DamageDistribution#rerolledAverageDamage}/
      * {@link DamageDistribution#rerolledExpectedOverkill}.
      *
      * <p><b>Do NOT implement this as {@code maxHit = min(maxHit, cap)} fed

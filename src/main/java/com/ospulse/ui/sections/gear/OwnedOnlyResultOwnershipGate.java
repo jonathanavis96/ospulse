@@ -39,9 +39,9 @@ import java.util.Set;
  * unrelated snapshot).
  *
  * <p>Deliberately keyed on the caller-supplied RESOLVED slot-&gt;item-id map
- * (e.g. {@code GearSection#optimizerLoadoutSlotMap}'s output) rather than the
+ * (e.g. {@code GearSection#loadoutSlotMap}'s output) rather than the
  * raw {@code GearOptimizer.SlotChoice} list: {@code
- * GearSection#resolvedChoiceItemId} is the single choke point that turns a
+ * GearSection#resolvedItemId} is the single choke point that turns a
  * choice into the exact id the panel actually shows/applies/bank-highlights
  * (an owned fortified/imbued variant resolves to the owned variant's id, not
  * the optimiser's plain base id) — validating anything else risks agreeing

@@ -12,7 +12,7 @@ package com.ospulse.combat;
  * mechanic on top — the same "generic accuracy/max-hit in, bespoke formula
  * out" shape {@link DamageDistribution}'s Osmumten's fang methods use, and
  * for the same reason: these mechanics are not expressible as a multiplier on
- * the generic {@link DamageDistribution#averageDamagePerAttack}.
+ * the generic {@link DamageDistribution#averageDamage}.
  *
  * <h2>Sourcing — verbatim wikitext, not a paraphrase</h2>
  * Special attack mechanics are not published in any bundled data file, nor by
@@ -169,7 +169,7 @@ final class SpecCascadeMath {
     static double dragonDaggerExpectedDamage(double hitChance, int maxHit) {
         double boostedChance = Math.min(1.0, hitChance * 1.15);
         int boostedMax = (int) Math.floor(maxHit * 1.15);
-        double perHit = DamageDistribution.averageDamagePerAttack(boostedChance, boostedMax);
+        double perHit = DamageDistribution.averageDamage(boostedChance, boostedMax);
         return 2.0 * perHit;
     }
 
@@ -300,7 +300,7 @@ final class SpecCascadeMath {
     static double boostedSingleHit(double hitChance, int maxHit, double accuracyMultiplier, double damageMultiplier) {
         double boostedChance = Math.min(1.0, hitChance * accuracyMultiplier);
         int boostedMax = (int) Math.floor(maxHit * damageMultiplier);
-        return DamageDistribution.averageDamagePerAttack(boostedChance, boostedMax);
+        return DamageDistribution.averageDamage(boostedChance, boostedMax);
     }
 
     /**

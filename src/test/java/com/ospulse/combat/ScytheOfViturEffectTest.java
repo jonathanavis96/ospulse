@@ -159,7 +159,7 @@ public class ScytheOfViturEffectTest {
         // And this must NOT equal what a naive "cap folded into a single roll"
         // model would give: 3 uncapped cascade hits summed then clamped is a
         // different (wrong) shape from 3 independently re-rolled hits.
-        double naiveWrong = ScytheCascade.averageDamagePerAttack(expected.accuracy(), uncappedMaxHit, 3);
+        double naiveWrong = ScytheCascade.averageDamage(expected.accuracy(), uncappedMaxHit, 3);
         assertTrue(Math.abs(naiveWrong - result.avgHit()) > 1e-6);
     }
 }

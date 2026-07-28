@@ -477,7 +477,7 @@ public class GearSectionOptimizerTest
 	/**
 	 * PR-review finding (bug D follow-up): {@code withResolvedPrices} — the
 	 * REAL production scaffolding behind {@code runOptimizer}/{@code
-	 * runOptimizerAndRankStyles}, reached here via the real {@code
+	 * runAndRankStyles}, reached here via the real {@code
 	 * findBestSetupButton} click rather than a *SyncForTest seam — must send
 	 * every {@code UNTRADEABLE_CRAFT_INGREDIENT} value (e.g. the Scorching
 	 * bow's Tormented synapse) to the price resolver alongside the equipment
@@ -550,7 +550,7 @@ public class GearSectionOptimizerTest
 			section.setBudgetTextForTest("100k");
 			section.runOptimizerSyncForTest();
 
-			// Each changed slot renders as [row, spacer] — see renderOptimizerSwapList;
+			// Each changed slot renders as [row, spacer] — see renderSwapList;
 			// only the weapon slot changes here, so exactly one row (+ its spacer).
 			assertEquals("expected exactly one swap row (the weapon upgrade) plus its spacer",
 				2, section.optimizerSwapRowCountForTest());
@@ -819,7 +819,7 @@ public class GearSectionOptimizerTest
 	 * The suggested-swaps list must render one row per actually-changed slot
 	 * (was previously one {@code JLabel} of text per slot; now an icon row
 	 * built by {@code buildSwapRow} plus a spacer — see
-	 * {@code renderOptimizerSwapList}). This locks in "a row exists and the
+	 * {@code renderSwapList}). This locks in "a row exists and the
 	 * count matches the number of changed slots" without depending on Swing
 	 * layout internals inside the row itself.
 	 */
@@ -843,7 +843,7 @@ public class GearSectionOptimizerTest
 				.filter(choice -> choice.itemId() != BRONZE_SWORD || choice.slotOrdinal() != WhatIfLoadout.WEAPON_SLOT)
 				.count();
 			assertTrue("at least the weapon slot must have changed (bronze sword -> scimitar)", changedSlots > 0);
-			// Each changed slot renders as [row, spacer] — see renderOptimizerSwapList.
+			// Each changed slot renders as [row, spacer] — see renderSwapList.
 			assertTrue("swap list must have rendered rows for the change(s)", section.optimizerSwapRowCountForTest() >= 2);
 		});
 	}

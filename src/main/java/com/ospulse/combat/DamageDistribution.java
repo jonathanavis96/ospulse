@@ -30,7 +30,7 @@ final class DamageDistribution {
      * The wiki explicitly documents the small "+1/(maxHit+1)" correction term
      * ("if you roll a 0 on a successful attack it will be changed to a 1").
      */
-    static double averageDamagePerAttack(double hitChance, int maxHit) {
+    static double averageDamage(double hitChance, int maxHit) {
         return hitChance * (maxHit / 2.0 + 1.0 / (maxHit + 1.0));
     }
 
@@ -42,7 +42,7 @@ final class DamageDistribution {
      * still uniform over {@code 0..uncappedMaxHit}; every result above the cap
      * is simply reduced TO the cap, so all of that probability mass piles up on
      * the cap instead of being spread over {@code 0..cap}. Modelling it by
-     * clamping {@code maxHit} and reusing {@link #averageDamagePerAttack} would
+     * clamping {@code maxHit} and reusing {@link #averageDamage} would
      * assume a uniform {@code 0..cap} roll and badly understate the result —
      * with a cap of 4 against an uncapped max of 40 the true average is ~3.8,
      * not 2.0.
@@ -54,11 +54,11 @@ final class DamageDistribution {
      * where {@code M} is the uncapped max hit and {@code C} the cap. The
      * trailing {@code + 1} is the same "a rolled 0 becomes 1" correction the
      * uncapped formula carries. Setting {@code C == M} reduces this exactly to
-     * {@link #averageDamagePerAttack}, which is asserted in the tests.
+     * {@link #averageDamage}, which is asserted in the tests.
      */
-    static double cappedAverageDamagePerAttack(double hitChance, int uncappedMaxHit, int cap) {
+    static double cappedAverageDamage(double hitChance, int uncappedMaxHit, int cap) {
         if (cap >= uncappedMaxHit) {
-            return averageDamagePerAttack(hitChance, uncappedMaxHit);
+            return averageDamage(hitChance, uncappedMaxHit);
         }
         if (cap <= 0) {
             return 0.0;
@@ -71,9 +71,9 @@ final class DamageDistribution {
     /**
      * Average damage per attack when a monster RE-ROLLS each hitsplat above a
      * cap back into {@code 0..cap} (e.g. Verzik Vitur phase 1), as opposed to
-     * {@link #cappedAverageDamagePerAttack}'s clamp.
+     * {@link #cappedAverageDamage}'s clamp.
      *
-     * <p><b>This is NOT simply {@link #averageDamagePerAttack} fed the cap as
+     * <p><b>This is NOT simply {@link #averageDamage} fed the cap as
      * maxHit.</b> That formula's "+1/(maxHit+1)" term bakes in the ordinary
      * damage-roll convention — a rolled 0 on a successful hit is bumped to 1 —
      * which is true of a genuine {@code 0..cap} weapon roll but NOT of a
@@ -81,7 +81,7 @@ final class DamageDistribution {
      * that bump applied (the bump belongs to the original {@code 0..M} roll,
      * which happens first; the re-roll into {@code 0..cap} is a separate,
      * later step that produces its own genuine zero). Feeding the cap into
-     * {@link #averageDamagePerAttack} therefore reports a mean of
+     * {@link #averageDamage} therefore reports a mean of
      * {@code cap/2 + 1/(cap+1)} — at Verzik's ranged/magic cap of 3 that is
      * 1.75, a 14.8% overstatement of the true ~1.524.
      *
@@ -99,7 +99,7 @@ final class DamageDistribution {
      * </pre>
      * Note the correction term is {@code 1/(M+1)} (the ORIGINAL roll's range),
      * NOT {@code 1/(cap+1)} — a plain {@code C/2} is closer than the naive
-     * {@link #averageDamagePerAttack} call but still drops the bump the kept
+     * {@link #averageDamage} call but still drops the bump the kept
      * values (0 and 1, when they land within {@code 0..cap} directly) carry.
      *
      * <p>The closed form {@code cap/2 + 1/(uncappedMaxHit+1)} is only valid for
@@ -107,16 +107,16 @@ final class DamageDistribution {
      * {@code cap >= uncappedMaxHit}, at which point the uncapped maximum
      * applies instead.
      */
-    static double rerolledAverageDamagePerAttack(double hitChance, int uncappedMaxHit, int cap) {
+    static double rerolledAverageDamage(double hitChance, int uncappedMaxHit, int cap) {
         if (cap >= uncappedMaxHit) {
-            return averageDamagePerAttack(hitChance, uncappedMaxHit);
+            return averageDamage(hitChance, uncappedMaxHit);
         }
         if (cap <= 0) {
             // The identity below assumes cap >= 1 (so the bumped value 1 can
             // legitimately survive as "kept" rather than itself needing a
             // re-roll). At cap == 0 every outcome, including the bumped 1,
             // exceeds the cap and re-rolls into the single value {0}, so the
-            // true mean is exactly 0 — matching cappedAverageDamagePerAttack's
+            // true mean is exactly 0 — matching cappedAverageDamage's
             // own cap <= 0 guard.
             return 0.0;
         }
@@ -162,14 +162,14 @@ final class DamageDistribution {
      * is bumped to 1" correction, which only matters when the shrunk min is
      * itself 0 (true max hit &lt;= 6).
      */
-    static double fangAverageDamagePerAttack(double hitChance, int trueMaxHit) {
+    static double fangAverageDamage(double hitChance, int trueMaxHit) {
         int shrink = trueMaxHit * 3 / 20; // truncating integer division, matches Math.trunc(maxHit * 3/20)
         int shrunkMin = shrink;
         int shrunkMax = trueMaxHit - shrink;
         if (shrunkMin <= 0) {
             // Degenerate low-level case: falls back to the standard 0..maxHit
             // "rolled 0 -> 1" correction since the shrunk range still touches 0.
-            return averageDamagePerAttack(hitChance, shrunkMax);
+            return averageDamage(hitChance, shrunkMax);
         }
         return hitChance * (shrunkMin + shrunkMax) / 2.0;
     }
@@ -194,11 +194,11 @@ final class DamageDistribution {
      * else:     ( (C-1+lo)(C-lo)/2 + (hi-C+1)C ) / (hi-lo+1)
      * </pre>
      *
-     * <p>This is the CLAMP model, matching {@link #cappedAverageDamagePerAttack}
+     * <p>This is the CLAMP model, matching {@link #cappedAverageDamage}
      * — a cap that instead re-rolls into {@code 0..C} is simply a lower max hit
      * and needs none of this.
      */
-    static double cappedFangAverageDamagePerAttack(double hitChance, int trueMaxHit, int cap) {
+    static double cappedFangAverageDamage(double hitChance, int trueMaxHit, int cap) {
         int shrink = trueMaxHit * 3 / 20;
         int lo = shrink;
         int hi = trueMaxHit - shrink;
@@ -206,7 +206,7 @@ final class DamageDistribution {
             // Degenerate low-level case: the shrunk range still touches 0, so the
             // standard capped distribution (with its "rolled 0 -> 1" correction)
             // is the right model — same fallback as the uncapped fang formula.
-            return cappedAverageDamagePerAttack(hitChance, hi, cap);
+            return cappedAverageDamage(hitChance, hi, cap);
         }
         if (cap >= hi) {
             return hitChance * (lo + hi) / 2.0;
@@ -222,7 +222,7 @@ final class DamageDistribution {
     /**
      * Osmumten's fang average damage per attack against a target that
      * RE-ROLLS each hitsplat above a cap (e.g. Verzik Vitur phase 1), as
-     * opposed to {@link #cappedFangAverageDamagePerAttack}'s clamp.
+     * opposed to {@link #cappedFangAverageDamage}'s clamp.
      *
      * <p><b>This is a genuinely different distribution from clamping, and
      * also different from the generic {@code REROLL} equivalence.</b> The
@@ -247,12 +247,12 @@ final class DamageDistribution {
      * outcomes) stand as themselves; results 11-34 (24 outcomes) re-roll
      * uniformly into {@code 0..10}, each contributing an expectation of 5.
      * Average = {@code (6+7+8+9+10 + 24*5) / 29 = 160/29 ≈ 5.5172}, NOT
-     * {@code fangAverageDamagePerAttack(hitChance, 10) ≈ 5.0} (which wrongly
+     * {@code fangAverageDamage(hitChance, 10) ≈ 5.0} (which wrongly
      * re-derives the compression from the already-capped value).
      *
      * <pre>
-     * lo &lt;= 0  : rerolledAverageDamagePerAttack(hitChance, hi, min(hi, cap)) — degenerate range touches 0; this IS a genuine uniform 0..hi roll, so the GENERIC zero-aware equivalence applies directly
-     * cap &gt;= hi: fangAverageDamagePerAttack(hitChance, trueMaxHit)          — cap can never bind
+     * lo &lt;= 0  : rerolledAverageDamage(hitChance, hi, min(hi, cap)) — degenerate range touches 0; this IS a genuine uniform 0..hi roll, so the GENERIC zero-aware equivalence applies directly
+     * cap &gt;= hi: fangAverageDamage(hitChance, trueMaxHit)          — cap can never bind
      * cap &lt; lo : hitChance * cap / 2                                        — every result re-rolls into a plain uniform 0..cap
      * else     : hitChance * ( sum_(d=lo)^(cap) d + (hi-cap)*cap/2 ) / (hi-lo+1)
      *            where sum_(d=lo)^(cap) d = (lo+cap)*(cap-lo+1)/2
@@ -260,31 +260,31 @@ final class DamageDistribution {
      * The middle two branches carry NO correction term at all — a re-rolled
      * fang hitsplat of 0 is a genuine result, never folded into 1, so there is
      * no bump to apply. The {@code lo <= 0} branch is the one exception: it
-     * delegates to {@link #rerolledAverageDamagePerAttack}, whose
+     * delegates to {@link #rerolledAverageDamage}, whose
      * {@code 1/(hi+1)} term is NOT the ordinary bump — it is that same
      * function's own zero-aware correction for the ORIGINAL {@code 0..hi}
      * roll (which this degenerate case genuinely is), not a re-application of
-     * it to the re-roll. Calling the plain {@link #averageDamagePerAttack}
+     * it to the re-roll. Calling the plain {@link #averageDamage}
      * here instead (as an earlier version of this method did) double-applies
      * the bump to the re-roll's own genuine zero and overstates the mean —
      * exactly the mistake {@link DpsCalculator#finish}'s generic {@code
      * REROLL} branch was fixed for in the same review.
      */
-    static double rerolledFangAverageDamagePerAttack(double hitChance, int trueMaxHit, int cap) {
+    static double rerolledFangAverageDamage(double hitChance, int trueMaxHit, int cap) {
         int shrink = trueMaxHit * 3 / 20;
         int lo = shrink;
         int hi = trueMaxHit - shrink;
         if (lo <= 0) {
             // The shrunk range touches 0, so this IS a genuine uniform 0..hi roll
             // re-rolled at cap — the generic zero-aware equivalence applies
-            // directly. NOT averageDamagePerAttack(hitChance, min(hi, cap)): that
+            // directly. NOT averageDamage(hitChance, min(hi, cap)): that
             // bakes in the ordinary "rolled 0 becomes 1" bump a second time, on
             // the re-roll's own genuine zero (the same mistake fixed in
             // DpsCalculator.finish's REROLL branch).
-            return rerolledAverageDamagePerAttack(hitChance, hi, Math.min(hi, cap));
+            return rerolledAverageDamage(hitChance, hi, Math.min(hi, cap));
         }
         if (cap >= hi) {
-            return fangAverageDamagePerAttack(hitChance, trueMaxHit);
+            return fangAverageDamage(hitChance, trueMaxHit);
         }
         if (cap < lo) {
             return hitChance * cap / 2.0;
@@ -301,7 +301,7 @@ final class DamageDistribution {
      * target's remaining hitpoints), in hitpoints per kill.
      *
      * <p>Model: exact dynamic programme over remaining-HP states using the same
-     * per-attack damage distribution as {@link #averageDamagePerAttack} — a
+     * per-attack damage distribution as {@link #averageDamage} — a
      * successful hit rolls uniform 0..maxHit with a rolled 0 bumped to 1 (so 1
      * has probability 2/(maxHit+1), each of 2..maxHit has 1/(maxHit+1)); a miss
      * deals 0. Misses don't change the HP state, so they cancel out of the
@@ -332,7 +332,7 @@ final class DamageDistribution {
      * {@link #expectedOverkill}, but over the capped damage distribution rather
      * than a uniform {@code 0..cap} one.
      *
-     * <p>Necessary for the same reason as {@link #cappedAverageDamagePerAttack}:
+     * <p>Necessary for the same reason as {@link #cappedAverageDamage}:
      * the roll spans {@code 0..M} and everything from {@code cap} upward lands on
      * the cap, so the cap carries {@code (M - cap + 1)/(M + 1)} of the mass rather
      * than {@code 1/(cap + 1)}. Feeding a clamped max hit into the uniform
@@ -367,7 +367,7 @@ final class DamageDistribution {
     /**
      * Expected overkill when a monster RE-ROLLS each hitsplat above a cap back
      * into {@code 0..cap} — the SAME per-attack distribution {@link
-     * #rerolledAverageDamagePerAttack} uses, so this cannot disagree with it
+     * #rerolledAverageDamage} uses, so this cannot disagree with it
      * (that was precisely the earlier fang defect this PR was bitten by once
      * already: an average migrated onto a new distribution while overkill
      * silently stayed on the old one — the same over-general "REROLL is just
@@ -375,7 +375,7 @@ final class DamageDistribution {
      * caught in the SAME review as the fang one).
      *
      * <p>Builds the explicit distribution described on {@link
-     * #rerolledAverageDamagePerAttack} — a kept 0/1 both bump to 1 (weight
+     * #rerolledAverageDamage} — a kept 0/1 both bump to 1 (weight
      * {@code 2/(M+1)}), a kept {@code 2..cap} counts as itself (weight
      * {@code 1/(M+1)} each), and every value in {@code 0..cap} — INCLUDING a
      * genuine, un-bumped 0 — additionally gains a re-rolled share {@code
@@ -412,7 +412,7 @@ final class DamageDistribution {
      * {@code v}: {@code p[0]} is the re-roll-only share (a genuine, un-bumped
      * zero), {@code p[1]} additionally carries the ordinary "rolled 0 becomes
      * 1" bump, and {@code p[2..cap]} are the plain kept share plus their own
-     * re-roll share — see {@link #rerolledAverageDamagePerAttack}'s Javadoc
+     * re-roll share — see {@link #rerolledAverageDamage}'s Javadoc
      * for the full derivation. Callers must ensure {@code 1 <= cap <
      * uncappedMaxHit} themselves (mirroring every existing caller's own
      * boundary guards) — this method does not re-check either bound.
@@ -469,7 +469,7 @@ final class DamageDistribution {
     /**
      * Expected overkill for Osmumten's fang against a capped target: the same
      * recurrence again, but over the fang's COMPRESSED roll with each result
-     * clamped — the distribution {@link #cappedFangAverageDamagePerAttack}
+     * clamped — the distribution {@link #cappedFangAverageDamage}
      * averages.
      *
      * <p>Without this, a capped fang setup reports its average damage from one
@@ -526,12 +526,12 @@ final class DamageDistribution {
     /**
      * Expected overkill for Osmumten's fang against a target that RE-ROLLS
      * each hitsplat above a cap — the same per-attack distribution as
-     * {@link #rerolledFangAverageDamagePerAttack}, so this cannot disagree
+     * {@link #rerolledFangAverageDamage}, so this cannot disagree
      * with it (that was precisely the earlier defect this PR was bitten by
      * once already: an average migrated onto a new distribution while
      * overkill silently stayed on the old one).
      *
-     * <p>Mirrors {@link #rerolledFangAverageDamagePerAttack}'s branches
+     * <p>Mirrors {@link #rerolledFangAverageDamage}'s branches
      * exactly, each delegating to whichever EXACT overkill model matches
      * that branch's distribution:
      * <pre>
@@ -544,7 +544,7 @@ final class DamageDistribution {
      * {@link #overkillFromExplicitDistribution}) rather than reusing {@link
      * #expectedOverkill}/{@link #cappedExpectedOverkill}, because BOTH of
      * those bake in the ordinary "rolled 0 is bumped to 1" convention, which
-     * {@link #rerolledFangAverageDamagePerAttack} does not carry (a
+     * {@link #rerolledFangAverageDamage} does not carry (a
      * re-rolled fang hitsplat of 0 is a genuine, undisguised result).
      */
     static double rerolledFangExpectedOverkill(int trueMaxHit, int cap, int targetHitpoints) {

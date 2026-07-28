@@ -57,9 +57,9 @@ public class KerisTripleRollMathTest {
         double[] hitChances = {1.0, 0.85, 0.5, 0.2};
         for (int maxHit : maxHits) {
             for (double hitChance : hitChances) {
-                double baseAverage = DamageDistribution.averageDamagePerAttack(hitChance, maxHit);
+                double baseAverage = DamageDistribution.averageDamage(hitChance, maxHit);
                 double expected = bruteForceAverage(hitChance, maxHit);
-                double actual = KerisTripleRoll.averageDamagePerAttack(baseAverage);
+                double actual = KerisTripleRoll.averageDamage(baseAverage);
                 assertEquals("maxHit=" + maxHit + " hitChance=" + hitChance, expected, actual, DELTA);
             }
         }
@@ -69,8 +69,8 @@ public class KerisTripleRollMathTest {
     public void averageDamagePerAttack_isExactlyFiftyThreeFiftyOnesOfBase() {
         double hitChance = 0.66;
         int maxHit = 40;
-        double baseAverage = DamageDistribution.averageDamagePerAttack(hitChance, maxHit);
-        double actual = KerisTripleRoll.averageDamagePerAttack(baseAverage);
+        double baseAverage = DamageDistribution.averageDamage(hitChance, maxHit);
+        double actual = KerisTripleRoll.averageDamage(baseAverage);
         assertEquals(baseAverage * 53.0 / 51.0, actual, DELTA);
     }
 

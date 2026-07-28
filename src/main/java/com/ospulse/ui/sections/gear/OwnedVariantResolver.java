@@ -252,7 +252,7 @@ public final class OwnedVariantResolver
 	 * exist. Without the reverse hop the credited plain id is displayed and
 	 * highlighted even though the player holds only 33035/33036, which is
 	 * the same class of defect as crediting an id and then naming a
-	 * different one (see {@code GearSection#resolvedChoiceItemId}): the
+	 * different one (see {@code GearSection#resolvedItemId}): the
 	 * ownership map says "you have this" and every surface points at
 	 * something that is not in the bank.
 	 *

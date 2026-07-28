@@ -57,8 +57,8 @@ package com.ospulse.combat;
  * average</b> — {@code E[hit1 + hit2] = E[hit1] + E[hit2]} by linearity of
  * expectation, true regardless of any correlation between the two rolls,
  * so the existing single-hit average formulas ({@link
- * DamageDistribution#averageDamagePerAttack}/{@code
- * cappedAverageDamagePerAttack}/{@code rerolledAverageDamagePerAttack}) are
+ * DamageDistribution#averageDamage}/{@code
+ * cappedAverageDamage}/{@code rerolledAverageDamage}) are
  * reused unchanged — fed {@link #perHitMaxHit}, not the raw calculated
  * weapon max hit — and simply doubled.
  *
@@ -85,8 +85,8 @@ package com.ospulse.combat;
  *
  * <p><b>A per-target damage cap applies to the REDUCED per-hit range, not
  * the raw calculated weapon max hit</b> — the same precedent {@code
- * DamageDistribution#cappedFangAverageDamagePerAttack}/{@code
- * rerolledFangAverageDamagePerAttack} set for Osmumten's fang's own
+ * DamageDistribution#cappedFangAverageDamage}/{@code
+ * rerolledFangAverageDamage} set for Osmumten's fang's own
  * compressed roll: the weapon's own passive establishes what its TRUE
  * per-hit roll range is first, and only then does a monster's cap (defined
  * in absolute hitpoint terms) clamp or re-roll that already-reduced range.
@@ -118,36 +118,36 @@ final class TonalzticsDualHit {
      * the reduced 75% range) — reduces {@code weaponMaxHit} via {@link
      * #perHitMaxHit} itself. Callers that have ALREADY reduced their max hit
      * (see {@link #finishFromPerHit}'s javadoc for why that split exists) must
-     * use {@link #combinedAverageDamagePerAttackFromPerHit} instead, or the
+     * use {@link #combinedAverageDamageFromPerHit} instead, or the
      * 75% reduction is silently applied twice.
      */
-    static double combinedAverageDamagePerAttack(double hitChance, int weaponMaxHit) {
-        return combinedAverageDamagePerAttackFromPerHit(hitChance, perHitMaxHit(weaponMaxHit));
+    static double combinedAverageDamage(double hitChance, int weaponMaxHit) {
+        return combinedAverageDamageFromPerHit(hitChance, perHitMaxHit(weaponMaxHit));
     }
 
-    /** As {@link #combinedAverageDamagePerAttack}, but {@code perHit} is already the reduced 75% value. */
-    private static double combinedAverageDamagePerAttackFromPerHit(double hitChance, int perHit) {
-        return 2.0 * DamageDistribution.averageDamagePerAttack(hitChance, perHit);
+    /** As {@link #combinedAverageDamage}, but {@code perHit} is already the reduced 75% value. */
+    private static double combinedAverageDamageFromPerHit(double hitChance, int perHit) {
+        return 2.0 * DamageDistribution.averageDamage(hitChance, perHit);
     }
 
     /** Combined average damage per attack cycle against a target that CLAMPS each hitsplat. */
-    static double cappedCombinedAverageDamagePerAttack(double hitChance, int uncappedWeaponMaxHit, int cap) {
-        return cappedCombinedAverageDamagePerAttackFromPerHit(hitChance, perHitMaxHit(uncappedWeaponMaxHit), cap);
+    static double cappedCombinedAverageDamage(double hitChance, int uncappedWeaponMaxHit, int cap) {
+        return cappedCombinedAverageDamageFromPerHit(hitChance, perHitMaxHit(uncappedWeaponMaxHit), cap);
     }
 
-    /** As {@link #cappedCombinedAverageDamagePerAttack}, but {@code perHit} is already the reduced 75% value. */
-    private static double cappedCombinedAverageDamagePerAttackFromPerHit(double hitChance, int perHit, int cap) {
-        return 2.0 * DamageDistribution.cappedAverageDamagePerAttack(hitChance, perHit, cap);
+    /** As {@link #cappedCombinedAverageDamage}, but {@code perHit} is already the reduced 75% value. */
+    private static double cappedCombinedAverageDamageFromPerHit(double hitChance, int perHit, int cap) {
+        return 2.0 * DamageDistribution.cappedAverageDamage(hitChance, perHit, cap);
     }
 
     /** Combined average damage per attack cycle against a target that RE-ROLLS each hitsplat above a cap. */
-    static double rerolledCombinedAverageDamagePerAttack(double hitChance, int uncappedWeaponMaxHit, int cap) {
-        return rerolledCombinedAverageDamagePerAttackFromPerHit(hitChance, perHitMaxHit(uncappedWeaponMaxHit), cap);
+    static double rerolledCombinedAverageDamage(double hitChance, int uncappedWeaponMaxHit, int cap) {
+        return rerolledCombinedAverageDamageFromPerHit(hitChance, perHitMaxHit(uncappedWeaponMaxHit), cap);
     }
 
-    /** As {@link #rerolledCombinedAverageDamagePerAttack}, but {@code perHit} is already the reduced 75% value. */
-    private static double rerolledCombinedAverageDamagePerAttackFromPerHit(double hitChance, int perHit, int cap) {
-        return 2.0 * DamageDistribution.rerolledAverageDamagePerAttack(hitChance, perHit, cap);
+    /** As {@link #rerolledCombinedAverageDamage}, but {@code perHit} is already the reduced 75% value. */
+    private static double rerolledCombinedAverageDamageFromPerHit(double hitChance, int perHit, int cap) {
+        return 2.0 * DamageDistribution.rerolledAverageDamage(hitChance, perHit, cap);
     }
 
     /** Uncapped combined expected overkill for one attack cycle (both hits together, each over the reduced 75% range). */
@@ -333,13 +333,13 @@ final class TonalzticsDualHit {
         double avgDamage;
         double overkill;
         if (!capped) {
-            avgDamage = combinedAverageDamagePerAttackFromPerHit(hitChance, perHitMaxHit);
+            avgDamage = combinedAverageDamageFromPerHit(hitChance, perHitMaxHit);
             overkill = combinedExpectedOverkillFromPerHit(hitChance, perHitMaxHit, targetHitpoints);
         } else if (mode == MonsterCombatRequirement.CapMode.REROLL) {
-            avgDamage = rerolledCombinedAverageDamagePerAttackFromPerHit(hitChance, perHitMaxHit, cap);
+            avgDamage = rerolledCombinedAverageDamageFromPerHit(hitChance, perHitMaxHit, cap);
             overkill = rerolledCombinedExpectedOverkillFromPerHit(hitChance, perHitMaxHit, cap, targetHitpoints);
         } else {
-            avgDamage = cappedCombinedAverageDamagePerAttackFromPerHit(hitChance, perHitMaxHit, cap);
+            avgDamage = cappedCombinedAverageDamageFromPerHit(hitChance, perHitMaxHit, cap);
             overkill = cappedCombinedExpectedOverkillFromPerHit(hitChance, perHitMaxHit, cap, targetHitpoints);
         }
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
