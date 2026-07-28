@@ -114,7 +114,7 @@ public class TonalzticsDualHitMathTest {
         for (int maxHit : maxHits) {
             for (double hitChance : hitChances) {
                 double expected = bruteForceCombinedAverage(hitChance, maxHit);
-                double actual = TonalzticsDualHit.combinedAverageDamagePerAttack(hitChance, maxHit);
+                double actual = TonalzticsDualHit.combinedAverageDamage(hitChance, maxHit);
                 assertEquals("maxHit=" + maxHit + " hitChance=" + hitChance, expected, actual, DELTA);
             }
         }
@@ -143,8 +143,8 @@ public class TonalzticsDualHitMathTest {
         double hitChance = 0.73;
         int weaponMaxHit = 37;
         int perHitMax = (weaponMaxHit * 3) / 4;
-        double single = DamageDistribution.averageDamagePerAttack(hitChance, perHitMax);
-        double combined = TonalzticsDualHit.combinedAverageDamagePerAttack(hitChance, weaponMaxHit);
+        double single = DamageDistribution.averageDamage(hitChance, perHitMax);
+        double combined = TonalzticsDualHit.combinedAverageDamage(hitChance, weaponMaxHit);
         assertEquals(2.0 * single, combined, DELTA);
     }
 
@@ -155,10 +155,10 @@ public class TonalzticsDualHitMathTest {
         // may silently come back.
         double hitChance = 1.0;
         int weaponMaxHit = 40;
-        double correct = TonalzticsDualHit.combinedAverageDamagePerAttack(hitChance, weaponMaxHit);
-        double oldFullRangeModel = 2.0 * DamageDistribution.averageDamagePerAttack(hitChance, weaponMaxHit);
-        double fiftyPercentModel = 2.0 * DamageDistribution.averageDamagePerAttack(hitChance, weaponMaxHit / 2);
-        assertEquals(2.0 * DamageDistribution.averageDamagePerAttack(hitChance, 30), correct, DELTA); // 40*0.75=30
+        double correct = TonalzticsDualHit.combinedAverageDamage(hitChance, weaponMaxHit);
+        double oldFullRangeModel = 2.0 * DamageDistribution.averageDamage(hitChance, weaponMaxHit);
+        double fiftyPercentModel = 2.0 * DamageDistribution.averageDamage(hitChance, weaponMaxHit / 2);
+        assertEquals(2.0 * DamageDistribution.averageDamage(hitChance, 30), correct, DELTA); // 40*0.75=30
         org.junit.Assert.assertTrue(Math.abs(correct - oldFullRangeModel) > 1.0);
         org.junit.Assert.assertTrue(Math.abs(correct - fiftyPercentModel) > 1.0);
     }
@@ -175,9 +175,9 @@ public class TonalzticsDualHitMathTest {
     public void cappedCombinedAverage_capAtOrAboveThePerHitRangeDelegatesToUncapped() {
         double hitChance = 0.6;
         int weaponMaxHit = 20; // perHitMax = 15
-        double expected = TonalzticsDualHit.combinedAverageDamagePerAttack(hitChance, weaponMaxHit);
-        assertEquals(expected, TonalzticsDualHit.cappedCombinedAverageDamagePerAttack(hitChance, weaponMaxHit, 15), DELTA);
-        assertEquals(expected, TonalzticsDualHit.cappedCombinedAverageDamagePerAttack(hitChance, weaponMaxHit, 99), DELTA);
+        double expected = TonalzticsDualHit.combinedAverageDamage(hitChance, weaponMaxHit);
+        assertEquals(expected, TonalzticsDualHit.cappedCombinedAverageDamage(hitChance, weaponMaxHit, 15), DELTA);
+        assertEquals(expected, TonalzticsDualHit.cappedCombinedAverageDamage(hitChance, weaponMaxHit, 99), DELTA);
     }
 
     /**
@@ -193,8 +193,8 @@ public class TonalzticsDualHitMathTest {
         double hitChance = 0.7;
         int weaponMaxHit = 20; // perHitMax = 15
         int capAboveReducedRangeButBelowRawMax = 18; // 15 < 18 < 20
-        double uncapped = TonalzticsDualHit.combinedAverageDamagePerAttack(hitChance, weaponMaxHit);
-        double withCap = TonalzticsDualHit.cappedCombinedAverageDamagePerAttack(hitChance, weaponMaxHit, capAboveReducedRangeButBelowRawMax);
+        double uncapped = TonalzticsDualHit.combinedAverageDamage(hitChance, weaponMaxHit);
+        double withCap = TonalzticsDualHit.cappedCombinedAverageDamage(hitChance, weaponMaxHit, capAboveReducedRangeButBelowRawMax);
         assertEquals("a cap above the true (reduced) per-hit range must never bind", uncapped, withCap, DELTA);
     }
 
@@ -202,8 +202,8 @@ public class TonalzticsDualHitMathTest {
     public void rerolledCombinedAverage_capAtOrAboveThePerHitRangeDelegatesToUncapped() {
         double hitChance = 0.6;
         int weaponMaxHit = 20; // perHitMax = 15
-        double expected = TonalzticsDualHit.combinedAverageDamagePerAttack(hitChance, weaponMaxHit);
-        assertEquals(expected, TonalzticsDualHit.rerolledCombinedAverageDamagePerAttack(hitChance, weaponMaxHit, 15), DELTA);
+        double expected = TonalzticsDualHit.combinedAverageDamage(hitChance, weaponMaxHit);
+        assertEquals(expected, TonalzticsDualHit.rerolledCombinedAverageDamage(hitChance, weaponMaxHit, 15), DELTA);
     }
 
     @Test
@@ -244,6 +244,6 @@ public class TonalzticsDualHitMathTest {
         double expectedCombined = 2.0 * expectedSingle;
         assertEquals(70.0 / 11.0, expectedCombined, DELTA);
         assertEquals(10, TonalzticsDualHit.perHitMaxHit(14)); // confirms the fixture's own premise
-        assertEquals(expectedCombined, TonalzticsDualHit.cappedCombinedAverageDamagePerAttack(1.0, 14, 4), DELTA);
+        assertEquals(expectedCombined, TonalzticsDualHit.cappedCombinedAverageDamage(1.0, 14, 4), DELTA);
     }
 }

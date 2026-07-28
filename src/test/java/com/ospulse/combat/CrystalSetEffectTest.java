@@ -92,7 +92,7 @@ public class CrystalSetEffectTest {
         int attackRoll = (int) new Fraction(13, 10).applyFloor(baseAttackRoll);
         int defenceRoll = CombatMath.npcDefenceRoll(100, 50);
         double hitChance = CombatMath.hitChance(attackRoll, defenceRoll);
-        double avg = DamageDistribution.averageDamagePerAttack(hitChance, maxHit);
+        double avg = DamageDistribution.averageDamage(hitChance, maxHit);
         double dps = CombatMath.dps(avg, 5);
 
         assertEquals(maxHit, result.maxHit());

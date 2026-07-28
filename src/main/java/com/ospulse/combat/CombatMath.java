@@ -111,8 +111,8 @@ final class CombatMath {
     }
 
     /** DPS = average damage per attack / (weaponSpeedTicks * 0.6 seconds/tick). */
-    static double dps(double averageDamagePerAttack, int weaponSpeedTicks) {
-        return averageDamagePerAttack / (weaponSpeedTicks * 0.6);
+    static double dps(double averageDamage, int weaponSpeedTicks) {
+        return averageDamage / (weaponSpeedTicks * 0.6);
     }
 
     /**

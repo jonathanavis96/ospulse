@@ -15,7 +15,7 @@ package com.ospulse.combat;
  * {@code E[displayed'] = (50/51)*E[displayed] + (1/51)*E[3*displayed] =
  * E[displayed] * (50 + 3)/51}, a pure linear scaling that holds regardless
  * of what "displayed" distribution feeds it (uncapped, CLAMP, or REROLL —
- * see {@link #averageDamagePerAttack}). This mirrors why {@code
+ * see {@link #averageDamage}). This mirrors why {@code
  * TonalzticsDualHit}'s combined average is "just" a doubling: the SHAPE of
  * the underlying distribution is irrelevant to a linear rescaling of its
  * mean, only to its variance/overkill.
@@ -45,7 +45,7 @@ final class KerisTripleRoll {
     private static final double PLAIN_CHANCE = 50.0 / 51.0;
 
     /** Exact average-damage scaling factor: {@code 50/51 + 3/51 = 53/51}. */
-    static double averageDamagePerAttack(double baseAverage) {
+    static double averageDamage(double baseAverage) {
         return baseAverage * (PLAIN_CHANCE + 3.0 * TRIPLE_CHANCE);
     }
 
@@ -175,16 +175,16 @@ final class KerisTripleRoll {
         double baseAverage;
         double overkill;
         if (!capped) {
-            baseAverage = DamageDistribution.averageDamagePerAttack(hitChance, uncappedMaxHit);
+            baseAverage = DamageDistribution.averageDamage(hitChance, uncappedMaxHit);
             overkill = expectedOverkill(hitChance, uncappedMaxHit, targetHitpoints);
         } else if (mode == MonsterCombatRequirement.CapMode.REROLL) {
-            baseAverage = DamageDistribution.rerolledAverageDamagePerAttack(hitChance, uncappedMaxHit, cap);
+            baseAverage = DamageDistribution.rerolledAverageDamage(hitChance, uncappedMaxHit, cap);
             overkill = rerolledExpectedOverkill(hitChance, uncappedMaxHit, cap, targetHitpoints);
         } else {
-            baseAverage = DamageDistribution.cappedAverageDamagePerAttack(hitChance, uncappedMaxHit, cap);
+            baseAverage = DamageDistribution.cappedAverageDamage(hitChance, uncappedMaxHit, cap);
             overkill = cappedExpectedOverkill(hitChance, uncappedMaxHit, cap, targetHitpoints);
         }
-        double avgDamage = averageDamagePerAttack(baseAverage);
+        double avgDamage = averageDamage(baseAverage);
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
         double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
         // Deliberately returning visibleMaxHit (NOT 3x it) even though the 1/51

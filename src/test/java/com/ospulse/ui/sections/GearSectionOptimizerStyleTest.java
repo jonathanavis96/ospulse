@@ -414,7 +414,7 @@ public class GearSectionOptimizerStyleTest
 	 * the what-if preview must equip that SAME item, not the plain base the
 	 * row's name doesn't match. Finding #1 flagged the row and the applied
 	 * preview disagreeing; both now go through the same {@code
-	 * GearSection#resolvedChoiceItemId} choke point, so this asserts they
+	 * GearSection#resolvedItemId} choke point, so this asserts they
 	 * agree by construction.
 	 */
 	@Test
@@ -524,10 +524,10 @@ public class GearSectionOptimizerStyleTest
 	 * pre-existing bug: once owning a "(deadman)" item cross-maps to its
 	 * plain counterpart ({@code OwnedVariantResolver.SUFFIXES}), the
 	 * optimiser can legitimately SELECT that plain counterpart — but {@code
-	 * GearSection#resolvedChoiceItemId} previously passed {@code
+	 * GearSection#resolvedItemId} previously passed {@code
 	 * preferOwnedVariant} only the user-managed {@code excludedItemIds}, not
 	 * {@code restrictedItemIds()} (the mode-locked/Gauntlet-only set {@code
-	 * buildOptimizerRequest} always folds into the optimiser's OWN exclude
+	 * buildRequest} always folds into the optimiser's OWN exclude
 	 * set — see {@code GearSectionGearPoolTest
 	 * #deadmanNamedItem_isNeverSuggestedByTheOptimizer}). So the reverse
 	 * display lookup could remap the plain choice straight back to the
@@ -536,7 +536,7 @@ public class GearSectionOptimizerStyleTest
 	 * correctly refused to ever suggest directly.
 	 *
 	 * <p><b>That reading was wrong, and this test now asserts the opposite
-	 * (see {@code GearSection#resolvedChoiceItemId}).</b> Blocking the
+	 * (see {@code GearSection#resolvedItemId}).</b> Blocking the
 	 * substitution left the player holding ONLY the deadman cape while every
 	 * display surface named the plain id — an item that is not in their bank,
 	 * because {@code addVariantPlainForm} invented it at price 0 purely to
@@ -675,7 +675,7 @@ public class GearSectionOptimizerStyleTest
 	 * copy; the optimiser picks the plain id it can legitimately recommend,
 	 * and the display must leave it alone rather than swapping in the
 	 * look-alike the optimiser is forbidden to suggest. Without the
-	 * {@code heldItemIds} guard in {@code GearSection#resolvedChoiceItemId},
+	 * {@code heldItemIds} guard in {@code GearSection#resolvedItemId},
 	 * {@code preferOwnedVariant} would happily return the deadman id here,
 	 * since it is an owned, non-excluded, stat-identical variant.
 	 */
@@ -723,7 +723,7 @@ public class GearSectionOptimizerStyleTest
 	 * bow is equipped (detects Ranged) but a stronger melee whip sits owned in
 	 * the bank; on Cerberus the whip out-DPSes the weak bow, so Find Best must
 	 * land on Slash. That auto-pick is NOT a manual lock ({@code
-	 * optimizerStyleUserPicked} stays false), so the next target re-evaluates.
+	 * styleUserPicked} stays false), so the next target re-evaluates.
 	 */
 	@Test
 	public void findBest_autoPicksTheGlobalBestStyle_notJustTheEquippedWeaponsStyle()

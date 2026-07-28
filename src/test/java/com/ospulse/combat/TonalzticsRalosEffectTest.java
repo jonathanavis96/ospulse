@@ -136,7 +136,7 @@ public class TonalzticsRalosEffectTest {
         // A loadout that never sets tonalzticsOfRalosCharged must go through
         // the ordinary finish() path untouched - i.e. produce the exact same
         // result as before this stage existed. Cross-checked directly
-        // against DamageDistribution.averageDamagePerAttack/expectedOverkill.
+        // against DamageDistribution.averageDamage/expectedOverkill.
         EquipmentStats plain = gear().build();
         Monster target = monster();
         DpsResult result = compute(plain, target);
@@ -147,7 +147,7 @@ public class TonalzticsRalosEffectTest {
         int attackRoll = CombatMath.meleeOrRangedAttackRoll(effAtt, 100, Fraction.ONE);
         int defenceRoll = CombatMath.npcDefenceRoll(100, 50);
         double hitChance = CombatMath.hitChance(attackRoll, defenceRoll);
-        double avg = DamageDistribution.averageDamagePerAttack(hitChance, maxHit);
+        double avg = DamageDistribution.averageDamage(hitChance, maxHit);
         double overkill = DamageDistribution.expectedOverkill(maxHit, target.hitpoints());
         double dps = CombatMath.dps(avg, 4);
 
@@ -224,7 +224,7 @@ public class TonalzticsRalosEffectTest {
         int defenceRoll = CombatMath.npcDefenceRoll(100, 50);
         int perHit = TonalzticsDualHit.perHitMaxHit(maxHit);
         double hitChance = CombatMath.hitChance(attackRoll, defenceRoll);
-        double avg = DamageDistribution.averageDamagePerAttack(hitChance, perHit);
+        double avg = DamageDistribution.averageDamage(hitChance, perHit);
         double overkill = DamageDistribution.expectedOverkill(perHit, target.hitpoints());
         double dps = CombatMath.dps(avg, 4);
 

@@ -114,6 +114,141 @@ public final class BuildInfo
 	tasks.named('compileJava') { dependsOn generateBuildInfo }
 }
 
+// ---------------------------------------------------------------------------
+// Plugin Hub review-bot token budget guard.
+//
+// The Hub's automated reviewer refuses plugins whose source exceeds a 200,000
+// LLM-token budget (maintainer ruling on runelite/plugin-hub#13797, 2026-07-27).
+// Only src/main/java counts — resources and tests are excluded — and comments
+// are stripped before counting. Exceeding it silently blocks ALL future plugin
+// updates, and the only feedback is a maintainer comment days or weeks later,
+// so this fails the build locally instead.
+//
+// Counting method: comments are stripped string-literal-aware (so a "//" inside
+// a string is not mistaken for a comment), blank lines are dropped, and trailing
+// whitespace is trimmed. The resulting character count is converted with
+// CHARS_PER_TOKEN, calibrated by tokenising the real stripped tree with
+// tiktoken o200k_base: 793,906 chars -> 200,136 tokens = 3.967 chars/token.
+// This is an approximation of a bot whose exact tokeniser is unpublished, hence
+// the deliberate margin between the default max and the true 200,000 ceiling.
+//
+// The Hub packager compiles src/main/java directly and does not run custom
+// Gradle tasks (see the BuildInfo note above), so this task is inert there and
+// cannot break the published build.
+//
+// Overrides: -PtokenBudgetMax=N / -PtokenBudgetWarn=N
+// Thresholds. The true Hub ceiling is 200,000; these sit below it so a breach is
+// caught while there is still room to react, not after the Hub has refused the
+// update. Set after the 2026-07-28 trim brought the tree to ~194,500 tokens:
+// warn leaves ~500 tokens of quiet headroom, fail leaves 3,000 below the ceiling
+// to absorb the difference between this approximation and the bot's real count.
+def tokenBudgetMax = (project.findProperty('tokenBudgetMax') ?: '197000') as int
+def tokenBudgetWarn = (project.findProperty('tokenBudgetWarn') ?: '195000') as int
+def tokenBudgetSrc = file('src/main/java')
+
+def tokenBudgetTask = tasks.register('tokenBudget') {
+	group = 'verification'
+	description = 'Fails if src/main/java exceeds the Plugin Hub review-bot token budget.'
+	inputs.dir(tokenBudgetSrc)
+	outputs.upToDateWhen { false }
+
+	doLast {
+		// String-literal-aware comment stripper: mirrors what the review bot
+		// discards, without tripping over "//" or "/*" inside a string or char.
+		def stripComments = { String s ->
+			def out = new StringBuilder(s.length())
+			int i = 0
+			int n = s.length()
+			while (i < n) {
+				char c = s.charAt(i)
+				if (c == '"' as char || c == '\'' as char) {
+					char quote = c
+					int j = i + 1
+					while (j < n) {
+						char d = s.charAt(j)
+						if (d == '\\' as char) {
+							j += 2
+							continue
+						}
+						if (d == quote) {
+							j++
+							break
+						}
+						j++
+					}
+					out.append(s, i, Math.min(j, n))
+					i = j
+					continue
+				}
+				if (c == '/' as char && i + 1 < n) {
+					char next = s.charAt(i + 1)
+					if (next == '/' as char) {
+						int j = s.indexOf('\n', i)
+						i = (j < 0) ? n : j
+						continue
+					}
+					if (next == '*' as char) {
+						int j = s.indexOf('*/', i + 2)
+						i = (j < 0) ? n : j + 2
+						continue
+					}
+				}
+				out.append(c)
+				i++
+			}
+			return out.toString()
+		}
+
+		final double CHARS_PER_TOKEN = 3.967
+		def perFile = [:]
+		long totalChars = 0
+
+		fileTree(tokenBudgetSrc) { include '**/*.java' }.each { f ->
+			def stripped = stripComments(f.getText('UTF-8'))
+			long chars = 0
+			stripped.eachLine { line ->
+				def trimmed = line.replaceAll(/\s+$/, '')
+				if (trimmed.trim()) {
+					chars += trimmed.length() + 1
+				}
+			}
+			totalChars += chars
+			perFile[tokenBudgetSrc.toPath().relativize(f.toPath()).toString()] = chars
+		}
+
+		int estTokens = Math.round((totalChars / CHARS_PER_TOKEN) as float)
+		def pct = (estTokens * 100.0d / tokenBudgetMax).round(1)
+
+		logger.lifecycle("Plugin Hub token budget: ~${String.format('%,d', estTokens)} tokens " +
+			"(${pct}% of the ${String.format('%,d', tokenBudgetMax)} guard limit; true Hub ceiling 200,000)")
+
+		if (estTokens > tokenBudgetWarn) {
+			logger.lifecycle('Largest contributors:')
+			perFile.sort { -it.value }.take(10).each { path, chars ->
+				int t = Math.round((chars / CHARS_PER_TOKEN) as float)
+				logger.lifecycle(String.format('  %,8d tokens  %4.1f%%  %s',
+					t, t * 100.0d / estTokens, path))
+			}
+		}
+
+		if (estTokens > tokenBudgetMax) {
+			throw new GradleException(
+				"src/main/java is ~${String.format('%,d', estTokens)} tokens, over the " +
+				"${String.format('%,d', tokenBudgetMax)} guard limit (true Hub ceiling 200,000).\n" +
+				'The Plugin Hub review bot will refuse this plugin, blocking all future updates.\n' +
+				'Reduce source under src/main/java. NOTE: splitting a file into several files does\n' +
+				'NOT help — the whole tree is counted. Only deletion, deduplication, or moving data\n' +
+				'literals into src/main/resources (which is not counted) reduces the number.')
+		}
+		else if (estTokens > tokenBudgetWarn) {
+			logger.warn("WARNING: within ${String.format('%,d', tokenBudgetMax - estTokens)} tokens " +
+				'of the Plugin Hub guard limit.')
+		}
+	}
+}
+
+tasks.named('check') { dependsOn tokenBudgetTask }
+
 tasks.register('shadowJar', Jar) {
 	from sourceSets.main.output
 	duplicatesStrategy = DuplicatesStrategy.EXCLUDE

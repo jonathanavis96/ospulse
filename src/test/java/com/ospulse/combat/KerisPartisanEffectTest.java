@@ -247,7 +247,7 @@ public class KerisPartisanEffectTest {
         Monster nonKalphite = monster(EnumSet.noneOf(MonsterAttribute.class));
         DpsResult keris = compute(gear().kerisPartisan(KerisPartisan.PARTISAN).build(), nonKalphite);
 
-        double plainAvg = DamageDistribution.averageDamagePerAttack(keris.accuracy(), keris.maxHit());
+        double plainAvg = DamageDistribution.averageDamage(keris.accuracy(), keris.maxHit());
         assertEquals("no residual 1/51 triple-roll bump vs a non-Kalphite target",
                 plainAvg, keris.avgHit(), 1e-9);
         // If the puncture roll were wrongly left universal, avgHit would be
@@ -287,7 +287,7 @@ public class KerisPartisanEffectTest {
         DpsResult keris = compute(gear().kerisPartisan(KerisPartisan.PARTISAN).build(), kalphite);
 
         double hitChance = keris.accuracy();
-        double justThirtyThreePercent = DamageDistribution.averageDamagePerAttack(hitChance, keris.maxHit());
+        double justThirtyThreePercent = DamageDistribution.averageDamage(hitChance, keris.maxHit());
         assertTrue("triple-roll bump must exceed the plain +33% average",
                 keris.avgHit() > justThirtyThreePercent);
         assertEquals(justThirtyThreePercent * 53.0 / 51.0, keris.avgHit(), 1e-9);
@@ -336,7 +336,7 @@ public class KerisPartisanEffectTest {
 
         // Same setup with the triple proc's contribution removed: the plain
         // 0..maxHit average (no 53/51 rescale) fed through the same dps formula.
-        double avgWithoutTripleProc = DamageDistribution.averageDamagePerAttack(keris.accuracy(), keris.maxHit());
+        double avgWithoutTripleProc = DamageDistribution.averageDamage(keris.accuracy(), keris.maxHit());
         double dpsWithoutTripleProc = CombatMath.dps(avgWithoutTripleProc, kerisGear.weaponSpeedTicks());
 
         assertTrue("dps() must be strictly greater than the same setup without the triple proc",

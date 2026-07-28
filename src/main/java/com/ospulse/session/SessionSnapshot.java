@@ -4,6 +4,8 @@ import com.ospulse.ge.GeOfferView;
 import com.ospulse.wealth.WealthSnapshot;
 import com.ospulse.xp.XpSkillView;
 
+import lombok.Getter;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -17,27 +19,144 @@ import java.util.Map;
  */
 public final class SessionSnapshot
 {
+	@Getter
 	private final long startMs;
+	@Getter
 	private final long elapsedMs;
+	/**
+	 * Session "Loot": gp value of items actually picked up — realised wealth
+	 * gains with GE flip P&amp;L removed (flips are surfaced on their own line
+	 * via {@link #getGeRealizedPnl()} and would otherwise double-count). Distinct
+	 * from {@link #getLoot()}, which is the itemised loot FEED (all drops,
+	 * event-based) and need not equal this value: looting nothing leaves this at
+	 * zero even when the feed shows drops. Selling looted items is not a flip, so
+	 * that value stays here.
+	 */
+	@Getter
 	private final long lootValue;
+	@Getter
 	private final long profitPerHour;
+	@Getter
 	private final long geRealizedPnl;
+	/**
+	 * "Net worth change" — the LOCKED session-panel model: the SUM of {@code
+	 * getNetProfit()} (Loot − Supplies), {@link #getGeRealizedPnl()} (GE flip),
+	 * {@link #getGePositions()} (GE positions) and {@link #getBankDelta()}
+	 * (Bank). Held/worn/inventory gear price drift deliberately contributes to
+	 * none of the four and so never shows here — it is zeroed until the item
+	 * transacts (sold via GE, banked, or consumed/looted). Always the FULL,
+	 * untoggled sum; a session-panel include/exclude toggle on GE positions or
+	 * Bank (default both on) is display-only and subtracts the relevant raw
+	 * component when rendering, never mutating this value.
+	 */
+	@Getter
 	private final long netWorthDelta;
+	@Getter
 	private final boolean bankKnown;
+	/**
+	 * Loot aggregated per item (one row per distinct item, quantities and
+	 * values summed across the session), ordered by total value descending.
+	 */
+	@Getter
 	private final List<LootEntry> loot;
+	@Getter
 	private final Map<String, Long> xpGained;
+	@Getter
 	private final long xpTotal;
+	@Getter
 	private final WealthSnapshot wealth;
+	/**
+	 * Active Grand Exchange offers (buy/sell), for the panel's GE breakdown.
+	 * Empty when there are no active offers.
+	 */
+	@Getter
 	private final List<GeOfferView> geOffers;
+	/**
+	 * Loot grouped by source (NPC/boss/activity), ordered by total value
+	 * descending — the collapsible Loot-Tracker-style feed. Empty when nothing
+	 * has been looted yet this session.
+	 */
+	@Getter
 	private final List<SourceLoot> lootSources;
+	/**
+	 * Per-skill XP progress views (gained, rate, xp/actions left, level
+	 * progress), ordered by XP gained descending. Empty until the integration
+	 * layer supplies them (e.g. before the first XP gain of the session).
+	 */
+	@Getter
 	private final List<XpSkillView> xpSkills;
+	/** Overall XP gained per hour across all skills; 0 while elapsed is 0. */
+	@Getter
 	private final long xpPerHour;
+	/**
+	 * Live worn gear + boosted levels + active prayers for the Gear/DPS
+	 * calculator section. Never {@code null} — defaults to
+	 * {@link GearSnapshot#empty()} for snapshots built before that plumbing
+	 * existed (older constructors) or before the first live read.
+	 */
+	@Getter
 	private final GearSnapshot gear;
+	/**
+	 * Total unrealized P/L: current holdings valued at live price minus their
+	 * session cost basis. Pure price drift on held items moves this figure —
+	 * never {@link #getLootValue()}, which is realised activity only.
+	 */
+	@Getter
 	private final long unrealizedPnl;
+	/**
+	 * Per-holding unrealized P/L breakdown (cost basis vs current value per
+	 * held item), ordered by absolute unrealized amount descending — the rows
+	 * sum to {@link #getUnrealizedPnl()}. Empty when nothing is held or the
+	 * engine predates cost-basis tracking (older constructors).
+	 */
+	@Getter
 	private final List<HoldingPnl> holdingPnls;
+	/**
+	 * Running session total (gp value) of consumable supplies used
+	 * (potions/food/ammo/runes drained from inventory while away from the
+	 * bank and not attributable to a GE sale). This spend is excluded from
+	 * {@link #getLootValue()} — consuming a supply neither gains nor loses
+	 * loot value, it just moves value from "held" to "used" — so this figure is
+	 * the dedicated place that spend is visible, not a duplicate of a
+	 * reduction already visible in loot value. Zero for snapshots built before
+	 * this tracking existed (older constructors).
+	 */
+	@Getter
 	private final long suppliesUsed;
+	/**
+	 * "GE positions" — the LOCKED session-panel model's unrealised
+	 * mark-to-market on open/collectable Grand Exchange offers: current pool
+	 * value ({@code geInFlight + geCollectable}) minus the pool's cost basis.
+	 * Moving the player's own coins/items into an offer never moves this figure
+	 * (entries are added to the cost basis at the same live value that left
+	 * tracked wealth); only genuine repricing while the value sits in the GE
+	 * (a favourable/unfavourable fill, a sell offer's unsold remainder
+	 * repricing) does. One of the four components summed into {@link
+	 * #getNetWorthDelta()}; a session-panel toggle (default on) may exclude it
+	 * from the displayed "Net worth change" without affecting this raw value.
+	 */
+	@Getter
 	private final long gePositions;
+	/**
+	 * "Bank" — the LOCKED session-panel model's bank component: current bank
+	 * value minus the session's Bank-line anchor. A deposit/withdrawal (the
+	 * player's own money moving in/out) cancels to zero here; price wobble on
+	 * ALREADY-banked contents (a GE price reload while the bank sits closed)
+	 * shows through, since that is real wealth movement on cold storage. One of
+	 * the four components summed into {@link #getNetWorthDelta()}; a
+	 * session-panel toggle (default on) may exclude it from the displayed "Net
+	 * worth change" without affecting this raw value.
+	 */
+	@Getter
 	private final long bankDelta;
+	/**
+	 * Session-cumulative profit/loss of skilling episodes: what conversion
+	 * activity (Herblore/Crafting/Fletching/Smithing/Cooking) did to wealth,
+	 * net of any loot booked during those windows. Negative when you craft at a
+	 * loss. Folded into {@link #getNetProfit()}; exposed separately for
+	 * diagnostics and display, NOT as a fifth net-worth component.
+	 */
+	@Getter
 	private final long episodePnl;
 
 	/**
@@ -302,30 +421,6 @@ public final class SessionSnapshot
 		this.episodePnl = episodePnl;
 	}
 
-	public long getStartMs()
-	{
-		return startMs;
-	}
-
-	public long getElapsedMs()
-	{
-		return elapsedMs;
-	}
-
-	/**
-	 * Session "Loot": gp value of items actually picked up — realised wealth
-	 * gains with GE flip P&amp;L removed (flips are surfaced on their own line
-	 * via {@link #getGeRealizedPnl()} and would otherwise double-count). Distinct
-	 * from {@link #getLoot()}, which is the itemised loot FEED (all drops,
-	 * event-based) and need not equal this value: looting nothing leaves this at
-	 * zero even when the feed shows drops. Selling looted items is not a flip, so
-	 * that value stays here.
-	 */
-	public long getLootValue()
-	{
-		return lootValue;
-	}
-
 	/**
 	 * Session net profit: {@link #getLootValue() loot value}, minus the
 	 * {@link #getSuppliesUsed() consumable spend} burned to earn it, plus the
@@ -343,186 +438,5 @@ public final class SessionSnapshot
 	public long getNetProfit()
 	{
 		return lootValue - suppliesUsed + episodePnl;
-	}
-
-	/**
-	 * Session-cumulative profit/loss of skilling episodes: what conversion
-	 * activity (Herblore/Crafting/Fletching/Smithing/Cooking) did to wealth,
-	 * net of any loot booked during those windows. Negative when you craft at a
-	 * loss. Folded into {@link #getNetProfit()}; exposed separately for
-	 * diagnostics and display, NOT as a fifth net-worth component.
-	 */
-	public long getEpisodePnl()
-	{
-		return episodePnl;
-	}
-
-	public long getProfitPerHour()
-	{
-		return profitPerHour;
-	}
-
-	public long getGeRealizedPnl()
-	{
-		return geRealizedPnl;
-	}
-
-	/**
-	 * "Net worth change" — the LOCKED session-panel model: the SUM of {@code
-	 * getNetProfit()} (Loot − Supplies), {@link #getGeRealizedPnl()} (GE flip),
-	 * {@link #getGePositions()} (GE positions) and {@link #getBankDelta()}
-	 * (Bank). Held/worn/inventory gear price drift deliberately contributes to
-	 * none of the four and so never shows here — it is zeroed until the item
-	 * transacts (sold via GE, banked, or consumed/looted). Always the FULL,
-	 * untoggled sum; a session-panel include/exclude toggle on GE positions or
-	 * Bank (default both on) is display-only and subtracts the relevant raw
-	 * component when rendering, never mutating this value.
-	 */
-	public long getNetWorthDelta()
-	{
-		return netWorthDelta;
-	}
-
-	public boolean isBankKnown()
-	{
-		return bankKnown;
-	}
-
-	/**
-	 * Loot aggregated per item (one row per distinct item, quantities and
-	 * values summed across the session), ordered by total value descending.
-	 */
-	public List<LootEntry> getLoot()
-	{
-		return loot;
-	}
-
-	public Map<String, Long> getXpGained()
-	{
-		return xpGained;
-	}
-
-	public long getXpTotal()
-	{
-		return xpTotal;
-	}
-
-	public WealthSnapshot getWealth()
-	{
-		return wealth;
-	}
-
-	/**
-	 * Active Grand Exchange offers (buy/sell), for the panel's GE breakdown.
-	 * Empty when there are no active offers.
-	 */
-	public List<GeOfferView> getGeOffers()
-	{
-		return geOffers;
-	}
-
-	/**
-	 * Loot grouped by source (NPC/boss/activity), ordered by total value
-	 * descending — the collapsible Loot-Tracker-style feed. Empty when nothing
-	 * has been looted yet this session.
-	 */
-	public List<SourceLoot> getLootSources()
-	{
-		return lootSources;
-	}
-
-	/**
-	 * Per-skill XP progress views (gained, rate, xp/actions left, level
-	 * progress), ordered by XP gained descending. Empty until the integration
-	 * layer supplies them (e.g. before the first XP gain of the session).
-	 */
-	public List<XpSkillView> getXpSkills()
-	{
-		return xpSkills;
-	}
-
-	/** Overall XP gained per hour across all skills; 0 while elapsed is 0. */
-	public long getXpPerHour()
-	{
-		return xpPerHour;
-	}
-
-	/**
-	 * Live worn gear + boosted levels + active prayers for the Gear/DPS
-	 * calculator section. Never {@code null} — defaults to
-	 * {@link GearSnapshot#empty()} for snapshots built before that plumbing
-	 * existed (older constructors) or before the first live read.
-	 */
-	public GearSnapshot getGear()
-	{
-		return gear;
-	}
-
-	/**
-	 * Total unrealized P/L: current holdings valued at live price minus their
-	 * session cost basis. Pure price drift on held items moves this figure —
-	 * never {@link #getLootValue()}, which is realised activity only.
-	 */
-	public long getUnrealizedPnl()
-	{
-		return unrealizedPnl;
-	}
-
-	/**
-	 * Per-holding unrealized P/L breakdown (cost basis vs current value per
-	 * held item), ordered by absolute unrealized amount descending — the rows
-	 * sum to {@link #getUnrealizedPnl()}. Empty when nothing is held or the
-	 * engine predates cost-basis tracking (older constructors).
-	 */
-	public List<HoldingPnl> getHoldingPnls()
-	{
-		return holdingPnls;
-	}
-
-	/**
-	 * Running session total (gp value) of consumable supplies used
-	 * (potions/food/ammo/runes drained from inventory while away from the
-	 * bank and not attributable to a GE sale). This spend is excluded from
-	 * {@link #getLootValue()} — consuming a supply neither gains nor loses
-	 * loot value, it just moves value from "held" to "used" — so this figure is
-	 * the dedicated place that spend is visible, not a duplicate of a
-	 * reduction already visible in loot value. Zero for snapshots built before
-	 * this tracking existed (older constructors).
-	 */
-	public long getSuppliesUsed()
-	{
-		return suppliesUsed;
-	}
-
-	/**
-	 * "GE positions" — the LOCKED session-panel model's unrealised
-	 * mark-to-market on open/collectable Grand Exchange offers: current pool
-	 * value ({@code geInFlight + geCollectable}) minus the pool's cost basis.
-	 * Moving the player's own coins/items into an offer never moves this figure
-	 * (entries are added to the cost basis at the same live value that left
-	 * tracked wealth); only genuine repricing while the value sits in the GE
-	 * (a favourable/unfavourable fill, a sell offer's unsold remainder
-	 * repricing) does. One of the four components summed into {@link
-	 * #getNetWorthDelta()}; a session-panel toggle (default on) may exclude it
-	 * from the displayed "Net worth change" without affecting this raw value.
-	 */
-	public long getGePositions()
-	{
-		return gePositions;
-	}
-
-	/**
-	 * "Bank" — the LOCKED session-panel model's bank component: current bank
-	 * value minus the session's Bank-line anchor. A deposit/withdrawal (the
-	 * player's own money moving in/out) cancels to zero here; price wobble on
-	 * ALREADY-banked contents (a GE price reload while the bank sits closed)
-	 * shows through, since that is real wealth movement on cold storage. One of
-	 * the four components summed into {@link #getNetWorthDelta()}; a
-	 * session-panel toggle (default on) may exclude it from the displayed "Net
-	 * worth change" without affecting this raw value.
-	 */
-	public long getBankDelta()
-	{
-		return bankDelta;
 	}
 }

@@ -1,9 +1,14 @@
 package com.ospulse.combat;
 
+import com.google.gson.reflect.TypeToken;
+
+import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The attack styles each {@link WeaponCategory} offers — a faithful port of
@@ -27,9 +32,42 @@ import java.util.List;
  * "Blaze") map to {@link Stance#STANDARD}; the magic max-hit itself still needs
  * a spell picker (a separate TODO), so callers that want honest numbers filter
  * {@link CombatStyle#MAGIC} out of the ranking for now.
+ *
+ * <p>The per-category style table itself is bundled data — see {@code
+ * /com/ospulse/combat/weapon_styles.json}, in the in-game combat-tab order —
+ * loaded once through {@link CombatDataLoader}, the same shared bundled-resource
+ * loading path {@link AttackStyleIcons} uses.
  */
 public final class WeaponStyles {
     private WeaponStyles() {
+    }
+
+    private static final String RESOURCE_PATH = "/com/ospulse/combat/weapon_styles.json";
+    private static final Type RAW_STYLES_JSON_TYPE = new TypeToken<Map<String, List<RawStyle>>>() {
+    }.getType();
+
+    private static final Map<WeaponCategory, List<WeaponStyle>> BY_CATEGORY = buildByCategory();
+
+    private static Map<WeaponCategory, List<WeaponStyle>> buildByCategory() {
+        Map<String, List<RawStyle>> raw = CombatDataLoader.load(WeaponStyles.class, RESOURCE_PATH, RAW_STYLES_JSON_TYPE);
+        Map<WeaponCategory, List<WeaponStyle>> parsed = new EnumMap<>(WeaponCategory.class);
+        for (Map.Entry<String, List<RawStyle>> categoryEntry : raw.entrySet()) {
+            WeaponCategory category;
+            try {
+                category = WeaponCategory.valueOf(categoryEntry.getKey());
+            } catch (IllegalArgumentException e) {
+                continue; // unknown category key in the bundled data — treated as "no data"
+            }
+            List<WeaponStyle> styles = new ArrayList<>();
+            for (RawStyle rawStyle : categoryEntry.getValue()) {
+                if (rawStyle.name == null || rawStyle.type == null || rawStyle.stance == null) {
+                    continue; // malformed entry — treated as "no data"
+                }
+                styles.add(new WeaponStyle(rawStyle.name, CombatStyle.valueOf(rawStyle.type), Stance.valueOf(rawStyle.stance)));
+            }
+            parsed.put(category, Collections.unmodifiableList(styles));
+        }
+        return Collections.unmodifiableMap(parsed);
     }
 
     /**
@@ -53,163 +91,14 @@ public final class WeaponStyles {
         if (category == null) {
             category = WeaponCategory.UNARMED;
         }
-        switch (category) {
-            case TWO_HANDED_SWORD:
-                return list(
-                    s("Chop", CombatStyle.SLASH, Stance.ACCURATE),
-                    s("Slash", CombatStyle.SLASH, Stance.AGGRESSIVE),
-                    s("Smash", CombatStyle.CRUSH, Stance.AGGRESSIVE),
-                    s("Block", CombatStyle.SLASH, Stance.DEFENSIVE));
-            case AXE:
-                return list(
-                    s("Chop", CombatStyle.SLASH, Stance.ACCURATE),
-                    s("Hack", CombatStyle.SLASH, Stance.AGGRESSIVE),
-                    s("Smash", CombatStyle.CRUSH, Stance.AGGRESSIVE),
-                    s("Block", CombatStyle.SLASH, Stance.DEFENSIVE));
-            case BANNER:
-                return list(
-                    s("Lunge", CombatStyle.STAB, Stance.ACCURATE),
-                    s("Swipe", CombatStyle.SLASH, Stance.AGGRESSIVE),
-                    s("Pound", CombatStyle.CRUSH, Stance.CONTROLLED),
-                    s("Block", CombatStyle.STAB, Stance.DEFENSIVE));
-            case BLADED_STAFF:
-                return list(
-                    s("Jab", CombatStyle.STAB, Stance.ACCURATE),
-                    s("Swipe", CombatStyle.SLASH, Stance.AGGRESSIVE),
-                    s("Fend", CombatStyle.CRUSH, Stance.DEFENSIVE),
-                    s("Spell", CombatStyle.MAGIC, Stance.STANDARD));
-            case BLASTER:
-                return Collections.emptyList();
-            case BLUDGEON:
-                return list(s("Pound", CombatStyle.CRUSH, Stance.AGGRESSIVE));
-            case BLUNT:
-                return list(
-                    s("Pound", CombatStyle.CRUSH, Stance.ACCURATE),
-                    s("Pummel", CombatStyle.CRUSH, Stance.AGGRESSIVE),
-                    s("Block", CombatStyle.CRUSH, Stance.DEFENSIVE));
-            case BOW:
-            case CROSSBOW:
-            case THROWN:
-                return list(
-                    s("Accurate", CombatStyle.RANGED, Stance.ACCURATE),
-                    s("Rapid", CombatStyle.RANGED, Stance.RAPID),
-                    s("Longrange", CombatStyle.RANGED, Stance.LONGRANGE));
-            case BULWARK:
-                return list(s("Pummel", CombatStyle.CRUSH, Stance.ACCURATE));
-            case CHINCHOMPA:
-                return list(
-                    s("Short fuse", CombatStyle.RANGED, Stance.ACCURATE),
-                    s("Medium fuse", CombatStyle.RANGED, Stance.RAPID),
-                    s("Long fuse", CombatStyle.RANGED, Stance.LONGRANGE));
-            case CLAW:
-                return list(
-                    s("Chop", CombatStyle.SLASH, Stance.ACCURATE),
-                    s("Slash", CombatStyle.SLASH, Stance.AGGRESSIVE),
-                    s("Lunge", CombatStyle.STAB, Stance.CONTROLLED),
-                    s("Block", CombatStyle.SLASH, Stance.DEFENSIVE));
-            case FLAIL:
-                return list(
-                    s("Chop", CombatStyle.SLASH, Stance.ACCURATE),
-                    s("Slash", CombatStyle.SLASH, Stance.AGGRESSIVE),
-                    s("Block", CombatStyle.SLASH, Stance.DEFENSIVE));
-            case GUN:
-                return list(s("Kick", CombatStyle.CRUSH, Stance.AGGRESSIVE));
-            case MULTI_MELEE:
-                return list(
-                    s("Poke", CombatStyle.STAB, Stance.ACCURATE),
-                    s("Slash", CombatStyle.SLASH, Stance.AGGRESSIVE),
-                    s("Pound", CombatStyle.CRUSH, Stance.AGGRESSIVE),
-                    s("Block", CombatStyle.SLASH, Stance.DEFENSIVE));
-            case PARTISAN:
-                return list(
-                    s("Stab", CombatStyle.STAB, Stance.ACCURATE),
-                    s("Lunge", CombatStyle.STAB, Stance.AGGRESSIVE),
-                    s("Pound", CombatStyle.CRUSH, Stance.AGGRESSIVE),
-                    s("Block", CombatStyle.STAB, Stance.DEFENSIVE));
-            case PICKAXE:
-                return list(
-                    s("Spike", CombatStyle.STAB, Stance.ACCURATE),
-                    s("Impale", CombatStyle.STAB, Stance.AGGRESSIVE),
-                    s("Smash", CombatStyle.CRUSH, Stance.AGGRESSIVE),
-                    s("Block", CombatStyle.STAB, Stance.DEFENSIVE));
-            case POLEARM:
-                return list(
-                    s("Jab", CombatStyle.STAB, Stance.CONTROLLED),
-                    s("Swipe", CombatStyle.SLASH, Stance.AGGRESSIVE),
-                    s("Fend", CombatStyle.STAB, Stance.DEFENSIVE));
-            case POLESTAFF:
-                return list(
-                    s("Bash", CombatStyle.CRUSH, Stance.ACCURATE),
-                    s("Pound", CombatStyle.CRUSH, Stance.AGGRESSIVE),
-                    s("Block", CombatStyle.CRUSH, Stance.DEFENSIVE));
-            case POWERED_STAFF:
-            case POWERED_WAND:
-                return list(
-                    s("Accurate", CombatStyle.MAGIC, Stance.ACCURATE),
-                    s("Longrange", CombatStyle.MAGIC, Stance.LONGRANGE));
-            case SALAMANDER:
-                return list(
-                    s("Scorch", CombatStyle.SLASH, Stance.AGGRESSIVE),
-                    s("Flare", CombatStyle.RANGED, Stance.RAPID),
-                    s("Blaze", CombatStyle.MAGIC, Stance.STANDARD));
-            case SCYTHE:
-                return list(
-                    s("Reap", CombatStyle.SLASH, Stance.ACCURATE),
-                    s("Chop", CombatStyle.SLASH, Stance.AGGRESSIVE),
-                    s("Jab", CombatStyle.CRUSH, Stance.AGGRESSIVE),
-                    s("Block", CombatStyle.SLASH, Stance.DEFENSIVE));
-            case SLASH_SWORD:
-                return list(
-                    s("Chop", CombatStyle.SLASH, Stance.ACCURATE),
-                    s("Slash", CombatStyle.SLASH, Stance.AGGRESSIVE),
-                    s("Lunge", CombatStyle.STAB, Stance.CONTROLLED),
-                    s("Block", CombatStyle.SLASH, Stance.DEFENSIVE));
-            case SPEAR:
-                return list(
-                    s("Lunge", CombatStyle.STAB, Stance.CONTROLLED),
-                    s("Swipe", CombatStyle.SLASH, Stance.CONTROLLED),
-                    s("Pound", CombatStyle.CRUSH, Stance.CONTROLLED),
-                    s("Block", CombatStyle.STAB, Stance.DEFENSIVE));
-            case SPIKED:
-                return list(
-                    s("Pound", CombatStyle.CRUSH, Stance.ACCURATE),
-                    s("Pummel", CombatStyle.CRUSH, Stance.AGGRESSIVE),
-                    s("Spike", CombatStyle.STAB, Stance.CONTROLLED),
-                    s("Block", CombatStyle.CRUSH, Stance.DEFENSIVE));
-            case DAGGER:
-            case STAB_SWORD:
-                return list(
-                    s("Stab", CombatStyle.STAB, Stance.ACCURATE),
-                    s("Lunge", CombatStyle.STAB, Stance.AGGRESSIVE),
-                    s("Slash", CombatStyle.SLASH, Stance.AGGRESSIVE),
-                    s("Block", CombatStyle.STAB, Stance.DEFENSIVE));
-            case STAFF:
-                return list(
-                    s("Bash", CombatStyle.CRUSH, Stance.ACCURATE),
-                    s("Pound", CombatStyle.CRUSH, Stance.AGGRESSIVE),
-                    s("Focus", CombatStyle.CRUSH, Stance.DEFENSIVE),
-                    s("Spell", CombatStyle.MAGIC, Stance.STANDARD));
-            case WHIP:
-                return list(
-                    s("Flick", CombatStyle.SLASH, Stance.ACCURATE),
-                    s("Lash", CombatStyle.SLASH, Stance.CONTROLLED),
-                    s("Deflect", CombatStyle.SLASH, Stance.DEFENSIVE));
-            case UNARMED:
-            default:
-                return list(
-                    s("Punch", CombatStyle.CRUSH, Stance.ACCURATE),
-                    s("Kick", CombatStyle.CRUSH, Stance.AGGRESSIVE),
-                    s("Block", CombatStyle.CRUSH, Stance.DEFENSIVE));
-        }
+        List<WeaponStyle> styles = BY_CATEGORY.get(category);
+        return styles != null ? styles : BY_CATEGORY.get(WeaponCategory.UNARMED);
     }
 
-    private static WeaponStyle s(String name, CombatStyle type, Stance stance) {
-        return new WeaponStyle(name, type, stance);
-    }
-
-    private static List<WeaponStyle> list(WeaponStyle... styles) {
-        List<WeaponStyle> out = new ArrayList<>(styles.length);
-        Collections.addAll(out, styles);
-        return out;
+    /** Internal Gson deserialisation shape mirroring one entry of {@code weapon_styles.json}'s per-category arrays. */
+    private static final class RawStyle {
+        String name;
+        String type;
+        String stance;
     }
 }

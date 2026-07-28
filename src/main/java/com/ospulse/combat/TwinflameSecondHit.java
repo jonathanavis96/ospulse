@@ -31,7 +31,7 @@ package com.ospulse.combat;
  * and 1 respectively, not a smooth 0.4x scaling. The only correct way to get
  * the exact expectation is to sum {@code floor(0.4*d) * P(d)} over the same
  * discrete per-attack damage distribution {@code DamageDistribution
- * .averageDamagePerAttack} uses: a landed hit rolls uniform {@code 0..maxHit}
+ * .averageDamage} uses: a landed hit rolls uniform {@code 0..maxHit}
  * with a rolled 0 bumped to 1 (so {@code P(1) = 2/(maxHit+1)}, {@code P(d) =
  * 1/(maxHit+1)} for {@code d} in {@code 2..maxHit}). A short direct
  * enumeration over that range is exact and fast (magic max hits are small),
@@ -110,7 +110,7 @@ final class TwinflameSecondHit {
      * delegates to {@link #secondHitAverage} against the true max hit.
      * {@code cap <= 0}: every outcome (including the bumped 1) re-rolls into
      * the single value {@code {0}}, so the second hit is always {@code 0} —
-     * matching {@link DamageDistribution#rerolledAverageDamagePerAttack}'s own
+     * matching {@link DamageDistribution#rerolledAverageDamage}'s own
      * {@code cap <= 0} guard.
      */
     static double rerolledSecondHitAverage(double hitChance, int uncappedMaxHit, int cap) {

@@ -16,6 +16,7 @@ import static org.junit.Assert.assertTrue;
  * the mapping never falls through to a missing/zero id.
  */
 public class AttackStyleIconsTest {
+    static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
     @Test
     public void exactNativeSpriteIdsForACoupleOfWellKnownWeaponTypes() {

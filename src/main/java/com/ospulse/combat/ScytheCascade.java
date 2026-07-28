@@ -27,7 +27,7 @@ package com.ospulse.combat;
  * with its OWN independent accuracy roll at the SAME hit chance, not one
  * shared gate for the whole cascade. This does NOT change the average
  * (linearity of expectation makes the shared-vs-independent-accuracy
- * distinction irrelevant to the mean — see {@link #averageDamagePerAttack})
+ * distinction irrelevant to the mean — see {@link #averageDamage})
  * but DOES matter for overkill, which needs the joint distribution of all
  * landed hits together (see {@link #expectedOverkill}).
  *
@@ -41,7 +41,7 @@ package com.ospulse.combat;
  * <p><b>Known, disclosed simplification:</b> a cascade hit whose decayed max
  * hit floors all the way to 0 still follows the ordinary OSRS "a rolled 0 on
  * a landed hit becomes 1" convention (the same convention {@link
- * DamageDistribution#averageDamagePerAttack} already applies uniformly to
+ * DamageDistribution#averageDamage} already applies uniformly to
  * every single-hit max in this codebase) rather than dealing a genuine zero.
  * This only matters at a base max hit of 3 or below (so the second/third
  * cascade hit floors to 0) — far under any level a scythe is ever realistically
@@ -80,28 +80,28 @@ final class ScytheCascade {
     }
 
     /** Uncapped total average damage per attack: the sum of each cascade hit's own average, at the SAME hit chance. */
-    static double averageDamagePerAttack(double hitChance, int firstMaxHit, int hits) {
+    static double averageDamage(double hitChance, int firstMaxHit, int hits) {
         double sum = 0.0;
         for (int maxHit : cascadeMaxHits(firstMaxHit, hits)) {
-            sum += DamageDistribution.averageDamagePerAttack(hitChance, maxHit);
+            sum += DamageDistribution.averageDamage(hitChance, maxHit);
         }
         return sum;
     }
 
     /** Total average damage per attack against a target that CLAMPS each hitsplat — same cap applies to every cascade hit. */
-    static double cappedAverageDamagePerAttack(double hitChance, int firstMaxHit, int hits, int cap) {
+    static double cappedAverageDamage(double hitChance, int firstMaxHit, int hits, int cap) {
         double sum = 0.0;
         for (int maxHit : cascadeMaxHits(firstMaxHit, hits)) {
-            sum += DamageDistribution.cappedAverageDamagePerAttack(hitChance, maxHit, cap);
+            sum += DamageDistribution.cappedAverageDamage(hitChance, maxHit, cap);
         }
         return sum;
     }
 
     /** Total average damage per attack against a target that RE-ROLLS each hitsplat above a cap. */
-    static double rerolledAverageDamagePerAttack(double hitChance, int firstMaxHit, int hits, int cap) {
+    static double rerolledAverageDamage(double hitChance, int firstMaxHit, int hits, int cap) {
         double sum = 0.0;
         for (int maxHit : cascadeMaxHits(firstMaxHit, hits)) {
-            sum += DamageDistribution.rerolledAverageDamagePerAttack(hitChance, maxHit, cap);
+            sum += DamageDistribution.rerolledAverageDamage(hitChance, maxHit, cap);
         }
         return sum;
     }
@@ -267,13 +267,13 @@ final class ScytheCascade {
         double avgDamage;
         double overkill;
         if (!capped) {
-            avgDamage = averageDamagePerAttack(hitChance, uncappedMaxHit, hits);
+            avgDamage = averageDamage(hitChance, uncappedMaxHit, hits);
             overkill = expectedOverkill(hitChance, uncappedMaxHit, hits, targetHitpoints);
         } else if (mode == MonsterCombatRequirement.CapMode.REROLL) {
-            avgDamage = rerolledAverageDamagePerAttack(hitChance, uncappedMaxHit, hits, cap);
+            avgDamage = rerolledAverageDamage(hitChance, uncappedMaxHit, hits, cap);
             overkill = rerolledExpectedOverkill(hitChance, uncappedMaxHit, hits, cap, targetHitpoints);
         } else {
-            avgDamage = cappedAverageDamagePerAttack(hitChance, uncappedMaxHit, hits, cap);
+            avgDamage = cappedAverageDamage(hitChance, uncappedMaxHit, hits, cap);
             overkill = cappedExpectedOverkill(hitChance, uncappedMaxHit, hits, cap, targetHitpoints);
         }
         double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);

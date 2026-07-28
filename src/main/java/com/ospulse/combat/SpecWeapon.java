@@ -317,11 +317,11 @@ public final class SpecWeapon {
             new SpecWeapon(861, ids(), "Magic shortbow", SpecRole.DAMAGE, 55,
                     CombatStyle.RANGED, Stance.RAPID,
                     "Two shots (accuracy penalty not numerically modelled — see class javadoc)",
-                    (hitChance, maxHit) -> 2.0 * DamageDistribution.averageDamagePerAttack(hitChance, maxHit)),
+                    (hitChance, maxHit) -> 2.0 * DamageDistribution.averageDamage(hitChance, maxHit)),
             new SpecWeapon(12788, ids(), "Magic shortbow (i)", SpecRole.DAMAGE, 50,
                     CombatStyle.RANGED, Stance.RAPID,
                     "Two shots, imbued (accuracy penalty not numerically modelled — see class javadoc)",
-                    (hitChance, maxHit) -> 2.0 * DamageDistribution.averageDamagePerAttack(hitChance, maxHit)),
+                    (hitChance, maxHit) -> 2.0 * DamageDistribution.averageDamage(hitChance, maxHit)),
 
             // ---- DEFENCE_DRAIN ----------------------------------------------------------
             new SpecWeapon(13576, ids(28035), "Dragon warhammer", SpecRole.DEFENCE_DRAIN, 50,

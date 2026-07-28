@@ -1,5 +1,7 @@
 package com.ospulse.model;
 
+import lombok.Getter;
+
 import java.util.Objects;
 
 /**
@@ -7,12 +9,17 @@ import java.util.Objects;
  * per-unit value. Pure domain type: no RuneLite imports, unit-testable
  * without a game client.
  */
+@Getter
 public final class ItemStack
 {
 	private final int id;
 	private final String name;
 	private final long quantity;
 	private final long unitValue;
+	/**
+	 * Per-unit High Alchemy price, resolved on the client thread at
+	 * construction time; {@code -1} if not resolved (composition unavailable).
+	 */
 	private final long haPrice;
 
 	public ItemStack(int id, String name, long quantity, long unitValue)
@@ -34,35 +41,6 @@ public final class ItemStack
 		this.quantity = quantity;
 		this.unitValue = unitValue;
 		this.haPrice = haPrice;
-	}
-
-	public int getId()
-	{
-		return id;
-	}
-
-	public String getName()
-	{
-		return name;
-	}
-
-	public long getQuantity()
-	{
-		return quantity;
-	}
-
-	public long getUnitValue()
-	{
-		return unitValue;
-	}
-
-	/**
-	 * Per-unit High Alchemy price, resolved on the client thread at
-	 * construction time; {@code -1} if not resolved (composition unavailable).
-	 */
-	public long getHaPrice()
-	{
-		return haPrice;
 	}
 
 	/**

@@ -166,9 +166,9 @@ public class OsmumtensFangEffectTest {
     public void fangAverageDamage_compressesRangeWithoutChangingItsMidpointShape() {
         // maxHit 60 -> wiki's own worked example: roll range [9, 51].
         // At hitChance 1.0 (certainty), avg damage = (9+51)/2 = 30 exactly.
-        assertEquals(30.0, DamageDistribution.fangAverageDamagePerAttack(1.0, 60), DELTA);
+        assertEquals(30.0, DamageDistribution.fangAverageDamage(1.0, 60), DELTA);
 
         // maxHit 24 -> range [3, 21]; at hitChance 1.0, avg = 12.
-        assertEquals(12.0, DamageDistribution.fangAverageDamagePerAttack(1.0, 24), DELTA);
+        assertEquals(12.0, DamageDistribution.fangAverageDamage(1.0, 24), DELTA);
     }
 }

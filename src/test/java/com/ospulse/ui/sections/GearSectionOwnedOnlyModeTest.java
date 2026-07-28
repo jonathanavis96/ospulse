@@ -472,7 +472,7 @@ public class GearSectionOwnedOnlyModeTest
 	 * in a headless test, so this drives the install-or-drop decision
 	 * directly via {@code installOptimizerResultForTest} with a generation
 	 * captured BEFORE the flip — exactly what {@code
-	 * installOptimizerResultIfCurrent} is handed for the real async paths.
+	 * installResultIfCurrent} is handed for the real async paths.
 	 */
 	@Test
 	public void staleSearchGeneration_capturedBeforeOffToOnFlip_isNeverInstalled()

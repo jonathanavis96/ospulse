@@ -1,6 +1,8 @@
 package com.ospulse.ge;
 
-import java.util.Objects;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+
 import java.util.OptionalLong;
 
 /**
@@ -13,6 +15,8 @@ import java.util.OptionalLong;
  * out of the total ordered), and the gp moved so far out of the gp the offer
  * would move if fully filled.
  */
+@Getter
+@EqualsAndHashCode
 public final class GeOfferView
 {
 	private final boolean buying;
@@ -56,81 +60,6 @@ public final class GeOfferView
 		this.gpProgress = gpProgress;
 		this.gpPotential = gpPotential;
 		this.realizedPnl = realizedPnl == null ? OptionalLong.empty() : realizedPnl;
-	}
-
-	public boolean isBuying()
-	{
-		return buying;
-	}
-
-	public int getItemId()
-	{
-		return itemId;
-	}
-
-	public String getItemName()
-	{
-		return itemName;
-	}
-
-	public long getTotalQuantity()
-	{
-		return totalQuantity;
-	}
-
-	public long getQuantityTransacted()
-	{
-		return quantityTransacted;
-	}
-
-	public long getPricePerItem()
-	{
-		return pricePerItem;
-	}
-
-	public long getGpProgress()
-	{
-		return gpProgress;
-	}
-
-	public long getGpPotential()
-	{
-		return gpPotential;
-	}
-
-	public OptionalLong getRealizedPnl()
-	{
-		return realizedPnl;
-	}
-
-	@Override
-	public boolean equals(Object o)
-	{
-		if (this == o)
-		{
-			return true;
-		}
-		if (!(o instanceof GeOfferView))
-		{
-			return false;
-		}
-		GeOfferView that = (GeOfferView) o;
-		return buying == that.buying
-			&& itemId == that.itemId
-			&& totalQuantity == that.totalQuantity
-			&& quantityTransacted == that.quantityTransacted
-			&& pricePerItem == that.pricePerItem
-			&& gpProgress == that.gpProgress
-			&& gpPotential == that.gpPotential
-			&& Objects.equals(itemName, that.itemName)
-			&& Objects.equals(realizedPnl, that.realizedPnl);
-	}
-
-	@Override
-	public int hashCode()
-	{
-		return Objects.hash(buying, itemId, itemName, totalQuantity, quantityTransacted,
-			pricePerItem, gpProgress, gpPotential, realizedPnl);
 	}
 
 	@Override

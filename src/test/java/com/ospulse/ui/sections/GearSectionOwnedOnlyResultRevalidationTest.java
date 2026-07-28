@@ -170,7 +170,7 @@ public class GearSectionOwnedOnlyResultRevalidationTest
 	 * Simulates the real race directly: the search that produced {@code
 	 * result} launched while Dragon scimitar was owned, but by the time the
 	 * result "lands" (here: is handed to {@code installOptimizerResultForTest},
-	 * exactly what {@code installOptimizerResultIfCurrent} does for the real
+	 * exactly what {@code installResultIfCurrent} does for the real
 	 * async {@code SwingWorker} paths — real end-to-end async timing isn't
 	 * reproducible deterministically in a headless test), the player has sold
 	 * it. Owned-only mode's guarantee means this must never be installed,

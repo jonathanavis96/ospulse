@@ -1,0 +1,165 @@
+{
+  "TWO_HANDED_SWORD": [
+    {"name": "Chop", "type": "SLASH", "stance": "ACCURATE"},
+    {"name": "Slash", "type": "SLASH", "stance": "AGGRESSIVE"},
+    {"name": "Smash", "type": "CRUSH", "stance": "AGGRESSIVE"},
+    {"name": "Block", "type": "SLASH", "stance": "DEFENSIVE"}
+  ],
+  "AXE": [
+    {"name": "Chop", "type": "SLASH", "stance": "ACCURATE"},
+    {"name": "Hack", "type": "SLASH", "stance": "AGGRESSIVE"},
+    {"name": "Smash", "type": "CRUSH", "stance": "AGGRESSIVE"},
+    {"name": "Block", "type": "SLASH", "stance": "DEFENSIVE"}
+  ],
+  "BANNER": [
+    {"name": "Lunge", "type": "STAB", "stance": "ACCURATE"},
+    {"name": "Swipe", "type": "SLASH", "stance": "AGGRESSIVE"},
+    {"name": "Pound", "type": "CRUSH", "stance": "CONTROLLED"},
+    {"name": "Block", "type": "STAB", "stance": "DEFENSIVE"}
+  ],
+  "BLADED_STAFF": [
+    {"name": "Jab", "type": "STAB", "stance": "ACCURATE"},
+    {"name": "Swipe", "type": "SLASH", "stance": "AGGRESSIVE"},
+    {"name": "Fend", "type": "CRUSH", "stance": "DEFENSIVE"},
+    {"name": "Spell", "type": "MAGIC", "stance": "STANDARD"}
+  ],
+  "BLASTER": [],
+  "BLUDGEON": [
+    {"name": "Pound", "type": "CRUSH", "stance": "AGGRESSIVE"}
+  ],
+  "BLUNT": [
+    {"name": "Pound", "type": "CRUSH", "stance": "ACCURATE"},
+    {"name": "Pummel", "type": "CRUSH", "stance": "AGGRESSIVE"},
+    {"name": "Block", "type": "CRUSH", "stance": "DEFENSIVE"}
+  ],
+  "BOW": [
+    {"name": "Accurate", "type": "RANGED", "stance": "ACCURATE"},
+    {"name": "Rapid", "type": "RANGED", "stance": "RAPID"},
+    {"name": "Longrange", "type": "RANGED", "stance": "LONGRANGE"}
+  ],
+  "CROSSBOW": [
+    {"name": "Accurate", "type": "RANGED", "stance": "ACCURATE"},
+    {"name": "Rapid", "type": "RANGED", "stance": "RAPID"},
+    {"name": "Longrange", "type": "RANGED", "stance": "LONGRANGE"}
+  ],
+  "THROWN": [
+    {"name": "Accurate", "type": "RANGED", "stance": "ACCURATE"},
+    {"name": "Rapid", "type": "RANGED", "stance": "RAPID"},
+    {"name": "Longrange", "type": "RANGED", "stance": "LONGRANGE"}
+  ],
+  "BULWARK": [
+    {"name": "Pummel", "type": "CRUSH", "stance": "ACCURATE"}
+  ],
+  "CHINCHOMPA": [
+    {"name": "Short fuse", "type": "RANGED", "stance": "ACCURATE"},
+    {"name": "Medium fuse", "type": "RANGED", "stance": "RAPID"},
+    {"name": "Long fuse", "type": "RANGED", "stance": "LONGRANGE"}
+  ],
+  "CLAW": [
+    {"name": "Chop", "type": "SLASH", "stance": "ACCURATE"},
+    {"name": "Slash", "type": "SLASH", "stance": "AGGRESSIVE"},
+    {"name": "Lunge", "type": "STAB", "stance": "CONTROLLED"},
+    {"name": "Block", "type": "SLASH", "stance": "DEFENSIVE"}
+  ],
+  "FLAIL": [
+    {"name": "Chop", "type": "SLASH", "stance": "ACCURATE"},
+    {"name": "Slash", "type": "SLASH", "stance": "AGGRESSIVE"},
+    {"name": "Block", "type": "SLASH", "stance": "DEFENSIVE"}
+  ],
+  "GUN": [
+    {"name": "Kick", "type": "CRUSH", "stance": "AGGRESSIVE"}
+  ],
+  "MULTI_MELEE": [
+    {"name": "Poke", "type": "STAB", "stance": "ACCURATE"},
+    {"name": "Slash", "type": "SLASH", "stance": "AGGRESSIVE"},
+    {"name": "Pound", "type": "CRUSH", "stance": "AGGRESSIVE"},
+    {"name": "Block", "type": "SLASH", "stance": "DEFENSIVE"}
+  ],
+  "PARTISAN": [
+    {"name": "Stab", "type": "STAB", "stance": "ACCURATE"},
+    {"name": "Lunge", "type": "STAB", "stance": "AGGRESSIVE"},
+    {"name": "Pound", "type": "CRUSH", "stance": "AGGRESSIVE"},
+    {"name": "Block", "type": "STAB", "stance": "DEFENSIVE"}
+  ],
+  "PICKAXE": [
+    {"name": "Spike", "type": "STAB", "stance": "ACCURATE"},
+    {"name": "Impale", "type": "STAB", "stance": "AGGRESSIVE"},
+    {"name": "Smash", "type": "CRUSH", "stance": "AGGRESSIVE"},
+    {"name": "Block", "type": "STAB", "stance": "DEFENSIVE"}
+  ],
+  "POLEARM": [
+    {"name": "Jab", "type": "STAB", "stance": "CONTROLLED"},
+    {"name": "Swipe", "type": "SLASH", "stance": "AGGRESSIVE"},
+    {"name": "Fend", "type": "STAB", "stance": "DEFENSIVE"}
+  ],
+  "POLESTAFF": [
+    {"name": "Bash", "type": "CRUSH", "stance": "ACCURATE"},
+    {"name": "Pound", "type": "CRUSH", "stance": "AGGRESSIVE"},
+    {"name": "Block", "type": "CRUSH", "stance": "DEFENSIVE"}
+  ],
+  "POWERED_STAFF": [
+    {"name": "Accurate", "type": "MAGIC", "stance": "ACCURATE"},
+    {"name": "Longrange", "type": "MAGIC", "stance": "LONGRANGE"}
+  ],
+  "POWERED_WAND": [
+    {"name": "Accurate", "type": "MAGIC", "stance": "ACCURATE"},
+    {"name": "Longrange", "type": "MAGIC", "stance": "LONGRANGE"}
+  ],
+  "SALAMANDER": [
+    {"name": "Scorch", "type": "SLASH", "stance": "AGGRESSIVE"},
+    {"name": "Flare", "type": "RANGED", "stance": "RAPID"},
+    {"name": "Blaze", "type": "MAGIC", "stance": "STANDARD"}
+  ],
+  "SCYTHE": [
+    {"name": "Reap", "type": "SLASH", "stance": "ACCURATE"},
+    {"name": "Chop", "type": "SLASH", "stance": "AGGRESSIVE"},
+    {"name": "Jab", "type": "CRUSH", "stance": "AGGRESSIVE"},
+    {"name": "Block", "type": "SLASH", "stance": "DEFENSIVE"}
+  ],
+  "SLASH_SWORD": [
+    {"name": "Chop", "type": "SLASH", "stance": "ACCURATE"},
+    {"name": "Slash", "type": "SLASH", "stance": "AGGRESSIVE"},
+    {"name": "Lunge", "type": "STAB", "stance": "CONTROLLED"},
+    {"name": "Block", "type": "SLASH", "stance": "DEFENSIVE"}
+  ],
+  "SPEAR": [
+    {"name": "Lunge", "type": "STAB", "stance": "CONTROLLED"},
+    {"name": "Swipe", "type": "SLASH", "stance": "CONTROLLED"},
+    {"name": "Pound", "type": "CRUSH", "stance": "CONTROLLED"},
+    {"name": "Block", "type": "STAB", "stance": "DEFENSIVE"}
+  ],
+  "SPIKED": [
+    {"name": "Pound", "type": "CRUSH", "stance": "ACCURATE"},
+    {"name": "Pummel", "type": "CRUSH", "stance": "AGGRESSIVE"},
+    {"name": "Spike", "type": "STAB", "stance": "CONTROLLED"},
+    {"name": "Block", "type": "CRUSH", "stance": "DEFENSIVE"}
+  ],
+  "DAGGER": [
+    {"name": "Stab", "type": "STAB", "stance": "ACCURATE"},
+    {"name": "Lunge", "type": "STAB", "stance": "AGGRESSIVE"},
+    {"name": "Slash", "type": "SLASH", "stance": "AGGRESSIVE"},
+    {"name": "Block", "type": "STAB", "stance": "DEFENSIVE"}
+  ],
+  "STAB_SWORD": [
+    {"name": "Stab", "type": "STAB", "stance": "ACCURATE"},
+    {"name": "Lunge", "type": "STAB", "stance": "AGGRESSIVE"},
+    {"name": "Slash", "type": "SLASH", "stance": "AGGRESSIVE"},
+    {"name": "Block", "type": "STAB", "stance": "DEFENSIVE"}
+  ],
+  "STAFF": [
+    {"name": "Bash", "type": "CRUSH", "stance": "ACCURATE"},
+    {"name": "Pound", "type": "CRUSH", "stance": "AGGRESSIVE"},
+    {"name": "Focus", "type": "CRUSH", "stance": "DEFENSIVE"},
+    {"name": "Spell", "type": "MAGIC", "stance": "STANDARD"}
+  ],
+  "WHIP": [
+    {"name": "Flick", "type": "SLASH", "stance": "ACCURATE"},
+    {"name": "Lash", "type": "SLASH", "stance": "CONTROLLED"},
+    {"name": "Deflect", "type": "SLASH", "stance": "DEFENSIVE"}
+  ],
+  "UNARMED": [
+    {"name": "Punch", "type": "CRUSH", "stance": "ACCURATE"},
+    {"name": "Kick", "type": "CRUSH", "stance": "AGGRESSIVE"},
+    {"name": "Block", "type": "CRUSH", "stance": "DEFENSIVE"}
+  ]
+}

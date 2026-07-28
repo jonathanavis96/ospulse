@@ -18,7 +18,7 @@ import org.junit.Test;
  * above the cap back into {@code 0..cap} does not reduce to a plain
  * {@code lo..cap} roll — values below {@code lo} are only reachable via a
  * re-roll, and values in {@code lo..cap} get both their own mass AND a
- * re-rolled top-up. {@link DamageDistribution#rerolledFangAverageDamagePerAttack} and
+ * re-rolled top-up. {@link DamageDistribution#rerolledFangAverageDamage} and
  * {@link DamageDistribution#rerolledFangExpectedOverkill} model this exactly; this
  * class proves both the formulas and that {@link DpsCalculator} actually
  * routes a fang loadout through them.
@@ -26,7 +26,7 @@ import org.junit.Test;
 public class FangRerollCapTest {
     static { BundledGson.set(new com.google.gson.Gson()); }
 
-    // ---- rerolledFangAverageDamagePerAttack: brute-force + worked example + boundaries ---
+    // ---- rerolledFangAverageDamage: brute-force + worked example + boundaries ---
 
     /**
      * Direct enumeration over the fang's uniform {@code lo..hi} raw roll: a
@@ -56,7 +56,7 @@ public class FangRerollCapTest {
             for (int cap : new int[]{1, 4, 9, 10, 15, 30, 60}) {
                 assertEquals("max=" + max + " cap=" + cap,
                     bruteForceRerolledFang(max, cap),
-                    DamageDistribution.rerolledFangAverageDamagePerAttack(1.0, max, cap), 1e-12);
+                    DamageDistribution.rerolledFangAverageDamage(1.0, max, cap), 1e-12);
             }
         }
     }
@@ -70,7 +70,7 @@ public class FangRerollCapTest {
      */
     @Test
     public void cap10OfTrueMax40MatchesTheWorkedExample() {
-        double result = DamageDistribution.rerolledFangAverageDamagePerAttack(1.0, 40, 10);
+        double result = DamageDistribution.rerolledFangAverageDamage(1.0, 40, 10);
         assertEquals(160.0 / 29.0, result, 1e-12);
         assertNotEquals("must not reproduce the shrink-the-cap-itself result",
             5.0, result, 1e-9);
@@ -81,20 +81,20 @@ public class FangRerollCapTest {
         for (int max : new int[]{20, 40, 99}) {
             int hi = max - (max * 3 / 20);
             assertEquals("cap == hi must be a no-op for max=" + max,
-                DamageDistribution.fangAverageDamagePerAttack(1.0, max),
-                DamageDistribution.rerolledFangAverageDamagePerAttack(1.0, max, hi), 1e-12);
+                DamageDistribution.fangAverageDamage(1.0, max),
+                DamageDistribution.rerolledFangAverageDamage(1.0, max, hi), 1e-12);
             assertEquals("cap above hi must be a no-op for max=" + max,
-                DamageDistribution.fangAverageDamagePerAttack(1.0, max),
-                DamageDistribution.rerolledFangAverageDamagePerAttack(1.0, max, hi + 50), 1e-12);
+                DamageDistribution.fangAverageDamage(1.0, max),
+                DamageDistribution.rerolledFangAverageDamage(1.0, max, hi + 50), 1e-12);
         }
     }
 
     @Test
     public void capBelowTheShrunkMinimum_givesExactlyHalfTheCap() {
         // trueMax=40 -> lo=6; a cap below 6 means every raw result re-rolls.
-        assertEquals(2.5, DamageDistribution.rerolledFangAverageDamagePerAttack(1.0, 40, 5), 1e-12);
-        assertEquals(1.25, DamageDistribution.rerolledFangAverageDamagePerAttack(0.5, 40, 5), 1e-12);
-        assertEquals(0.0, DamageDistribution.rerolledFangAverageDamagePerAttack(1.0, 40, 0), 1e-12);
+        assertEquals(2.5, DamageDistribution.rerolledFangAverageDamage(1.0, 40, 5), 1e-12);
+        assertEquals(1.25, DamageDistribution.rerolledFangAverageDamage(0.5, 40, 5), 1e-12);
+        assertEquals(0.0, DamageDistribution.rerolledFangAverageDamage(1.0, 40, 0), 1e-12);
     }
 
     // ---- The degenerate lo<=0 fallback: it IS a generic 0..hi roll, so it needs the SAME
@@ -104,8 +104,8 @@ public class FangRerollCapTest {
      * A true max hit of 6 or below shrinks to {@code lo=0}, so the fang's
      * "compressed" roll is really a plain {@code 0..hi} roll — exactly the
      * generic case, and re-rolling it at a cap needs {@link
-     * DamageDistribution#rerolledAverageDamagePerAttack}, not the ordinary bumped
-     * {@link DamageDistribution#averageDamagePerAttack} (an earlier version of this
+     * DamageDistribution#rerolledAverageDamage}, not the ordinary bumped
+     * {@link DamageDistribution#averageDamage} (an earlier version of this
      * method used that, double-applying the "rolled 0 becomes 1" bump to the
      * re-roll's own genuine zero).
      */
@@ -130,7 +130,7 @@ public class FangRerollCapTest {
                 }
                 assertEquals("trueMax=" + trueMax + " cap=" + cap,
                     bruteForceDegenerateFangMean(trueMax, cap),
-                    DamageDistribution.rerolledFangAverageDamagePerAttack(1.0, trueMax, cap), 1e-12);
+                    DamageDistribution.rerolledFangAverageDamage(1.0, trueMax, cap), 1e-12);
             }
         }
     }
@@ -138,9 +138,9 @@ public class FangRerollCapTest {
     @Test
     public void degenerateBranch_isNotTheNaiveBumpedFormula() {
         // trueMax=6 -> shrink=0, lo=0, hi=6 -- a binding cap of 3 must NOT be
-        // averageDamagePerAttack(hitChance, 3) (~1.75), which double-applies the bump.
-        double correct = DamageDistribution.rerolledFangAverageDamagePerAttack(1.0, 6, 3);
-        double naiveBumped = DamageDistribution.averageDamagePerAttack(1.0, 3);
+        // averageDamage(hitChance, 3) (~1.75), which double-applies the bump.
+        double correct = DamageDistribution.rerolledFangAverageDamage(1.0, 6, 3);
+        double naiveBumped = DamageDistribution.averageDamage(1.0, 3);
         assertNotEquals(naiveBumped, correct, 1e-9);
         assertEquals(3.0 / 2.0 + 1.0 / 7.0, correct, 1e-12);
     }
@@ -251,7 +251,7 @@ public class FangRerollCapTest {
      * Tuned so the fang's TRUE max hit (37 with this player/gear) puts Verzik
      * P1's melee cap (10) strictly between the shrunk {@code lo} (5) and
      * {@code hi} (32) — the "otherwise" branch that actually differs from
-     * {@link DamageDistribution#fangAverageDamagePerAttack}, unlike a much larger
+     * {@link DamageDistribution#fangAverageDamage}, unlike a much larger
      * true max hit where the cap falls below {@code lo} and both formulas
      * coincidentally agree (both reduce to {@code cap/2}).
      */
@@ -296,10 +296,10 @@ public class FangRerollCapTest {
         assertEquals("accuracy is untouched by capping -- same gear, same target defence",
             control.accuracy(), capped.accuracy(), 1e-12);
 
-        double expectedAvg = DamageDistribution.rerolledFangAverageDamagePerAttack(capped.accuracy(), trueMaxHit, 10);
+        double expectedAvg = DamageDistribution.rerolledFangAverageDamage(capped.accuracy(), trueMaxHit, 10);
         assertEquals(expectedAvg, capped.avgHit(), 1e-9);
         assertTrue("must not reproduce the shrink-the-cap-itself (much lower) average",
-            capped.avgHit() > DamageDistribution.fangAverageDamagePerAttack(capped.accuracy(), 10) + 0.1);
+            capped.avgHit() > DamageDistribution.fangAverageDamage(capped.accuracy(), 10) + 0.1);
 
         double expectedOverkill = DamageDistribution.rerolledFangExpectedOverkill(trueMaxHit, 10, verzikP1().hitpoints());
         assertEquals(expectedOverkill, capped.overkillPerKill(), 1e-9);

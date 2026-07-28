@@ -220,7 +220,7 @@ public class SpecCascadeMathTest {
         int maxHit = 40;
         double boostedChance = Math.min(1.0, p * 1.15);
         int boostedMax = (int) Math.floor(maxHit * 1.15);
-        double expected = 2.0 * DamageDistribution.averageDamagePerAttack(boostedChance, boostedMax);
+        double expected = 2.0 * DamageDistribution.averageDamage(boostedChance, boostedMax);
         assertEquals(expected, SpecCascadeMath.dragonDaggerExpectedDamage(p, maxHit), EPSILON);
     }
 
@@ -228,14 +228,14 @@ public class SpecCascadeMathTest {
     public void boostedSingleHitMatchesDamageDistributionDirectly() {
         double p = 0.55;
         int maxHit = 30;
-        double expected = DamageDistribution.averageDamagePerAttack(Math.min(1.0, p * 2.0), (int) Math.floor(maxHit * 1.5));
+        double expected = DamageDistribution.averageDamage(Math.min(1.0, p * 2.0), (int) Math.floor(maxHit * 1.5));
         assertEquals(expected, SpecCascadeMath.boostedSingleHit(p, maxHit, 2.0, 1.5), EPSILON);
     }
 
     @Test
     public void boostedSingleHitAccuracyNeverExceedsOne() {
         // A x2 accuracy multiplier at a high base hit chance must clamp, not exceed 1.0's dps ceiling.
-        double uncapped = DamageDistribution.averageDamagePerAttack(1.0, 40);
+        double uncapped = DamageDistribution.averageDamage(1.0, 40);
         double actual = SpecCascadeMath.boostedSingleHit(0.9, 40, 2.0, 1.0);
         assertEquals(uncapped, actual, EPSILON);
     }

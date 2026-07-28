@@ -1,11 +1,14 @@
 package com.ospulse.session;
 
-import java.util.Objects;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 
 /**
  * Immutable record of a single loot event detected via wealth-delta diffing
  * while away from a bank.
  */
+@Getter
+@EqualsAndHashCode
 public final class LootEntry
 {
 	private final int itemId;
@@ -21,56 +24,6 @@ public final class LootEntry
 		this.quantity = quantity;
 		this.value = value;
 		this.timestampMs = timestampMs;
-	}
-
-	public int getItemId()
-	{
-		return itemId;
-	}
-
-	public String getName()
-	{
-		return name;
-	}
-
-	public long getQuantity()
-	{
-		return quantity;
-	}
-
-	public long getValue()
-	{
-		return value;
-	}
-
-	public long getTimestampMs()
-	{
-		return timestampMs;
-	}
-
-	@Override
-	public boolean equals(Object o)
-	{
-		if (this == o)
-		{
-			return true;
-		}
-		if (!(o instanceof LootEntry))
-		{
-			return false;
-		}
-		LootEntry lootEntry = (LootEntry) o;
-		return itemId == lootEntry.itemId
-			&& quantity == lootEntry.quantity
-			&& value == lootEntry.value
-			&& timestampMs == lootEntry.timestampMs
-			&& Objects.equals(name, lootEntry.name);
-	}
-
-	@Override
-	public int hashCode()
-	{
-		return Objects.hash(itemId, name, quantity, value, timestampMs);
 	}
 
 	@Override
