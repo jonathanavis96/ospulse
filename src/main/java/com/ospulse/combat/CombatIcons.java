@@ -98,6 +98,53 @@ public final class CombatIcons {
         return null;
     }
 
+    // The picker's own per-style lists, best-first: every prayer OffensivePrayer
+    // models for that style, NOT the level-inferred ladder above. The ladder
+    // exists to guess an icon from the player's Prayer LEVEL, so it may only
+    // contain rungs whose real unlock level is known; the picker instead lets
+    // the user assert a prayer they say they have, so it can safely list every
+    // modelled prayer (including DEADEYE/MYSTIC_VIGOUR, whose exact unlock
+    // level this codebase does not curate) without claiming an unlock.
+    private static final OffensivePrayer[] MELEE_PICKER_PRAYERS = {
+        OffensivePrayer.PIETY, OffensivePrayer.CHIVALRY, OffensivePrayer.ULTIMATE_STRENGTH,
+        OffensivePrayer.SUPERHUMAN_STRENGTH, OffensivePrayer.BURST_OF_STRENGTH,
+        OffensivePrayer.INCREDIBLE_REFLEXES, OffensivePrayer.IMPROVED_REFLEXES, OffensivePrayer.CLARITY_OF_THOUGHT,
+    };
+
+    private static final OffensivePrayer[] RANGED_PICKER_PRAYERS = {
+        OffensivePrayer.RIGOUR, OffensivePrayer.DEADEYE, OffensivePrayer.EAGLE_EYE,
+        OffensivePrayer.HAWK_EYE, OffensivePrayer.SHARP_EYE,
+    };
+
+    private static final OffensivePrayer[] MAGIC_PICKER_PRAYERS = {
+        OffensivePrayer.AUGURY, OffensivePrayer.MYSTIC_VIGOUR, OffensivePrayer.MYSTIC_MIGHT,
+        OffensivePrayer.MYSTIC_LORE, OffensivePrayer.MYSTIC_WILL,
+    };
+
+    /**
+     * The offensive prayers offered by the prayer toggle's right-click swap
+     * menu for {@code style}, best-first — the picker's OWN list (see {@link
+     * #MELEE_PICKER_PRAYERS}), not the level-inferred ladder: every prayer
+     * modelled for {@code style}, so an account with any of them (including
+     * DEADEYE/MYSTIC_VIGOUR, omitted from the ladder above) can simulate it.
+     * Empty for a style with no list (or {@code null}).
+     */
+    public static OffensivePrayer[] prayerVariantsFor(CombatStyle style) {
+        if (style == null) {
+            return new OffensivePrayer[0];
+        }
+        if (style.isMelee()) {
+            return MELEE_PICKER_PRAYERS;
+        }
+        if (style == CombatStyle.RANGED) {
+            return RANGED_PICKER_PRAYERS;
+        }
+        if (style == CombatStyle.MAGIC) {
+            return MAGIC_PICKER_PRAYERS;
+        }
+        return new OffensivePrayer[0];
+    }
+
     private static Rung[] ladderFor(CombatStyle style) {
         if (style == null) {
             return null;

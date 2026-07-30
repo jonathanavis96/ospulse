@@ -34,6 +34,7 @@ public final class PlayerCombat {
     private final boolean assumeBestPrayer;
     private final boolean onSlayerTask;
     private final CombatIcons.BoostPotion magicPotionVariant;
+    private final OffensivePrayer assumedPrayer;
 
     private PlayerCombat(Builder b) {
         this.baseAttack = b.baseAttack;
@@ -56,6 +57,7 @@ public final class PlayerCombat {
         this.assumeBestPrayer = b.assumeBestPrayer;
         this.onSlayerTask = b.onSlayerTask;
         this.magicPotionVariant = b.magicPotionVariant;
+        this.assumedPrayer = b.assumedPrayer;
     }
 
     public int baseAttack() {
@@ -146,6 +148,18 @@ public final class PlayerCombat {
         return magicPotionVariant;
     }
 
+    /**
+     * The offensive prayer the {@code assumeBestPrayer} simulation should apply,
+     * or {@code null} to apply the calculator's top-tier default for the style
+     * (Piety/Rigour/Augury). Set from the prayer toggle's right-click swap menu
+     * so an account without the top-tier prayer can simulate the tier it has.
+     * Ignored entirely when {@link #assumeBestPrayer()} is false, where the
+     * player's real active prayers win.
+     */
+    public OffensivePrayer assumedPrayer() {
+        return assumedPrayer;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -171,6 +185,7 @@ public final class PlayerCombat {
         private boolean assumeBestPrayer;
         private boolean onSlayerTask;
         private CombatIcons.BoostPotion magicPotionVariant = CombatIcons.BoostPotion.IMBUED_HEART;
+        private OffensivePrayer assumedPrayer;
 
         private Builder() {
         }
@@ -245,6 +260,12 @@ public final class PlayerCombat {
         /** @see PlayerCombat#magicPotionVariant() */
         public Builder magicPotionVariant(CombatIcons.BoostPotion value) {
             this.magicPotionVariant = value == null ? CombatIcons.BoostPotion.IMBUED_HEART : value;
+            return this;
+        }
+
+        /** @see PlayerCombat#assumedPrayer() */
+        public Builder assumedPrayer(OffensivePrayer assumedPrayer) {
+            this.assumedPrayer = assumedPrayer;
             return this;
         }
 

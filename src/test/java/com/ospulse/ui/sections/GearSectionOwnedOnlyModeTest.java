@@ -31,12 +31,15 @@ import static org.junit.Assert.assertTrue;
 /**
  * Covers issue #11's ironman "owned gear only" optimiser mode: a real
  * restriction (budget forced to 0 in the optimiser request, never mutating
- * the user's stored/typed budget) plus an upgrade-UI mask (the budget/risk
- * row and every upgrade-oriented result row hide, while "Optimised for", the
- * "Best setup for this target" heading, the style selector and the visible
- * "Find Best" button all stay up — the regression guard for the {@code
- * setOptimizerStatRowsVisible} split into {@code setOptimizerStyleRowVisible}
- * / {@code setUpgradeStatRowsVisible}).
+ * the user's stored/typed budget) plus an upgrade-UI mask (the buy-side
+ * budget column and every upgrade-oriented result row hide, while the
+ * expensive-item risk column, "Optimised for", the "Best setup for this
+ * target" heading, the style selector and the visible "Find Best" button all
+ * stay up — the regression guard for the {@code setOptimizerStatRowsVisible}
+ * split into {@code setOptimizerStyleRowVisible} / {@code
+ * setUpgradeStatRowsVisible}). The risk column stays reachable for ironmen
+ * because the cap is about what they are willing to LOSE, not what they can
+ * buy — see {@code GearSection#riskColumn}'s javadoc.
  */
 public class GearSectionOwnedOnlyModeTest
 {
@@ -224,8 +227,10 @@ public class GearSectionOwnedOnlyModeTest
 			ConfigManager configManager = mockConfigManager("true");
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
 
-			assertFalse("budget/risk row must be hidden outright in owned-only mode",
-				section.budgetRiskRowVisibleForTest());
+			assertFalse("budget column must be hidden outright in owned-only mode",
+				section.budgetColumnForTest().isVisible());
+			assertTrue("risk column must stay reachable for ironmen (issue #11)",
+				section.riskColumnForTest().isVisible());
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
@@ -261,8 +266,8 @@ public class GearSectionOwnedOnlyModeTest
 			ConfigManager configManager = mockConfigManager("false");
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
 
-			assertTrue("budget/risk row must be visible when owned-only mode is off",
-				section.budgetRiskRowVisibleForTest());
+			assertTrue("budget column must be visible when owned-only mode is off",
+				section.budgetColumnForTest().isVisible());
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
@@ -299,8 +304,8 @@ public class GearSectionOwnedOnlyModeTest
 			section.setBudgetTextForTest("0");
 			section.runOptimizerSyncForTest();
 
-			assertTrue("sanity: upgrade UI visible before the config change",
-				section.budgetRiskRowVisibleForTest());
+			assertTrue("sanity: budget column visible before the config change",
+				section.budgetColumnForTest().isVisible());
 			assertTrue(section.optimizerDpsRowVisibleForTest());
 
 			// P2 fix: the panel used to only compute this once, at
@@ -312,8 +317,10 @@ public class GearSectionOwnedOnlyModeTest
 				.thenReturn("true");
 			section.refreshIronmanOwnedOnlyMode();
 
-			assertFalse("budget/risk row must hide once the config flips on, with no rebuild needed",
-				section.budgetRiskRowVisibleForTest());
+			assertFalse("budget column must hide once the config flips on, with no rebuild needed",
+				section.budgetColumnForTest().isVisible());
+			assertTrue("risk column must stay reachable for ironmen (issue #11)",
+				section.riskColumnForTest().isVisible());
 			assertFalse(section.optimizerDpsRowVisibleForTest());
 			assertFalse(section.optimizerDeltaRowVisibleForTest());
 			assertFalse(section.optimizerSpendRowVisibleForTest());
@@ -343,15 +350,18 @@ public class GearSectionOwnedOnlyModeTest
 			pickCerberus(section);
 			section.runOptimizerSyncForTest();
 
-			assertFalse(section.budgetRiskRowVisibleForTest());
+			assertFalse("budget column must be hidden while owned-only mode is on",
+				section.budgetColumnForTest().isVisible());
+			assertTrue("risk column must stay reachable for ironmen (issue #11)",
+				section.riskColumnForTest().isVisible());
 			assertFalse(section.optimizerDpsRowVisibleForTest());
 
 			Mockito.when(configManager.getRSProfileConfiguration(com.ospulse.OSPulseConfig.GROUP, "ironmanOwnedOnly"))
 				.thenReturn("false");
 			section.refreshIronmanOwnedOnlyMode();
 
-			assertTrue("budget/risk row must return once the config flips off",
-				section.budgetRiskRowVisibleForTest());
+			assertTrue("budget column must return once the config flips off",
+				section.budgetColumnForTest().isVisible());
 			assertTrue(section.optimizerDpsRowVisibleForTest());
 			assertTrue(section.optimizerDeltaRowVisibleForTest());
 			assertTrue(section.optimizerSpendRowVisibleForTest());

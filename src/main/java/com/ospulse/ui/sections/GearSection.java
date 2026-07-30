@@ -79,6 +79,7 @@ import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JList;
@@ -440,7 +441,7 @@ public final class GearSection extends CollapsibleSection
 	 * The potion variant the right-click swap menu has picked, PER combat
 	 * style ({@code CombatStyle.MELEE_KEY}/{@code RANGED}/{@code MAGIC} — see
 	 * {@link #styleKeyFor}), persisted to RuneLite config (see
-	 * {@link #loadPotionVariants}/{@link #savePotionVariant}) so a
+	 * {@link #loadVariants}/{@link #saveVariant}) so a
 	 * choice like "Saturated heart on Magic" survives a client restart. Absent
 	 * = follow {@link CombatIcons#bestPotion} (the style's default variant).
 	 * Only the MAGIC entry actually reaches {@link DpsCalculator} (via
@@ -449,6 +450,17 @@ public final class GearSection extends CollapsibleSection
 	 * melee/ranged entries only drive which icon/tooltip is shown.
 	 */
 	private final Map<String, CombatIcons.BoostPotion> potionVariantByStyle = new HashMap<>();
+	/**
+	 * The offensive prayer the right-click swap menu has picked, PER combat
+	 * style (same keys as {@link #potionVariantByStyle} — see {@link
+	 * #styleKeyFor}), persisted the same way ({@code prayerVariant.<style>}).
+	 * Applied only while {@link #bestPrayerToggle} is selected (see {@link
+	 * #effectivePrayerFor}); with the toggle off the pick is ignored and the
+	 * player's real active prayers win, exactly as {@link DpsCalculator}
+	 * treats it. Lets an account without Piety/Rigour/Augury simulate the
+	 * tier it actually has.
+	 */
+	private final Map<String, OffensivePrayer> prayerVariantByStyle = new HashMap<>();
 
 	// ---------------------------------------------- Phase 2: what-if overrides
 	/**
@@ -491,12 +503,37 @@ public final class GearSection extends CollapsibleSection
 	private final javax.swing.JTextField expensiveThresholdField;
 	private final JToggleButton expensiveThresholdKToggle;
 	private final JToggleButton expensiveThresholdMToggle;
+	/**
+	 * "Any target" — opts the expensive-item risk cap back in for targets the
+	 * Wilderness gate would skip (PvP worlds, self-imposed risk). Off by
+	 * default; see {@link #riskCapApplies}. There is deliberately no
+	 * force-OFF counterpart: setting the threshold to 0 already disables the
+	 * cap for a Wilderness target.
+	 */
+	private final JCheckBox riskCapAnyTargetToggle;
 	private static final String EXPENSIVE_COUNT_TOOLTIP =
 		"The amount of 'expensive' items you want to have in your setup, for wilderness or pvp world activities.";
 	private static final String EXPENSIVE_THRESHOLD_TOOLTIP = "The value of when an item is considered expensive.";
+	/** Shown on the risk-cap controls while {@link #riskCapApplies} is false, so a greyed-out control explains itself. */
+	private static final String RISK_CAP_INACTIVE_TOOLTIP =
+		"Only applies to Wilderness targets. Tick \"Any target\" to use it anywhere.";
 	private static final String BUDGET_TOOLTIP =
 		"Extra GP to spend on upgrades beyond your owned gear (blank/0 = owned gear only).";
-	/** Badge | budget entry | risk column — hidden entirely in ironman owned-only mode (issue #11). */
+	/**
+	 * Badge | budget entry — the buy-side column, hidden in ironman owned-only
+	 * mode because an ironman cannot spend gp on upgrades at all.
+	 */
+	private final JPanel budgetColumn;
+	/**
+	 * The expensive-item risk cap's own column (count + threshold rows). Unlike
+	 * {@link #budgetColumn} this stays visible in ironman owned-only mode: the
+	 * cap is about what the player is willing to LOSE, not what they can buy,
+	 * and an ironman risks items in the Wilderness like anyone else (issue #11 —
+	 * it was previously hidden along with the whole row, which made the setting
+	 * unreachable while still silently applying its field defaults).
+	 */
+	private final JPanel riskColumn;
+	/** Badge + budget entry + risk column. Always visible; its two columns hide independently. */
 	private final JPanel budgetRiskRow;
 	private final JButton findBestSetupButton;
 	private final JLabel statusLabel;
@@ -773,7 +810,8 @@ public final class GearSection extends CollapsibleSection
 		// must read AFTER this.configManager is assigned (see that field's own
 		// javadoc on why a field initializer here would run too early).
 		this.lastKnownIronmanOwnedOnlyPref = ironmanOwnedOnlyPref();
-		loadPotionVariants();
+		loadVariants("potionVariant", CombatIcons.BoostPotion.class, potionVariantByStyle);
+		loadVariants("prayerVariant", OffensivePrayer.class, prayerVariantByStyle);
 
 		// ------------------------------------------------ worn-gear header
 		JLabel heading = PanelWidgets.emptyRowLabel("Live DPS · your worn gear");
@@ -1092,11 +1130,16 @@ public final class GearSection extends CollapsibleSection
 		// button opens a swap menu filtered to whatever style is CURRENTLY
 		// selected (melee: Super combat/strength/attack; ranged: Ranging/
 		// Bastion/Divine ranging; magic: Saturated heart/Imbued heart/Ancient
-		// brew — see CombatIcons.variantsFor/buildPotionVariantPopup), each
-		// choice persisted per-style to config (loadPotionVariants/
-		// savePotionVariant) so it survives a client restart. The small
-		// orange "*" painted in the icon's corner (HintableToggleButton) hints
-		// that right-click has more options.
+		// brew — see CombatIcons.variantsFor/buildPotionVariantPopup). The
+		// prayer button's right-click mirrors it byte-for-byte, offering each
+		// style's existing prayer ladder (see CombatIcons.prayerVariantsFor/
+		// buildPrayerVariantPopup) so an account without Piety/Rigour/Augury
+		// can simulate the tier it actually has. Each choice persists
+		// per-style to config (loadVariants/saveVariant) so it survives a
+		// client restart. The small orange "*" painted in the potion icon's
+		// corner (HintableToggleButton) hints that right-click has more
+		// options; the prayer toggle is a plain JToggleButton with no such
+		// corner hint, but its tooltip says "(right-click to swap)" instead.
 		JPanel boostRow = new JPanel(new GridLayout(1, 3, 2, 0));
 		boostRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		boostRow.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -1116,6 +1159,7 @@ public final class GearSection extends CollapsibleSection
 		bestPrayerToggle.addItemListener(e -> onBoostToggleChanged());
 		onSlayerTaskToggle.addItemListener(e -> onBoostToggleChanged());
 		bestPotionToggle.setComponentPopupMenu(buildPotionVariantPopup());
+		bestPrayerToggle.setComponentPopupMenu(buildPrayerVariantPopup());
 		boostRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, boostRow.getPreferredSize().height));
 		body().add(boostRow);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
@@ -1246,10 +1290,9 @@ public final class GearSection extends CollapsibleSection
 		// below the slot total actually caps risky gear, instead of the old "0"
 		// default silently disabling the cap (expensiveCapActive needs threshold > 0).
 		// Still off by default overall: the count defaults to 11 (== slot count);
-		// setting the threshold back to 0 disables the cap outright. Both this field
-		// and the count field are intentionally NOT persisted across restarts (see
-		// loadOptimizerPrefs/saveOptimizerPrefs) — they always reset to these
-		// defaults on load, unlike the budget amount/unit which do persist.
+		// setting the threshold back to 0 disables the cap outright. "11"/"100" K
+		// are only the CODE defaults — see CONFIG_KEY_EXPENSIVE_COUNT's javadoc for
+		// why these fields now persist across restarts instead of always resetting.
 		expensiveThresholdField = new javax.swing.JTextField("100", 4);
 		expensiveThresholdField.setToolTipText(EXPENSIVE_THRESHOLD_TOOLTIP);
 		expensiveThresholdField.setFont(FontManager.getRunescapeSmallFont());
@@ -1274,18 +1317,33 @@ public final class GearSection extends CollapsibleSection
 		thresholdRow.add(thresholdUnit);
 		thresholdRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		JPanel riskColumn = new JPanel();
+		riskCapAnyTargetToggle = new JCheckBox("Any target");
+		riskCapAnyTargetToggle.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		riskCapAnyTargetToggle.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		riskCapAnyTargetToggle.setFont(FontManager.getRunescapeSmallFont());
+		riskCapAnyTargetToggle.setFocusable(false);
+		riskCapAnyTargetToggle.setToolTipText(
+			"Also apply the expensive-item cap outside the Wilderness (PvP worlds, self-imposed risk).");
+		riskCapAnyTargetToggle.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+		riskColumn = new JPanel();
 		riskColumn.setLayout(new BoxLayout(riskColumn, BoxLayout.Y_AXIS));
 		riskColumn.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		riskColumn.add(riskCapAnyTargetToggle);
 		riskColumn.add(countRow);
 		riskColumn.add(thresholdRow);
 
-		// horizontal container: badge | budget entry | risk column
+		// buy-side column: badge | budget entry (hidden wholesale in owned-only mode)
+		budgetColumn = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+		budgetColumn.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		budgetColumn.add(budgetBadge);
+		budgetColumn.add(budgetEntry);
+
+		// horizontal container: buy-side column | risk column
 		budgetRiskRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
 		budgetRiskRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		budgetRiskRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-		budgetRiskRow.add(budgetBadge);
-		budgetRiskRow.add(budgetEntry);
+		budgetRiskRow.add(budgetColumn);
 		budgetRiskRow.add(riskColumn);
 		budgetRiskRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, budgetRiskRow.getPreferredSize().height));
 		body().add(budgetRiskRow);
@@ -1295,7 +1353,10 @@ public final class GearSection extends CollapsibleSection
 		loadExcludedItemsPref();
 		excludedItemsCollapsed = loadExcludedItemsCollapsedPref();
 		// Ironman owned-only mode (issue #11): a one-time set at construction, like every other pref loaded above.
-		budgetRiskRow.setVisible(OwnedOnlyMode.upgradeUiVisible(ironmanOwnedOnlyPref()));
+		// Only the buy-side budget column hides — the risk cap stays reachable, see riskColumn's javadoc.
+		budgetColumn.setVisible(OwnedOnlyMode.upgradeUiVisible(ironmanOwnedOnlyPref()));
+		// Seed the risk-cap controls' enabled state before any render happens (no target picked yet).
+		refreshRiskCapEnabled();
 		java.awt.event.ActionListener persistOptimizerPrefs = e -> saveOptimizerPrefs();
 		budgetField.addActionListener(persistOptimizerPrefs);
 		budgetKToggle.addActionListener(e -> saveOptimizerPrefs());
@@ -1327,6 +1388,40 @@ public final class GearSection extends CollapsibleSection
 		budgetKToggle.addActionListener(e -> updateBudgetDisplay());
 		budgetMToggle.addActionListener(e -> updateBudgetDisplay());
 		updateBudgetDisplay();
+
+		// Persist the expensive-item count/threshold/unit + "Any target" override
+		// as they change — revived now that the Wilderness gate (issue #11) means
+		// a stale value can no longer silently constrain an unrelated search.
+		DocumentListener expensiveFieldEcho = new DocumentListener()
+		{
+			@Override
+			public void insertUpdate(DocumentEvent e)
+			{
+				saveOptimizerPrefs();
+			}
+
+			@Override
+			public void removeUpdate(DocumentEvent e)
+			{
+				saveOptimizerPrefs();
+			}
+
+			@Override
+			public void changedUpdate(DocumentEvent e)
+			{
+				saveOptimizerPrefs();
+			}
+		};
+		expensiveCountField.getDocument().addDocumentListener(expensiveFieldEcho);
+		expensiveThresholdField.getDocument().addDocumentListener(expensiveFieldEcho);
+		expensiveThresholdKToggle.addActionListener(persistOptimizerPrefs);
+		expensiveThresholdMToggle.addActionListener(persistOptimizerPrefs);
+		riskCapAnyTargetToggle.addActionListener(e ->
+		{
+			saveOptimizerPrefs();
+			refreshRiskCapEnabled();
+			rankAndRender();
+		});
 
 		findBestSetupButton = new JButton("Find best setup");
 		findBestSetupButton.setFont(FontManager.getRunescapeSmallFont());
@@ -2065,6 +2160,9 @@ public final class GearSection extends CollapsibleSection
 			userPickedSpell = false;
 		}
 
+		// The risk cap is Wilderness-scoped, so its controls follow the target.
+		refreshRiskCapEnabled();
+
 		List<WeaponStyle> styles = new ArrayList<>(weaponRepo.stylesForItem(weaponId));
 		currentWeaponCategory = weaponRepo.categoryFor(weaponId);
 		EquipmentStats effectiveStats = effectiveEquipmentStats();
@@ -2780,7 +2878,7 @@ public final class GearSection extends CollapsibleSection
 		Stance stance = magicCastStyle != null ? magicCastStyle.stance() : Stance.STANDARD;
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, stance,
 			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected(),
-			magicPotionVariantForCalc());
+			magicPotionVariantForCalc(), assumedPrayerFor(CombatStyle.MAGIC));
 		return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell, effectiveWeaponId());
 	}
 
@@ -3018,7 +3116,7 @@ public final class GearSection extends CollapsibleSection
 	/**
 	 * The potion variant the potion toggle should show/apply for {@code style}:
 	 * the user's right-click swap pick for that style if one was ever made
-	 * (restored from config at startup — see {@link #loadPotionVariants}),
+	 * (restored from config at startup — see {@link #loadVariants}),
 	 * else {@link CombatIcons#bestPotion}'s default for that style.
 	 */
 	private CombatIcons.BoostPotion effectivePotionFor(CombatStyle style)
@@ -3030,6 +3128,39 @@ public final class GearSection extends CollapsibleSection
 		}
 		CombatIcons.BoostPotion picked = potionVariantByStyle.get(key);
 		return picked != null ? picked : CombatIcons.bestPotion(style);
+	}
+
+	/**
+	 * The offensive prayer the prayer toggle should show and {@link
+	 * DpsCalculator} should apply for {@code style}: the user's right-click
+	 * pick while the "best prayer" simulation ({@link #bestPrayerToggle}) is
+	 * on, else the ladder-topped prayer for the player's real Prayer level
+	 * (see {@link CombatIcons#bestOffensivePrayer}). With the toggle off the
+	 * pick is ignored — the player's actually-active prayers win, exactly as
+	 * {@link DpsCalculator} treats it.
+	 */
+	private OffensivePrayer effectivePrayerFor(CombatStyle style)
+	{
+		String key = styleKeyFor(style);
+		OffensivePrayer picked = key == null ? null : prayerVariantByStyle.get(key);
+		if (picked != null && bestPrayerToggle.isSelected())
+		{
+			return picked;
+		}
+		return CombatIcons.bestOffensivePrayer(
+			style, lastGear != null ? lastGear.basePrayer() : 0, bestPrayerToggle.isSelected());
+	}
+
+	/**
+	 * The prayer to feed {@link GearMapper#toPlayerCombat}/{@link
+	 * PlayerCombat.Builder#assumedPrayer} for {@code style}: the swap-menu pick
+	 * while {@link #bestPrayerToggle} is selected, else {@code null} so the
+	 * calculator's own hardcoded top-tier fallback applies — mirrors {@link
+	 * #buildRequest}'s identical rule for the optimizer request.
+	 */
+	private OffensivePrayer assumedPrayerFor(CombatStyle style)
+	{
+		return bestPrayerToggle.isSelected() ? prayerVariantByStyle.get(styleKeyFor(style)) : null;
 	}
 
 	/**
@@ -3065,19 +3196,17 @@ public final class GearSection extends CollapsibleSection
 		return null;
 	}
 
-	/** Config key for a style's persisted potion-variant pick (raw key, not declared on {@link OSPulseConfig}). */
-	private static String potionVariantConfigKey(String styleKey)
-	{
-		return "potionVariant." + styleKey;
-	}
-
 	/**
-	 * Restores each style's potion-variant pick from config (see
-	 * {@link #savePotionVariant}) so a choice like "Saturated heart on
-	 * Magic" survives a client restart. No-ops without a {@link ConfigManager}
-	 * (headless tests / the no-config-manager constructor).
+	 * Restores each style's persisted right-click swap-menu pick from config
+	 * — shared by the potion ({@code potionVariant.<style>}, see {@link
+	 * #potionVariantByStyle}) and prayer ({@code prayerVariant.<style>}, see
+	 * {@link #prayerVariantByStyle}) menus, so a choice like "Saturated heart
+	 * on Magic" or a simulated Mystic Might survives a client restart. A
+	 * stale/unknown enum name (e.g. from an older plugin version) is ignored,
+	 * falling back to the style's default. No-ops without a {@link
+	 * ConfigManager} (headless tests / the no-config-manager constructor).
 	 */
-	private void loadPotionVariants()
+	private <E extends Enum<E>> void loadVariants(String keyPrefix, Class<E> type, Map<String, E> into)
 	{
 		if (configManager == null)
 		{
@@ -3085,14 +3214,14 @@ public final class GearSection extends CollapsibleSection
 		}
 		for (String styleKey : new String[] {"melee", "ranged", "magic"})
 		{
-			String raw = configManager.getConfiguration(OSPulseConfig.GROUP, potionVariantConfigKey(styleKey));
+			String raw = configManager.getConfiguration(OSPulseConfig.GROUP, keyPrefix + "." + styleKey);
 			if (raw == null || raw.isEmpty())
 			{
 				continue;
 			}
 			try
 			{
-				potionVariantByStyle.put(styleKey, CombatIcons.BoostPotion.valueOf(raw));
+				into.put(styleKey, Enum.valueOf(type, raw));
 			}
 			catch (IllegalArgumentException e)
 			{
@@ -3101,19 +3230,19 @@ public final class GearSection extends CollapsibleSection
 		}
 	}
 
-	/** Persists one style's potion-variant pick to config so it survives a client restart. */
-	private void savePotionVariant(String styleKey, CombatIcons.BoostPotion variant)
+	/** Persists one style's right-click swap-menu pick ({@code keyPrefix} is {@code "potionVariant"} or {@code "prayerVariant"}) so it survives a client restart. */
+	private void saveVariant(String keyPrefix, String styleKey, Enum<?> value)
 	{
 		if (configManager == null)
 		{
 			return;
 		}
-		configManager.setConfiguration(OSPulseConfig.GROUP, potionVariantConfigKey(styleKey), variant.name());
+		configManager.setConfiguration(OSPulseConfig.GROUP, keyPrefix + "." + styleKey, value.name());
 	}
 
 	/**
 	 * Reads the currently-selected blowpipe dart straight from config (mirrors
-	 * {@link #loadPotionVariants}'s load pattern), falling back to
+	 * {@link #loadVariants}'s load pattern), falling back to
 	 * {@link BlowpipeDart#DRAGON} — {@link OSPulseConfig#blowpipeDart}'s own
 	 * default — when unset/stale/no {@link ConfigManager} (headless tests).
 	 * Used only to mark the current pick in the right-click "Set darts"
@@ -3128,7 +3257,7 @@ public final class GearSection extends CollapsibleSection
 
 	/**
 	 * Persists the picked blowpipe dart to config so it survives a client
-	 * restart (mirrors {@link #savePotionVariant}), then re-ranks the
+	 * restart (mirrors {@link #saveVariant}), then re-ranks the
 	 * readout immediately (mirrors the potion-swap/exclude-item pattern —
 	 * see {@link #populatePotionVariantPopup}). No-ops without a {@link
 	 * ConfigManager} (headless tests / the no-config-manager constructor).
@@ -3145,12 +3274,13 @@ public final class GearSection extends CollapsibleSection
 	/**
 	 * Refreshes the prayer/potion boost TOGGLE BUTTONS themselves so each one's
 	 * icon always shows the SAME prayer/potion {@link DpsCalculator} is actually
-	 * applying for {@code style}: the ladder-topped prayer for the player's real
-	 * Prayer level (or the calculator's hardcoded top-tier prayer when the
-	 * "best prayer" toggle is on), and the style's boosting potion (the user's
-	 * right-click swap pick for Magic — see {@link #effectivePotionFor}).
-	 * Falls back to the generic default icon with no target/gear selected yet
-	 * (style is {@code null}) so the buttons are never blank.
+	 * applying for {@code style}: the user's right-click prayer pick while the
+	 * "best prayer" simulation is on, else the ladder-topped prayer for the
+	 * player's real Prayer level (see {@link #effectivePrayerFor}), and the
+	 * style's boosting potion (the user's right-click swap pick for Magic —
+	 * see {@link #effectivePotionFor}). Falls back to the generic default icon
+	 * with no target/gear selected yet (style is {@code null}) so the buttons
+	 * are never blank.
 	 */
 	private void updateBoostIndicators(CombatStyle style)
 	{
@@ -3159,12 +3289,16 @@ public final class GearSection extends CollapsibleSection
 			return;
 		}
 
-		OffensivePrayer prayer = CombatIcons.bestOffensivePrayer(
-			style, lastGear != null ? lastGear.basePrayer() : 0, bestPrayerToggle.isSelected());
+		OffensivePrayer prayer = effectivePrayerFor(style);
 		if (prayer != null)
 		{
+			boolean prayerSwappable = CombatIcons.prayerVariantsFor(style).length > 0;
 			bestPrayerToggle.setIcon(prayerIcon(prayer));
-			bestPrayerToggle.setToolTipText("Offensive prayer applied: " + displayName(prayer));
+			bestPrayerToggle.setToolTipText("Offensive prayer applied: " + displayName(prayer)
+				+ (prayerSwappable ? " (right-click to swap)" : ""));
+			// bestPrayerToggle is a plain JToggleButton, not a HintableToggleButton
+			// like bestPotionToggle below, so there is no corner-hint icon to set
+			// here — the tooltip suffix above is its only "more options" signal.
 		}
 
 		CombatIcons.BoostPotion potion = effectivePotionFor(style);
@@ -3239,7 +3373,7 @@ public final class GearSection extends CollapsibleSection
 		}
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, style.stance(),
 			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected(),
-			magicPotionVariantForCalc());
+			magicPotionVariantForCalc(), assumedPrayerFor(style.type()));
 		if (style.type() == CombatStyle.MAGIC)
 		{
 			// Spell-aware path: a worn powered staff wins automatically; otherwise
@@ -3831,6 +3965,41 @@ public final class GearSection extends CollapsibleSection
 		});
 	}
 
+	/**
+	 * Whether the expensive-item risk cap applies to the current search.
+	 *
+	 * <p>The cap exists to limit what the player is told to RISK, so it is
+	 * scoped to targets that can actually get them PKed: the curated Wilderness
+	 * monster set behind {@link Monster#isWildernessTarget()}. Monsters that
+	 * exist both inside and outside the Wilderness are already disambiguated by
+	 * the synthetic {@code "(Wilderness)"} twin the player selects explicitly,
+	 * so no separate location question has to be asked (issue #11 — the cap
+	 * previously constrained every search, including bosses nowhere near the
+	 * Wilderness).
+	 *
+	 * <p>There is deliberately no location or PvP-world detection anywhere in
+	 * the plugin; the override added alongside this is how a player opts the cap
+	 * back in for PvP worlds or self-imposed risk.
+	 */
+	private boolean riskCapApplies()
+	{
+		return riskCapAnyTargetToggle.isSelected()
+			|| (selectedMonster != null && selectedMonster.isWildernessTarget());
+	}
+
+	/** Greys the risk-cap controls out whenever {@link #riskCapApplies} is false, so the panel never offers a setting the search will ignore. */
+	private void refreshRiskCapEnabled()
+	{
+		boolean applies = riskCapApplies();
+		expensiveCountField.setEnabled(applies);
+		expensiveThresholdField.setEnabled(applies);
+		expensiveThresholdKToggle.setEnabled(applies);
+		expensiveThresholdMToggle.setEnabled(applies);
+		String reason = applies ? EXPENSIVE_COUNT_TOOLTIP : RISK_CAP_INACTIVE_TOOLTIP;
+		expensiveCountField.setToolTipText(reason);
+		expensiveThresholdField.setToolTipText(applies ? EXPENSIVE_THRESHOLD_TOOLTIP : RISK_CAP_INACTIVE_TOOLTIP);
+	}
+
 	/** The "expensive item" gp threshold from {@link #expensiveThresholdField} + its K/M toggle. */
 	private long resolvedExpensiveThreshold()
 	{
@@ -3897,27 +4066,33 @@ public final class GearSection extends CollapsibleSection
 
 	private static final String CONFIG_KEY_BUDGET_AMOUNT = "optimizerBudgetAmount";
 	private static final String CONFIG_KEY_BUDGET_UNIT_MILLIONS = "optimizerBudgetUnitMillions";
-	// Legacy keys — no longer read or written (see loadOptimizerPrefs/saveOptimizerPrefs
-	// javadoc): the expensive-item count/threshold are foot-gun settings that must always
-	// reset to their code defaults on load, never persist across a restart. Kept only so
-	// any already-persisted values under these keys are harmlessly ignored rather than
-	// referencing a removed constant elsewhere.
+	/**
+	 * The expensive-item cap's count/threshold. These were once deliberately NOT
+	 * persisted: a stale low cap silently constraining an unrelated search was a
+	 * foot-gun, so they reset to their code defaults on every load. The
+	 * Wilderness gate ({@link #riskCapApplies}) removed that foot-gun — the cap
+	 * now only touches Wilderness targets or an explicit "Any target" opt-in, so
+	 * nothing is silent any more and the values survive a restart like every
+	 * other optimiser pref (issue #11).
+	 */
 	private static final String CONFIG_KEY_EXPENSIVE_COUNT = "optimizerExpensiveCount";
 	private static final String CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT = "optimizerExpensiveThresholdAmount";
+	/** K/M unit for {@link #CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT}, mirroring {@link #CONFIG_KEY_BUDGET_UNIT_MILLIONS}. */
+	private static final String CONFIG_KEY_EXPENSIVE_THRESHOLD_UNIT_MILLIONS = "optimizerExpensiveThresholdUnitMillions";
+	/** The "Any target" override — see {@link #riskCapAnyTargetToggle}. */
+	private static final String CONFIG_KEY_RISK_CAP_ANY_TARGET = "optimizerRiskCapAnyTarget";
 
 	/**
-	 * Restores the budget amount/unit from config (see {@link #saveOptimizerPrefs})
-	 * so it survives a client restart, mirroring {@link #loadPotionVariants}'s
-	 * pattern. No-op without a {@link ConfigManager} (headless tests / the
-	 * no-config-manager constructors).
+	 * Restores the budget amount/unit, the expensive-item cap's count/threshold/
+	 * unit, and the "Any target" override from config (see {@link
+	 * #saveOptimizerPrefs}) so they survive a client restart, mirroring {@link
+	 * #loadVariants}'s pattern. No-op without a {@link ConfigManager}
+	 * (headless tests / the no-config-manager constructors).
 	 *
-	 * <p>The expensive-items count/threshold are deliberately NOT restored here —
-	 * they are foot-gun settings that must always reset to their code defaults
-	 * ("11" / "100" K) on every load rather than silently carrying forward a
-	 * stale risk-cap value from a previous session (see
-	 * {@link #CONFIG_KEY_EXPENSIVE_COUNT}/{@link #CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT}
-	 * javadoc). They are still initialised at construction time and read live off
-	 * the fields by {@link #resolvedExpensiveCount}/{@link #resolvedExpensiveThreshold}.
+	 * <p>The expensive-item count/threshold now persist rather than always
+	 * resetting to their code defaults ("11" / "100" K) — see {@link
+	 * #CONFIG_KEY_EXPENSIVE_COUNT}'s javadoc for why that used to be a foot-gun
+	 * and no longer is. An absent key leaves the field at its code default.
 	 */
 	private void loadOptimizerPrefs()
 	{
@@ -3936,12 +4111,33 @@ public final class GearSection extends CollapsibleSection
 			budgetMToggle.setSelected(Boolean.parseBoolean(budgetUnit));
 			budgetKToggle.setSelected(!Boolean.parseBoolean(budgetUnit));
 		}
+		String expensiveCount = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_COUNT);
+		if (expensiveCount != null && !expensiveCount.isEmpty())
+		{
+			expensiveCountField.setText(expensiveCount);
+		}
+		String expensiveThreshold = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT);
+		if (expensiveThreshold != null && !expensiveThreshold.isEmpty())
+		{
+			expensiveThresholdField.setText(expensiveThreshold);
+		}
+		String thresholdUnit = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_THRESHOLD_UNIT_MILLIONS);
+		if (thresholdUnit != null)
+		{
+			expensiveThresholdMToggle.setSelected(Boolean.parseBoolean(thresholdUnit));
+			expensiveThresholdKToggle.setSelected(!Boolean.parseBoolean(thresholdUnit));
+		}
+		String anyTarget = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_RISK_CAP_ANY_TARGET);
+		if (anyTarget != null)
+		{
+			riskCapAnyTargetToggle.setSelected(Boolean.parseBoolean(anyTarget));
+		}
 	}
 
 	/**
-	 * Persists the budget amount/unit to config — see {@link #loadOptimizerPrefs}.
-	 * The expensive-items count/threshold are intentionally never persisted (see
-	 * that method's javadoc), so they are not written here either.
+	 * Persists the budget amount/unit, the expensive-item cap's count/threshold/
+	 * unit, and the "Any target" override to config — see {@link
+	 * #loadOptimizerPrefs}.
 	 */
 	private void saveOptimizerPrefs()
 	{
@@ -3952,6 +4148,13 @@ public final class GearSection extends CollapsibleSection
 		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_BUDGET_AMOUNT, budgetField.getText());
 		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_BUDGET_UNIT_MILLIONS,
 			String.valueOf(budgetMToggle.isSelected()));
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_COUNT, expensiveCountField.getText());
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT,
+			expensiveThresholdField.getText());
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_THRESHOLD_UNIT_MILLIONS,
+			String.valueOf(expensiveThresholdMToggle.isSelected()));
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_RISK_CAP_ANY_TARGET,
+			String.valueOf(riskCapAnyTargetToggle.isSelected()));
 	}
 
 	private static final String CONFIG_KEY_EXCLUDED_ITEM_IDS = "optimizerExcludedItemIds";
@@ -4827,6 +5030,13 @@ public final class GearSection extends CollapsibleSection
 			.activePrayers(lastGear.activePrayers())
 			.assumeBestPotion(bestPotionToggle.isSelected())
 			.assumeBestPrayer(bestPrayerToggle.isSelected())
+			// Keyed off styleConstraint (this request's own style), not
+			// selectedStyle: runAndRankStyles calls buildRequest once per
+			// STYLE_ORDER entry, so each style's search must apply that
+			// style's own swap-menu pick, not whichever style the readout
+			// currently has selected. Ignored entirely with the toggle off —
+			// see assumedPrayerFor's javadoc for why that mirrors DpsCalculator.
+			.assumedPrayer(assumedPrayerFor(styleConstraint))
 			.onSlayerTask(onSlayerTaskToggle.isSelected())
 			.magicPotionVariant(magicPotionVariantForCalc());
 
@@ -4840,15 +5050,20 @@ public final class GearSection extends CollapsibleSection
 		// ordinary purchase it would be — see RiskCreditPolicy for why each
 		// condition is required. Risk values are read UNremapped here: the
 		// request's own source reports the variant's value for both ids, which
-		// would make the comparison vacuous.
-		long expensiveThreshold = resolvedExpensiveThreshold();
+		// would make the comparison vacuous. Gated by riskCapApplies() (issue
+		// #11) so a closed Wilderness gate leaves the credit alone too, not
+		// just the Request's own expensiveItemThreshold below — both must
+		// agree on whether the cap is active, or a non-Wilderness search with
+		// the override off can still withdraw a credit the (inactive) cap was
+		// never going to enforce anyway.
+		long gatedExpensiveThreshold = riskCapApplies() ? resolvedExpensiveThreshold() : 0L;
 		int expensiveAllowance = resolvedExpensiveCount();
 		java.util.Set<Integer> withdrawnCredits = RiskCreditPolicy.withdrawnForSaferPurchase(
 			creditSources,
 			id -> riskValues.getOrDefault((int) id, 0L),
 			id -> priceSource.priceFor((int) id),
-			GearOptimizer.expensiveCapActive(expensiveThreshold, expensiveAllowance),
-			expensiveAllowance, expensiveThreshold, budget);
+			GearOptimizer.expensiveCapActive(gatedExpensiveThreshold, expensiveAllowance),
+			expensiveAllowance, gatedExpensiveThreshold, budget);
 		java.util.Set<Integer> ownedIdsForSearch = ownedPrices.keySet();
 		if (!withdrawnCredits.isEmpty())
 		{
@@ -4913,7 +5128,12 @@ public final class GearSection extends CollapsibleSection
 				return variantRisk != null ? variantRisk : riskValues.getOrDefault(id, 0L);
 			})
 			.expensiveItemCount(resolvedExpensiveCount())
-			.expensiveItemThreshold(resolvedExpensiveThreshold())
+			// Wilderness gate (issue #11): threshold 0 is GearOptimizer's existing
+			// "cap disabled" sentinel (see expensiveCapActive), so a closed gate
+			// needs no optimizer-side change and no stale field value can leak
+			// into a search the cap should not touch. Same gated value the
+			// credit-withdrawal check above already used, so both agree.
+			.expensiveItemThreshold(gatedExpensiveThreshold)
 			// Items #6e/#6g: anchor the search to the requested damage type,
 			// which (for the single-style caller) defaults to the EQUIPPED
 			// weapon's current style — never an implicit best-of-any-style
@@ -5253,7 +5473,7 @@ public final class GearSection extends CollapsibleSection
 		}
 		lastKnownIronmanOwnedOnlyPref = ownedOnly;
 
-		budgetRiskRow.setVisible(OwnedOnlyMode.upgradeUiVisible(ownedOnly));
+		budgetColumn.setVisible(OwnedOnlyMode.upgradeUiVisible(ownedOnly));
 		updateBudgetDisplay();
 		setUpgradeStatRowsVisible(OwnedOnlyMode.upgradeStatRowsVisible(ownedOnly, lastOptimizerResult));
 	}
@@ -5999,19 +6219,15 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
-	 * The potion toggle's right-click swap menu — rebuilt on every open (via
-	 * the {@code PopupMenuListener} below) from {@link CombatIcons#variantsFor}
-	 * for whatever combat style is CURRENTLY selected, so right-clicking on
-	 * melee offers Super combat/strength/attack, ranged offers Ranging/
-	 * Bastion/Divine ranging, and magic offers Saturated heart/Imbued heart/
-	 * Ancient brew — never a style-inappropriate list (the original bug: the
-	 * menu always showed the magic variants regardless of style). Picking an
-	 * item sets that style's entry in {@link #potionVariantByStyle}, persists
-	 * it to config (see {@link #savePotionVariant}) so it survives a
-	 * client restart, and re-ranks so the swap immediately feeds
-	 * {@link DpsCalculator} (Magic only — see {@link #magicPotionVariantForCalc}).
+	 * Builds a right-click swap menu that rebuilds its items from {@code
+	 * populate} on every open (via the {@code PopupMenuListener} below), so it
+	 * always reflects whatever combat style is CURRENTLY selected rather than
+	 * whatever it happened to show last time it was opened. Shared scaffold
+	 * for both {@link #buildPotionVariantPopup} and {@link
+	 * #buildPrayerVariantPopup} — they differ only in which style-keyed map
+	 * a pick writes into.
 	 */
-	private javax.swing.JPopupMenu buildPotionVariantPopup()
+	private javax.swing.JPopupMenu buildVariantPopup(java.util.function.Consumer<javax.swing.JPopupMenu> populate)
 	{
 		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
 		menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener()
@@ -6019,7 +6235,7 @@ public final class GearSection extends CollapsibleSection
 			@Override
 			public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e)
 			{
-				populatePotionVariantPopup(menu);
+				populate.accept(menu);
 			}
 
 			@Override
@@ -6033,6 +6249,39 @@ public final class GearSection extends CollapsibleSection
 			}
 		});
 		return menu;
+	}
+
+	/**
+	 * The potion toggle's right-click swap menu — offers {@link
+	 * CombatIcons#variantsFor} for whatever combat style is CURRENTLY
+	 * selected, so right-clicking on melee offers Super combat/strength/
+	 * attack, ranged offers Ranging/Bastion/Divine ranging, and magic offers
+	 * Saturated heart/Imbued heart/Ancient brew — never a style-inappropriate
+	 * list (the original bug: the menu always showed the magic variants
+	 * regardless of style). Picking an item sets that style's entry in
+	 * {@link #potionVariantByStyle}, persists it (see {@link #saveVariant})
+	 * so it survives a client restart, and re-ranks so the swap immediately
+	 * feeds {@link DpsCalculator} (Magic only — see {@link
+	 * #magicPotionVariantForCalc}).
+	 */
+	private javax.swing.JPopupMenu buildPotionVariantPopup()
+	{
+		return buildVariantPopup(this::populatePotionVariantPopup);
+	}
+
+	/**
+	 * The prayer toggle's right-click swap menu — mirrors {@link
+	 * #buildPotionVariantPopup} byte-for-byte, offering {@link
+	 * CombatIcons#prayerVariantsFor} (each style's existing prayer ladder,
+	 * best-first) for whatever combat style is CURRENTLY selected. Picking an
+	 * item sets that style's entry in {@link #prayerVariantByStyle} and
+	 * persists it (see {@link #saveVariant}); the pick only reaches {@link
+	 * DpsCalculator} while {@link #bestPrayerToggle} is selected — see
+	 * {@link #effectivePrayerFor}.
+	 */
+	private javax.swing.JPopupMenu buildPrayerVariantPopup()
+	{
+		return buildVariantPopup(this::populatePrayerVariantPopup);
 	}
 
 	/** Rebuilds {@code menu}'s items from {@link CombatIcons#variantsFor} for the currently selected combat style. */
@@ -6050,7 +6299,36 @@ public final class GearSection extends CollapsibleSection
 				if (styleKey != null)
 				{
 					potionVariantByStyle.put(styleKey, variant);
-					savePotionVariant(styleKey, variant);
+					saveVariant("potionVariant", styleKey, variant);
+				}
+				rankAndRender();
+			});
+			menu.add(item);
+		}
+		if (variants.length == 0)
+		{
+			javax.swing.JMenuItem none = new javax.swing.JMenuItem("Pick a target/style first");
+			none.setEnabled(false);
+			menu.add(none);
+		}
+	}
+
+	/** Rebuilds {@code menu}'s items from {@link CombatIcons#prayerVariantsFor} for the currently selected combat style. Mirrors {@link #populatePotionVariantPopup}. */
+	private void populatePrayerVariantPopup(javax.swing.JPopupMenu menu)
+	{
+		menu.removeAll();
+		CombatStyle style = selectedStyle != null ? selectedStyle.type() : null;
+		String styleKey = styleKeyFor(style);
+		OffensivePrayer[] variants = CombatIcons.prayerVariantsFor(style);
+		for (OffensivePrayer variant : variants)
+		{
+			javax.swing.JMenuItem item = new javax.swing.JMenuItem(displayName(variant));
+			item.addActionListener(e ->
+			{
+				if (styleKey != null)
+				{
+					prayerVariantByStyle.put(styleKey, variant);
+					saveVariant("prayerVariant", styleKey, variant);
 				}
 				rankAndRender();
 			});
@@ -6602,9 +6880,52 @@ public final class GearSection extends CollapsibleSection
 
 	// ---------------------------- issue #11: ironman owned-only mode test seams
 
-	boolean budgetRiskRowVisibleForTest()
+	JPanel budgetColumnForTest()
 	{
-		return budgetRiskRow.isVisible();
+		return budgetColumn;
+	}
+
+	JPanel riskColumnForTest()
+	{
+		return riskColumn;
+	}
+
+	javax.swing.JTextField expensiveCountFieldForTest()
+	{
+		return expensiveCountField;
+	}
+
+	javax.swing.JTextField expensiveThresholdFieldForTest()
+	{
+		return expensiveThresholdField;
+	}
+
+	boolean riskCapAppliesForTest()
+	{
+		return riskCapApplies();
+	}
+
+	JCheckBox riskCapAnyTargetToggleForTest()
+	{
+		return riskCapAnyTargetToggle;
+	}
+
+	JToggleButton thresholdMToggleForTest()
+	{
+		return expensiveThresholdMToggle;
+	}
+
+	/**
+	 * Test seam: selects {@code monster} as the target exactly as picking it
+	 * from the search list would (minus the list-selection UI bookkeeping),
+	 * so the Wilderness gate ({@link #riskCapApplies}) can be exercised
+	 * without driving {@link #monsterList} through Swing. No existing seam
+	 * accepted an arbitrary {@link Monster} directly, so this one was added.
+	 */
+	void selectTargetForTest(Monster monster)
+	{
+		selectedMonster = monster;
+		rankAndRender();
 	}
 
 	boolean optimizerHeadingVisibleForTest()
@@ -6867,7 +7188,7 @@ public final class GearSection extends CollapsibleSection
 	void pickMagicPotionVariantForTest(CombatIcons.BoostPotion variant)
 	{
 		potionVariantByStyle.put(styleKeyFor(CombatStyle.MAGIC), variant);
-		savePotionVariant(styleKeyFor(CombatStyle.MAGIC), variant);
+		saveVariant("potionVariant", styleKeyFor(CombatStyle.MAGIC), variant);
 		rankAndRender();
 	}
 
@@ -6881,7 +7202,7 @@ public final class GearSection extends CollapsibleSection
 	{
 		String key = styleKeyFor(style);
 		potionVariantByStyle.put(key, variant);
-		savePotionVariant(key, variant);
+		saveVariant("potionVariant", key, variant);
 		rankAndRender();
 	}
 

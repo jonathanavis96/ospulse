@@ -241,9 +241,10 @@ public final class DpsCalculator {
                 ? PotionBoosts.bestMeleeBoostedLevel(player.baseAttack())
                 : player.boostedAttack();
 
-        double prayerStrMult = player.assumeBestPrayer() ? OffensivePrayer.PIETY.meleeStrengthMult()
+        OffensivePrayer meleePrayer = assumed(player, OffensivePrayer.PIETY);
+        double prayerStrMult = player.assumeBestPrayer() ? meleePrayer.meleeStrengthMult()
                 : maxOf(player, OffensivePrayer::meleeStrengthMult);
-        double prayerAttMult = player.assumeBestPrayer() ? OffensivePrayer.PIETY.meleeAttackMult()
+        double prayerAttMult = player.assumeBestPrayer() ? meleePrayer.meleeAttackMult()
                 : maxOf(player, OffensivePrayer::meleeAttackMult);
 
         int styleBonusStr = player.stance() == Stance.AGGRESSIVE ? 3 : player.stance() == Stance.CONTROLLED ? 1 : 0;
@@ -358,9 +359,10 @@ public final class DpsCalculator {
                 ? PotionBoosts.bestRangedBoostedLevel(player.baseRanged())
                 : player.boostedRanged();
 
-        double prayerAttMult = player.assumeBestPrayer() ? OffensivePrayer.RIGOUR.rangedAttackMult()
+        OffensivePrayer rangedPrayer = assumed(player, OffensivePrayer.RIGOUR);
+        double prayerAttMult = player.assumeBestPrayer() ? rangedPrayer.rangedAttackMult()
                 : maxOf(player, OffensivePrayer::rangedAttackMult);
-        double prayerStrMult = player.assumeBestPrayer() ? OffensivePrayer.RIGOUR.rangedStrengthMult()
+        double prayerStrMult = player.assumeBestPrayer() ? rangedPrayer.rangedStrengthMult()
                 : maxOf(player, OffensivePrayer::rangedStrengthMult);
 
         // Ranged has only one meaningful style bonus (Accurate, +3), applied identically
@@ -548,9 +550,10 @@ public final class DpsCalculator {
             baseSpellMaxHit = gear.poweredStaff().maxHitAt(boostedMagic);
         }
 
-        double prayerAccMult = player.assumeBestPrayer() ? OffensivePrayer.AUGURY.magicAccuracyMult()
+        OffensivePrayer magicPrayer = assumed(player, OffensivePrayer.AUGURY);
+        double prayerAccMult = player.assumeBestPrayer() ? magicPrayer.magicAccuracyMult()
                 : maxOf(player, OffensivePrayer::magicAccuracyMult);
-        double prayerDamagePercent = player.assumeBestPrayer() ? OffensivePrayer.AUGURY.magicDamagePercent()
+        double prayerDamagePercent = player.assumeBestPrayer() ? magicPrayer.magicDamagePercent()
                 : maxOf(player, OffensivePrayer::magicDamagePercent);
 
         int styleBonus = player.stance() == Stance.ACCURATE ? 3 : player.stance() == Stance.LONGRANGE ? 1 : 0;
@@ -862,6 +865,15 @@ public final class DpsCalculator {
             best = Math.max(best, extractor.applyAsDouble(prayer));
         }
         return best;
+    }
+
+    /**
+     * The prayer the {@code assumeBestPrayer} branch applies: the player's
+     * explicit pick, else {@code fallback} (the style's top-tier prayer, which
+     * is what this branch hardcoded before the pick existed).
+     */
+    private static OffensivePrayer assumed(PlayerCombat player, OffensivePrayer fallback) {
+        return player.assumedPrayer() != null ? player.assumedPrayer() : fallback;
     }
 
     private static DpsResult finish(int maxHit, int attackRoll, int defenceRoll, int weaponSpeedTicks,

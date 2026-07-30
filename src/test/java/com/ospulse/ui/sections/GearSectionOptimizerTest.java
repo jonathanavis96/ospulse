@@ -130,6 +130,21 @@ public class GearSectionOptimizerTest
 		section.monsterListForTest().setSelectedIndex(index);
 	}
 
+	/**
+	 * A genuine Wilderness target (see {@code Monster#isWildernessTarget}), unlike
+	 * Cerberus (Kourend, not the Wilderness). Needed by tests that must exercise
+	 * the expensive-item risk cap now that it is scoped to Wilderness targets
+	 * (issue #11) — picking Cerberus would leave the gate closed and the cap a
+	 * no-op regardless of what count/threshold the test sets.
+	 */
+	private static void pickChaosElemental(GearSection section)
+	{
+		section.searchFieldForTest().setText("chaos elemental");
+		int index = indexOf(section.monsterListForTest().getModel(), "Chaos Elemental");
+		assertTrue("Chaos Elemental must appear in the filtered list", index >= 0);
+		section.monsterListForTest().setSelectedIndex(index);
+	}
+
 	@Test
 	public void ownedOnlyBudget_findsNoBetterWeaponThanLive()
 	{
@@ -281,7 +296,7 @@ public class GearSectionOptimizerTest
 			WealthSnapshot wealth = WealthSnapshot.builder().allHoldings(all).build();
 
 			section.apply(snapshotWith(gearFor(loadout(whip)), wealth));
-			pickCerberus(section);
+			pickChaosElemental(section);  // Wilderness target — the risk cap is now gated to these (issue #11)
 
 			section.setBudgetTextForTest("0");                // owned-only: the scimitar is the free de-risk target
 			section.setExpensiveCountTextForTest("0");        // zero expensive items allowed
@@ -701,19 +716,19 @@ public class GearSectionOptimizerTest
 	}
 
 	/**
-	 * Foot-gun fix, persistence half: unlike the budget amount/unit (which DO
-	 * survive a client restart via {@code ConfigManager} — see
-	 * {@code GearSection#loadOptimizerPrefs}), the expensive-item count and
-	 * threshold must NEVER be restored from a previously-saved config value.
-	 * Seeds a mocked {@link net.runelite.client.config.ConfigManager} with
-	 * stale saved values under the (now legacy, write-only-historically) keys
-	 * {@code optimizerExpensiveCount}/{@code optimizerExpensiveThresholdAmount}
-	 * and asserts a freshly-constructed section ignores them entirely,
-	 * settling on the code defaults (count 11, threshold 100K = 100,000) every
-	 * time — exactly as if the plugin had just been loaded fresh.
+	 * Foot-gun fix superseded (issue #11): the expensive-item count and
+	 * threshold used to NEVER be restored from a previously-saved config value,
+	 * because a stale low cap could silently constrain an unrelated search. Now
+	 * that the cap is scoped to Wilderness targets (or an explicit "Any target"
+	 * opt-in — see {@code GearSection#riskCapApplies}), that risk is gone, so
+	 * these fields persist across a restart exactly like the budget amount/unit
+	 * (see {@code GearSection#loadOptimizerPrefs}). Seeds a mocked {@link
+	 * net.runelite.client.config.ConfigManager} with saved values under {@code
+	 * optimizerExpensiveCount}/{@code optimizerExpensiveThresholdAmount} and
+	 * asserts a freshly-constructed section restores them.
 	 */
 	@Test
-	public void expensiveItemFields_ignoreStalePersistedConfig_alwaysResetToCodeDefaults()
+	public void expensiveItemFields_restoreFromPersistedConfig_nowThatTheWildernessGateMakesThemSafe()
 	{
 		onEdt(() ->
 		{
@@ -728,10 +743,9 @@ public class GearSectionOptimizerTest
 
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
 
-			assertEquals("a stale persisted count must be ignored — always resets to the code default",
-				11, section.resolvedExpensiveCountForTest());
-			assertEquals("a stale persisted threshold must be ignored — always resets to the code default (100K)",
-				100_000L, section.resolvedExpensiveThresholdForTest());
+			assertEquals("a persisted count must be restored", 3, section.resolvedExpensiveCountForTest());
+			assertEquals("a persisted threshold must be restored (300 K, the default unit)",
+				300_000L, section.resolvedExpensiveThresholdForTest());
 		});
 	}
 
@@ -1005,6 +1019,14 @@ public class GearSectionOptimizerTest
 	 * owned-but-over-cap and the optimiser can only drop the slot. Withdrawing
 	 * the credit restores the alternative the budget can actually afford: buy
 	 * an ordinary cape at 2M, risking 1M.
+	 *
+	 * <p>Uses a Wilderness target (Finding 2 fix): the credit-withdrawal check
+	 * is now gated by {@code riskCapApplies()} exactly like {@code
+	 * Request.expensiveItemThreshold} already was, so a non-Wilderness target
+	 * (this test used Cerberus before the fix) leaves the credit alone
+	 * regardless of the threshold/count fields — see {@link
+	 * #nonWildernessTarget_withOverrideOff_leavesTheRiskCreditAlone} below,
+	 * which covers that case with this test's exact fixture otherwise.
 	 */
 	@Test
 	public void riskyHeldVariant_lettingTheOrdinaryCounterpartBeBoughtInstead()
@@ -1025,7 +1047,7 @@ public class GearSectionOptimizerTest
 				(ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(
 					prices, java.util.Set.of(), riskValues, java.util.Set.of())));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
-			pickCerberus(section);
+			pickChaosElemental(section); // Wilderness target -> riskCapApplies() is true
 			section.setBudgetTextForTest("5M");
 			section.setExpensiveThresholdTextForTest("10M");
 			section.setExpensiveCountTextForTest("0");
@@ -1036,6 +1058,56 @@ public class GearSectionOptimizerTest
 			assertEquals("with the credit withdrawn the counterpart prices itself again, or the cap would "
 					+ "still see the variant's risk and the purchase would be pointless",
 				1_000_000L, risk.priceFor(SARADOMIN_CAPE_PLAIN));
+		});
+	}
+
+	/**
+	 * Finding 2 (P2): {@code buildRequest} evaluated the credit-withdrawal
+	 * check ({@code RiskCreditPolicy.withdrawnForSaferPurchase}) against the
+	 * UNgated persisted threshold/count, while only {@code
+	 * Request.expensiveItemThreshold} itself was gated by {@code
+	 * riskCapApplies()}. So outside the Wilderness with the "Any target"
+	 * override off — the exact fixture as {@link
+	 * #riskyHeldVariant_lettingTheOrdinaryCounterpartBeBoughtInstead} above,
+	 * same target (Cerberus), same threshold/count/budget — the credit was
+	 * STILL withdrawn even though the cap the withdrawal exists to serve was
+	 * never active for this search. The credit must survive: with the gate
+	 * closed the cap behaves as threshold 0 ("disabled") everywhere it is
+	 * consulted, not just on the Request's own field.
+	 */
+	@Test
+	public void nonWildernessTarget_withOverrideOff_leavesTheRiskCreditAlone()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> riskValues = new java.util.HashMap<>();
+			riskValues.put(SARADOMIN_CAPE_DEADMAN, 40_000_000L);
+			riskValues.put(SARADOMIN_CAPE_PLAIN, 1_000_000L);
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(SARADOMIN_CAPE_PLAIN, 2_000_000L);
+
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(SARADOMIN_CAPE_DEADMAN, "Imbued saradomin cape (deadman)", 1, 40_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null,
+				(ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(
+					prices, java.util.Set.of(), riskValues, java.util.Set.of())));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section); // non-Wilderness, override left off -> riskCapApplies() is false
+			section.setBudgetTextForTest("5M");
+			section.setExpensiveThresholdTextForTest("10M");
+			section.setExpensiveCountTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			assertFalse("fixture sanity: the gate must actually be closed for this scenario to test anything",
+				section.riskCapAppliesForTest());
+
+			GearOptimizer.PriceSource risk = section.lastRiskValueSourceForTest();
+			assertTrue("the risk source must be wired", risk != null);
+			assertEquals("outside the Wilderness with the override off the cap is inactive, so the credit "
+					+ "must stand even though the threshold/count fields still describe an active-looking cap",
+				40_000_000L, risk.priceFor(SARADOMIN_CAPE_PLAIN));
 		});
 	}
 
