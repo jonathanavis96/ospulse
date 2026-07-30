@@ -441,7 +441,7 @@ public final class GearSection extends CollapsibleSection
 	 * The potion variant the right-click swap menu has picked, PER combat
 	 * style ({@code CombatStyle.MELEE_KEY}/{@code RANGED}/{@code MAGIC} — see
 	 * {@link #styleKeyFor}), persisted to RuneLite config (see
-	 * {@link #loadPotionVariants}/{@link #savePotionVariant}) so a
+	 * {@link #loadVariants}/{@link #saveVariant}) so a
 	 * choice like "Saturated heart on Magic" survives a client restart. Absent
 	 * = follow {@link CombatIcons#bestPotion} (the style's default variant).
 	 * Only the MAGIC entry actually reaches {@link DpsCalculator} (via
@@ -450,6 +450,17 @@ public final class GearSection extends CollapsibleSection
 	 * melee/ranged entries only drive which icon/tooltip is shown.
 	 */
 	private final Map<String, CombatIcons.BoostPotion> potionVariantByStyle = new HashMap<>();
+	/**
+	 * The offensive prayer the right-click swap menu has picked, PER combat
+	 * style (same keys as {@link #potionVariantByStyle} — see {@link
+	 * #styleKeyFor}), persisted the same way ({@code prayerVariant.<style>}).
+	 * Applied only while {@link #bestPrayerToggle} is selected (see {@link
+	 * #effectivePrayerFor}); with the toggle off the pick is ignored and the
+	 * player's real active prayers win, exactly as {@link DpsCalculator}
+	 * treats it. Lets an account without Piety/Rigour/Augury simulate the
+	 * tier it actually has.
+	 */
+	private final Map<String, OffensivePrayer> prayerVariantByStyle = new HashMap<>();
 
 	// ---------------------------------------------- Phase 2: what-if overrides
 	/**
@@ -799,7 +810,8 @@ public final class GearSection extends CollapsibleSection
 		// must read AFTER this.configManager is assigned (see that field's own
 		// javadoc on why a field initializer here would run too early).
 		this.lastKnownIronmanOwnedOnlyPref = ironmanOwnedOnlyPref();
-		loadPotionVariants();
+		loadVariants("potionVariant", CombatIcons.BoostPotion.class, potionVariantByStyle);
+		loadVariants("prayerVariant", OffensivePrayer.class, prayerVariantByStyle);
 
 		// ------------------------------------------------ worn-gear header
 		JLabel heading = PanelWidgets.emptyRowLabel("Live DPS · your worn gear");
@@ -1118,11 +1130,16 @@ public final class GearSection extends CollapsibleSection
 		// button opens a swap menu filtered to whatever style is CURRENTLY
 		// selected (melee: Super combat/strength/attack; ranged: Ranging/
 		// Bastion/Divine ranging; magic: Saturated heart/Imbued heart/Ancient
-		// brew — see CombatIcons.variantsFor/buildPotionVariantPopup), each
-		// choice persisted per-style to config (loadPotionVariants/
-		// savePotionVariant) so it survives a client restart. The small
-		// orange "*" painted in the icon's corner (HintableToggleButton) hints
-		// that right-click has more options.
+		// brew — see CombatIcons.variantsFor/buildPotionVariantPopup). The
+		// prayer button's right-click mirrors it byte-for-byte, offering each
+		// style's existing prayer ladder (see CombatIcons.prayerVariantsFor/
+		// buildPrayerVariantPopup) so an account without Piety/Rigour/Augury
+		// can simulate the tier it actually has. Each choice persists
+		// per-style to config (loadVariants/saveVariant) so it survives a
+		// client restart. The small orange "*" painted in the potion icon's
+		// corner (HintableToggleButton) hints that right-click has more
+		// options; the prayer toggle is a plain JToggleButton with no such
+		// corner hint, but its tooltip says "(right-click to swap)" instead.
 		JPanel boostRow = new JPanel(new GridLayout(1, 3, 2, 0));
 		boostRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		boostRow.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -1142,6 +1159,7 @@ public final class GearSection extends CollapsibleSection
 		bestPrayerToggle.addItemListener(e -> onBoostToggleChanged());
 		onSlayerTaskToggle.addItemListener(e -> onBoostToggleChanged());
 		bestPotionToggle.setComponentPopupMenu(buildPotionVariantPopup());
+		bestPrayerToggle.setComponentPopupMenu(buildPrayerVariantPopup());
 		boostRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, boostRow.getPreferredSize().height));
 		body().add(boostRow);
 		body().add(Box.createRigidArea(new Dimension(0, 4)));
@@ -3098,7 +3116,7 @@ public final class GearSection extends CollapsibleSection
 	/**
 	 * The potion variant the potion toggle should show/apply for {@code style}:
 	 * the user's right-click swap pick for that style if one was ever made
-	 * (restored from config at startup — see {@link #loadPotionVariants}),
+	 * (restored from config at startup — see {@link #loadVariants}),
 	 * else {@link CombatIcons#bestPotion}'s default for that style.
 	 */
 	private CombatIcons.BoostPotion effectivePotionFor(CombatStyle style)
@@ -3110,6 +3128,27 @@ public final class GearSection extends CollapsibleSection
 		}
 		CombatIcons.BoostPotion picked = potionVariantByStyle.get(key);
 		return picked != null ? picked : CombatIcons.bestPotion(style);
+	}
+
+	/**
+	 * The offensive prayer the prayer toggle should show and {@link
+	 * DpsCalculator} should apply for {@code style}: the user's right-click
+	 * pick while the "best prayer" simulation ({@link #bestPrayerToggle}) is
+	 * on, else the ladder-topped prayer for the player's real Prayer level
+	 * (see {@link CombatIcons#bestOffensivePrayer}). With the toggle off the
+	 * pick is ignored — the player's actually-active prayers win, exactly as
+	 * {@link DpsCalculator} treats it.
+	 */
+	private OffensivePrayer effectivePrayerFor(CombatStyle style)
+	{
+		String key = styleKeyFor(style);
+		OffensivePrayer picked = key == null ? null : prayerVariantByStyle.get(key);
+		if (picked != null && bestPrayerToggle.isSelected())
+		{
+			return picked;
+		}
+		return CombatIcons.bestOffensivePrayer(
+			style, lastGear != null ? lastGear.basePrayer() : 0, bestPrayerToggle.isSelected());
 	}
 
 	/**
@@ -3145,19 +3184,17 @@ public final class GearSection extends CollapsibleSection
 		return null;
 	}
 
-	/** Config key for a style's persisted potion-variant pick (raw key, not declared on {@link OSPulseConfig}). */
-	private static String potionVariantConfigKey(String styleKey)
-	{
-		return "potionVariant." + styleKey;
-	}
-
 	/**
-	 * Restores each style's potion-variant pick from config (see
-	 * {@link #savePotionVariant}) so a choice like "Saturated heart on
-	 * Magic" survives a client restart. No-ops without a {@link ConfigManager}
-	 * (headless tests / the no-config-manager constructor).
+	 * Restores each style's persisted right-click swap-menu pick from config
+	 * — shared by the potion ({@code potionVariant.<style>}, see {@link
+	 * #potionVariantByStyle}) and prayer ({@code prayerVariant.<style>}, see
+	 * {@link #prayerVariantByStyle}) menus, so a choice like "Saturated heart
+	 * on Magic" or a simulated Mystic Might survives a client restart. A
+	 * stale/unknown enum name (e.g. from an older plugin version) is ignored,
+	 * falling back to the style's default. No-ops without a {@link
+	 * ConfigManager} (headless tests / the no-config-manager constructor).
 	 */
-	private void loadPotionVariants()
+	private <E extends Enum<E>> void loadVariants(String keyPrefix, Class<E> type, Map<String, E> into)
 	{
 		if (configManager == null)
 		{
@@ -3165,14 +3202,14 @@ public final class GearSection extends CollapsibleSection
 		}
 		for (String styleKey : new String[] {"melee", "ranged", "magic"})
 		{
-			String raw = configManager.getConfiguration(OSPulseConfig.GROUP, potionVariantConfigKey(styleKey));
+			String raw = configManager.getConfiguration(OSPulseConfig.GROUP, keyPrefix + "." + styleKey);
 			if (raw == null || raw.isEmpty())
 			{
 				continue;
 			}
 			try
 			{
-				potionVariantByStyle.put(styleKey, CombatIcons.BoostPotion.valueOf(raw));
+				into.put(styleKey, Enum.valueOf(type, raw));
 			}
 			catch (IllegalArgumentException e)
 			{
@@ -3181,19 +3218,19 @@ public final class GearSection extends CollapsibleSection
 		}
 	}
 
-	/** Persists one style's potion-variant pick to config so it survives a client restart. */
-	private void savePotionVariant(String styleKey, CombatIcons.BoostPotion variant)
+	/** Persists one style's right-click swap-menu pick ({@code keyPrefix} is {@code "potionVariant"} or {@code "prayerVariant"}) so it survives a client restart. */
+	private void saveVariant(String keyPrefix, String styleKey, Enum<?> value)
 	{
 		if (configManager == null)
 		{
 			return;
 		}
-		configManager.setConfiguration(OSPulseConfig.GROUP, potionVariantConfigKey(styleKey), variant.name());
+		configManager.setConfiguration(OSPulseConfig.GROUP, keyPrefix + "." + styleKey, value.name());
 	}
 
 	/**
 	 * Reads the currently-selected blowpipe dart straight from config (mirrors
-	 * {@link #loadPotionVariants}'s load pattern), falling back to
+	 * {@link #loadVariants}'s load pattern), falling back to
 	 * {@link BlowpipeDart#DRAGON} — {@link OSPulseConfig#blowpipeDart}'s own
 	 * default — when unset/stale/no {@link ConfigManager} (headless tests).
 	 * Used only to mark the current pick in the right-click "Set darts"
@@ -3208,7 +3245,7 @@ public final class GearSection extends CollapsibleSection
 
 	/**
 	 * Persists the picked blowpipe dart to config so it survives a client
-	 * restart (mirrors {@link #savePotionVariant}), then re-ranks the
+	 * restart (mirrors {@link #saveVariant}), then re-ranks the
 	 * readout immediately (mirrors the potion-swap/exclude-item pattern —
 	 * see {@link #populatePotionVariantPopup}). No-ops without a {@link
 	 * ConfigManager} (headless tests / the no-config-manager constructor).
@@ -3225,12 +3262,13 @@ public final class GearSection extends CollapsibleSection
 	/**
 	 * Refreshes the prayer/potion boost TOGGLE BUTTONS themselves so each one's
 	 * icon always shows the SAME prayer/potion {@link DpsCalculator} is actually
-	 * applying for {@code style}: the ladder-topped prayer for the player's real
-	 * Prayer level (or the calculator's hardcoded top-tier prayer when the
-	 * "best prayer" toggle is on), and the style's boosting potion (the user's
-	 * right-click swap pick for Magic — see {@link #effectivePotionFor}).
-	 * Falls back to the generic default icon with no target/gear selected yet
-	 * (style is {@code null}) so the buttons are never blank.
+	 * applying for {@code style}: the user's right-click prayer pick while the
+	 * "best prayer" simulation is on, else the ladder-topped prayer for the
+	 * player's real Prayer level (see {@link #effectivePrayerFor}), and the
+	 * style's boosting potion (the user's right-click swap pick for Magic —
+	 * see {@link #effectivePotionFor}). Falls back to the generic default icon
+	 * with no target/gear selected yet (style is {@code null}) so the buttons
+	 * are never blank.
 	 */
 	private void updateBoostIndicators(CombatStyle style)
 	{
@@ -3239,12 +3277,16 @@ public final class GearSection extends CollapsibleSection
 			return;
 		}
 
-		OffensivePrayer prayer = CombatIcons.bestOffensivePrayer(
-			style, lastGear != null ? lastGear.basePrayer() : 0, bestPrayerToggle.isSelected());
+		OffensivePrayer prayer = effectivePrayerFor(style);
 		if (prayer != null)
 		{
+			boolean prayerSwappable = CombatIcons.prayerVariantsFor(style).length > 0;
 			bestPrayerToggle.setIcon(prayerIcon(prayer));
-			bestPrayerToggle.setToolTipText("Offensive prayer applied: " + displayName(prayer));
+			bestPrayerToggle.setToolTipText("Offensive prayer applied: " + displayName(prayer)
+				+ (prayerSwappable ? " (right-click to swap)" : ""));
+			// bestPrayerToggle is a plain JToggleButton, not a HintableToggleButton
+			// like bestPotionToggle below, so there is no corner-hint icon to set
+			// here — the tooltip suffix above is its only "more options" signal.
 		}
 
 		CombatIcons.BoostPotion potion = effectivePotionFor(style);
@@ -4032,7 +4074,7 @@ public final class GearSection extends CollapsibleSection
 	 * Restores the budget amount/unit, the expensive-item cap's count/threshold/
 	 * unit, and the "Any target" override from config (see {@link
 	 * #saveOptimizerPrefs}) so they survive a client restart, mirroring {@link
-	 * #loadPotionVariants}'s pattern. No-op without a {@link ConfigManager}
+	 * #loadVariants}'s pattern. No-op without a {@link ConfigManager}
 	 * (headless tests / the no-config-manager constructors).
 	 *
 	 * <p>The expensive-item count/threshold now persist rather than always
@@ -4976,6 +5018,14 @@ public final class GearSection extends CollapsibleSection
 			.activePrayers(lastGear.activePrayers())
 			.assumeBestPotion(bestPotionToggle.isSelected())
 			.assumeBestPrayer(bestPrayerToggle.isSelected())
+			// Keyed off styleConstraint (this request's own style), not
+			// selectedStyle: runAndRankStyles calls buildRequest once per
+			// STYLE_ORDER entry, so each style's search must apply that
+			// style's own swap-menu pick, not whichever style the readout
+			// currently has selected. Ignored entirely with the toggle off —
+			// see effectivePrayerFor's javadoc for why that mirrors DpsCalculator.
+			.assumedPrayer(bestPrayerToggle.isSelected()
+				? prayerVariantByStyle.get(styleKeyFor(styleConstraint)) : null)
 			.onSlayerTask(onSlayerTaskToggle.isSelected())
 			.magicPotionVariant(magicPotionVariantForCalc());
 
@@ -6152,19 +6202,15 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
-	 * The potion toggle's right-click swap menu — rebuilt on every open (via
-	 * the {@code PopupMenuListener} below) from {@link CombatIcons#variantsFor}
-	 * for whatever combat style is CURRENTLY selected, so right-clicking on
-	 * melee offers Super combat/strength/attack, ranged offers Ranging/
-	 * Bastion/Divine ranging, and magic offers Saturated heart/Imbued heart/
-	 * Ancient brew — never a style-inappropriate list (the original bug: the
-	 * menu always showed the magic variants regardless of style). Picking an
-	 * item sets that style's entry in {@link #potionVariantByStyle}, persists
-	 * it to config (see {@link #savePotionVariant}) so it survives a
-	 * client restart, and re-ranks so the swap immediately feeds
-	 * {@link DpsCalculator} (Magic only — see {@link #magicPotionVariantForCalc}).
+	 * Builds a right-click swap menu that rebuilds its items from {@code
+	 * populate} on every open (via the {@code PopupMenuListener} below), so it
+	 * always reflects whatever combat style is CURRENTLY selected rather than
+	 * whatever it happened to show last time it was opened. Shared scaffold
+	 * for both {@link #buildPotionVariantPopup} and {@link
+	 * #buildPrayerVariantPopup} — they differ only in which style-keyed map
+	 * a pick writes into.
 	 */
-	private javax.swing.JPopupMenu buildPotionVariantPopup()
+	private javax.swing.JPopupMenu buildVariantPopup(java.util.function.Consumer<javax.swing.JPopupMenu> populate)
 	{
 		javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
 		menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener()
@@ -6172,7 +6218,7 @@ public final class GearSection extends CollapsibleSection
 			@Override
 			public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e)
 			{
-				populatePotionVariantPopup(menu);
+				populate.accept(menu);
 			}
 
 			@Override
@@ -6186,6 +6232,39 @@ public final class GearSection extends CollapsibleSection
 			}
 		});
 		return menu;
+	}
+
+	/**
+	 * The potion toggle's right-click swap menu — offers {@link
+	 * CombatIcons#variantsFor} for whatever combat style is CURRENTLY
+	 * selected, so right-clicking on melee offers Super combat/strength/
+	 * attack, ranged offers Ranging/Bastion/Divine ranging, and magic offers
+	 * Saturated heart/Imbued heart/Ancient brew — never a style-inappropriate
+	 * list (the original bug: the menu always showed the magic variants
+	 * regardless of style). Picking an item sets that style's entry in
+	 * {@link #potionVariantByStyle}, persists it (see {@link #saveVariant})
+	 * so it survives a client restart, and re-ranks so the swap immediately
+	 * feeds {@link DpsCalculator} (Magic only — see {@link
+	 * #magicPotionVariantForCalc}).
+	 */
+	private javax.swing.JPopupMenu buildPotionVariantPopup()
+	{
+		return buildVariantPopup(this::populatePotionVariantPopup);
+	}
+
+	/**
+	 * The prayer toggle's right-click swap menu — mirrors {@link
+	 * #buildPotionVariantPopup} byte-for-byte, offering {@link
+	 * CombatIcons#prayerVariantsFor} (each style's existing prayer ladder,
+	 * best-first) for whatever combat style is CURRENTLY selected. Picking an
+	 * item sets that style's entry in {@link #prayerVariantByStyle} and
+	 * persists it (see {@link #saveVariant}); the pick only reaches {@link
+	 * DpsCalculator} while {@link #bestPrayerToggle} is selected — see
+	 * {@link #effectivePrayerFor}.
+	 */
+	private javax.swing.JPopupMenu buildPrayerVariantPopup()
+	{
+		return buildVariantPopup(this::populatePrayerVariantPopup);
 	}
 
 	/** Rebuilds {@code menu}'s items from {@link CombatIcons#variantsFor} for the currently selected combat style. */
@@ -6203,7 +6282,36 @@ public final class GearSection extends CollapsibleSection
 				if (styleKey != null)
 				{
 					potionVariantByStyle.put(styleKey, variant);
-					savePotionVariant(styleKey, variant);
+					saveVariant("potionVariant", styleKey, variant);
+				}
+				rankAndRender();
+			});
+			menu.add(item);
+		}
+		if (variants.length == 0)
+		{
+			javax.swing.JMenuItem none = new javax.swing.JMenuItem("Pick a target/style first");
+			none.setEnabled(false);
+			menu.add(none);
+		}
+	}
+
+	/** Rebuilds {@code menu}'s items from {@link CombatIcons#prayerVariantsFor} for the currently selected combat style. Mirrors {@link #populatePotionVariantPopup}. */
+	private void populatePrayerVariantPopup(javax.swing.JPopupMenu menu)
+	{
+		menu.removeAll();
+		CombatStyle style = selectedStyle != null ? selectedStyle.type() : null;
+		String styleKey = styleKeyFor(style);
+		OffensivePrayer[] variants = CombatIcons.prayerVariantsFor(style);
+		for (OffensivePrayer variant : variants)
+		{
+			javax.swing.JMenuItem item = new javax.swing.JMenuItem(displayName(variant));
+			item.addActionListener(e ->
+			{
+				if (styleKey != null)
+				{
+					prayerVariantByStyle.put(styleKey, variant);
+					saveVariant("prayerVariant", styleKey, variant);
 				}
 				rankAndRender();
 			});
@@ -7063,7 +7171,7 @@ public final class GearSection extends CollapsibleSection
 	void pickMagicPotionVariantForTest(CombatIcons.BoostPotion variant)
 	{
 		potionVariantByStyle.put(styleKeyFor(CombatStyle.MAGIC), variant);
-		savePotionVariant(styleKeyFor(CombatStyle.MAGIC), variant);
+		saveVariant("potionVariant", styleKeyFor(CombatStyle.MAGIC), variant);
 		rankAndRender();
 	}
 
@@ -7077,7 +7185,7 @@ public final class GearSection extends CollapsibleSection
 	{
 		String key = styleKeyFor(style);
 		potionVariantByStyle.put(key, variant);
-		savePotionVariant(key, variant);
+		saveVariant("potionVariant", key, variant);
 		rankAndRender();
 	}
 
