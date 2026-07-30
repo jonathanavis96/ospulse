@@ -130,6 +130,21 @@ public class GearSectionOptimizerTest
 		section.monsterListForTest().setSelectedIndex(index);
 	}
 
+	/**
+	 * A genuine Wilderness target (see {@code Monster#isWildernessTarget}), unlike
+	 * Cerberus (Kourend, not the Wilderness). Needed by tests that must exercise
+	 * the expensive-item risk cap now that it is scoped to Wilderness targets
+	 * (issue #11) — picking Cerberus would leave the gate closed and the cap a
+	 * no-op regardless of what count/threshold the test sets.
+	 */
+	private static void pickChaosElemental(GearSection section)
+	{
+		section.searchFieldForTest().setText("chaos elemental");
+		int index = indexOf(section.monsterListForTest().getModel(), "Chaos Elemental");
+		assertTrue("Chaos Elemental must appear in the filtered list", index >= 0);
+		section.monsterListForTest().setSelectedIndex(index);
+	}
+
 	@Test
 	public void ownedOnlyBudget_findsNoBetterWeaponThanLive()
 	{
@@ -281,7 +296,7 @@ public class GearSectionOptimizerTest
 			WealthSnapshot wealth = WealthSnapshot.builder().allHoldings(all).build();
 
 			section.apply(snapshotWith(gearFor(loadout(whip)), wealth));
-			pickCerberus(section);
+			pickChaosElemental(section);  // Wilderness target — the risk cap is now gated to these (issue #11)
 
 			section.setBudgetTextForTest("0");                // owned-only: the scimitar is the free de-risk target
 			section.setExpensiveCountTextForTest("0");        // zero expensive items allowed

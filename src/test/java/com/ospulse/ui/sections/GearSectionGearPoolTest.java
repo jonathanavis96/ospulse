@@ -314,7 +314,7 @@ public class GearSectionGearPoolTest
 			GearSection section = new GearSection(NO_STORE, null, null, null, null,
 				fakeResolverWithRiskValues(java.util.Collections.emptyMap(), java.util.Set.of(), riskValues));
 			section.apply(snapshotWith(gearFor(ids), wealth));
-			pickCerberus(section);
+			pickChaosElemental(section);  // Wilderness target — the risk cap is now gated to these (issue #11)
 
 			section.setBudgetTextForTest("0");               // owned-only: no purchases, only de-risk swaps
 			section.setExpensiveCountTextForTest("1");        // exactly one expensive item allowed
@@ -681,6 +681,29 @@ public class GearSectionGearPoolTest
 			}
 		}
 		assertTrue("Cerberus must appear in the filtered list", index >= 0);
+		section.monsterListForTest().setSelectedIndex(index);
+	}
+
+	/**
+	 * A genuine Wilderness target (see {@code Monster#isWildernessTarget}), unlike
+	 * Cerberus (Kourend, not the Wilderness). The expensive-item risk cap is now
+	 * scoped to Wilderness targets (issue #11), so a cap-enforcement test must
+	 * pick one of these or the gate stays closed regardless of count/threshold.
+	 */
+	private static void pickChaosElemental(GearSection section)
+	{
+		section.searchFieldForTest().setText("chaos elemental");
+		javax.swing.ListModel<String> model = section.monsterListForTest().getModel();
+		int index = -1;
+		for (int i = 0; i < model.getSize(); i++)
+		{
+			if (model.getElementAt(i).equals("Chaos Elemental"))
+			{
+				index = i;
+				break;
+			}
+		}
+		assertTrue("Chaos Elemental must appear in the filtered list", index >= 0);
 		section.monsterListForTest().setSelectedIndex(index);
 	}
 }

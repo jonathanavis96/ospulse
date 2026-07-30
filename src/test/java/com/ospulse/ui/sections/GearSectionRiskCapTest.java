@@ -1,5 +1,6 @@
 package com.ospulse.ui.sections;
 
+import com.ospulse.combat.Monster;
 import com.ospulse.ui.CollapsibleSection;
 import com.ospulse.ui.sections.gear.IronmanOwnedOnlyStore;
 
@@ -108,6 +109,22 @@ public class GearSectionRiskCapTest
 		section.refreshIronmanOwnedOnlyMode();
 	}
 
+	/** A minimal {@link Monster} for gate tests — only the name and Wilderness flag matter here. */
+	private static Monster monster(String name, boolean wilderness)
+	{
+		return Monster.builder().name(name).hitpoints(1).wildernessTarget(wilderness).build();
+	}
+
+	/**
+	 * Selects {@code monster} as the target exactly as picking it from the search
+	 * list would. Callers already run on the EDT (inside {@link #onEdt}), so this
+	 * does not wrap again.
+	 */
+	private static void selectTarget(GearSection section, Monster monster)
+	{
+		section.selectTargetForTest(monster);
+	}
+
 	@Test
 	public void ironmanOwnedOnly_hidesBudgetButKeepsRiskColumnVisible()
 	{
@@ -132,6 +149,67 @@ public class GearSectionRiskCapTest
 
 			assertTrue(section.budgetColumnForTest().isVisible());
 			assertTrue(section.riskColumnForTest().isVisible());
+		});
+	}
+
+	@Test
+	public void wildernessTarget_appliesTheRiskCap()
+	{
+		onEdt(() ->
+		{
+			GearSection section = newSectionWithConfig();
+			selectTarget(section, monster("Vet'ion", true));
+
+			assertTrue(section.riskCapAppliesForTest());
+		});
+	}
+
+	@Test
+	public void nonWildernessTarget_doesNotApplyTheRiskCap()
+	{
+		onEdt(() ->
+		{
+			GearSection section = newSectionWithConfig();
+			selectTarget(section, monster("Zulrah", false));
+
+			assertFalse(section.riskCapAppliesForTest());
+		});
+	}
+
+	@Test
+	public void noTargetSelected_doesNotApplyTheRiskCap()
+	{
+		onEdt(() ->
+		{
+			GearSection section = newSectionWithConfig();
+
+			assertFalse(section.riskCapAppliesForTest());
+		});
+	}
+
+	@Test
+	public void gateClosed_disablesTheCountAndThresholdControls()
+	{
+		onEdt(() ->
+		{
+			GearSection section = newSectionWithConfig();
+			selectTarget(section, monster("Zulrah", false));
+
+			assertFalse(section.expensiveCountFieldForTest().isEnabled());
+			assertFalse(section.expensiveThresholdFieldForTest().isEnabled());
+		});
+	}
+
+	@Test
+	public void gateOpen_enablesTheCountAndThresholdControls()
+	{
+		onEdt(() ->
+		{
+			GearSection section = newSectionWithConfig();
+			selectTarget(section, monster("Vet'ion", true));
+
+			assertTrue(section.expensiveCountFieldForTest().isEnabled());
+			assertTrue(section.expensiveThresholdFieldForTest().isEnabled());
 		});
 	}
 }

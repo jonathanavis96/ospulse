@@ -494,6 +494,9 @@ public final class GearSection extends CollapsibleSection
 	private static final String EXPENSIVE_COUNT_TOOLTIP =
 		"The amount of 'expensive' items you want to have in your setup, for wilderness or pvp world activities.";
 	private static final String EXPENSIVE_THRESHOLD_TOOLTIP = "The value of when an item is considered expensive.";
+	/** Shown on the risk-cap controls while {@link #riskCapApplies} is false, so a greyed-out control explains itself. */
+	private static final String RISK_CAP_INACTIVE_TOOLTIP =
+		"Only applies to Wilderness targets. Tick \"Any target\" to use it anywhere.";
 	private static final String BUDGET_TOOLTIP =
 		"Extra GP to spend on upgrades beyond your owned gear (blank/0 = owned gear only).";
 	/**
@@ -1316,6 +1319,8 @@ public final class GearSection extends CollapsibleSection
 		// Ironman owned-only mode (issue #11): a one-time set at construction, like every other pref loaded above.
 		// Only the buy-side budget column hides — the risk cap stays reachable, see riskColumn's javadoc.
 		budgetColumn.setVisible(OwnedOnlyMode.upgradeUiVisible(ironmanOwnedOnlyPref()));
+		// Seed the risk-cap controls' enabled state before any render happens (no target picked yet).
+		refreshRiskCapEnabled();
 		java.awt.event.ActionListener persistOptimizerPrefs = e -> saveOptimizerPrefs();
 		budgetField.addActionListener(persistOptimizerPrefs);
 		budgetKToggle.addActionListener(e -> saveOptimizerPrefs());
@@ -2084,6 +2089,9 @@ public final class GearSection extends CollapsibleSection
 			lastRankedTarget = selectedMonster;
 			userPickedSpell = false;
 		}
+
+		// The risk cap is Wilderness-scoped, so its controls follow the target.
+		refreshRiskCapEnabled();
 
 		List<WeaponStyle> styles = new ArrayList<>(weaponRepo.stylesForItem(weaponId));
 		currentWeaponCategory = weaponRepo.categoryFor(weaponId);
@@ -3851,6 +3859,40 @@ public final class GearSection extends CollapsibleSection
 		});
 	}
 
+	/**
+	 * Whether the expensive-item risk cap applies to the current search.
+	 *
+	 * <p>The cap exists to limit what the player is told to RISK, so it is
+	 * scoped to targets that can actually get them PKed: the curated Wilderness
+	 * monster set behind {@link Monster#isWildernessTarget()}. Monsters that
+	 * exist both inside and outside the Wilderness are already disambiguated by
+	 * the synthetic {@code "(Wilderness)"} twin the player selects explicitly,
+	 * so no separate location question has to be asked (issue #11 — the cap
+	 * previously constrained every search, including bosses nowhere near the
+	 * Wilderness).
+	 *
+	 * <p>There is deliberately no location or PvP-world detection anywhere in
+	 * the plugin; the override added alongside this is how a player opts the cap
+	 * back in for PvP worlds or self-imposed risk.
+	 */
+	private boolean riskCapApplies()
+	{
+		return selectedMonster != null && selectedMonster.isWildernessTarget();
+	}
+
+	/** Greys the risk-cap controls out whenever {@link #riskCapApplies} is false, so the panel never offers a setting the search will ignore. */
+	private void refreshRiskCapEnabled()
+	{
+		boolean applies = riskCapApplies();
+		expensiveCountField.setEnabled(applies);
+		expensiveThresholdField.setEnabled(applies);
+		expensiveThresholdKToggle.setEnabled(applies);
+		expensiveThresholdMToggle.setEnabled(applies);
+		String reason = applies ? EXPENSIVE_COUNT_TOOLTIP : RISK_CAP_INACTIVE_TOOLTIP;
+		expensiveCountField.setToolTipText(reason);
+		expensiveThresholdField.setToolTipText(applies ? EXPENSIVE_THRESHOLD_TOOLTIP : RISK_CAP_INACTIVE_TOOLTIP);
+	}
+
 	/** The "expensive item" gp threshold from {@link #expensiveThresholdField} + its K/M toggle. */
 	private long resolvedExpensiveThreshold()
 	{
@@ -4933,7 +4975,11 @@ public final class GearSection extends CollapsibleSection
 				return variantRisk != null ? variantRisk : riskValues.getOrDefault(id, 0L);
 			})
 			.expensiveItemCount(resolvedExpensiveCount())
-			.expensiveItemThreshold(resolvedExpensiveThreshold())
+			// Wilderness gate (issue #11): threshold 0 is GearOptimizer's existing
+			// "cap disabled" sentinel (see expensiveCapActive), so a closed gate
+			// needs no optimizer-side change and no stale field value can leak
+			// into a search the cap should not touch.
+			.expensiveItemThreshold(riskCapApplies() ? resolvedExpensiveThreshold() : 0L)
 			// Items #6e/#6g: anchor the search to the requested damage type,
 			// which (for the single-style caller) defaults to the EQUIPPED
 			// weapon's current style — never an implicit best-of-any-style
@@ -6630,6 +6676,34 @@ public final class GearSection extends CollapsibleSection
 	JPanel riskColumnForTest()
 	{
 		return riskColumn;
+	}
+
+	javax.swing.JTextField expensiveCountFieldForTest()
+	{
+		return expensiveCountField;
+	}
+
+	javax.swing.JTextField expensiveThresholdFieldForTest()
+	{
+		return expensiveThresholdField;
+	}
+
+	boolean riskCapAppliesForTest()
+	{
+		return riskCapApplies();
+	}
+
+	/**
+	 * Test seam: selects {@code monster} as the target exactly as picking it
+	 * from the search list would (minus the list-selection UI bookkeeping),
+	 * so the Wilderness gate ({@link #riskCapApplies}) can be exercised
+	 * without driving {@link #monsterList} through Swing. No existing seam
+	 * accepted an arbitrary {@link Monster} directly, so this one was added.
+	 */
+	void selectTargetForTest(Monster monster)
+	{
+		selectedMonster = monster;
+		rankAndRender();
 	}
 
 	boolean optimizerHeadingVisibleForTest()
