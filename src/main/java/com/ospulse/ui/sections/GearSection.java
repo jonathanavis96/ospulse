@@ -79,6 +79,7 @@ import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JList;
@@ -491,6 +492,14 @@ public final class GearSection extends CollapsibleSection
 	private final javax.swing.JTextField expensiveThresholdField;
 	private final JToggleButton expensiveThresholdKToggle;
 	private final JToggleButton expensiveThresholdMToggle;
+	/**
+	 * "Any target" — opts the expensive-item risk cap back in for targets the
+	 * Wilderness gate would skip (PvP worlds, self-imposed risk). Off by
+	 * default; see {@link #riskCapApplies}. There is deliberately no
+	 * force-OFF counterpart: setting the threshold to 0 already disables the
+	 * cap for a Wilderness target.
+	 */
+	private final JCheckBox riskCapAnyTargetToggle;
 	private static final String EXPENSIVE_COUNT_TOOLTIP =
 		"The amount of 'expensive' items you want to have in your setup, for wilderness or pvp world activities.";
 	private static final String EXPENSIVE_THRESHOLD_TOOLTIP = "The value of when an item is considered expensive.";
@@ -1263,10 +1272,9 @@ public final class GearSection extends CollapsibleSection
 		// below the slot total actually caps risky gear, instead of the old "0"
 		// default silently disabling the cap (expensiveCapActive needs threshold > 0).
 		// Still off by default overall: the count defaults to 11 (== slot count);
-		// setting the threshold back to 0 disables the cap outright. Both this field
-		// and the count field are intentionally NOT persisted across restarts (see
-		// loadOptimizerPrefs/saveOptimizerPrefs) — they always reset to these
-		// defaults on load, unlike the budget amount/unit which do persist.
+		// setting the threshold back to 0 disables the cap outright. "11"/"100" K
+		// are only the CODE defaults — see CONFIG_KEY_EXPENSIVE_COUNT's javadoc for
+		// why these fields now persist across restarts instead of always resetting.
 		expensiveThresholdField = new javax.swing.JTextField("100", 4);
 		expensiveThresholdField.setToolTipText(EXPENSIVE_THRESHOLD_TOOLTIP);
 		expensiveThresholdField.setFont(FontManager.getRunescapeSmallFont());
@@ -1291,9 +1299,19 @@ public final class GearSection extends CollapsibleSection
 		thresholdRow.add(thresholdUnit);
 		thresholdRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
+		riskCapAnyTargetToggle = new JCheckBox("Any target");
+		riskCapAnyTargetToggle.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		riskCapAnyTargetToggle.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		riskCapAnyTargetToggle.setFont(FontManager.getRunescapeSmallFont());
+		riskCapAnyTargetToggle.setFocusable(false);
+		riskCapAnyTargetToggle.setToolTipText(
+			"Also apply the expensive-item cap outside the Wilderness (PvP worlds, self-imposed risk).");
+		riskCapAnyTargetToggle.setAlignmentX(Component.LEFT_ALIGNMENT);
+
 		riskColumn = new JPanel();
 		riskColumn.setLayout(new BoxLayout(riskColumn, BoxLayout.Y_AXIS));
 		riskColumn.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		riskColumn.add(riskCapAnyTargetToggle);
 		riskColumn.add(countRow);
 		riskColumn.add(thresholdRow);
 
@@ -1352,6 +1370,40 @@ public final class GearSection extends CollapsibleSection
 		budgetKToggle.addActionListener(e -> updateBudgetDisplay());
 		budgetMToggle.addActionListener(e -> updateBudgetDisplay());
 		updateBudgetDisplay();
+
+		// Persist the expensive-item count/threshold/unit + "Any target" override
+		// as they change — revived now that the Wilderness gate (issue #11) means
+		// a stale value can no longer silently constrain an unrelated search.
+		DocumentListener expensiveFieldEcho = new DocumentListener()
+		{
+			@Override
+			public void insertUpdate(DocumentEvent e)
+			{
+				saveOptimizerPrefs();
+			}
+
+			@Override
+			public void removeUpdate(DocumentEvent e)
+			{
+				saveOptimizerPrefs();
+			}
+
+			@Override
+			public void changedUpdate(DocumentEvent e)
+			{
+				saveOptimizerPrefs();
+			}
+		};
+		expensiveCountField.getDocument().addDocumentListener(expensiveFieldEcho);
+		expensiveThresholdField.getDocument().addDocumentListener(expensiveFieldEcho);
+		expensiveThresholdKToggle.addActionListener(persistOptimizerPrefs);
+		expensiveThresholdMToggle.addActionListener(persistOptimizerPrefs);
+		riskCapAnyTargetToggle.addActionListener(e ->
+		{
+			saveOptimizerPrefs();
+			refreshRiskCapEnabled();
+			rankAndRender();
+		});
 
 		findBestSetupButton = new JButton("Find best setup");
 		findBestSetupButton.setFont(FontManager.getRunescapeSmallFont());
@@ -3877,7 +3929,8 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private boolean riskCapApplies()
 	{
-		return selectedMonster != null && selectedMonster.isWildernessTarget();
+		return riskCapAnyTargetToggle.isSelected()
+			|| (selectedMonster != null && selectedMonster.isWildernessTarget());
 	}
 
 	/** Greys the risk-cap controls out whenever {@link #riskCapApplies} is false, so the panel never offers a setting the search will ignore. */
@@ -3959,27 +4012,33 @@ public final class GearSection extends CollapsibleSection
 
 	private static final String CONFIG_KEY_BUDGET_AMOUNT = "optimizerBudgetAmount";
 	private static final String CONFIG_KEY_BUDGET_UNIT_MILLIONS = "optimizerBudgetUnitMillions";
-	// Legacy keys — no longer read or written (see loadOptimizerPrefs/saveOptimizerPrefs
-	// javadoc): the expensive-item count/threshold are foot-gun settings that must always
-	// reset to their code defaults on load, never persist across a restart. Kept only so
-	// any already-persisted values under these keys are harmlessly ignored rather than
-	// referencing a removed constant elsewhere.
+	/**
+	 * The expensive-item cap's count/threshold. These were once deliberately NOT
+	 * persisted: a stale low cap silently constraining an unrelated search was a
+	 * foot-gun, so they reset to their code defaults on every load. The
+	 * Wilderness gate ({@link #riskCapApplies}) removed that foot-gun — the cap
+	 * now only touches Wilderness targets or an explicit "Any target" opt-in, so
+	 * nothing is silent any more and the values survive a restart like every
+	 * other optimiser pref (issue #11).
+	 */
 	private static final String CONFIG_KEY_EXPENSIVE_COUNT = "optimizerExpensiveCount";
 	private static final String CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT = "optimizerExpensiveThresholdAmount";
+	/** K/M unit for {@link #CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT}, mirroring {@link #CONFIG_KEY_BUDGET_UNIT_MILLIONS}. */
+	private static final String CONFIG_KEY_EXPENSIVE_THRESHOLD_UNIT_MILLIONS = "optimizerExpensiveThresholdUnitMillions";
+	/** The "Any target" override — see {@link #riskCapAnyTargetToggle}. */
+	private static final String CONFIG_KEY_RISK_CAP_ANY_TARGET = "optimizerRiskCapAnyTarget";
 
 	/**
-	 * Restores the budget amount/unit from config (see {@link #saveOptimizerPrefs})
-	 * so it survives a client restart, mirroring {@link #loadPotionVariants}'s
-	 * pattern. No-op without a {@link ConfigManager} (headless tests / the
-	 * no-config-manager constructors).
+	 * Restores the budget amount/unit, the expensive-item cap's count/threshold/
+	 * unit, and the "Any target" override from config (see {@link
+	 * #saveOptimizerPrefs}) so they survive a client restart, mirroring {@link
+	 * #loadPotionVariants}'s pattern. No-op without a {@link ConfigManager}
+	 * (headless tests / the no-config-manager constructors).
 	 *
-	 * <p>The expensive-items count/threshold are deliberately NOT restored here —
-	 * they are foot-gun settings that must always reset to their code defaults
-	 * ("11" / "100" K) on every load rather than silently carrying forward a
-	 * stale risk-cap value from a previous session (see
-	 * {@link #CONFIG_KEY_EXPENSIVE_COUNT}/{@link #CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT}
-	 * javadoc). They are still initialised at construction time and read live off
-	 * the fields by {@link #resolvedExpensiveCount}/{@link #resolvedExpensiveThreshold}.
+	 * <p>The expensive-item count/threshold now persist rather than always
+	 * resetting to their code defaults ("11" / "100" K) — see {@link
+	 * #CONFIG_KEY_EXPENSIVE_COUNT}'s javadoc for why that used to be a foot-gun
+	 * and no longer is. An absent key leaves the field at its code default.
 	 */
 	private void loadOptimizerPrefs()
 	{
@@ -3998,12 +4057,33 @@ public final class GearSection extends CollapsibleSection
 			budgetMToggle.setSelected(Boolean.parseBoolean(budgetUnit));
 			budgetKToggle.setSelected(!Boolean.parseBoolean(budgetUnit));
 		}
+		String expensiveCount = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_COUNT);
+		if (expensiveCount != null && !expensiveCount.isEmpty())
+		{
+			expensiveCountField.setText(expensiveCount);
+		}
+		String expensiveThreshold = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT);
+		if (expensiveThreshold != null && !expensiveThreshold.isEmpty())
+		{
+			expensiveThresholdField.setText(expensiveThreshold);
+		}
+		String thresholdUnit = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_THRESHOLD_UNIT_MILLIONS);
+		if (thresholdUnit != null)
+		{
+			expensiveThresholdMToggle.setSelected(Boolean.parseBoolean(thresholdUnit));
+			expensiveThresholdKToggle.setSelected(!Boolean.parseBoolean(thresholdUnit));
+		}
+		String anyTarget = configManager.getConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_RISK_CAP_ANY_TARGET);
+		if (anyTarget != null)
+		{
+			riskCapAnyTargetToggle.setSelected(Boolean.parseBoolean(anyTarget));
+		}
 	}
 
 	/**
-	 * Persists the budget amount/unit to config — see {@link #loadOptimizerPrefs}.
-	 * The expensive-items count/threshold are intentionally never persisted (see
-	 * that method's javadoc), so they are not written here either.
+	 * Persists the budget amount/unit, the expensive-item cap's count/threshold/
+	 * unit, and the "Any target" override to config — see {@link
+	 * #loadOptimizerPrefs}.
 	 */
 	private void saveOptimizerPrefs()
 	{
@@ -4014,6 +4094,13 @@ public final class GearSection extends CollapsibleSection
 		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_BUDGET_AMOUNT, budgetField.getText());
 		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_BUDGET_UNIT_MILLIONS,
 			String.valueOf(budgetMToggle.isSelected()));
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_COUNT, expensiveCountField.getText());
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_THRESHOLD_AMOUNT,
+			expensiveThresholdField.getText());
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_EXPENSIVE_THRESHOLD_UNIT_MILLIONS,
+			String.valueOf(expensiveThresholdMToggle.isSelected()));
+		configManager.setConfiguration(OSPulseConfig.GROUP, CONFIG_KEY_RISK_CAP_ANY_TARGET,
+			String.valueOf(riskCapAnyTargetToggle.isSelected()));
 	}
 
 	private static final String CONFIG_KEY_EXCLUDED_ITEM_IDS = "optimizerExcludedItemIds";
@@ -6691,6 +6778,16 @@ public final class GearSection extends CollapsibleSection
 	boolean riskCapAppliesForTest()
 	{
 		return riskCapApplies();
+	}
+
+	JCheckBox riskCapAnyTargetToggleForTest()
+	{
+		return riskCapAnyTargetToggle;
+	}
+
+	JToggleButton thresholdMToggleForTest()
+	{
+		return expensiveThresholdMToggle;
 	}
 
 	/**

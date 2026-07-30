@@ -716,19 +716,19 @@ public class GearSectionOptimizerTest
 	}
 
 	/**
-	 * Foot-gun fix, persistence half: unlike the budget amount/unit (which DO
-	 * survive a client restart via {@code ConfigManager} — see
-	 * {@code GearSection#loadOptimizerPrefs}), the expensive-item count and
-	 * threshold must NEVER be restored from a previously-saved config value.
-	 * Seeds a mocked {@link net.runelite.client.config.ConfigManager} with
-	 * stale saved values under the (now legacy, write-only-historically) keys
-	 * {@code optimizerExpensiveCount}/{@code optimizerExpensiveThresholdAmount}
-	 * and asserts a freshly-constructed section ignores them entirely,
-	 * settling on the code defaults (count 11, threshold 100K = 100,000) every
-	 * time — exactly as if the plugin had just been loaded fresh.
+	 * Foot-gun fix superseded (issue #11): the expensive-item count and
+	 * threshold used to NEVER be restored from a previously-saved config value,
+	 * because a stale low cap could silently constrain an unrelated search. Now
+	 * that the cap is scoped to Wilderness targets (or an explicit "Any target"
+	 * opt-in — see {@code GearSection#riskCapApplies}), that risk is gone, so
+	 * these fields persist across a restart exactly like the budget amount/unit
+	 * (see {@code GearSection#loadOptimizerPrefs}). Seeds a mocked {@link
+	 * net.runelite.client.config.ConfigManager} with saved values under {@code
+	 * optimizerExpensiveCount}/{@code optimizerExpensiveThresholdAmount} and
+	 * asserts a freshly-constructed section restores them.
 	 */
 	@Test
-	public void expensiveItemFields_ignoreStalePersistedConfig_alwaysResetToCodeDefaults()
+	public void expensiveItemFields_restoreFromPersistedConfig_nowThatTheWildernessGateMakesThemSafe()
 	{
 		onEdt(() ->
 		{
@@ -743,10 +743,9 @@ public class GearSectionOptimizerTest
 
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
 
-			assertEquals("a stale persisted count must be ignored — always resets to the code default",
-				11, section.resolvedExpensiveCountForTest());
-			assertEquals("a stale persisted threshold must be ignored — always resets to the code default (100K)",
-				100_000L, section.resolvedExpensiveThresholdForTest());
+			assertEquals("a persisted count must be restored", 3, section.resolvedExpensiveCountForTest());
+			assertEquals("a persisted threshold must be restored (300 K, the default unit)",
+				300_000L, section.resolvedExpensiveThresholdForTest());
 		});
 	}
 

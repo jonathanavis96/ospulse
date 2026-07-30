@@ -14,6 +14,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.HashMap;
 import java.util.Map;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -210,6 +211,71 @@ public class GearSectionRiskCapTest
 
 			assertTrue(section.expensiveCountFieldForTest().isEnabled());
 			assertTrue(section.expensiveThresholdFieldForTest().isEnabled());
+		});
+	}
+
+	@Test
+	public void anyTargetOverride_appliesTheCapOutsideTheWilderness()
+	{
+		onEdt(() ->
+		{
+			GearSection section = newSectionWithConfig();
+			selectTarget(section, monster("Zulrah", false));
+			section.riskCapAnyTargetToggleForTest().doClick();
+
+			assertTrue(section.riskCapAppliesForTest());
+			assertTrue(section.expensiveCountFieldForTest().isEnabled());
+		});
+	}
+
+	@Test
+	public void anyTargetOverrideOff_leavesNonWildernessTargetsUngated()
+	{
+		onEdt(() ->
+		{
+			GearSection section = newSectionWithConfig();
+			selectTarget(section, monster("Zulrah", false));
+
+			assertFalse(section.riskCapAnyTargetToggleForTest().isSelected());
+			assertFalse(section.riskCapAppliesForTest());
+		});
+	}
+
+	@Test
+	public void riskCapPrefs_roundTripThroughConfig()
+	{
+		onEdt(() ->
+		{
+			GearSection first = newSectionWithConfig();
+			// The K/M toggle is disabled while the risk-cap gate is closed (Task 2) and
+			// Swing's doClick() is a no-op on a disabled button, so open the gate first —
+			// this test is only about the persistence round-trip, not the gate itself.
+			selectTarget(first, monster("Vet'ion", true));
+			first.expensiveCountFieldForTest().setText("3");
+			first.expensiveThresholdFieldForTest().setText("250");
+			first.thresholdMToggleForTest().doClick();
+			first.riskCapAnyTargetToggleForTest().doClick();
+
+			GearSection reloaded = newSectionWithConfig();
+
+			assertEquals("3", reloaded.expensiveCountFieldForTest().getText());
+			assertEquals("250", reloaded.expensiveThresholdFieldForTest().getText());
+			assertTrue(reloaded.thresholdMToggleForTest().isSelected());
+			assertTrue(reloaded.riskCapAnyTargetToggleForTest().isSelected());
+		});
+	}
+
+	@Test
+	public void riskCapPrefs_absentKeysKeepCodeDefaults()
+	{
+		onEdt(() ->
+		{
+			GearSection section = newSectionWithConfig();
+
+			assertEquals("11", section.expensiveCountFieldForTest().getText());
+			assertEquals("100", section.expensiveThresholdFieldForTest().getText());
+			assertFalse(section.thresholdMToggleForTest().isSelected());
+			assertFalse(section.riskCapAnyTargetToggleForTest().isSelected());
 		});
 	}
 }
