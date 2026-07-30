@@ -2878,7 +2878,7 @@ public final class GearSection extends CollapsibleSection
 		Stance stance = magicCastStyle != null ? magicCastStyle.stance() : Stance.STANDARD;
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, stance,
 			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected(),
-			magicPotionVariantForCalc());
+			magicPotionVariantForCalc(), assumedPrayerFor(CombatStyle.MAGIC));
 		return DpsCalculator.compute(gearStats, player, CombatStyle.MAGIC, selectedMonster, spell, effectiveWeaponId());
 	}
 
@@ -3152,6 +3152,18 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
+	 * The prayer to feed {@link GearMapper#toPlayerCombat}/{@link
+	 * PlayerCombat.Builder#assumedPrayer} for {@code style}: the swap-menu pick
+	 * while {@link #bestPrayerToggle} is selected, else {@code null} so the
+	 * calculator's own hardcoded top-tier fallback applies — mirrors {@link
+	 * #buildRequest}'s identical rule for the optimizer request.
+	 */
+	private OffensivePrayer assumedPrayerFor(CombatStyle style)
+	{
+		return bestPrayerToggle.isSelected() ? prayerVariantByStyle.get(styleKeyFor(style)) : null;
+	}
+
+	/**
 	 * The MAGIC-only variant actually fed to {@link DpsCalculator} — see
 	 * {@link PlayerCombat#magicPotionVariant()}. Melee/Ranged variants never
 	 * reach the calculator since their boost math is identical regardless of
@@ -3361,7 +3373,7 @@ public final class GearSection extends CollapsibleSection
 		}
 		PlayerCombat player = GearMapper.toPlayerCombat(lastGear, style.stance(),
 			bestPotionToggle.isSelected(), bestPrayerToggle.isSelected(), onSlayerTaskToggle.isSelected(),
-			magicPotionVariantForCalc());
+			magicPotionVariantForCalc(), assumedPrayerFor(style.type()));
 		if (style.type() == CombatStyle.MAGIC)
 		{
 			// Spell-aware path: a worn powered staff wins automatically; otherwise
@@ -5023,9 +5035,8 @@ public final class GearSection extends CollapsibleSection
 			// STYLE_ORDER entry, so each style's search must apply that
 			// style's own swap-menu pick, not whichever style the readout
 			// currently has selected. Ignored entirely with the toggle off —
-			// see effectivePrayerFor's javadoc for why that mirrors DpsCalculator.
-			.assumedPrayer(bestPrayerToggle.isSelected()
-				? prayerVariantByStyle.get(styleKeyFor(styleConstraint)) : null)
+			// see assumedPrayerFor's javadoc for why that mirrors DpsCalculator.
+			.assumedPrayer(assumedPrayerFor(styleConstraint))
 			.onSlayerTask(onSlayerTaskToggle.isSelected())
 			.magicPotionVariant(magicPotionVariantForCalc());
 

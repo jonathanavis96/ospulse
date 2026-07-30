@@ -2,6 +2,7 @@ package com.ospulse.session;
 
 import com.ospulse.combat.CombatIcons;
 import com.ospulse.combat.EquipmentStats;
+import com.ospulse.combat.OffensivePrayer;
 import com.ospulse.combat.PlayerCombat;
 import com.ospulse.combat.Stance;
 
@@ -228,17 +229,23 @@ public final class GearMapper
 	public static PlayerCombat toPlayerCombat(GearSnapshot gear, Stance stance, boolean assumeBestPotion, boolean assumeBestPrayer,
 									boolean onSlayerTask)
 	{
-		return toPlayerCombat(gear, stance, assumeBestPotion, assumeBestPrayer, onSlayerTask, null);
+		return toPlayerCombat(gear, stance, assumeBestPotion, assumeBestPrayer, onSlayerTask, null, null);
 	}
 
 	/**
 	 * As {@link #toPlayerCombat(GearSnapshot, Stance, boolean, boolean, boolean)},
-	 * additionally passing through {@code magicPotionVariant} — the potion-toggle
-	 * right-click swap in {@code GearSection} ({@code null} keeps the default
-	 * Imbued heart behaviour; see {@link PlayerCombat#magicPotionVariant()}).
+	 * additionally passing through {@code magicPotionVariant} (the potion-toggle
+	 * right-click swap; {@code null} keeps the default Imbued heart behaviour — see
+	 * {@link PlayerCombat#magicPotionVariant()}) and {@code assumedPrayer} (the
+	 * prayer-toggle right-click swap pick, applied only while {@code
+	 * assumeBestPrayer} is true; {@code null} falls back to the style's hardcoded
+	 * top-tier prayer — see {@link PlayerCombat#assumedPrayer()}). {@code
+	 * assumedPrayer} previously had no path into this live-DPS builder at all
+	 * (only the optimizer request built one directly), so picking a prayer
+	 * changed the icon/tooltip/config but never the displayed DPS.
 	 */
 	public static PlayerCombat toPlayerCombat(GearSnapshot gear, Stance stance, boolean assumeBestPotion, boolean assumeBestPrayer,
-									boolean onSlayerTask, CombatIcons.BoostPotion magicPotionVariant)
+									boolean onSlayerTask, CombatIcons.BoostPotion magicPotionVariant, OffensivePrayer assumedPrayer)
 	{
 		return PlayerCombat.builder()
 			.attack(gear.baseAttack(), gear.boostedAttack())
@@ -254,6 +261,7 @@ public final class GearMapper
 			.assumeBestPrayer(assumeBestPrayer)
 			.onSlayerTask(onSlayerTask)
 			.magicPotionVariant(magicPotionVariant)
+			.assumedPrayer(assumedPrayer)
 			.build();
 	}
 }

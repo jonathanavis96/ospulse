@@ -291,6 +291,37 @@ public class GearSectionPrayerPickerTest
 		});
 	}
 
+	/**
+	 * Finding 1 (P1): the prayer pick changed the toggle's icon/tooltip and
+	 * persisted config, but {@code GearMapper.toPlayerCombat} never threaded
+	 * {@code assumedPrayer} through to the DPS calculator, so it silently fell
+	 * back to the hardcoded top-tier prayer (Augury here) regardless of the
+	 * pick — the LIVE DPS READOUT ({@link GearSection#dpsTextForTest}) never
+	 * moved. Picks the weakest listed prayer (a real strength cut from
+	 * Augury) so any live-wired path is guaranteed to change the number.
+	 */
+	@Test
+	public void bestPrayerToggle_appliesThePickToTheLiveDpsReadout()
+	{
+		onEdt(() ->
+		{
+			GearSection section = newSectionWithConfig();
+			selectMagicTarget(section);
+			section.bestPrayerToggleForTest().setSelected(true);
+
+			String withDefaultPrayer = section.dpsTextForTest();
+			assertFalse("fixture sanity: a real DPS number must be showing before the pick",
+				withDefaultPrayer == null || withDefaultPrayer.equals("-"));
+
+			JPopupMenu menu = section.bestPrayerToggleForTest().getComponentPopupMenu();
+			populatePrayerVariantPopup(section, menu);
+			((JMenuItem) menu.getComponent(menu.getComponentCount() - 1)).doClick(); // weakest listed prayer
+
+			assertNotEquals("picking a weaker prayer must move the live DPS readout, not just the icon/config",
+				withDefaultPrayer, section.dpsTextForTest());
+		});
+	}
+
 	@Test
 	public void unknownPersistedPrayerName_fallsBackToTheStyleDefault()
 	{
