@@ -153,19 +153,51 @@ public class CombatIconsTest {
         assertEquals(1 + 2 + 0, PotionBoosts.ancientBrewBoostedLevel(1));
     }
 
-    // ---- prayer toggle's right-click swap menu: variant list from the existing ladders ----
+    // ---- prayer toggle's right-click swap menu: the picker's OWN per-style list
+    // (every modelled prayer for the style), separate from the level-inferred
+    // ladder above (see CombatIcons#prayerVariantsFor's updated javadoc) ----
 
     @Test
-    public void prayerVariantsFor_listsEachStylesLadderBestFirst() {
+    public void prayerVariantsFor_listsEachStylesPickerPrayersBestFirst() {
         assertArrayEquals(
-            new OffensivePrayer[]{OffensivePrayer.AUGURY, OffensivePrayer.MYSTIC_MIGHT,
-                OffensivePrayer.MYSTIC_LORE, OffensivePrayer.MYSTIC_WILL},
+            new OffensivePrayer[]{OffensivePrayer.AUGURY, OffensivePrayer.MYSTIC_VIGOUR,
+                OffensivePrayer.MYSTIC_MIGHT, OffensivePrayer.MYSTIC_LORE, OffensivePrayer.MYSTIC_WILL},
             CombatIcons.prayerVariantsFor(CombatStyle.MAGIC));
 
-        assertEquals(OffensivePrayer.RIGOUR, CombatIcons.prayerVariantsFor(CombatStyle.RANGED)[0]);
-        assertEquals(OffensivePrayer.PIETY, CombatIcons.prayerVariantsFor(CombatStyle.SLASH)[0]);
-        assertTrue(CombatIcons.prayerVariantsFor(CombatStyle.RANGED).length > 1);
-        assertTrue(CombatIcons.prayerVariantsFor(CombatStyle.SLASH).length > 1);
+        assertArrayEquals(
+            new OffensivePrayer[]{OffensivePrayer.RIGOUR, OffensivePrayer.DEADEYE, OffensivePrayer.EAGLE_EYE,
+                OffensivePrayer.HAWK_EYE, OffensivePrayer.SHARP_EYE},
+            CombatIcons.prayerVariantsFor(CombatStyle.RANGED));
+
+        assertArrayEquals(
+            new OffensivePrayer[]{OffensivePrayer.PIETY, OffensivePrayer.CHIVALRY, OffensivePrayer.ULTIMATE_STRENGTH,
+                OffensivePrayer.SUPERHUMAN_STRENGTH, OffensivePrayer.BURST_OF_STRENGTH,
+                OffensivePrayer.INCREDIBLE_REFLEXES, OffensivePrayer.IMPROVED_REFLEXES, OffensivePrayer.CLARITY_OF_THOUGHT},
+            CombatIcons.prayerVariantsFor(CombatStyle.SLASH));
+
+        // All three melee sub-styles must share the exact same picker list.
+        assertArrayEquals(CombatIcons.prayerVariantsFor(CombatStyle.SLASH), CombatIcons.prayerVariantsFor(CombatStyle.STAB));
+        assertArrayEquals(CombatIcons.prayerVariantsFor(CombatStyle.SLASH), CombatIcons.prayerVariantsFor(CombatStyle.CRUSH));
+    }
+
+    /**
+     * Finding 3 guard: every entry the picker offers for a style must actually
+     * be modelled as a boost for that style — a wrong-style prayer silently
+     * added to the wrong list would offer a pick that changes nothing.
+     */
+    @Test
+    public void prayerVariantsFor_everyEntryBoostsItsOwnStyle() {
+        for (OffensivePrayer p : CombatIcons.prayerVariantsFor(CombatStyle.SLASH)) {
+            assertTrue(p + " must boost melee attack or strength",
+                p.meleeAttackMult() > 1.0 || p.meleeStrengthMult() > 1.0);
+        }
+        for (OffensivePrayer p : CombatIcons.prayerVariantsFor(CombatStyle.RANGED)) {
+            assertTrue(p + " must boost ranged attack or strength",
+                p.rangedAttackMult() > 1.0 || p.rangedStrengthMult() > 1.0);
+        }
+        for (OffensivePrayer p : CombatIcons.prayerVariantsFor(CombatStyle.MAGIC)) {
+            assertTrue(p + " must boost magic accuracy", p.magicAccuracyMult() > 1.0);
+        }
     }
 
     @Test

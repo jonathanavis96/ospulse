@@ -246,14 +246,16 @@ public class GearSectionPrayerPickerTest
 			JPopupMenu menu = section.bestPrayerToggleForTest().getComponentPopupMenu();
 			populatePrayerVariantPopup(section, menu);
 
+			// Finding 3: the picker's own list (not the level-inferred ladder) —
+			// Augury, Mystic Vigour, Mystic Might, Mystic Lore, Mystic Will.
 			assertEquals("Augury", ((JMenuItem) menu.getComponent(0)).getText());
-			assertEquals("Mystic Might", ((JMenuItem) menu.getComponent(1)).getText());
+			assertEquals("Mystic Vigour", ((JMenuItem) menu.getComponent(1)).getText());
 
 			((JMenuItem) menu.getComponent(1)).doClick();
 
-			assertEquals(OffensivePrayer.MYSTIC_MIGHT, prayerVariantByStyle(section).get("magic"));
+			assertEquals(OffensivePrayer.MYSTIC_VIGOUR, prayerVariantByStyle(section).get("magic"));
 			GearSection reloaded = newSectionWithConfig();
-			assertEquals(OffensivePrayer.MYSTIC_MIGHT, prayerVariantByStyle(reloaded).get("magic"));
+			assertEquals(OffensivePrayer.MYSTIC_VIGOUR, prayerVariantByStyle(reloaded).get("magic"));
 		});
 	}
 
