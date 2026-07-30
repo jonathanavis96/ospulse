@@ -496,7 +496,21 @@ public final class GearSection extends CollapsibleSection
 	private static final String EXPENSIVE_THRESHOLD_TOOLTIP = "The value of when an item is considered expensive.";
 	private static final String BUDGET_TOOLTIP =
 		"Extra GP to spend on upgrades beyond your owned gear (blank/0 = owned gear only).";
-	/** Badge | budget entry | risk column — hidden entirely in ironman owned-only mode (issue #11). */
+	/**
+	 * Badge | budget entry — the buy-side column, hidden in ironman owned-only
+	 * mode because an ironman cannot spend gp on upgrades at all.
+	 */
+	private final JPanel budgetColumn;
+	/**
+	 * The expensive-item risk cap's own column (count + threshold rows). Unlike
+	 * {@link #budgetColumn} this stays visible in ironman owned-only mode: the
+	 * cap is about what the player is willing to LOSE, not what they can buy,
+	 * and an ironman risks items in the Wilderness like anyone else (issue #11 —
+	 * it was previously hidden along with the whole row, which made the setting
+	 * unreachable while still silently applying its field defaults).
+	 */
+	private final JPanel riskColumn;
+	/** Badge + budget entry + risk column. Always visible; its two columns hide independently. */
 	private final JPanel budgetRiskRow;
 	private final JButton findBestSetupButton;
 	private final JLabel statusLabel;
@@ -1274,18 +1288,23 @@ public final class GearSection extends CollapsibleSection
 		thresholdRow.add(thresholdUnit);
 		thresholdRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-		JPanel riskColumn = new JPanel();
+		riskColumn = new JPanel();
 		riskColumn.setLayout(new BoxLayout(riskColumn, BoxLayout.Y_AXIS));
 		riskColumn.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		riskColumn.add(countRow);
 		riskColumn.add(thresholdRow);
 
-		// horizontal container: badge | budget entry | risk column
+		// buy-side column: badge | budget entry (hidden wholesale in owned-only mode)
+		budgetColumn = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+		budgetColumn.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		budgetColumn.add(budgetBadge);
+		budgetColumn.add(budgetEntry);
+
+		// horizontal container: buy-side column | risk column
 		budgetRiskRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
 		budgetRiskRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		budgetRiskRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-		budgetRiskRow.add(budgetBadge);
-		budgetRiskRow.add(budgetEntry);
+		budgetRiskRow.add(budgetColumn);
 		budgetRiskRow.add(riskColumn);
 		budgetRiskRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, budgetRiskRow.getPreferredSize().height));
 		body().add(budgetRiskRow);
@@ -1295,7 +1314,8 @@ public final class GearSection extends CollapsibleSection
 		loadExcludedItemsPref();
 		excludedItemsCollapsed = loadExcludedItemsCollapsedPref();
 		// Ironman owned-only mode (issue #11): a one-time set at construction, like every other pref loaded above.
-		budgetRiskRow.setVisible(OwnedOnlyMode.upgradeUiVisible(ironmanOwnedOnlyPref()));
+		// Only the buy-side budget column hides — the risk cap stays reachable, see riskColumn's javadoc.
+		budgetColumn.setVisible(OwnedOnlyMode.upgradeUiVisible(ironmanOwnedOnlyPref()));
 		java.awt.event.ActionListener persistOptimizerPrefs = e -> saveOptimizerPrefs();
 		budgetField.addActionListener(persistOptimizerPrefs);
 		budgetKToggle.addActionListener(e -> saveOptimizerPrefs());
@@ -5253,7 +5273,7 @@ public final class GearSection extends CollapsibleSection
 		}
 		lastKnownIronmanOwnedOnlyPref = ownedOnly;
 
-		budgetRiskRow.setVisible(OwnedOnlyMode.upgradeUiVisible(ownedOnly));
+		budgetColumn.setVisible(OwnedOnlyMode.upgradeUiVisible(ownedOnly));
 		updateBudgetDisplay();
 		setUpgradeStatRowsVisible(OwnedOnlyMode.upgradeStatRowsVisible(ownedOnly, lastOptimizerResult));
 	}
@@ -6602,9 +6622,14 @@ public final class GearSection extends CollapsibleSection
 
 	// ---------------------------- issue #11: ironman owned-only mode test seams
 
-	boolean budgetRiskRowVisibleForTest()
+	JPanel budgetColumnForTest()
 	{
-		return budgetRiskRow.isVisible();
+		return budgetColumn;
+	}
+
+	JPanel riskColumnForTest()
+	{
+		return riskColumn;
 	}
 
 	boolean optimizerHeadingVisibleForTest()
