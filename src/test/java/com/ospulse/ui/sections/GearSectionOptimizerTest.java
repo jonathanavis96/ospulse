@@ -1019,6 +1019,14 @@ public class GearSectionOptimizerTest
 	 * owned-but-over-cap and the optimiser can only drop the slot. Withdrawing
 	 * the credit restores the alternative the budget can actually afford: buy
 	 * an ordinary cape at 2M, risking 1M.
+	 *
+	 * <p>Uses a Wilderness target (Finding 2 fix): the credit-withdrawal check
+	 * is now gated by {@code riskCapApplies()} exactly like {@code
+	 * Request.expensiveItemThreshold} already was, so a non-Wilderness target
+	 * (this test used Cerberus before the fix) leaves the credit alone
+	 * regardless of the threshold/count fields — see {@link
+	 * #nonWildernessTarget_withOverrideOff_leavesTheRiskCreditAlone} below,
+	 * which covers that case with this test's exact fixture otherwise.
 	 */
 	@Test
 	public void riskyHeldVariant_lettingTheOrdinaryCounterpartBeBoughtInstead()
@@ -1039,7 +1047,7 @@ public class GearSectionOptimizerTest
 				(ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(
 					prices, java.util.Set.of(), riskValues, java.util.Set.of())));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
-			pickCerberus(section);
+			pickChaosElemental(section); // Wilderness target -> riskCapApplies() is true
 			section.setBudgetTextForTest("5M");
 			section.setExpensiveThresholdTextForTest("10M");
 			section.setExpensiveCountTextForTest("0");
@@ -1050,6 +1058,56 @@ public class GearSectionOptimizerTest
 			assertEquals("with the credit withdrawn the counterpart prices itself again, or the cap would "
 					+ "still see the variant's risk and the purchase would be pointless",
 				1_000_000L, risk.priceFor(SARADOMIN_CAPE_PLAIN));
+		});
+	}
+
+	/**
+	 * Finding 2 (P2): {@code buildRequest} evaluated the credit-withdrawal
+	 * check ({@code RiskCreditPolicy.withdrawnForSaferPurchase}) against the
+	 * UNgated persisted threshold/count, while only {@code
+	 * Request.expensiveItemThreshold} itself was gated by {@code
+	 * riskCapApplies()}. So outside the Wilderness with the "Any target"
+	 * override off — the exact fixture as {@link
+	 * #riskyHeldVariant_lettingTheOrdinaryCounterpartBeBoughtInstead} above,
+	 * same target (Cerberus), same threshold/count/budget — the credit was
+	 * STILL withdrawn even though the cap the withdrawal exists to serve was
+	 * never active for this search. The credit must survive: with the gate
+	 * closed the cap behaves as threshold 0 ("disabled") everywhere it is
+	 * consulted, not just on the Request's own field.
+	 */
+	@Test
+	public void nonWildernessTarget_withOverrideOff_leavesTheRiskCreditAlone()
+	{
+		onEdt(() ->
+		{
+			java.util.Map<Integer, Long> riskValues = new java.util.HashMap<>();
+			riskValues.put(SARADOMIN_CAPE_DEADMAN, 40_000_000L);
+			riskValues.put(SARADOMIN_CAPE_PLAIN, 1_000_000L);
+			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
+			prices.put(SARADOMIN_CAPE_PLAIN, 2_000_000L);
+
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(SARADOMIN_CAPE_DEADMAN, "Imbued saradomin cape (deadman)", 1, 40_000_000L));
+			WealthSnapshot wealth = WealthSnapshot.builder().topHoldings(holdings).build();
+
+			GearSection section = new GearSection(NO_STORE, null, null, null, null,
+				(ids, onResolved) -> onResolved.accept(new GearSection.PriceLookup(
+					prices, java.util.Set.of(), riskValues, java.util.Set.of())));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
+			pickCerberus(section); // non-Wilderness, override left off -> riskCapApplies() is false
+			section.setBudgetTextForTest("5M");
+			section.setExpensiveThresholdTextForTest("10M");
+			section.setExpensiveCountTextForTest("0");
+			section.runOptimizerSyncForTest();
+
+			assertFalse("fixture sanity: the gate must actually be closed for this scenario to test anything",
+				section.riskCapAppliesForTest());
+
+			GearOptimizer.PriceSource risk = section.lastRiskValueSourceForTest();
+			assertTrue("the risk source must be wired", risk != null);
+			assertEquals("outside the Wilderness with the override off the cap is inactive, so the credit "
+					+ "must stand even though the threshold/count fields still describe an active-looking cap",
+				40_000_000L, risk.priceFor(SARADOMIN_CAPE_PLAIN));
 		});
 	}
 

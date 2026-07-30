@@ -5050,15 +5050,20 @@ public final class GearSection extends CollapsibleSection
 		// ordinary purchase it would be — see RiskCreditPolicy for why each
 		// condition is required. Risk values are read UNremapped here: the
 		// request's own source reports the variant's value for both ids, which
-		// would make the comparison vacuous.
-		long expensiveThreshold = resolvedExpensiveThreshold();
+		// would make the comparison vacuous. Gated by riskCapApplies() (issue
+		// #11) so a closed Wilderness gate leaves the credit alone too, not
+		// just the Request's own expensiveItemThreshold below — both must
+		// agree on whether the cap is active, or a non-Wilderness search with
+		// the override off can still withdraw a credit the (inactive) cap was
+		// never going to enforce anyway.
+		long gatedExpensiveThreshold = riskCapApplies() ? resolvedExpensiveThreshold() : 0L;
 		int expensiveAllowance = resolvedExpensiveCount();
 		java.util.Set<Integer> withdrawnCredits = RiskCreditPolicy.withdrawnForSaferPurchase(
 			creditSources,
 			id -> riskValues.getOrDefault((int) id, 0L),
 			id -> priceSource.priceFor((int) id),
-			GearOptimizer.expensiveCapActive(expensiveThreshold, expensiveAllowance),
-			expensiveAllowance, expensiveThreshold, budget);
+			GearOptimizer.expensiveCapActive(gatedExpensiveThreshold, expensiveAllowance),
+			expensiveAllowance, gatedExpensiveThreshold, budget);
 		java.util.Set<Integer> ownedIdsForSearch = ownedPrices.keySet();
 		if (!withdrawnCredits.isEmpty())
 		{
@@ -5126,8 +5131,9 @@ public final class GearSection extends CollapsibleSection
 			// Wilderness gate (issue #11): threshold 0 is GearOptimizer's existing
 			// "cap disabled" sentinel (see expensiveCapActive), so a closed gate
 			// needs no optimizer-side change and no stale field value can leak
-			// into a search the cap should not touch.
-			.expensiveItemThreshold(riskCapApplies() ? resolvedExpensiveThreshold() : 0L)
+			// into a search the cap should not touch. Same gated value the
+			// credit-withdrawal check above already used, so both agree.
+			.expensiveItemThreshold(gatedExpensiveThreshold)
 			// Items #6e/#6g: anchor the search to the requested damage type,
 			// which (for the single-style caller) defaults to the EQUIPPED
 			// weapon's current style — never an implicit best-of-any-style
