@@ -180,18 +180,32 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 
 ## 📝 Changelog
 
-<!-- 0.2.1 is the version declared in build.gradle + runelite-plugin.properties and is
+<!-- 0.2.2 is the version declared in build.gradle + runelite-plugin.properties and is
      what master builds as. It is NOT yet the version served by the Plugin Hub: the
-     hub manifest pins a commit SHA, so going live still needs a PR against
-     runelite/plugin-hub bumping commit= to the master tip.
-     Because 0.2.1 has never actually shipped, everything landed since it was first
-     drafted belongs IN this section rather than in an "Unreleased" block above it —
-     users will receive it all as one release. Keep adding here until the manifest PR
-     merges.
-     After that release, add a fresh "### Unreleased" block ABOVE this one and stage new
-     user-facing lines there; on the next release, rename it to its version, collapse the
-     previous version into a <details> block as below, and cut the manifest PR. -->
-### 0.2.1 — Truthful wealth, readable numbers
+     hub manifest pins a commit SHA, so going live needs a PR against
+     runelite/plugin-hub setting commit= to the master tip.
+     0.2.1 SHIPPED on 2026-07-28 (plugin-hub PR #13797, pinned at 0d75444), so it is
+     collapsed below and must not be edited further — users already have it.
+     Keep adding user-facing lines to the 0.2.2 section until its manifest PR merges.
+     After that release, add a fresh "### Unreleased" block ABOVE it and stage new lines
+     there; on the next release, rename it to its version, collapse the previous version
+     into a <details> block as below, and cut the manifest PR. -->
+### 0.2.2 — Wilderness‑aware risk, your own prayers
+
+**✨ New**
+
+- 🗺️ **The expensive‑item cap now only applies where you can actually be PKed.** Setting "max 2 expensive items" used to constrain every search, so picking a boss nowhere near the Wilderness quietly gave you a worse setup than your gear allows. It now applies to Wilderness targets only. Monsters that live both inside and outside the Wilderness are already listed twice — pick **Black dragon (Wilderness)** and the cap applies, pick the plain **Black dragon** and it doesn't. For PvP worlds, or if you just want to limit your risk everywhere, tick the new **Any target** box.
+- 🙏 **Right‑click the prayer icon to pick the prayer you actually have.** The DPS simulation assumed Piety, Rigour or Augury, which is no help without them. Right‑click now offers every prayer for that style — Chivalry, Eagle Eye, Mystic Might and the rest — the same way the potion icon already swaps between Saturated heart and Imbued heart. Your pick is remembered per style, and it only applies while the "best prayer" toggle is on; with it off, whatever you have active in game still wins.
+- 💾 **Your risk‑cap settings stay put.** The expensive‑item count and value reset every time you restarted the client. They're now saved like the rest of the panel.
+
+**🔧 Fixed**
+
+- **Ironmen couldn't reach the risk cap at all.** Owned‑only mode hid the whole budget row, and the expensive‑item count and value went with it — while still quietly applying their default values to every search. The budget is about what you can buy, so it stays hidden; the cap is about what you can afford to lose, which matters just as much on an ironman.
+
+<details>
+<summary><b>0.2.1 — Truthful wealth, readable numbers</b></summary>
+
+<br>
 
 **✨ New**
 
@@ -241,6 +255,8 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 - **The Wilderness now knows which monsters are in it.** The set behind those +50% revenant bonuses grew from 10 variants to 34, adding Fire giants in the Deep Wilderness Dungeon, the Wilderness God Wars Dungeon spiritual mages/rangers/warriors and Aviansies, and more. Two monsters that only *sound* like Wilderness spawns — the Earth Warrior Champion and the bandit champion from The Feud — no longer wrongly grant the bonus.
 - **Powered sceptres attack with their own spell.** Thammaron's and Accursed sceptre were scored as if casting from your spellbook rather than using their built‑in attack.
 - **Equipment stats refreshed from the live game.** Bundled gear data is regenerated from the current OSRS cache, so bonuses match what the game actually uses — including a corrected ranged‑strength value on Pegasian boots that the previous extraction had been reading a point low.
+
+</details>
 
 <details>
 <summary><b>0.2.0 — Smarter gear, per‑monster</b></summary>
