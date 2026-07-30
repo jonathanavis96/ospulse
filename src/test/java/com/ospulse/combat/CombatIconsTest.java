@@ -2,8 +2,10 @@ package com.ospulse.combat;
 
 import org.junit.Test;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Unit coverage for {@link CombatIcons}: the prayer-ladder-by-level and
@@ -149,5 +151,34 @@ public class CombatIconsTest {
         // Ancient brew: 2 + floor(level * 0.05) (melee stat drain not modelled here).
         assertEquals(99 + 2 + 4, PotionBoosts.ancientBrewBoostedLevel(99));
         assertEquals(1 + 2 + 0, PotionBoosts.ancientBrewBoostedLevel(1));
+    }
+
+    // ---- prayer toggle's right-click swap menu: variant list from the existing ladders ----
+
+    @Test
+    public void prayerVariantsFor_listsEachStylesLadderBestFirst() {
+        assertArrayEquals(
+            new OffensivePrayer[]{OffensivePrayer.AUGURY, OffensivePrayer.MYSTIC_MIGHT,
+                OffensivePrayer.MYSTIC_LORE, OffensivePrayer.MYSTIC_WILL},
+            CombatIcons.prayerVariantsFor(CombatStyle.MAGIC));
+
+        assertEquals(OffensivePrayer.RIGOUR, CombatIcons.prayerVariantsFor(CombatStyle.RANGED)[0]);
+        assertEquals(OffensivePrayer.PIETY, CombatIcons.prayerVariantsFor(CombatStyle.SLASH)[0]);
+        assertTrue(CombatIcons.prayerVariantsFor(CombatStyle.RANGED).length > 1);
+        assertTrue(CombatIcons.prayerVariantsFor(CombatStyle.SLASH).length > 1);
+    }
+
+    @Test
+    public void prayerVariantsFor_nullStyleIsEmpty() {
+        assertEquals(0, CombatIcons.prayerVariantsFor(null).length);
+    }
+
+    @Test
+    public void prayerVariantsFor_firstEntryMatchesTheAssumeBestPrayerPick() {
+        for (CombatStyle style : new CombatStyle[]{CombatStyle.SLASH, CombatStyle.RANGED, CombatStyle.MAGIC}) {
+            assertEquals("the menu's default must be what assumeBestPrayer applies",
+                CombatIcons.bestOffensivePrayer(style, 99, true),
+                CombatIcons.prayerVariantsFor(style)[0]);
+        }
     }
 }

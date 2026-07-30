@@ -98,6 +98,24 @@ public final class CombatIcons {
         return null;
     }
 
+    /**
+     * The offensive prayers offered by the prayer toggle's right-click swap
+     * menu for {@code style}, best-first — exactly the style's ladder, so an
+     * account without Piety/Rigour/Augury can simulate the tier it actually
+     * has. Empty for a style with no ladder (or {@code null}).
+     */
+    public static OffensivePrayer[] prayerVariantsFor(CombatStyle style) {
+        Rung[] ladder = ladderFor(style);
+        if (ladder == null) {
+            return new OffensivePrayer[0];
+        }
+        OffensivePrayer[] prayers = new OffensivePrayer[ladder.length];
+        for (int i = 0; i < ladder.length; i++) {
+            prayers[i] = ladder[i].prayer;
+        }
+        return prayers;
+    }
+
     private static Rung[] ladderFor(CombatStyle style) {
         if (style == null) {
             return null;
