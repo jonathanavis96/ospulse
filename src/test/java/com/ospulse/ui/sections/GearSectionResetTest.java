@@ -137,21 +137,21 @@ public class GearSectionResetTest
 			section.apply(snapshotWith(gearFor(loadout(ABYSSAL_WHIP)), wealthWith(ABYSSAL_WHIP, DRAGON_SCIMITAR)));
 
 			// Pick a target monster.
-			section.searchFieldForTest().setText("cerberus");
-			int monsterIdx = indexOf(section.monsterListForTest().getModel(), "Cerberus");
+			section.monsterSearchField.setText("cerberus");
+			int monsterIdx = indexOf(section.monsterList.getModel(), "Cerberus");
 			assertTrue("Cerberus must be in the filtered list", monsterIdx >= 0);
-			section.monsterListForTest().setSelectedIndex(monsterIdx);
-			assertNotNull(section.selectedMonsterForTest());
+			section.monsterList.setSelectedIndex(monsterIdx);
+			assertNotNull(section.selectedMonster);
 
 			// Apply a what-if weapon override.
-			section.clickSlotForTest(WEAPON_SLOT);
-			section.itemSearchFieldForTest().setText("dragon scimitar");
+			section.toggleItemSearch(WEAPON_SLOT);
+			section.itemSearchField.setText("dragon scimitar");
 			section.pickItemForTest(0);
-			assertFalse("a what-if override is active", section.overrideForTest().isEmpty());
+			assertFalse("a what-if override is active", section.override.isEmpty());
 
 			// A persisted preference: exclude an item from optimiser suggestions.
-			section.excludeItemFromSuggestionsForTest(DRAGON_SCIMITAR);
-			assertTrue(section.excludedItemIdsForTest().contains(DRAGON_SCIMITAR));
+			section.excludeFromSuggestions(DRAGON_SCIMITAR);
+			assertTrue(new java.util.LinkedHashSet<>(section.excludedItemIds).contains(DRAGON_SCIMITAR));
 
 			// Produce an optimiser result on screen (owned-only search, no resolver).
 			section.runOptimizerSyncForTest();
@@ -159,13 +159,13 @@ public class GearSectionResetTest
 			// --- full panel reset ---
 			section.resetState();
 
-			assertNull("reset clears the target monster", section.selectedMonsterForTest());
-			assertTrue("reset clears the what-if override", section.overrideForTest().isEmpty());
-			assertNull("reset clears the optimiser result", section.lastOptimizerResultForTest());
+			assertNull("reset clears the target monster", section.selectedMonster);
+			assertTrue("reset clears the what-if override", section.override.isEmpty());
+			assertNull("reset clears the optimiser result", section.lastOptimizerResult);
 			assertFalse("reset re-detects style, dropping the manual optimiser-style lock",
-				section.optimizerStyleUserPickedForTest());
+				section.styleUserPicked);
 			assertTrue("reset KEEPS persisted excluded-item preferences",
-				section.excludedItemIdsForTest().contains(DRAGON_SCIMITAR));
+				new java.util.LinkedHashSet<>(section.excludedItemIds).contains(DRAGON_SCIMITAR));
 		});
 	}
 }

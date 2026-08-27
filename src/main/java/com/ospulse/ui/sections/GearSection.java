@@ -323,13 +323,13 @@ public final class GearSection extends CollapsibleSection
 	 * is exactly the gap this closes: its eventually-arriving result is
 	 * simply dropped rather than installed/auto-previewed/bank-highlighted.
 	 */
-	private int optimizerGeneration;
+	int optimizerGeneration;
 	/** Nullable collaborator wired post-construction by {@link com.ospulse.ui.OSPulsePanel#setBankHighlighter} — see {@link #setBankHighlighter}. */
 	private com.ospulse.integration.BankRecommendationHighlighter bankHighlighter;
 	private final WeaponCategoryRepository weaponRepo = WeaponCategoryRepository.getInstance();
 
-	private final JLabel[] slotLabels = new JLabel[GearSnapshot.EQUIPMENT_SLOT_COUNT];
-	private final int[] renderedSlotIds = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
+	final JLabel[] slotLabels = new JLabel[GearSnapshot.EQUIPMENT_SLOT_COUNT];
+	final int[] renderedSlotIds = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
 	/**
 	 * The "best spec weapon" pseudo-slot cell (design spec §8) — placed at
 	 * {@code SLOT_GRID}'s unused flat filler index 9 (directly below WEAPON,
@@ -338,7 +338,7 @@ public final class GearSection extends CollapsibleSection
 	 * {@code EquipmentInventorySlot} ordinals, and this pseudo-slot has no
 	 * ordinal of its own — see {@link SpecWeaponCell}'s class javadoc.
 	 */
-	private final SpecWeaponCell specWeaponCell = new SpecWeaponCell(SLOT_W, SLOT_H);
+	final SpecWeaponCell specWeaponCell = new SpecWeaponCell(SLOT_W, SLOT_H);
 
 	/** Fixed row height (row content + the 2px inter-row gap) used to size {@link #stylesScroll}'s viewport. */
 	private static final int STYLE_ROW_HEIGHT = 22;
@@ -346,12 +346,12 @@ public final class GearSection extends CollapsibleSection
 	private static final int STYLES_VISIBLE_ROWS = 5;
 
 	private final JLabel stylesHeading;
-	private final JPanel bookTabsPanel;
-	private final JToggleButton[] bookTabButtons = new JToggleButton[BookTab.values().length];
+	final JPanel bookTabsPanel;
+	final JToggleButton[] bookTabButtons = new JToggleButton[BookTab.values().length];
 	private final JPanel stylesPanel;
 	private final JScrollPane stylesScroll;
-	private final List<StyleRow> styleRows = new ArrayList<>();
-	private final List<SpellRow> spellRows = new ArrayList<>();
+	final List<StyleRow> styleRows = new ArrayList<>();
+	final List<SpellRow> spellRows = new ArrayList<>();
 	/** Per-sprite-id spell icon cache — each spellbook sprite is fetched (async) at most once. */
 	private final Map<Integer, ImageIcon> spellIconCache = new HashMap<>();
 	/** Per-sprite-id native attack-style icon cache — see {@link #attackStyleIcon}. */
@@ -363,25 +363,25 @@ public final class GearSection extends CollapsibleSection
 	/** Per-item-id potion icon cache for the style-aware potion indicator — see {@link #potionIcon}. */
 	private final Map<Integer, ImageIcon> potionIconCache = new HashMap<>();
 	private final JPanel primaryRow;
-	private final JLabel primaryValue;
+	final JLabel primaryValue;
 	private final JPanel secondaryRow;
-	private final JLabel secondaryValue;
-	private final javax.swing.JComboBox<Spell> spellPicker;
+	final JLabel secondaryValue;
+	final javax.swing.JComboBox<Spell> spellPicker;
 
-	private final IconTextField monsterSearchField;
+	final IconTextField monsterSearchField;
 	private final JScrollPane listScroll;
-	private final JList<String> monsterList;
+	final JList<String> monsterList;
 	private final MonsterListModel monsterListModel = new MonsterListModel();
-	private final JLabel targetLabel;
-	private final HintableToggleButton bestPotionToggle;
-	private final JToggleButton bestPrayerToggle;
-	private final JToggleButton onSlayerTaskToggle;
-	private final JLabel maxHitValue;
-	private final JLabel accuracyValue;
-	private final JLabel avgHitValue;
-	private final JLabel dpsValue;
-	private final JLabel ttkValue;
-	private final JLabel overkillValue;
+	final JLabel targetLabel;
+	final HintableToggleButton bestPotionToggle;
+	final JToggleButton bestPrayerToggle;
+	final JToggleButton onSlayerTaskToggle;
+	final JLabel maxHitValue;
+	final JLabel accuracyValue;
+	final JLabel avgHitValue;
+	final JLabel dpsValue;
+	final JLabel ttkValue;
+	final JLabel overkillValue;
 	private final JLabel baseEstimateNote;
 	/**
 	 * Container for the mechanic-override advisory rows (e.g. "vs Rune dragon:
@@ -407,11 +407,11 @@ public final class GearSection extends CollapsibleSection
 	 * {@code GearSection} state, so it is independently testable. Hidden
 	 * entirely when the target has no curated reminder.
 	 */
-	private final ConsumablesReminderPanel consumablesReminderPanel;
+	final ConsumablesReminderPanel consumablesReminderPanel;
 
 	private List<Monster> filteredMonsters = Collections.emptyList();
-	private Monster selectedMonster;
-	private WeaponStyle selectedStyle;
+	Monster selectedMonster;
+	WeaponStyle selectedStyle;
 	/** True once the user clicks a specific style row — until then the readout follows the best-DPS style. */
 	private boolean userPickedStyle;
 	/** Weapon id the current ranking/selection was built for; a change re-defaults to the best style. */
@@ -419,18 +419,18 @@ public final class GearSection extends CollapsibleSection
 	/** The effective weapon's {@link WeaponCategory}, refreshed once per {@link #rankAndRender} — feeds {@link StyleRow}'s native icon lookup ({@link AttackStyleIcons}). */
 	private WeaponCategory currentWeaponCategory;
 	/** True while the equipped weapon routes to the magic-first (spellbook) view. */
-	private boolean magicView;
+	boolean magicView;
 	/** The spellbook tab currently selected in the magic view. */
 	private BookTab selectedBook = BookTab.STANDARD;
 	/** The spell driving the readout in the magic view ({@code null} on Lunar/Arceuus or a powered staff). */
-	private Spell selectedSpell;
+	Spell selectedSpell;
 	/** True once the user clicks a specific spell row — until then the readout follows the best-DPS spell. */
 	private boolean userPickedSpell;
 	/** Target the current spell ranking/lock was built for; a change re-defaults to the best spell. */
 	private Monster lastRankedTarget;
 	/** Stance carrier for spell computes: the weapon's own magic combat option (e.g. "Spell"/STANDARD). */
 	private WeaponStyle magicCastStyle;
-	private GearSnapshot lastGear;
+	GearSnapshot lastGear;
 	private double lastDps;
 	private boolean suppressListEvents;
 	/** Guards the search field's document listener while we write the picked target's name back into it. */
@@ -470,23 +470,23 @@ public final class GearSection extends CollapsibleSection
 	 * {@code liveLoadout} &#8746; overrides via {@link WhatIfLoadout}, entirely
 	 * off bundled data so no {@code ItemManager} call is needed on the EDT.
 	 */
-	private LoadoutOverride override = LoadoutOverride.empty();
+	LoadoutOverride override = LoadoutOverride.empty();
 	/** DPS computed from the live (non-overridden) loadout, refreshed alongside every recompute. */
-	private double baselineDps;
+	double baselineDps;
 	/** The equipment slot ordinal the item-search panel below the grid is currently scoped to, or -1 if closed. */
-	private int searchOpenForSlot = -1;
-	private final IconTextField itemSearchField;
-	private final JButton closeSearchButton;
+	int searchOpenForSlot = -1;
+	final IconTextField itemSearchField;
+	final JButton closeSearchButton;
 	/** The search-field + close-button row — shown/hidden together as one unit (see {@link #toggleItemSearch}/{@link #closeItemSearch}). */
-	private final JPanel itemSearchRow;
+	final JPanel itemSearchRow;
 	/** 4-columns-wide scrollable icon grid of {@link #filteredItems} — see {@link #populateItemList}/{@link #ItemGridCell}. */
-	private final JPanel itemGridPanel;
-	private final JScrollPane itemGridScroll;
-	private List<EquipmentIndexRepository.Entry> filteredItems = Collections.emptyList();
+	final JPanel itemGridPanel;
+	final JScrollPane itemGridScroll;
+	List<EquipmentIndexRepository.Entry> filteredItems = Collections.emptyList();
 	private final JButton resetAllButton;
 	private final JLabel whatIfLabel;
-	private final JLabel whatIfDeltaValue;
-	private JPanel whatIfRow;
+	final JLabel whatIfDeltaValue;
+	JPanel whatIfRow;
 
 	// -------------------------------------------- Phase 3: optimiser ("Best Setup")
 	/** Owned-item values (worn + top holdings incl. bank), refreshed each {@link #apply}; source for the optimiser's owned pool + GE prices. */
@@ -498,11 +498,11 @@ public final class GearSection extends CollapsibleSection
 	/** Gold-pile badge showing the resolved budget (e.g. "50M") magnitude-coloured over its top-left — see {@link #updateBudgetDisplay}. */
 	private CoinPileBadge budgetBadge;
 	/** "Expensive items to allow" count (wilderness/PvP) — plumbed into {@link GearOptimizer.Request#expensiveItemCount()} and enforced by the search (caps items worth strictly more than the threshold). */
-	private final javax.swing.JTextField expensiveCountField;
+	final javax.swing.JTextField expensiveCountField;
 	/** GP value strictly above which an item counts as "expensive" (a price exactly at this value is within the ceiling) — see {@link #expensiveCountField}. */
-	private final javax.swing.JTextField expensiveThresholdField;
+	final javax.swing.JTextField expensiveThresholdField;
 	private final JToggleButton expensiveThresholdKToggle;
-	private final JToggleButton expensiveThresholdMToggle;
+	final JToggleButton expensiveThresholdMToggle;
 	/**
 	 * "Any target" — opts the expensive-item risk cap back in for targets the
 	 * Wilderness gate would skip (PvP worlds, self-imposed risk). Off by
@@ -510,7 +510,7 @@ public final class GearSection extends CollapsibleSection
 	 * force-OFF counterpart: setting the threshold to 0 already disables the
 	 * cap for a Wilderness target.
 	 */
-	private final JCheckBox riskCapAnyTargetToggle;
+	final JCheckBox riskCapAnyTargetToggle;
 	private static final String EXPENSIVE_COUNT_TOOLTIP =
 		"The amount of 'expensive' items you want to have in your setup, for wilderness or pvp world activities.";
 	private static final String EXPENSIVE_THRESHOLD_TOOLTIP = "The value of when an item is considered expensive.";
@@ -523,7 +523,7 @@ public final class GearSection extends CollapsibleSection
 	 * Badge | budget entry — the buy-side column, hidden in ironman owned-only
 	 * mode because an ironman cannot spend gp on upgrades at all.
 	 */
-	private final JPanel budgetColumn;
+	final JPanel budgetColumn;
 	/**
 	 * The expensive-item risk cap's own column (count + threshold rows). Unlike
 	 * {@link #budgetColumn} this stays visible in ironman owned-only mode: the
@@ -532,21 +532,21 @@ public final class GearSection extends CollapsibleSection
 	 * it was previously hidden along with the whole row, which made the setting
 	 * unreachable while still silently applying its field defaults).
 	 */
-	private final JPanel riskColumn;
+	final JPanel riskColumn;
 	/** Badge + budget entry + risk column. Always visible; its two columns hide independently. */
 	private final JPanel budgetRiskRow;
-	private final JButton findBestSetupButton;
-	private final JLabel statusLabel;
-	private final JPanel resultPanel;
-	private final JLabel resultStyle;
-	private final JLabel resultDps;
-	private final JLabel resultDelta;
-	private final JLabel resultSpend;
-	private final JLabel resultDpsPerGp;
+	final JButton findBestSetupButton;
+	final JLabel statusLabel;
+	final JPanel resultPanel;
+	final JLabel resultStyle;
+	final JLabel resultDps;
+	final JLabel resultDelta;
+	final JLabel resultSpend;
+	final JLabel resultDpsPerGp;
 	/** "Suggested swaps" heading above {@link #swapList} — hidden together with the swap list itself in the no-usable-weapon state (item #5). */
-	private final JLabel swapListHeading;
+	final JLabel swapListHeading;
 	/** One row per proposed slot swap (icon current -&gt; icon suggested) — see {@link #renderSwapList}. */
-	private final JPanel swapList;
+	final JPanel swapList;
 	/**
 	 * Item #5: single, large, clearly-visible line shown INSTEAD OF the five
 	 * stat rows + swap list when the optimiser found no usable weapon at all
@@ -570,26 +570,26 @@ public final class GearSection extends CollapsibleSection
 	 * decided, and {@link com.ospulse.ui.sections.gear.OwnedOnlyMandatoryOverrideGate}
 	 * for the pure decision logic.
 	 */
-	private final JLabel ownedOnlyBlockedLabel;
+	final JLabel ownedOnlyBlockedLabel;
 	private final JButton applyResultButton;
 	private final JButton clearPreviewButton;
 	/** Small "Find best" button left of the helmet slot in the gear grid — mirrors {@link #findBestSetupButton} (item #7b). */
-	private JButton findBestGridButton;
+	JButton findBestGridButton;
 	/** Small "Revert" button right of the helmet slot in the gear grid — mirrors {@link #clearPreviewButton} (item #7b). */
 	private JButton revertGridButton;
 	/** The excluded-items viewer container (heading + search + scrollable icon grid); hidden when nothing is excluded — see {@link #renderExcludedList}. */
-	private final JPanel excludedItemsPanel;
+	final JPanel excludedItemsPanel;
 	/** Clickable "▾/▸ Excluded from suggestions" heading, mirroring {@code LootSection}'s collapse-triangle idiom — see {@link CollapsibleHeading}. */
-	private final JLabel excludedHeading;
+	final JLabel excludedHeading;
 	/** Icon-only grid ({@link #ITEM_GRID_COLUMNS} per row) of excluded items, each cell carrying a top-right ✕ — see {@link #buildExcludedCell}. */
 	private final JPanel excludedItemsList;
 	/** Scrollable viewport around {@link #excludedItemsList} — hidden together with {@link #excludedSearchField} while collapsed. */
-	private final JScrollPane excludedScroll;
+	final JScrollPane excludedScroll;
 	/** Filters {@link #excludedItemsList} by item name (case-insensitive substring). */
-	private final IconTextField excludedSearchField;
+	final IconTextField excludedSearchField;
 	/** Collapsed state of the excluded-items body (issue #11), persisted via {@link #CONFIG_KEY_EXCLUDED_ITEMS_COLLAPSED} — composes with the empty-list self-hide, see {@link CollapsibleHeading#bodyVisible}. */
-	private boolean excludedItemsCollapsed;
-	private GearOptimizer.Result lastOptimizerResult;
+	boolean excludedItemsCollapsed;
+	GearOptimizer.Result lastOptimizerResult;
 	/**
 	 * Item ids from the MOST RECENT optimiser run that were only priced via
 	 * the Trouver-parchment fallback (see {@link PriceLookup#needsProtection()}
@@ -609,7 +609,7 @@ public final class GearSection extends CollapsibleSection
 	 * {@link GearOptimizer.Request.Builder#exclude}), persisted via
 	 * {@link #loadExcludedItemsPref}/{@link #saveExcludedItemsPref}.
 	 */
-	private final java.util.Set<Integer> excludedItemIds = new java.util.LinkedHashSet<>();
+	final java.util.Set<Integer> excludedItemIds = new java.util.LinkedHashSet<>();
 
 	/**
 	 * Item #6e: the Best-setup optimiser's 5-way damage-type selector, in
@@ -628,9 +628,9 @@ public final class GearSection extends CollapsibleSection
 	 * five style buttons — kept so {@link #reorderSelectorsByDps} can re-add
 	 * them in a new visual order after a "Find best setup" 5-style ranking.
 	 */
-	private JPanel styleSelectorPanel;
+	JPanel styleSelectorPanel;
 	/** "Best setup for this target" heading — must stay visible across the ironman owned-only mode split (issue #11). */
-	private JLabel optimizerHeading;
+	JLabel optimizerHeading;
 	/**
 	 * The damage type the optimiser searches for. Until the user clicks one of
 	 * the five buttons ({@link #styleUserPicked}) this FOLLOWS the
@@ -640,7 +640,7 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private CombatStyle optimizerStyle;
 	/** True once the user clicked a selector button; cleared when the (effective) weapon changes, like the style lock. Survives a target change (a manual pick is deliberate). */
-	private boolean styleUserPicked;
+	boolean styleUserPicked;
 	/**
 	 * True once a "Find best" run auto-selected the global-best damage type for
 	 * the player (item #1) — distinct from {@link #styleUserPicked} so
@@ -1650,7 +1650,7 @@ public final class GearSection extends CollapsibleSection
 	 * the ownership-map treatment highlights the OWNED variant in the bank,
 	 * not the plain form the player doesn't have.
 	 */
-	private java.util.Map<Integer, Integer> loadoutSlotMap(GearOptimizer.Result result)
+	java.util.Map<Integer, Integer> loadoutSlotMap(GearOptimizer.Result result)
 	{
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
 		java.util.Map<Integer, Long> ownedIds = ownedPriceMap();
@@ -1680,7 +1680,7 @@ public final class GearSection extends CollapsibleSection
 	 * Empty when there's no target or no reminder — or when the reminder is
 	 * prose-only and carries no item ids at all.
 	 */
-	private java.util.List<Integer> bankConsumableIds()
+	java.util.List<Integer> bankConsumableIds()
 	{
 		if (selectedMonster == null)
 		{
@@ -1697,11 +1697,6 @@ public final class GearSection extends CollapsibleSection
 		return new java.util.ArrayList<>(ids);
 	}
 
-	/** Test seam for {@link #bankConsumableIds()} — the combined equipment+consumable bank tag ids. */
-	java.util.List<Integer> bankConsumableItemIdsForTest()
-	{
-		return bankConsumableIds();
-	}
 
 	private void resetBankHighlightToggle()
 	{
@@ -1923,7 +1918,7 @@ public final class GearSection extends CollapsibleSection
 	 * ({@link #OWNED_OVERRIDE_BORDER}, dull grey) is told apart from a must-buy
 	 * one ({@link #OVERRIDE_BORDER}, bright orange) — see {@link #override}.
 	 */
-	private void updateGearGrid(GearSnapshot gear)
+	void updateGearGrid(GearSnapshot gear)
 	{
 		int[] ids = gear == null ? null : gear.equippedItemIds();
 		// Owned-item lookup for the preview tooltips below — only needed while
@@ -2341,17 +2336,7 @@ public final class GearSection extends CollapsibleSection
 		return baseLevels;
 	}
 
-	/** Test seam: {@link #specWeaponCell}'s last-rendered item id for the current target (-1/{@code Integer.MIN_VALUE} if none). */
-	int specWeaponCellItemIdForTest()
-	{
-		return specWeaponCell.renderedItemIdForTest();
-	}
 
-	/** Test seam (PR #25 finding): {@link #specWeaponCell}'s current tooltip, to distinguish "no target" from "no eligible weapon". */
-	String specWeaponCellTooltipForTest()
-	{
-		return specWeaponCell.getToolTipText();
-	}
 
 	/**
 	 * True when the equipped weapon should get the magic-first view: any worn
@@ -2855,7 +2840,7 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/** User clicked a spell row: lock the readout to it (ranking order is unchanged). */
-	private void selectSpell(Spell spell)
+	void selectSpell(Spell spell)
 	{
 		selectedSpell = spell;
 		userPickedSpell = true;
@@ -3119,7 +3104,7 @@ public final class GearSection extends CollapsibleSection
 	 * (restored from config at startup — see {@link #loadVariants}),
 	 * else {@link CombatIcons#bestPotion}'s default for that style.
 	 */
-	private CombatIcons.BoostPotion effectivePotionFor(CombatStyle style)
+	CombatIcons.BoostPotion effectivePotionFor(CombatStyle style)
 	{
 		String key = styleKeyFor(style);
 		if (key == null)
@@ -3169,7 +3154,7 @@ public final class GearSection extends CollapsibleSection
 	 * reach the calculator since their boost math is identical regardless of
 	 * which variant is picked (see {@link CombatIcons.BoostPotion} javadoc).
 	 */
-	private CombatIcons.BoostPotion magicPotionVariantForCalc()
+	CombatIcons.BoostPotion magicPotionVariantForCalc()
 	{
 		return potionVariantByStyle.get(styleKeyFor(CombatStyle.MAGIC));
 	}
@@ -3250,7 +3235,7 @@ public final class GearSection extends CollapsibleSection
 	 * reads the config value fresh via {@code SessionTracker}/{@code
 	 * GearMapper} on the next gear snapshot, same as any other live gear change.
 	 */
-	private BlowpipeDart currentBlowpipeDart()
+	BlowpipeDart currentBlowpipeDart()
 	{
 		return BlowpipeDart.fromConfig(configManager);
 	}
@@ -3262,7 +3247,7 @@ public final class GearSection extends CollapsibleSection
 	 * see {@link #populatePotionVariantPopup}). No-ops without a {@link
 	 * ConfigManager} (headless tests / the no-config-manager constructor).
 	 */
-	private void pickBlowpipeDart(BlowpipeDart dart)
+	void pickBlowpipeDart(BlowpipeDart dart)
 	{
 		if (configManager != null)
 		{
@@ -3338,7 +3323,7 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/** User clicked a style row: lock the readout to it (ranking order is unchanged). */
-	private void selectStyle(WeaponStyle style)
+	void selectStyle(WeaponStyle style)
 	{
 		selectedStyle = style;
 		userPickedStyle = true;
@@ -3545,17 +3530,7 @@ public final class GearSection extends CollapsibleSection
 		return texts;
 	}
 
-	/** Test seam: the rendered text of every current {@link #consumablesReminderPanel} advisory line, in order. */
-	java.util.List<String> consumablesReminderNoteTextsForTest()
-	{
-		return consumablesReminderPanel.noteTextsForTest();
-	}
 
-	/** Test seam: whether {@link #consumablesReminderPanel} is currently showing anything. */
-	boolean consumablesReminderVisibleForTest()
-	{
-		return consumablesReminderPanel.isVisible();
-	}
 
 	/**
 	 * Rebuilds {@link #combatReqNotePanel} from {@link MonsterCombatRequirementRepository}
@@ -3605,7 +3580,7 @@ public final class GearSection extends CollapsibleSection
 	 * same slot's search was already open — a second click toggles it shut,
 	 * matching the monster-list collapse UX).
 	 */
-	private void toggleItemSearch(int slotOrdinal)
+	void toggleItemSearch(int slotOrdinal)
 	{
 		if (searchOpenForSlot == slotOrdinal)
 		{
@@ -3709,7 +3684,7 @@ public final class GearSection extends CollapsibleSection
 	 * {@link WhatIfLoadout#equipWeapon}/{@link WhatIfLoadout#equipShield}) and
 	 * recomputing the whole readout from the new override.
 	 */
-	private void applyOverride(int slotOrdinal, int itemId)
+	void applyOverride(int slotOrdinal, int itemId)
 	{
 		int[] liveIds = lastGear == null ? new int[GearSnapshot.EQUIPMENT_SLOT_COUNT] : lastGear.equippedItemIds();
 		if (slotOrdinal == WhatIfLoadout.WEAPON_SLOT)
@@ -3753,7 +3728,7 @@ public final class GearSection extends CollapsibleSection
 	 * potentially "keeping" a style selection that happens to satisfy
 	 * {@link WeaponStyle#equals} (type+stance only) on the real weapon too.
 	 */
-	private void resetAllOverrides()
+	void resetAllOverrides()
 	{
 		override = LoadoutOverride.empty();
 		lastOptimizerResult = null;
@@ -3907,13 +3882,13 @@ public final class GearSection extends CollapsibleSection
 	// ------------------------------------------------- Phase 3: optimiser
 
 	/** The raw stored budget from {@link #budgetField} + K/M toggles, ignoring ironman owned-only mode — see {@link #resolvedBudget()}. */
-	private long storedBudget()
+	long storedBudget()
 	{
 		return BudgetAmount.parseUnitAmount(budgetField.getText(), budgetKToggle, budgetMToggle);
 	}
 
 	/** {@link #storedBudget()}, forced to 0 in ironman owned-only mode (issue #11) — {@link #budgetField} itself is never written here. */
-	private long resolvedBudget()
+	long resolvedBudget()
 	{
 		return OwnedOnlyMode.effectiveBudget(ironmanOwnedOnlyPref(), storedBudget());
 	}
@@ -3981,7 +3956,7 @@ public final class GearSection extends CollapsibleSection
 	 * the plugin; the override added alongside this is how a player opts the cap
 	 * back in for PvP worlds or self-imposed risk.
 	 */
-	private boolean riskCapApplies()
+	boolean riskCapApplies()
 	{
 		return riskCapAnyTargetToggle.isSelected()
 			|| (selectedMonster != null && selectedMonster.isWildernessTarget());
@@ -4001,13 +3976,13 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/** The "expensive item" gp threshold from {@link #expensiveThresholdField} + its K/M toggle. */
-	private long resolvedExpensiveThreshold()
+	long resolvedExpensiveThreshold()
 	{
 		return BudgetAmount.parseUnitAmount(expensiveThresholdField.getText(), expensiveThresholdKToggle, expensiveThresholdMToggle);
 	}
 
 	/** The "expensive items to allow" count from {@link #expensiveCountField} — blank/unparseable/negative treated as 0. */
-	private int resolvedExpensiveCount()
+	int resolvedExpensiveCount()
 	{
 		try
 		{
@@ -4286,7 +4261,7 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/** Flips {@link #excludedItemsCollapsed}, persists it, and re-renders — the heading's click handler (issue #11). */
-	private void toggleExcludedItemsCollapsed()
+	void toggleExcludedItemsCollapsed()
 	{
 		excludedItemsCollapsed = !excludedItemsCollapsed;
 		saveExcludedItemsCollapsedPref();
@@ -4328,7 +4303,7 @@ public final class GearSection extends CollapsibleSection
 	 * own history (shipped stage 4 at the reporter's explicit request) warns
 	 * against.
 	 */
-	private void excludeFromSuggestions(int itemId)
+	void excludeFromSuggestions(int itemId)
 	{
 		if (itemId <= 0 || !excludedItemIds.add(itemId))
 		{
@@ -4482,7 +4457,7 @@ public final class GearSection extends CollapsibleSection
 	 * optimiser has no idea an owned upgrade already supersedes the plain
 	 * item, and will happily suggest buying the plain form as an "upgrade".
 	 */
-	private java.util.Map<Integer, Long> ownedPriceMap()
+	java.util.Map<Integer, Long> ownedPriceMap()
 	{
 		java.util.Map<Integer, Long> prices = new HashMap<>();
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
@@ -4650,7 +4625,7 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/** The damage-type constraint for the next optimiser run: the user's pick, else the detected current style. */
-	private CombatStyle optimizerConstraint()
+	CombatStyle optimizerConstraint()
 	{
 		return optimizerStyle != null ? optimizerStyle : detectedCombatStyle();
 	}
@@ -4866,7 +4841,7 @@ public final class GearSection extends CollapsibleSection
 	 * {@link #syncStyleSelector}) can't silently re-detect it away
 	 * from the equipped weapon's own style.
 	 */
-	private void applyRankedStyleResults(java.util.Map<CombatStyle, GearOptimizer.Result> results, CombatStyle selected)
+	void applyRankedStyleResults(java.util.Map<CombatStyle, GearOptimizer.Result> results, CombatStyle selected)
 	{
 		CombatStyle display = selected;
 		if (!styleUserPicked)
@@ -5195,7 +5170,7 @@ public final class GearSection extends CollapsibleSection
 	 * best setup" buttons are still re-enabled either way — a stale drop
 	 * must not leave them stuck disabled.
 	 */
-	private void installResultIfCurrent(GearOptimizer.Result result, int generation)
+	void installResultIfCurrent(GearOptimizer.Result result, int generation)
 	{
 		if (generation != optimizerGeneration)
 		{
@@ -5390,7 +5365,7 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/** A {@code PanelWidgets.statRow} value label's row container ({@code statRow} returns only the value, so the row is its parent). */
-	private static java.awt.Container statRow(JLabel value)
+	static java.awt.Container statRow(JLabel value)
 	{
 		java.awt.Container parent = value.getParent();
 		return parent != null ? parent : value;
@@ -5494,7 +5469,7 @@ public final class GearSection extends CollapsibleSection
 	 * #applyResultToOverride}'s — must therefore resolve first, or
 	 * they disagree with what the panel actually shows.
 	 */
-	private boolean hasAnySlotChange(GearOptimizer.Result result)
+	boolean hasAnySlotChange(GearOptimizer.Result result)
 	{
 		int[] liveIds = lastGear == null ? new int[GearSnapshot.EQUIPMENT_SLOT_COUNT] : lastGear.equippedItemIds();
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
@@ -5885,7 +5860,7 @@ public final class GearSection extends CollapsibleSection
 	 * (styles/spells ranking, DPS/TTK/etc, delta-vs-worn-gear row) picks it up
 	 * unchanged. Real gear is never touched.
 	 */
-	private void applyResultToOverride()
+	void applyResultToOverride()
 	{
 		if (lastOptimizerResult == null)
 		{
@@ -6127,7 +6102,7 @@ public final class GearSection extends CollapsibleSection
 	 * used by the potion (and, if it ever gains options, prayer) boost toggle
 	 * so the right-click swap menu is discoverable instead of hidden.
 	 */
-	private static final class HintableToggleButton extends JToggleButton
+	static final class HintableToggleButton extends JToggleButton
 	{
 		private boolean rightClickHint;
 
@@ -6344,33 +6319,12 @@ public final class GearSection extends CollapsibleSection
 
 	// ------------------------------------------------- test seams (package)
 
-	IconTextField searchFieldForTest()
-	{
-		return monsterSearchField;
-	}
 
 	// --------------------------------------- Phase 2 what-if test seams
 
-	/** Simulates a click on a gear-grid slot cell, opening/closing its item search. */
-	void clickSlotForTest(int slotOrdinal)
-	{
-		toggleItemSearch(slotOrdinal);
-	}
 
-	IconTextField itemSearchFieldForTest()
-	{
-		return itemSearchField;
-	}
 
-	int searchOpenForSlotForTest()
-	{
-		return searchOpenForSlot;
-	}
 
-	List<EquipmentIndexRepository.Entry> filteredItemsForTest()
-	{
-		return filteredItems;
-	}
 
 	/** Simulates picking the item at {@code index} in the currently-open item search result list. */
 	void pickItemForTest(int index)
@@ -6379,17 +6333,7 @@ public final class GearSection extends CollapsibleSection
 		closeItemSearch();
 	}
 
-	/** Directly drives {@link #applyOverride} (the what-if picker's real action) without needing the item search UI open. */
-	void applyOverrideForTest(int slotOrdinal, int itemId)
-	{
-		applyOverride(slotOrdinal, itemId);
-	}
 
-	/** Number of icon cells currently rendered in the item-picker grid — mirrors {@link #filteredItems}' size once populated. */
-	int itemGridCellCountForTest()
-	{
-		return itemGridPanel.getComponentCount();
-	}
 
 	/** Simulates a real mouse click on the icon cell at {@code index} in the item-picker grid (exercises {@link ItemGridCell}'s own click handler, not just the {@link #filteredItems} seam). */
 	void clickItemGridCellForTest(int index)
@@ -6401,73 +6345,18 @@ public final class GearSection extends CollapsibleSection
 		}
 	}
 
-	boolean itemGridVisibleForTest()
-	{
-		return itemGridScroll.isVisible();
-	}
 
-	boolean itemSearchRowVisibleForTest()
-	{
-		return itemSearchRow.isVisible();
-	}
 
-	/** Simulates clicking the item picker's close (X) button. */
-	void clickCloseItemSearchForTest()
-	{
-		closeSearchButton.doClick();
-	}
 
-	void clickResetAllForTest()
-	{
-		resetAllOverrides();
-	}
 
-	LoadoutOverride overrideForTest()
-	{
-		return override;
-	}
 
-	boolean whatIfRowVisibleForTest()
-	{
-		return whatIfRow.isVisible();
-	}
 
-	String whatIfDeltaTextForTest()
-	{
-		return whatIfDeltaValue.getText();
-	}
 
-	/** Item #6b: the coloured delta text's actual colour, so tests can assert green/red without a literal ▲/▼ glyph. */
-	java.awt.Color whatIfDeltaColorForTest()
-	{
-		return whatIfDeltaValue.getForeground();
-	}
 
-	String optimizerResultDeltaTextForTest()
-	{
-		return resultDelta.getText();
-	}
 
-	java.awt.Color optimizerResultDeltaColorForTest()
-	{
-		return resultDelta.getForeground();
-	}
 
-	double baselineDpsForTest()
-	{
-		return baselineDps;
-	}
 
-	int renderedSlotIdForTest(int slotOrdinal)
-	{
-		return renderedSlotIds[slotOrdinal];
-	}
 
-	/** Test seam: the {@link Border} currently painted on a slot cell — see item #3's owned-vs-buy preview border colouring. */
-	Border slotBorderForTest(int slotOrdinal)
-	{
-		return slotLabels[slotOrdinal].getBorder();
-	}
 
 	/**
 	 * Test hook mirroring the right-click "Exclude from suggestions" on a slot
@@ -6499,17 +6388,7 @@ public final class GearSection extends CollapsibleSection
 		return buildExcludePopup(shownId, name, WhatIfLoadout.WEAPON_SLOT);
 	}
 
-	/** Test seam: the currently-selected blowpipe dart (see {@link #currentBlowpipeDart}). */
-	BlowpipeDart currentBlowpipeDartForTest()
-	{
-		return currentBlowpipeDart();
-	}
 
-	/** Test seam mirroring a real "Set darts" submenu pick (see {@link #pickBlowpipeDart}). */
-	void pickBlowpipeDartForTest(BlowpipeDart dart)
-	{
-		pickBlowpipeDart(dart);
-	}
 
 	// --------------------------------------- Phase 3 optimiser test seams
 
@@ -6638,10 +6517,6 @@ public final class GearSection extends CollapsibleSection
 		return results;
 	}
 
-	GearOptimizer.Result lastOptimizerResultForTest()
-	{
-		return lastOptimizerResult;
-	}
 
 	/**
 	 * The risk source composed into the most recent {@link
@@ -6649,115 +6524,22 @@ public final class GearSection extends CollapsibleSection
 	 * expensive-item cap would actually charge for an id, which is otherwise
 	 * only observable through a full de-risk search.
 	 */
-	private GearOptimizer.PriceSource lastRiskValueSource;
+	GearOptimizer.PriceSource lastRiskValueSource;
 
-	/** Test seam: see {@link #lastRiskValueSource}. */
-	GearOptimizer.PriceSource lastRiskValueSourceForTest()
-	{
-		return lastRiskValueSource;
-	}
 
-	/** Test seam: {@link #hasAnySlotChange} — the "No upgrade found" verdict. */
-	boolean hasAnySlotChangeForTest(GearOptimizer.Result result)
-	{
-		return hasAnySlotChange(result);
-	}
 
 	
 
-	/**
-	 * #resolvedItemId}'s javadoc — the single choke point everything
-	 * the panel actually shows/applies goes through) for an arbitrary result,
-	 * e.g. one captured via {@link #lastOptimizerResultForTest()} before a
-	 * simulated ownership change — lets a test assert on the exact ids the
-	 * P2-A ownership re-check (see {@link OwnedOnlyResultOwnershipGate})
-	 * validates, not the raw un-resolved {@code GearOptimizer.SlotChoice} ids.	 */
-	java.util.Map<Integer, Integer> optimizerLoadoutSlotMapForTest(GearOptimizer.Result result)
-	{
-		return loadoutSlotMap(result);
-	}
 
-	/** Test seam: the current owned-only search generation token — see {@link #optimizerGeneration} (P1-B fix). */
-	int optimizerGenerationForTest()
-	{
-		return optimizerGeneration;
-	}
 
-	/**
-	 * Test seam exercising the P1-B generation-token gate directly: simulates
-	 * a search's result finally landing stamped with {@code generation},
-	 * exactly as {@link #installResultIfCurrent} does for the real
-	 * async {@code SwingWorker} paths (real end-to-end async timing isn't
-	 * reproducible deterministically in a headless test, so this drives the
-	 * same install-or-drop decision directly with a caller-chosen generation
-	 * captured before an intervening {@link #refreshIronmanOwnedOnlyMode}
-	 * OFF-&gt;ON flip).
-	 */
-	void installOptimizerResultForTest(GearOptimizer.Result result, int generation)
-	{
-		installResultIfCurrent(result, generation);
-	}
-	/**
-	 * Test seam: forces a synchronous {@link #updateGearGrid} refresh (e.g.
-	 * right after picking a target) without needing to also drive the
-	 * asynchronous optimiser run that normally triggers it in production —
-	 * see {@link #onOptimizerResult}'s call to {@code updateGearGrid}.
-	 */
-	void updateGearGridForTest()
-	{
-		updateGearGrid(lastGear);
-	}
 
-	/**
-	 * Test seam exercising {@link #applyRankedStyleResults} directly with a
-	 * caller-supplied results map — used to drive the all-styles-unusable
-	 * (every {@code result.style() == null}) edge case without needing a real
-	 * monster/gear/budget combination that happens to gate out every style.
-	 */
-	void applyRankedStyleResultsForTest(java.util.Map<CombatStyle, GearOptimizer.Result> results, CombatStyle selected)
-	{
-		applyRankedStyleResults(results, selected);
-	}
 
-	/** Test seam: {@link #ownedPriceMap()} (bug B — variant-aware ownership). */
-	java.util.Map<Integer, Long> ownedPriceMapForTest()
-	{
-		return ownedPriceMap();
-	}
 
-	/** Test seam: {@link #resolveOptimizerPriceSource} (bug D — untradeable = unpurchasable pricing). */
-	GearOptimizer.PriceSource resolveOptimizerPriceSourceForTest(GearOptimizer.PriceSource rawPriceSource,
-		java.util.Set<Integer> untradeableIds)
-	{
-		return ItemEligibility.resolveOptimizerPriceSource(rawPriceSource, untradeableIds);
-	}
 
-	/** Test seam for item #1's budget K/M-toggle + expensive-items fields — see {@link #resolvedBudget}. */
-	long resolvedBudgetForTest()
-	{
-		return resolvedBudget();
-	}
 
-	/** Test seam: the raw stored budget, unaffected by ironman owned-only mode — see {@link #storedBudget()} vs {@link #resolvedBudget()} (issue #11). */
-	long storedBudgetForTest()
-	{
-		return storedBudget();
-	}
 
-	int resolvedExpensiveCountForTest()
-	{
-		return resolvedExpensiveCount();
-	}
 
-	long resolvedExpensiveThresholdForTest()
-	{
-		return resolvedExpensiveThreshold();
-	}
 
-	void setExpensiveCountTextForTest(String text)
-	{
-		expensiveCountField.setText(text);
-	}
 
 	/** Mirrors {@link #setBudgetTextForTest} for the expensive-threshold field's own K/M toggle. */
 	void setExpensiveThresholdTextForTest(String text)
@@ -6788,16 +6570,7 @@ public final class GearSection extends CollapsibleSection
 
 	// ------------------------------- item #6e/#6g optimiser-style test seams
 
-	/** The damage type the next optimiser run will be constrained to (user pick, else detected from the equipped weapon). */
-	CombatStyle optimizerStyleForTest()
-	{
-		return optimizerConstraint();
-	}
 
-	boolean optimizerStyleUserPickedForTest()
-	{
-		return styleUserPicked;
-	}
 
 	/** Simulates a user click on the 5-way selector's button for {@code style}. */
 	void clickOptimizerStyleForTest(CombatStyle style)
@@ -6813,18 +6586,9 @@ public final class GearSection extends CollapsibleSection
 		throw new IllegalArgumentException("no selector button for " + style);
 	}
 
-	String optimizerResultStyleTextForTest()
-	{
-		return resultStyle.getText();
-	}
 
-	/** How many not-owned price labels the suggested-swaps list currently renders (item #6e's owned-vs-not-owned rendering). */
-	int notOwnedPriceLabelCountForTest()
-	{
-		return countComponentsNamed(swapList, "notOwnedPrice");
-	}
 
-	private static int countComponentsNamed(java.awt.Container root, String name)
+	static int countComponentsNamed(java.awt.Container root, String name)
 	{
 		int count = 0;
 		for (Component c : root.getComponents())
@@ -6841,79 +6605,21 @@ public final class GearSection extends CollapsibleSection
 		return count;
 	}
 
-	/** The worn-gear grid cell's current tooltip for {@code slotOrdinal} (item #6f's live-vs-preview tooltip). */
-	String slotTooltipForTest(int slotOrdinal)
-	{
-		return slotLabels[slotOrdinal].getToolTipText();
-	}
 
-	boolean optimizerResultVisibleForTest()
-	{
-		return resultPanel.isVisible();
-	}
 
-	String optimizerResultDpsTextForTest()
-	{
-		return resultDps.getText();
-	}
 
-	String optimizerResultSpendTextForTest()
-	{
-		return resultSpend.getText();
-	}
 
-	void clickApplyOptimizerResultForTest()
-	{
-		applyResultToOverride();
-	}
 
-	JButton findBestSetupButtonForTest()
-	{
-		return findBestSetupButton;
-	}
 
-	/** Test seam: the visible "Find Best" button in the gear grid — see {@link #findBestGridButton} (issue #11's regression guard). */
-	JButton findBestSetupGridButtonForTest()
-	{
-		return findBestGridButton;
-	}
 
 	// ---------------------------- issue #11: ironman owned-only mode test seams
 
-	JPanel budgetColumnForTest()
-	{
-		return budgetColumn;
-	}
 
-	JPanel riskColumnForTest()
-	{
-		return riskColumn;
-	}
 
-	javax.swing.JTextField expensiveCountFieldForTest()
-	{
-		return expensiveCountField;
-	}
 
-	javax.swing.JTextField expensiveThresholdFieldForTest()
-	{
-		return expensiveThresholdField;
-	}
 
-	boolean riskCapAppliesForTest()
-	{
-		return riskCapApplies();
-	}
 
-	JCheckBox riskCapAnyTargetToggleForTest()
-	{
-		return riskCapAnyTargetToggle;
-	}
 
-	JToggleButton thresholdMToggleForTest()
-	{
-		return expensiveThresholdMToggle;
-	}
 
 	/**
 	 * Test seam: selects {@code monster} as the target exactly as picking it
@@ -6928,100 +6634,25 @@ public final class GearSection extends CollapsibleSection
 		rankAndRender();
 	}
 
-	boolean optimizerHeadingVisibleForTest()
-	{
-		return optimizerHeading.isVisible();
-	}
 
-	boolean optimizerStyleSelectorVisibleForTest()
-	{
-		return styleSelectorPanel.isVisible();
-	}
 
-	boolean optimizerStyleRowVisibleForTest()
-	{
-		return statRow(resultStyle).isVisible();
-	}
 
-	boolean optimizerDpsRowVisibleForTest()
-	{
-		return statRow(resultDps).isVisible();
-	}
 
-	boolean optimizerDeltaRowVisibleForTest()
-	{
-		return statRow(resultDelta).isVisible();
-	}
 
-	boolean optimizerSpendRowVisibleForTest()
-	{
-		return statRow(resultSpend).isVisible();
-	}
 
-	boolean optimizerDpsPerGpRowVisibleForTest()
-	{
-		return statRow(resultDpsPerGp).isVisible();
-	}
 
-	boolean optimizerSwapListVisibleForTest()
-	{
-		return swapList.isVisible() && swapListHeading.isVisible();
-	}
 
 	// ---------------------------- issue #11: collapsible excluded-items test seams
 
-	boolean excludedItemsCollapsedForTest()
-	{
-		return excludedItemsCollapsed;
-	}
 
-	void clickExcludedHeadingForTest()
-	{
-		toggleExcludedItemsCollapsed();
-	}
 
-	boolean excludedItemsPanelVisibleForTest()
-	{
-		return excludedItemsPanel.isVisible();
-	}
 
-	boolean excludedSearchFieldVisibleForTest()
-	{
-		return excludedSearchField.isVisible();
-	}
 
-	boolean excludedScrollVisibleForTest()
-	{
-		return excludedScroll.isVisible();
-	}
 
-	String excludedHeadingTextForTest()
-	{
-		return excludedHeading.getText();
-	}
 
-	String optimizerStatusTextForTest()
-	{
-		return statusLabel.getText();
-	}
 
-	/** Test seam: P1-A's owned-only "cannot recommend" line — visible/non-empty only when {@link OwnedOnlyMandatoryOverrideGate#blockingOverride} blocked the last result. */
-	boolean optimizerOwnedOnlyBlockedVisibleForTest()
-	{
-		return ownedOnlyBlockedLabel.isVisible();
-	}
 
-	/** @see #optimizerOwnedOnlyBlockedVisibleForTest() */
-	String optimizerOwnedOnlyBlockedTextForTest()
-	{
-		return ownedOnlyBlockedLabel.getText();
-	}
 
-	/** Number of rows currently in the suggested-swaps list (item #6c: one row per changed slot, or one "no changes" row). */
-	int optimizerSwapRowCountForTest()
-	{
-		return swapList.getComponentCount();
-	}
 
 	/**
 	 * Test-only inspection seam for the needsProtection highlight/tooltip
@@ -7031,7 +6662,7 @@ public final class GearSection extends CollapsibleSection
 	 * automatically since they aren't {@link JPanel}s) — see
 	 * {@link #buildSwapRow}.
 	 */
-	private JLabel suggestedIconForTest(int rowIndex)
+	JLabel suggestedIconForTest(int rowIndex)
 	{
 		int seen = 0;
 		for (java.awt.Component c : swapList.getComponents())
@@ -7054,49 +6685,13 @@ public final class GearSection extends CollapsibleSection
 		throw new IllegalArgumentException("no swap row at index " + rowIndex);
 	}
 
-	/** @see #suggestedIconForTest(int) */
-	String suggestedIconTooltipForTest(int rowIndex)
-	{
-		return suggestedIconForTest(rowIndex).getToolTipText();
-	}
 
-	/** @see #suggestedIconForTest(int) */
-	java.awt.Color suggestedIconBackgroundForTest(int rowIndex)
-	{
-		return suggestedIconForTest(rowIndex).getBackground();
-	}
 
-	/** Item #6a: the current exclude set (read-only copy), for asserting persistence/wiring. */
-	java.util.Set<Integer> excludedItemIdsForTest()
-	{
-		return new java.util.LinkedHashSet<>(excludedItemIds);
-	}
 
-	/** Item #6a: simulates the "Exclude from suggestions" right-click action for {@code itemId} without driving real mouse/popup events. */
-	void excludeItemFromSuggestionsForTest(int itemId)
-	{
-		excludeFromSuggestions(itemId);
-	}
 
-	JList<String> monsterListForTest()
-	{
-		return monsterList;
-	}
 
-	Monster selectedMonsterForTest()
-	{
-		return selectedMonster;
-	}
 
-	WeaponStyle selectedStyleForTest()
-	{
-		return selectedStyle;
-	}
 
-	int styleRowCountForTest()
-	{
-		return styleRows.size();
-	}
 
 	List<WeaponStyle> rankedStylesForTest()
 	{
@@ -7108,22 +6703,7 @@ public final class GearSection extends CollapsibleSection
 		return out;
 	}
 
-	/**
-	 * The raw (HTML-carrying) DPS text of the ranked style row at {@code
-	 * index} — {@code index == 0} is always the best/star row when ranking
-	 * succeeded (see {@code rankAndRender}'s {@code best = canRank && i == 0}).
-	 * Lets a test confirm the best row's number is coloured to match its
-	 * orange row rather than the default white.
-	 */
-	String styleRowDpsRawTextForTest(int index)
-	{
-		return styleRows.get(index).dpsRawTextForTest();
-	}
 
-	void clickStyleRowForTest(int index)
-	{
-		selectStyle(styleRows.get(index).style);
-	}
 
 	/**
 	 * Item #6d: simulates a REAL mouse press on the style row's CENTER child
@@ -7150,7 +6730,7 @@ public final class GearSection extends CollapsibleSection
 	 * asserts the displayed VALUE, not its presentation. Plain (non-HTML)
 	 * text — e.g. the "-" placeholder — passes through unchanged.
 	 */
-	private static String plainTextForTest(String text)
+	static String plainTextForTest(String text)
 	{
 		if (text == null || !text.startsWith("<html>"))
 		{
@@ -7164,25 +6744,9 @@ public final class GearSection extends CollapsibleSection
 			.replace("&amp;", "&");
 	}
 
-	String dpsTextForTest()
-	{
-		return plainTextForTest(dpsValue.getText());
-	}
 
-	String maxHitTextForTest()
-	{
-		return maxHitValue.getText();
-	}
 
-	JToggleButton bestPotionToggleForTest()
-	{
-		return bestPotionToggle;
-	}
 
-	JToggleButton bestPrayerToggleForTest()
-	{
-		return bestPrayerToggle;
-	}
 
 	/** Simulates right-clicking the potion toggle and picking a magic potion variant from the swap menu. */
 	void pickMagicPotionVariantForTest(CombatIcons.BoostPotion variant)
@@ -7192,10 +6756,6 @@ public final class GearSection extends CollapsibleSection
 		rankAndRender();
 	}
 
-	CombatIcons.BoostPotion magicPotionVariantForTest()
-	{
-		return magicPotionVariantForCalc();
-	}
 
 	/** Simulates right-clicking the potion toggle and picking {@code variant} for {@code style} from the swap menu. */
 	void pickPotionVariantForTest(CombatStyle style, CombatIcons.BoostPotion variant)
@@ -7206,11 +6766,6 @@ public final class GearSection extends CollapsibleSection
 		rankAndRender();
 	}
 
-	/** The currently-picked variant for {@code style} (falls back to the style's default, same as the toggle icon). */
-	CombatIcons.BoostPotion potionVariantForTest(CombatStyle style)
-	{
-		return effectivePotionFor(style);
-	}
 
 	/** Rebuilds and returns the right-click swap menu's current item labels for the currently selected style (test seam — mirrors what a real right-click would show). */
 	List<String> potionVariantPopupLabelsForTest()
@@ -7228,67 +6783,17 @@ public final class GearSection extends CollapsibleSection
 		return labels;
 	}
 
-	JToggleButton onSlayerTaskToggleForTest()
-	{
-		return onSlayerTaskToggle;
-	}
 
-	String ttkTextForTest()
-	{
-		return plainTextForTest(ttkValue.getText());
-	}
 
-	String overkillTextForTest()
-	{
-		return plainTextForTest(overkillValue.getText());
-	}
 
-	String accuracyTextForTest()
-	{
-		return plainTextForTest(accuracyValue.getText());
-	}
 
-	String avgHitTextForTest()
-	{
-		return plainTextForTest(avgHitValue.getText());
-	}
 
-	/** The raw (HTML-carrying) accuracy text, so a test can confirm the "cent" markup is actually applied rather than just checking the stripped value. */
-	String accuracyRawTextForTest()
-	{
-		return accuracyValue.getText();
-	}
 
-	javax.swing.JComboBox<Spell> spellPickerForTest()
-	{
-		return spellPicker;
-	}
 
-	String targetTextForTest()
-	{
-		return targetLabel.getText();
-	}
 
-	boolean magicViewForTest()
-	{
-		return magicView;
-	}
 
-	boolean bookTabsVisibleForTest()
-	{
-		return bookTabsPanel.isVisible();
-	}
 
-	/** Simulates a user click on the given spellbook tab (0=Standard 1=Ancient 2=Lunar 3=Arceuus). */
-	void clickBookTabForTest(int tabOrdinal)
-	{
-		bookTabButtons[tabOrdinal].doClick();
-	}
 
-	Spell selectedSpellForTest()
-	{
-		return selectedSpell;
-	}
 
 	List<Spell> rankedSpellsForTest()
 	{
@@ -7300,20 +6805,8 @@ public final class GearSection extends CollapsibleSection
 		return out;
 	}
 
-	void clickSpellRowForTest(int index)
-	{
-		selectSpell(spellRows.get(index).spell);
-	}
 
-	String primaryTextForTest()
-	{
-		return plainTextForTest(primaryValue.getText());
-	}
 
-	String secondaryTextForTest()
-	{
-		return plainTextForTest(secondaryValue.getText());
-	}
 
 	/**
 	 * Installs a single-press action on a clickable row AND every child
@@ -7405,9 +6898,9 @@ public final class GearSection extends CollapsibleSection
 	 * name on the left, its DPS on the right, a leading star for the best.
 	 * Clicking locks the readout to this spell.
 	 */
-	private final class SpellRow extends JPanel
+	final class SpellRow extends JPanel
 	{
-		private final Spell spell;
+		final Spell spell;
 		private final Border selectedBorder = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE);
 		private final Border unselectedBorder = BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR);
 
@@ -7460,13 +6953,13 @@ public final class GearSection extends CollapsibleSection
 	 * style's name and damage type on the left, its DPS on the right, a leading
 	 * star for the best. Clicking locks the readout to this style.
 	 */
-	private final class StyleRow extends JPanel
+	final class StyleRow extends JPanel
 	{
-		private final WeaponStyle style;
+		final WeaponStyle style;
 		private final Border selectedBorder = BorderFactory.createLineBorder(ColorScheme.BRAND_ORANGE);
 		private final Border unselectedBorder = BorderFactory.createLineBorder(ColorScheme.MEDIUM_GRAY_COLOR);
 		/** Kept for {@link #dpsRawTextForTest()} — the gated constructor never sets this. */
-		private JLabel dpsLabel;
+		JLabel dpsLabel;
 
 		private StyleRow(WeaponStyle style, DpsResult result, boolean best)
 		{

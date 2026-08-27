@@ -162,10 +162,10 @@ public class GearSectionTargetWiringTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(meleeGear()));
 
-			assertNull("no monster may be pre-selected", section.selectedMonsterForTest());
-			assertEquals("-", section.dpsTextForTest());
-			assertEquals("-", section.ttkTextForTest());
-			assertEquals("Target: pick a monster above", section.targetTextForTest());
+			assertNull("no monster may be pre-selected", section.selectedMonster);
+			assertEquals("-", section.plainTextForTest(section.dpsValue.getText()));
+			assertEquals("-", section.plainTextForTest(section.ttkValue.getText()));
+			assertEquals("Target: pick a monster above", section.targetLabel.getText());
 		});
 	}
 
@@ -179,28 +179,28 @@ public class GearSectionTargetWiringTest
 
 			// Type into the search box (fires the DocumentListener synchronously)
 			// and click the exact "Cerberus" row in the scrollable result list.
-			section.searchFieldForTest().setText("cerberus");
-			int index = indexOf(section.monsterListForTest().getModel(), "Cerberus");
+			section.monsterSearchField.setText("cerberus");
+			int index = indexOf(section.monsterList.getModel(), "Cerberus");
 			assertTrue("Cerberus must appear in the filtered list", index >= 0);
-			section.monsterListForTest().setSelectedIndex(index);
+			section.monsterList.setSelectedIndex(index);
 
-			Monster selected = section.selectedMonsterForTest();
+			Monster selected = section.selectedMonster;
 			assertEquals("Cerberus", selected.name());
 			assertEquals(600, selected.hitpoints());
-			assertEquals("Target: Cerberus", section.targetTextForTest());
+			assertEquals("Target: Cerberus", section.targetLabel.getText());
 
 			// The rendered numbers must equal an independent computation against
 			// the SAME monster the user picked, using whichever attack style the
 			// ranked picker auto-selected (best DPS) with no toggles.
 			GearSnapshot gear = meleeGear();
-			WeaponStyle sel = section.selectedStyleForTest();
+			WeaponStyle sel = section.selectedStyle;
 			PlayerCombat player = GearMapper.toPlayerCombat(gear, sel.stance(), false, false, false);
 			DpsResult expected = DpsCalculator.compute(
 				gear.equipmentStats(), player, sel.type(),
 				MonsterRepository.getInstance().byName("Cerberus").get(), 20);
 
-			assertEquals(String.format(Locale.ROOT, "%.2f", expected.dps()), section.dpsTextForTest());
-			assertEquals(formatTtk(expected.ttkSeconds()), section.ttkTextForTest());
+			assertEquals(String.format(Locale.ROOT, "%.2f", expected.dps()), section.plainTextForTest(section.dpsValue.getText()));
+			assertEquals(formatTtk(expected.ttkSeconds()), section.plainTextForTest(section.ttkValue.getText()));
 
 			// Sanity for the historical bug: TTK must be on the 600-HP scale
 			// (hp / dps), NOT the ~12s of the old accidental 90-HP default.
@@ -212,7 +212,7 @@ public class GearSectionTargetWiringTest
 				expected.ttkSeconds() > 30.0);
 
 			System.out.printf(Locale.ROOT, "Cerberus check: dps=%.2f ttk=%.1fs (label \"%s\")%n",
-				expected.dps(), expected.ttkSeconds(), section.ttkTextForTest());
+				expected.dps(), expected.ttkSeconds(), section.plainTextForTest(section.ttkValue.getText()));
 		});
 	}
 
@@ -230,24 +230,24 @@ public class GearSectionTargetWiringTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(meleeGear()));
 
-			section.searchFieldForTest().setText("cerberus");
-			int index = indexOf(section.monsterListForTest().getModel(), "Cerberus");
-			section.monsterListForTest().setSelectedIndex(index);
+			section.monsterSearchField.setText("cerberus");
+			int index = indexOf(section.monsterList.getModel(), "Cerberus");
+			section.monsterList.setSelectedIndex(index);
 
-			int maxHitOff = Integer.parseInt(section.maxHitTextForTest());
-			section.bestPotionToggleForTest().setSelected(true);
-			int maxHitOn = Integer.parseInt(section.maxHitTextForTest());
+			int maxHitOff = Integer.parseInt(section.maxHitValue.getText());
+			section.bestPotionToggle.setSelected(true);
+			int maxHitOn = Integer.parseInt(section.maxHitValue.getText());
 
 			assertTrue("best potion must raise max hit (" + maxHitOn + " vs " + maxHitOff + ")",
 				maxHitOn > maxHitOff);
 
 			GearSnapshot gear = meleeGear();
-			WeaponStyle sel = section.selectedStyleForTest();
+			WeaponStyle sel = section.selectedStyle;
 			PlayerCombat boosted = GearMapper.toPlayerCombat(gear, sel.stance(), true, false, false);
 			DpsResult expected = DpsCalculator.compute(
 				gear.equipmentStats(), boosted, sel.type(),
 				MonsterRepository.getInstance().byName("Cerberus").get(), 20);
-			assertEquals(String.valueOf(expected.maxHit()), section.maxHitTextForTest());
+			assertEquals(String.valueOf(expected.maxHit()), section.maxHitValue.getText());
 		});
 	}
 
@@ -266,24 +266,24 @@ public class GearSectionTargetWiringTest
 
 			// No headgear -> stays off.
 			section.apply(snapshotWith(meleeGear()));
-			assertTrue("off with no slayer headgear", !section.onSlayerTaskToggleForTest().isSelected());
+			assertTrue("off with no slayer headgear", !section.onSlayerTaskToggle.isSelected());
 
 			// Put on a black mask / slayer helm -> auto-ticks.
 			section.apply(snapshotWith(meleeGearWithSlayerHeadgear(SlayerHeadgear.STANDARD)));
-			assertTrue("auto-ticked while slayer headgear worn", section.onSlayerTaskToggleForTest().isSelected());
+			assertTrue("auto-ticked while slayer headgear worn", section.onSlayerTaskToggle.isSelected());
 
 			// User unticks (off-task) while still wearing it, then another
 			// snapshot arrives with the helm still on -> must stay unticked.
-			section.onSlayerTaskToggleForTest().setSelected(false);
+			section.onSlayerTaskToggle.setSelected(false);
 			section.apply(snapshotWith(meleeGearWithSlayerHeadgear(SlayerHeadgear.IMBUED)));
 			assertTrue("manual untick respected while still worn",
-				!section.onSlayerTaskToggleForTest().isSelected());
+				!section.onSlayerTaskToggle.isSelected());
 
 			// Take the headgear off -> auto-unticks (no-op here, already off) and
 			// re-equipping re-arms the auto-tick.
 			section.apply(snapshotWith(meleeGear()));
 			section.apply(snapshotWith(meleeGearWithSlayerHeadgear(SlayerHeadgear.STANDARD)));
-			assertTrue("re-equipping re-arms auto-tick", section.onSlayerTaskToggleForTest().isSelected());
+			assertTrue("re-equipping re-arms auto-tick", section.onSlayerTaskToggle.isSelected());
 		});
 	}
 
@@ -295,17 +295,17 @@ public class GearSectionTargetWiringTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(meleeGear()));
 
-			section.searchFieldForTest().setText("cerberus");
-			int index = indexOf(section.monsterListForTest().getModel(), "Cerberus");
-			section.monsterListForTest().setSelectedIndex(index);
-			String dpsBefore = section.dpsTextForTest();
+			section.monsterSearchField.setText("cerberus");
+			int index = indexOf(section.monsterList.getModel(), "Cerberus");
+			section.monsterList.setSelectedIndex(index);
+			String dpsBefore = section.plainTextForTest(section.dpsValue.getText());
 
 			// Narrow the filter so Cerberus vanishes from the visible list — the
 			// chosen target (and the numbers) must stick.
-			section.searchFieldForTest().setText("zulrah");
-			assertEquals("Cerberus", section.selectedMonsterForTest().name());
-			assertEquals("Target: Cerberus", section.targetTextForTest());
-			assertEquals(dpsBefore, section.dpsTextForTest());
+			section.monsterSearchField.setText("zulrah");
+			assertEquals("Cerberus", section.selectedMonster.name());
+			assertEquals("Target: Cerberus", section.targetLabel.getText());
+			assertEquals(dpsBefore, section.plainTextForTest(section.dpsValue.getText()));
 		});
 	}
 }

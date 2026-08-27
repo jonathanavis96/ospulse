@@ -80,15 +80,15 @@ public class GearSectionExcludedCollapseTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 
 			assertFalse("nothing excluded yet — the whole panel must self-hide",
-				section.excludedItemsPanelVisibleForTest());
+				section.excludedItemsPanel.isVisible());
 
 			// Collapsing an already-empty list changes nothing observable: the
 			// panel (heading included) stays hidden either way — empty always
 			// wins over collapse state.
-			section.clickExcludedHeadingForTest();
-			assertTrue(section.excludedItemsCollapsedForTest());
+			section.toggleExcludedItemsCollapsed();
+			assertTrue(section.excludedItemsCollapsed);
 			assertFalse("still nothing to show, even collapsed",
-				section.excludedItemsPanelVisibleForTest());
+				section.excludedItemsPanel.isVisible());
 		});
 	}
 
@@ -98,13 +98,13 @@ public class GearSectionExcludedCollapseTest
 		onEdt(() ->
 		{
 			GearSection section = new GearSection(NO_STORE, null, null);
-			section.excludeItemFromSuggestionsForTest(DRAGON_SCIMITAR);
+			section.excludeFromSuggestions(DRAGON_SCIMITAR);
 
-			assertTrue(section.excludedItemsPanelVisibleForTest());
-			assertFalse(section.excludedItemsCollapsedForTest());
-			assertTrue("expanded: search box must show", section.excludedSearchFieldVisibleForTest());
-			assertTrue("expanded: grid must show", section.excludedScrollVisibleForTest());
-			assertEquals("▾ Excluded from suggestions", section.excludedHeadingTextForTest());
+			assertTrue(section.excludedItemsPanel.isVisible());
+			assertFalse(section.excludedItemsCollapsed);
+			assertTrue("expanded: search box must show", section.excludedSearchField.isVisible());
+			assertTrue("expanded: grid must show", section.excludedScroll.isVisible());
+			assertEquals("▾ Excluded from suggestions", section.excludedHeading.getText());
 		});
 	}
 
@@ -114,16 +114,16 @@ public class GearSectionExcludedCollapseTest
 		onEdt(() ->
 		{
 			GearSection section = new GearSection(NO_STORE, null, null);
-			section.excludeItemFromSuggestionsForTest(DRAGON_SCIMITAR);
+			section.excludeFromSuggestions(DRAGON_SCIMITAR);
 
-			section.clickExcludedHeadingForTest();
+			section.toggleExcludedItemsCollapsed();
 
 			assertTrue("collapsed but non-empty: the panel (heading) stays up",
-				section.excludedItemsPanelVisibleForTest());
-			assertTrue(section.excludedItemsCollapsedForTest());
-			assertFalse("collapsed: search box must hide", section.excludedSearchFieldVisibleForTest());
-			assertFalse("collapsed: grid must hide", section.excludedScrollVisibleForTest());
-			assertEquals("▸ Excluded from suggestions", section.excludedHeadingTextForTest());
+				section.excludedItemsPanel.isVisible());
+			assertTrue(section.excludedItemsCollapsed);
+			assertFalse("collapsed: search box must hide", section.excludedSearchField.isVisible());
+			assertFalse("collapsed: grid must hide", section.excludedScroll.isVisible());
+			assertEquals("▸ Excluded from suggestions", section.excludedHeading.getText());
 		});
 	}
 
@@ -136,11 +136,11 @@ public class GearSectionExcludedCollapseTest
 		{
 			ConfigManager configManager = Mockito.mock(ConfigManager.class);
 			GearSection first = new GearSection(NO_STORE, null, null, null, configManager);
-			first.excludeItemFromSuggestionsForTest(DRAGON_SCIMITAR);
-			assertFalse(first.excludedItemsCollapsedForTest());
+			first.excludeFromSuggestions(DRAGON_SCIMITAR);
+			assertFalse(first.excludedItemsCollapsed);
 
-			first.clickExcludedHeadingForTest();
-			assertTrue(first.excludedItemsCollapsedForTest());
+			first.toggleExcludedItemsCollapsed();
+			assertTrue(first.excludedItemsCollapsed);
 			Mockito.verify(configManager)
 				.setConfiguration(OSPulseConfig.GROUP, "excludedItemsCollapsed", "true");
 
@@ -157,11 +157,11 @@ public class GearSectionExcludedCollapseTest
 
 			GearSection rebuilt = new GearSection(NO_STORE, null, null, null, configManager);
 
-			assertTrue("collapse state must survive a rebuild", rebuilt.excludedItemsCollapsedForTest());
+			assertTrue("collapse state must survive a rebuild", rebuilt.excludedItemsCollapsed);
 			assertTrue("the excluded item itself must also survive (pre-existing behaviour)",
-				rebuilt.excludedItemsPanelVisibleForTest());
+				rebuilt.excludedItemsPanel.isVisible());
 			assertFalse("rebuilt instance must start with the body hidden, matching the persisted state",
-				rebuilt.excludedSearchFieldVisibleForTest());
+				rebuilt.excludedSearchField.isVisible());
 		});
 	}
 
@@ -172,11 +172,11 @@ public class GearSectionExcludedCollapseTest
 		{
 			ConfigManager configManager = Mockito.mock(ConfigManager.class);
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
-			section.excludeItemFromSuggestionsForTest(DRAGON_SCIMITAR);
+			section.excludeFromSuggestions(DRAGON_SCIMITAR);
 
 			assertFalse("no persisted collapse value — must default to expanded, not collapsed",
-				section.excludedItemsCollapsedForTest());
-			assertTrue(section.excludedSearchFieldVisibleForTest());
+				section.excludedItemsCollapsed);
+			assertTrue(section.excludedSearchField.isVisible());
 		});
 	}
 }

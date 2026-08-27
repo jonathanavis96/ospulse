@@ -135,10 +135,10 @@ public class GearSectionOwnedOnlyBlockedLabelClearsTest
 
 	private static void pickMonster(GearSection section, String name)
 	{
-		section.searchFieldForTest().setText(name);
-		int index = indexOfContaining(section.monsterListForTest().getModel(), name);
+		section.monsterSearchField.setText(name);
+		int index = indexOfContaining(section.monsterList.getModel(), name);
 		assertTrue(name + " must appear in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
+		section.monsterList.setSelectedIndex(index);
 	}
 
 	/** See {@code GearSectionOwnedOnlyModeTest#mockConfigManager}. */
@@ -165,16 +165,16 @@ public class GearSectionOwnedOnlyBlockedLabelClearsTest
 			section.runOptimizerSyncForTest();
 
 			assertTrue("sanity: the blocked message must be showing before the target switch",
-				section.optimizerOwnedOnlyBlockedVisibleForTest());
+				section.ownedOnlyBlockedLabel.isVisible());
 
 			pickMonster(section, "Cerberus");
 			section.runOptimizerSyncForTest();
 
 			assertFalse("the stale blocked message from the Rune dragon search must be hidden "
 					+ "once a non-blocked result for a different target lands",
-				section.optimizerOwnedOnlyBlockedVisibleForTest());
+				section.ownedOnlyBlockedLabel.isVisible());
 			assertTrue("a normal usable result for the new target must be shown",
-				section.optimizerResultVisibleForTest());
+				section.resultPanel.isVisible());
 		});
 	}
 }

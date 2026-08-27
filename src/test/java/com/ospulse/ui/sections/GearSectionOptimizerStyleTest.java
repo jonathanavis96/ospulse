@@ -159,10 +159,10 @@ public class GearSectionOptimizerStyleTest
 
 	private static void pickCerberus(GearSection section)
 	{
-		section.searchFieldForTest().setText("cerberus");
-		int index = indexOf(section.monsterListForTest().getModel(), "Cerberus");
+		section.monsterSearchField.setText("cerberus");
+		int index = indexOf(section.monsterList.getModel(), "Cerberus");
 		assertTrue("Cerberus must appear in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
+		section.monsterList.setSelectedIndex(index);
 	}
 
 	private static int weaponIdInResult(GearOptimizer.Result result)
@@ -187,10 +187,10 @@ public class GearSectionOptimizerStyleTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 
 			section.apply(snapshotWith(gearFor(loadout(MAGIC_SHORTBOW)), null));
-			assertEquals("a bow must detect Ranged", CombatStyle.RANGED, section.optimizerStyleForTest());
+			assertEquals("a bow must detect Ranged", CombatStyle.RANGED, section.optimizerConstraint());
 
 			section.apply(snapshotWith(gearFor(loadout(ABYSSAL_WHIP)), null));
-			assertEquals("a whip must detect Slash", CombatStyle.SLASH, section.optimizerStyleForTest());
+			assertEquals("a whip must detect Slash", CombatStyle.SLASH, section.optimizerConstraint());
 		});
 	}
 
@@ -201,20 +201,20 @@ public class GearSectionOptimizerStyleTest
 		{
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(loadout(ABYSSAL_WHIP)), null));
-			assertEquals(CombatStyle.SLASH, section.optimizerStyleForTest());
+			assertEquals(CombatStyle.SLASH, section.optimizerConstraint());
 
 			section.clickOptimizerStyleForTest(CombatStyle.CRUSH);
-			assertEquals("a user pick must override the detected style", CombatStyle.CRUSH, section.optimizerStyleForTest());
-			assertTrue(section.optimizerStyleUserPickedForTest());
+			assertEquals("a user pick must override the detected style", CombatStyle.CRUSH, section.optimizerConstraint());
+			assertTrue(section.styleUserPicked);
 
 			// A snapshot with the SAME weapon must not clobber the pick...
 			section.apply(snapshotWith(gearFor(loadout(ABYSSAL_WHIP)), null));
-			assertEquals(CombatStyle.CRUSH, section.optimizerStyleForTest());
+			assertEquals(CombatStyle.CRUSH, section.optimizerConstraint());
 
 			// ...but a weapon CHANGE re-detects (same rule as the readout's style lock).
 			section.apply(snapshotWith(gearFor(loadout(MAGIC_SHORTBOW)), null));
-			assertFalse(section.optimizerStyleUserPickedForTest());
-			assertEquals(CombatStyle.RANGED, section.optimizerStyleForTest());
+			assertFalse(section.styleUserPicked);
+			assertEquals(CombatStyle.RANGED, section.optimizerConstraint());
 		});
 	}
 
@@ -240,22 +240,22 @@ public class GearSectionOptimizerStyleTest
 			section.setBudgetTextForTest("0");
 			section.runOptimizerSyncForTest();
 
-			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			GearOptimizer.Result result = section.lastOptimizerResult;
 			assertEquals("the equipped bow must remain the weapon", MAGIC_SHORTBOW, weaponIdInResult(result));
 			assertEquals("the result must be Ranged-driven", CombatStyle.RANGED, result.style().type());
 			assertEquals("the result panel must say what it optimised for", "Ranged",
-				section.optimizerResultStyleTextForTest());
+				section.resultStyle.getText());
 
-			section.clickApplyOptimizerResultForTest();
+			section.applyResultToOverride();
 			// The optimiser kept the bow (asserted above), so the corrected
 			// preview (only genuinely-changed slots are overridden) must NOT
 			// override the weapon slot at all — it stays the live bow, never the
 			// owned melee whip. A regression that swapped in the whip would
 			// create a weapon-slot override and fail this.
 			assertFalse("preview must not swap the bow for the owned melee whip",
-				section.overrideForTest().hasOverride(WhatIfLoadout.WEAPON_SLOT));
+				section.override.hasOverride(WhatIfLoadout.WEAPON_SLOT));
 			assertEquals("preview must lock the readout to the optimised (Ranged) style",
-				CombatStyle.RANGED, section.selectedStyleForTest().type());
+				CombatStyle.RANGED, section.selectedStyle.type());
 		});
 	}
 
@@ -272,7 +272,7 @@ public class GearSectionOptimizerStyleTest
 			section.setBudgetTextForTest("0");
 			section.runOptimizerSyncForTest();
 
-			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			GearOptimizer.Result result = section.lastOptimizerResult;
 			assertEquals("Crush pick must anchor to the owned bludgeon, not the higher-DPS whip",
 				ABYSSAL_BLUDGEON, weaponIdInResult(result));
 			assertEquals(CombatStyle.CRUSH, result.style().type());
@@ -301,9 +301,9 @@ public class GearSectionOptimizerStyleTest
 			bought.setBudgetTextForTest("100k");
 			bought.runOptimizerSyncForTest();
 			assertEquals("the affordable scimitar must be bought",
-				DRAGON_SCIMITAR, weaponIdInResult(bought.lastOptimizerResultForTest()));
+				DRAGON_SCIMITAR, weaponIdInResult(bought.lastOptimizerResult));
 			assertTrue("a not-owned suggestion must render its gp price label",
-				bought.notOwnedPriceLabelCountForTest() >= 1);
+				bought.countComponentsNamed(bought.swapList, "notOwnedPrice") >= 1);
 
 			// Owned-only: the same upgrade already sits in the bank — no price label.
 			GearSection owned = new GearSection(NO_STORE, null, null);
@@ -311,9 +311,9 @@ public class GearSectionOptimizerStyleTest
 			pickCerberus(owned);
 			owned.setBudgetTextForTest("0");
 			owned.runOptimizerSyncForTest();
-			assertEquals(DRAGON_SCIMITAR, weaponIdInResult(owned.lastOptimizerResultForTest()));
+			assertEquals(DRAGON_SCIMITAR, weaponIdInResult(owned.lastOptimizerResult));
 			assertEquals("an owned suggestion must not render a price label",
-				0, owned.notOwnedPriceLabelCountForTest());
+				0, owned.countComponentsNamed(owned.swapList, "notOwnedPrice"));
 		});
 	}
 
@@ -330,15 +330,15 @@ public class GearSectionOptimizerStyleTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 
-			String liveTooltip = section.slotTooltipForTest(WhatIfLoadout.WEAPON_SLOT);
+			String liveTooltip = section.slotLabels[WhatIfLoadout.WEAPON_SLOT].getToolTipText();
 			assertTrue("pre-preview the weapon cell must read as live: " + liveTooltip,
 				liveTooltip.contains("Weapon slot (live)"));
 
 			section.setBudgetTextForTest("100k");
 			section.runOptimizerSyncForTest();
-			section.clickApplyOptimizerResultForTest();
+			section.applyResultToOverride();
 
-			String previewTooltip = section.slotTooltipForTest(WhatIfLoadout.WEAPON_SLOT);
+			String previewTooltip = section.slotLabels[WhatIfLoadout.WEAPON_SLOT].getToolTipText();
 			assertTrue("previewing a purchase must name the item: " + previewTooltip,
 				previewTooltip.contains("Dragon scimitar"));
 			assertTrue("previewing must name the REAL slot: " + previewTooltip,
@@ -347,8 +347,8 @@ public class GearSectionOptimizerStyleTest
 				previewTooltip.contains("preview, not owned"));
 
 			// Clearing the preview restores the live wording.
-			section.clickResetAllForTest();
-			assertTrue(section.slotTooltipForTest(WhatIfLoadout.WEAPON_SLOT).contains("Weapon slot (live)"));
+			section.resetAllOverrides();
+			assertTrue(section.slotLabels[WhatIfLoadout.WEAPON_SLOT].getToolTipText().contains("Weapon slot (live)"));
 		});
 	}
 
@@ -372,7 +372,7 @@ public class GearSectionOptimizerStyleTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(ids), null));
 
-			String ammoTooltip = section.slotTooltipForTest(WhatIfLoadout.AMMO_SLOT);
+			String ammoTooltip = section.slotLabels[WhatIfLoadout.AMMO_SLOT].getToolTipText();
 			assertTrue("ammo slot tooltip must name the equipped item: " + ammoTooltip,
 				ammoTooltip.contains("Rada's blessing 4"));
 			assertFalse("must not be the generic slot-name placeholder",
@@ -385,12 +385,12 @@ public class GearSectionOptimizerStyleTest
 	/** First swap-row tooltip that starts with {@code prefix}, skipping the non-row spacer components, or {@code null}. */
 	private static String findSwapTooltipStartingWith(GearSection section, String prefix)
 	{
-		for (int i = 0; i < section.optimizerSwapRowCountForTest(); i++)
+		for (int i = 0; i < section.swapList.getComponentCount(); i++)
 		{
 			String tooltip;
 			try
 			{
-				tooltip = section.suggestedIconTooltipForTest(i);
+				tooltip = section.suggestedIconForTest(i).getToolTipText();
 			}
 			catch (IllegalArgumentException notARow)
 			{
@@ -429,7 +429,7 @@ public class GearSectionOptimizerStyleTest
 			section.runOptimizerSyncForTest();
 
 			int headChoiceId = -1;
-			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
+			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResult.loadout())
 			{
 				if (choice.slotOrdinal() == 0) // HEAD
 				{
@@ -443,9 +443,9 @@ public class GearSectionOptimizerStyleTest
 			assertTrue("the recommendation must name the OWNED variant, not the plain base item: " + swapTooltip,
 				swapTooltip != null && swapTooltip.contains("Masori mask (f)"));
 
-			section.clickApplyOptimizerResultForTest();
+			section.applyResultToOverride();
 			assertEquals("the applied what-if preview must equip the SAME item the row named",
-				MASORI_MASK_F, section.overrideForTest().itemIdFor(0)); // HEAD
+				MASORI_MASK_F, section.override.itemIdFor(0)); // HEAD
 		});
 	}
 
@@ -482,19 +482,19 @@ public class GearSectionOptimizerStyleTest
 		{
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(loadout(MAGIC_SHORTBOW)), wealthWith(MASORI_MASK_F)));
-			section.excludeItemFromSuggestionsForTest(MASORI_MASK_F);
+			section.excludeFromSuggestions(MASORI_MASK_F);
 			pickCerberus(section);
 			section.setBudgetTextForTest("0");
 			section.runOptimizerSyncForTest();
 
 			assertFalse("excluding the only backing variant must withdraw the synthetic credit — the plain "
 					+ "mask is in no bank and must not be marked owned at price 0",
-				section.ownedPriceMapForTest().containsKey(MASORI_MASK));
+				section.ownedPriceMap().containsKey(MASORI_MASK));
 			assertTrue("the excluded variant itself is still genuinely owned; exclusion means \"never "
 					+ "suggest\", not \"pretend it is gone\"",
-				section.ownedPriceMapForTest().containsKey(MASORI_MASK_F));
+				section.ownedPriceMap().containsKey(MASORI_MASK_F));
 
-			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
+			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResult.loadout())
 			{
 				if (choice.slotOrdinal() == 0) // HEAD
 				{
@@ -509,11 +509,11 @@ public class GearSectionOptimizerStyleTest
 					+ "the player does not have: " + swapTooltip,
 				null, swapTooltip);
 
-			section.clickApplyOptimizerResultForTest();
+			section.applyResultToOverride();
 			assertFalse("the preview must not equip the excluded variant",
-				section.overrideForTest().itemIdFor(0) == MASORI_MASK_F);
+				section.override.itemIdFor(0) == MASORI_MASK_F);
 			assertFalse("nor the plain form it no longer credits",
-				section.overrideForTest().itemIdFor(0) == MASORI_MASK);
+				section.override.itemIdFor(0) == MASORI_MASK);
 		});
 	}
 
@@ -569,7 +569,7 @@ public class GearSectionOptimizerStyleTest
 
 			int capeChoiceId = -1;
 			boolean capeOwned = false;
-			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
+			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResult.loadout())
 			{
 				if (choice.slotOrdinal() == CAPE_SLOT)
 				{
@@ -591,14 +591,14 @@ public class GearSectionOptimizerStyleTest
 					+ "they have no copy of: " + swapTooltip,
 				swapTooltip.contains("(deadman)"));
 
-			section.clickApplyOptimizerResultForTest();
-			int appliedCapeId = section.overrideForTest().itemIdFor(CAPE_SLOT);
+			section.applyResultToOverride();
+			int appliedCapeId = section.override.itemIdFor(CAPE_SLOT);
 			assertEquals("the applied preview must equip the held deadman id, matching the row "
 					+ "(Codex finding #1's consistency guarantee — every surface resolves identically)",
 				IMBUED_SARADOMIN_CAPE_DEADMAN, appliedCapeId);
 			assertEquals("the bank highlight must point at the same held id, or it highlights nothing at all",
 				IMBUED_SARADOMIN_CAPE_DEADMAN,
-				(int) section.optimizerLoadoutSlotMapForTest(section.lastOptimizerResultForTest()).get(CAPE_SLOT));
+				(int) section.loadoutSlotMap(section.lastOptimizerResult).get(CAPE_SLOT));
 		});
 	}
 
@@ -645,7 +645,7 @@ public class GearSectionOptimizerStyleTest
 			section.runOptimizerSyncForTest();
 
 			int capeChoiceId = -1;
-			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
+			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResult.loadout())
 			{
 				if (choice.slotOrdinal() == CAPE_SLOT)
 				{
@@ -660,11 +660,11 @@ public class GearSectionOptimizerStyleTest
 				null, findSwapTooltipStartingWith(section, "Imbued saradomin cape"));
 			assertFalse("the cape slot must not count as a change, or the panel reports an upgrade "
 					+ "that is the item already on the player's back",
-				section.hasAnySlotChangeForTest(section.lastOptimizerResultForTest()));
+				section.hasAnySlotChange(section.lastOptimizerResult));
 
-			section.clickApplyOptimizerResultForTest();
+			section.applyResultToOverride();
 			assertEquals("no redundant override may be applied for an unchanged slot",
-				-1, section.overrideForTest().itemIdFor(CAPE_SLOT));
+				-1, section.override.itemIdFor(CAPE_SLOT));
 		});
 	}
 
@@ -693,7 +693,7 @@ public class GearSectionOptimizerStyleTest
 			section.runOptimizerSyncForTest();
 
 			int capeChoiceId = -1;
-			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResultForTest().loadout())
+			for (GearOptimizer.SlotChoice choice : section.lastOptimizerResult.loadout())
 			{
 				if (choice.slotOrdinal() == CAPE_SLOT)
 				{
@@ -709,9 +709,9 @@ public class GearSectionOptimizerStyleTest
 					+ "look-alike: " + swapTooltip,
 				swapTooltip.contains("(deadman)"));
 
-			section.clickApplyOptimizerResultForTest();
+			section.applyResultToOverride();
 			assertEquals("the applied preview must equip the genuinely-held plain id",
-				IMBUED_SARADOMIN_CAPE_PLAIN, section.overrideForTest().itemIdFor(CAPE_SLOT));
+				IMBUED_SARADOMIN_CAPE_PLAIN, section.override.itemIdFor(CAPE_SLOT));
 		});
 	}
 
@@ -738,11 +738,11 @@ public class GearSectionOptimizerStyleTest
 			section.runOptimizerAndRankStylesSyncForTest();
 
 			assertEquals("Find Best must pick the global-best style (owned whip Slash), not the detected Ranged",
-				CombatStyle.SLASH, section.optimizerStyleForTest());
+				CombatStyle.SLASH, section.optimizerConstraint());
 			assertEquals("the shown result must be the Slash whip setup",
-				ABYSSAL_WHIP, weaponIdInResult(section.lastOptimizerResultForTest()));
+				ABYSSAL_WHIP, weaponIdInResult(section.lastOptimizerResult));
 			assertFalse("an auto-picked best is not a manual lock — it re-evaluates on the next target",
-				section.optimizerStyleUserPickedForTest());
+				section.styleUserPicked);
 		});
 	}
 
@@ -790,10 +790,10 @@ public class GearSectionOptimizerStyleTest
 
 			// selected == null mirrors "no equipped style detected" — the exact
 			// condition needed to leave `display` unset before the fix.
-			section.applyRankedStyleResultsForTest(allUnusable, null);
+			section.applyRankedStyleResults(allUnusable, null);
 
 			assertTrue("the shown result must report no usable weapon",
-				section.lastOptimizerResultForTest().style() == null);
+				section.lastOptimizerResult.style() == null);
 		});
 	}
 
@@ -810,13 +810,13 @@ public class GearSectionOptimizerStyleTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(loadout(ABYSSAL_WHIP)), null));
 			section.clickOptimizerStyleForTest(CombatStyle.CRUSH);
-			assertTrue(section.optimizerStyleUserPickedForTest());
+			assertTrue(section.styleUserPicked);
 
 			pickCerberus(section);
 
 			assertTrue("a manual style pick must survive picking a target",
-				section.optimizerStyleUserPickedForTest());
-			assertEquals(CombatStyle.CRUSH, section.optimizerStyleForTest());
+				section.styleUserPicked);
+			assertEquals(CombatStyle.CRUSH, section.optimizerConstraint());
 		});
 	}
 
@@ -838,10 +838,10 @@ public class GearSectionOptimizerStyleTest
 			pickCerberus(owned);
 			owned.setBudgetTextForTest("0");
 			owned.runOptimizerSyncForTest();
-			owned.clickApplyOptimizerResultForTest();
-			assertEquals(DRAGON_SCIMITAR, owned.overrideForTest().itemIdFor(WhatIfLoadout.WEAPON_SLOT));
+			owned.applyResultToOverride();
+			assertEquals(DRAGON_SCIMITAR, owned.override.itemIdFor(WhatIfLoadout.WEAPON_SLOT));
 			assertEquals("an owned recommendation must use the duller grey border",
-				GearSection.OWNED_OVERRIDE_BORDER, owned.slotBorderForTest(WhatIfLoadout.WEAPON_SLOT));
+				GearSection.OWNED_OVERRIDE_BORDER, owned.slotLabels[WhatIfLoadout.WEAPON_SLOT].getBorder());
 
 			// Must-buy: the same upgrade is only affordable via the resolver, not owned.
 			java.util.Map<Integer, Long> prices = new java.util.HashMap<>();
@@ -851,10 +851,10 @@ public class GearSectionOptimizerStyleTest
 			pickCerberus(buy);
 			buy.setBudgetTextForTest("100k");
 			buy.runOptimizerSyncForTest();
-			buy.clickApplyOptimizerResultForTest();
-			assertEquals(DRAGON_SCIMITAR, buy.overrideForTest().itemIdFor(WhatIfLoadout.WEAPON_SLOT));
+			buy.applyResultToOverride();
+			assertEquals(DRAGON_SCIMITAR, buy.override.itemIdFor(WhatIfLoadout.WEAPON_SLOT));
 			assertEquals("a must-buy recommendation must keep the bright orange border",
-				GearSection.OVERRIDE_BORDER, buy.slotBorderForTest(WhatIfLoadout.WEAPON_SLOT));
+				GearSection.OVERRIDE_BORDER, buy.slotLabels[WhatIfLoadout.WEAPON_SLOT].getBorder());
 		});
 	}
 }

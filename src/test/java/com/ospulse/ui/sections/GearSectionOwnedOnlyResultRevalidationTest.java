@@ -147,10 +147,10 @@ public class GearSectionOwnedOnlyResultRevalidationTest
 
 	private static void pickCerberus(GearSection section)
 	{
-		section.searchFieldForTest().setText("cerberus");
-		int index = indexOf(section.monsterListForTest().getModel(), "Cerberus");
+		section.monsterSearchField.setText("cerberus");
+		int index = indexOf(section.monsterList.getModel(), "Cerberus");
 		assertTrue("Cerberus must appear in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
+		section.monsterList.setSelectedIndex(index);
 	}
 
 	/** See {@code GearSectionOwnedOnlyModeTest#mockConfigManager}. */
@@ -188,30 +188,30 @@ public class GearSectionOwnedOnlyResultRevalidationTest
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), dragonScimitarHeld()));
 			pickCerberus(section);
-			int generation = section.optimizerGenerationForTest();
+			int generation = section.optimizerGeneration;
 			section.runOptimizerSyncForTest();
 
-			GearOptimizer.Result staleResult = section.lastOptimizerResultForTest();
+			GearOptimizer.Result staleResult = section.lastOptimizerResult;
 			assertTrue("sanity: a real usable result exists, recommending the owned Dragon scimitar",
 				staleResult != null && staleResult.style() != null);
 			assertTrue("sanity: the resolved loadout actually references the Dragon scimitar",
-				section.optimizerLoadoutSlotMapForTest(staleResult).containsValue(DRAGON_SCIMITAR));
+				section.loadoutSlotMap(staleResult).containsValue(DRAGON_SCIMITAR));
 
 			// Simulate the search NOT having landed yet (mirrors the real
 			// async race, without touching the generation token), then the
 			// player selling the Dragon scimitar before it does.
-			section.clickResetAllForTest();
-			assertNull("sanity: nothing installed yet", section.lastOptimizerResultForTest());
+			section.resetAllOverrides();
+			assertNull("sanity: nothing installed yet", section.lastOptimizerResult);
 			Mockito.clearInvocations(bankHighlighter);
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 
 			// The stale search's result finally lands.
-			section.installOptimizerResultForTest(staleResult, generation);
+			section.installResultIfCurrent(staleResult, generation);
 
 			assertNull("a resolved id no longer owned must never be installed",
-				section.lastOptimizerResultForTest());
+				section.lastOptimizerResult);
 			assertTrue("no what-if override may be auto-applied from an unowned result",
-				section.overrideForTest().isEmpty());
+				section.override.isEmpty());
 			Mockito.verify(bankHighlighter, Mockito.never()).showInBank(Mockito.anyMap(), Mockito.anyList());
 		});
 	}
@@ -241,9 +241,9 @@ public class GearSectionOwnedOnlyResultRevalidationTest
 			section.runOptimizerSyncForTest();
 
 			assertTrue("sanity: a real result was installed while the Dragon scimitar was owned",
-				section.lastOptimizerResultForTest() != null);
+				section.lastOptimizerResult != null);
 			assertFalse("sanity: the auto-preview applied an override",
-				section.overrideForTest().isEmpty());
+				section.override.isEmpty());
 			Mockito.verify(bankHighlighter, Mockito.atLeastOnce()).showInBank(Mockito.anyMap(), Mockito.anyList());
 			Mockito.clearInvocations(bankHighlighter);
 
@@ -253,11 +253,11 @@ public class GearSectionOwnedOnlyResultRevalidationTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 
 			assertNull("the now-stale installed result must be cleared, not left installed",
-				section.lastOptimizerResultForTest());
+				section.lastOptimizerResult);
 			assertTrue("the auto-applied what-if override/preview must be reverted",
-				section.overrideForTest().isEmpty());
+				section.override.isEmpty());
 			assertFalse("the stale result panel must be hidden, not left showing unowned gear",
-				section.optimizerResultVisibleForTest());
+				section.resultPanel.isVisible());
 			Mockito.verify(bankHighlighter, Mockito.atLeastOnce()).clear();
 		});
 	}
@@ -281,13 +281,13 @@ public class GearSectionOwnedOnlyResultRevalidationTest
 			section.runOptimizerSyncForTest();
 
 			assertTrue("sanity: a real result was installed",
-				section.lastOptimizerResultForTest() != null);
+				section.lastOptimizerResult != null);
 
 			// Same gear, same holdings — a routine unrelated refresh.
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), dragonScimitarHeld()));
 
 			assertTrue("a result whose items are all still owned must survive an unrelated apply()",
-				section.lastOptimizerResultForTest() != null);
+				section.lastOptimizerResult != null);
 		});
 	}
 }

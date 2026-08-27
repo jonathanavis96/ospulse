@@ -144,11 +144,11 @@ public class GearSectionMonsterGearOverrideTest
 	 */
 	private static void pickMonster(GearSection section, String name)
 	{
-		section.searchFieldForTest().setText(name);
-		int index = indexOfContaining(section.monsterListForTest().getModel(), name);
+		section.monsterSearchField.setText(name);
+		int index = indexOfContaining(section.monsterList.getModel(), name);
 		org.junit.Assert.assertTrue(name + " must appear in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
-		section.updateGearGridForTest();
+		section.monsterList.setSelectedIndex(index);
+		section.updateGearGrid(section.lastGear);
 	}
 
 	@Test
@@ -160,13 +160,13 @@ public class GearSectionMonsterGearOverrideTest
 			unrelated.apply(snapshotWith(gearWithHead(RANDOM_UNRELATED_HELM)));
 			pickMonster(unrelated, "Dust devil");
 			assertEquals("an unrelated helm must red-cross the HEAD slot vs Dust devil",
-				GearSection.INVALID_BORDER, unrelated.slotBorderForTest(HEAD_SLOT));
+				GearSection.INVALID_BORDER, unrelated.slotLabels[HEAD_SLOT].getBorder());
 
 			GearSection listed = new GearSection(NO_STORE, null, null);
 			listed.apply(snapshotWith(gearWithHead(FACEMASK)));
 			pickMonster(listed, "Dust devil");
 			assertNull("the exact listed Facemask must not be flagged invalid",
-				listed.slotBorderForTest(HEAD_SLOT));
+				listed.slotLabels[HEAD_SLOT].getBorder());
 		});
 	}
 
@@ -193,7 +193,7 @@ public class GearSectionMonsterGearOverrideTest
 					pickMonster(section, monster);
 					assertNull(monster + ": Slayer helmet variant " + variant + " must satisfy the face-protection "
 							+ "requirement, not red-cross the HEAD slot",
-						section.slotBorderForTest(HEAD_SLOT));
+						section.slotLabels[HEAD_SLOT].getBorder());
 				}
 			}
 		});

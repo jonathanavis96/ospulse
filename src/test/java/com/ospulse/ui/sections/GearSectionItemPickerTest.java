@@ -112,15 +112,15 @@ public class GearSectionItemPickerTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(loadout(ABYSSAL_WHIP))));
 
-			assertFalse(section.itemGridVisibleForTest());
-			assertFalse(section.itemSearchRowVisibleForTest());
+			assertFalse(section.itemGridScroll.isVisible());
+			assertFalse(section.itemSearchRow.isVisible());
 
-			section.clickSlotForTest(3); // WEAPON
+			section.toggleItemSearch(3); // WEAPON
 
-			assertTrue(section.itemSearchRowVisibleForTest());
-			assertTrue(section.itemGridVisibleForTest());
-			assertTrue("the weapon slot has candidates", section.itemGridCellCountForTest() > 0);
-			assertEquals(section.filteredItemsForTest().size(), section.itemGridCellCountForTest());
+			assertTrue(section.itemSearchRow.isVisible());
+			assertTrue(section.itemGridScroll.isVisible());
+			assertTrue("the weapon slot has candidates", section.itemGridPanel.getComponentCount() > 0);
+			assertEquals(section.filteredItems.size(), section.itemGridPanel.getComponentCount());
 		});
 	}
 
@@ -131,17 +131,17 @@ public class GearSectionItemPickerTest
 		{
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(loadout(ABYSSAL_WHIP))));
-			section.clickSlotForTest(3);
+			section.toggleItemSearch(3);
 
-			int unfilteredCount = section.itemGridCellCountForTest();
+			int unfilteredCount = section.itemGridPanel.getComponentCount();
 
-			section.itemSearchFieldForTest().setText("dragon scimitar");
+			section.itemSearchField.setText("dragon scimitar");
 
-			List<EquipmentIndexRepository.Entry> results = section.filteredItemsForTest();
+			List<EquipmentIndexRepository.Entry> results = section.filteredItems;
 			assertTrue("dragon scimitar must appear in the weapon-slot search", !results.isEmpty());
-			assertEquals(results.size(), section.itemGridCellCountForTest());
+			assertEquals(results.size(), section.itemGridPanel.getComponentCount());
 			assertTrue("a specific search must narrow the grid vs the unfiltered slot list",
-				section.itemGridCellCountForTest() <= unfilteredCount);
+				section.itemGridPanel.getComponentCount() <= unfilteredCount);
 			for (EquipmentIndexRepository.Entry e : results)
 			{
 				assertEquals(3, e.slotOrdinal());
@@ -157,13 +157,13 @@ public class GearSectionItemPickerTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			GearSnapshot gear = gearFor(loadout(ABYSSAL_WHIP));
 			section.apply(snapshotWith(gear));
-			section.clickSlotForTest(3);
-			section.itemSearchFieldForTest().setText("dragon scimitar");
+			section.toggleItemSearch(3);
+			section.itemSearchField.setText("dragon scimitar");
 
 			int idx = -1;
-			for (int i = 0; i < section.filteredItemsForTest().size(); i++)
+			for (int i = 0; i < section.filteredItems.size(); i++)
 			{
-				if (section.filteredItemsForTest().get(i).itemId() == DRAGON_SCIMITAR)
+				if (section.filteredItems.get(i).itemId() == DRAGON_SCIMITAR)
 				{
 					idx = i;
 					break;
@@ -175,10 +175,10 @@ public class GearSectionItemPickerTest
 			// test seam) — exercises ItemGridCell's own MouseListener.
 			section.clickItemGridCellForTest(idx);
 
-			assertEquals(DRAGON_SCIMITAR, section.overrideForTest().itemIdFor(3));
-			assertFalse("picker must close after a pick", section.itemGridVisibleForTest());
-			assertFalse(section.itemSearchRowVisibleForTest());
-			assertEquals(-1, section.searchOpenForSlotForTest());
+			assertEquals(DRAGON_SCIMITAR, section.override.itemIdFor(3));
+			assertFalse("picker must close after a pick", section.itemGridScroll.isVisible());
+			assertFalse(section.itemSearchRow.isVisible());
+			assertEquals(-1, section.searchOpenForSlot);
 		});
 	}
 
@@ -189,16 +189,16 @@ public class GearSectionItemPickerTest
 		{
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(loadout(ABYSSAL_WHIP))));
-			section.clickSlotForTest(3);
-			assertTrue(section.itemGridVisibleForTest());
+			section.toggleItemSearch(3);
+			assertTrue(section.itemGridScroll.isVisible());
 
-			section.clickCloseItemSearchForTest();
+			section.closeSearchButton.doClick();
 
-			assertFalse(section.itemGridVisibleForTest());
-			assertFalse(section.itemSearchRowVisibleForTest());
-			assertEquals(-1, section.searchOpenForSlotForTest());
+			assertFalse(section.itemGridScroll.isVisible());
+			assertFalse(section.itemSearchRow.isVisible());
+			assertEquals(-1, section.searchOpenForSlot);
 			// No override was applied — closing is not the same as picking.
-			assertTrue(section.overrideForTest().isEmpty());
+			assertTrue(section.override.isEmpty());
 		});
 	}
 }

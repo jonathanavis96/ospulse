@@ -129,10 +129,10 @@ public class GearSectionPotionVariantTest
 
 	private static void pickCerberus(GearSection section)
 	{
-		section.searchFieldForTest().setText("cerberus");
-		int index = indexOf(section.monsterListForTest().getModel(), "Cerberus");
+		section.monsterSearchField.setText("cerberus");
+		int index = indexOf(section.monsterList.getModel(), "Cerberus");
 		assertTrue("Cerberus must appear in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
+		section.monsterList.setSelectedIndex(index);
 	}
 
 	@Test
@@ -182,7 +182,7 @@ public class GearSectionPotionVariantTest
 			pickCerberus(section);
 
 			assertEquals(CombatIcons.BoostPotion.SUPER_COMBAT,
-				section.potionVariantForTest(CombatStyle.STAB));
+				section.effectivePotionFor(CombatStyle.STAB));
 		});
 	}
 
@@ -197,12 +197,12 @@ public class GearSectionPotionVariantTest
 
 			section.pickPotionVariantForTest(CombatStyle.STAB, CombatIcons.BoostPotion.SUPER_STRENGTH);
 			assertEquals(CombatIcons.BoostPotion.SUPER_STRENGTH,
-				section.potionVariantForTest(CombatStyle.STAB));
+				section.effectivePotionFor(CombatStyle.STAB));
 
 			// Re-ranking (e.g. a new target) must not silently drop the pick.
 			section.pickPotionVariantForTest(CombatStyle.STAB, CombatIcons.BoostPotion.SUPER_STRENGTH);
 			assertEquals(CombatIcons.BoostPotion.SUPER_STRENGTH,
-				section.potionVariantForTest(CombatStyle.STAB));
+				section.effectivePotionFor(CombatStyle.STAB));
 		});
 	}
 
@@ -216,11 +216,11 @@ public class GearSectionPotionVariantTest
 			pickCerberus(section);
 
 			section.pickPotionVariantForTest(CombatStyle.RANGED, CombatIcons.BoostPotion.BASTION);
-			assertEquals(CombatIcons.BoostPotion.BASTION, section.potionVariantForTest(CombatStyle.RANGED));
+			assertEquals(CombatIcons.BoostPotion.BASTION, section.effectivePotionFor(CombatStyle.RANGED));
 
 			// Melee/magic style defaults are untouched by a ranged-only pick.
-			assertEquals(CombatIcons.BoostPotion.SUPER_COMBAT, section.potionVariantForTest(CombatStyle.STAB));
-			assertEquals(CombatIcons.BoostPotion.IMBUED_HEART, section.potionVariantForTest(CombatStyle.MAGIC));
+			assertEquals(CombatIcons.BoostPotion.SUPER_COMBAT, section.effectivePotionFor(CombatStyle.STAB));
+			assertEquals(CombatIcons.BoostPotion.IMBUED_HEART, section.effectivePotionFor(CombatStyle.MAGIC));
 		});
 	}
 }

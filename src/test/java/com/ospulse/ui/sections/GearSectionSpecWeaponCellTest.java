@@ -211,7 +211,7 @@ public class GearSectionSpecWeaponCellTest
 			section.apply(snapshotWith(gearWielding(DRAGON_CLAWS), null));
 			// -1, not the raw Integer.MIN_VALUE constructor default: apply()
 			// already ran one refresh(null, ...) with no target selected.
-			assertEquals(-1, section.specWeaponCellItemIdForTest());
+			assertEquals(-1, section.specWeaponCell.renderedItemIdForTest());
 		});
 	}
 
@@ -226,7 +226,7 @@ public class GearSectionSpecWeaponCellTest
 			section.apply(snapshotWith(gearWielding(DRAGON_CLAWS), null));
 
 			assertEquals("Best spec weapon — pick a target to see a recommendation",
-				section.specWeaponCellTooltipForTest());
+				section.specWeaponCell.getToolTipText());
 		});
 	}
 
@@ -241,14 +241,14 @@ public class GearSectionSpecWeaponCellTest
 			// remedy (the player already picked one; they just own no eligible spec).
 			section.apply(snapshotWith(unarmedGearWithAttackLevel(99), null));
 
-			section.searchFieldForTest().setText("cerberus");
-			int index = indexOf(section.monsterListForTest().getModel(), "cerberus");
+			section.monsterSearchField.setText("cerberus");
+			int index = indexOf(section.monsterList.getModel(), "cerberus");
 			assertTrue("Cerberus must appear in the filtered list", index >= 0);
-			section.monsterListForTest().setSelectedIndex(index);
+			section.monsterList.setSelectedIndex(index);
 
-			assertEquals(-1, section.specWeaponCellItemIdForTest());
+			assertEquals(-1, section.specWeaponCell.renderedItemIdForTest());
 			assertEquals("Best spec weapon — no owned, equippable, legal spec weapon qualifies for this target",
-				section.specWeaponCellTooltipForTest());
+				section.specWeaponCell.getToolTipText());
 		});
 	}
 
@@ -262,12 +262,12 @@ public class GearSectionSpecWeaponCellTest
 
 			// Cerberus: bundled defenceLevel 100, well under HIGH_DEFENCE_THRESHOLD,
 			// no combat-requirement gate — a plain DAMAGE-role pick.
-			section.searchFieldForTest().setText("cerberus");
-			int index = indexOf(section.monsterListForTest().getModel(), "cerberus");
+			section.monsterSearchField.setText("cerberus");
+			int index = indexOf(section.monsterList.getModel(), "cerberus");
 			assertTrue("Cerberus must appear in the filtered list", index >= 0);
-			section.monsterListForTest().setSelectedIndex(index);
+			section.monsterList.setSelectedIndex(index);
 
-			assertEquals(DRAGON_CLAWS, section.specWeaponCellItemIdForTest());
+			assertEquals(DRAGON_CLAWS, section.specWeaponCell.renderedItemIdForTest());
 		});
 	}
 
@@ -282,13 +282,13 @@ public class GearSectionSpecWeaponCellTest
 			// exception dragon claws does not fall under).
 			section.apply(snapshotWith(gearWielding(DRAGON_CLAWS), null));
 
-			section.searchFieldForTest().setText("zulrah");
-			int index = indexOf(section.monsterListForTest().getModel(), "zulrah");
+			section.monsterSearchField.setText("zulrah");
+			int index = indexOf(section.monsterList.getModel(), "zulrah");
 			assertTrue("a Zulrah phase must appear in the filtered list", index >= 0);
-			section.monsterListForTest().setSelectedIndex(index);
+			section.monsterList.setSelectedIndex(index);
 
 			assertEquals("dragon claws is melee-only and must be excluded by Zulrah's real gate",
-				-1, section.specWeaponCellItemIdForTest());
+				-1, section.specWeaponCell.renderedItemIdForTest());
 		});
 	}
 
@@ -306,13 +306,13 @@ public class GearSectionSpecWeaponCellTest
 			// General Graardor: bundled defenceLevel 250 (>= HIGH_DEFENCE_THRESHOLD),
 			// no combat-requirement gate (explicitly on the REJECTED list — see the
 			// stage-1a melee-gate dataset README).
-			section.searchFieldForTest().setText("graardor");
-			int index = indexOf(section.monsterListForTest().getModel(), "graardor");
+			section.monsterSearchField.setText("graardor");
+			int index = indexOf(section.monsterList.getModel(), "graardor");
 			assertTrue("General Graardor must appear in the filtered list", index >= 0);
-			section.monsterListForTest().setSelectedIndex(index);
+			section.monsterList.setSelectedIndex(index);
 
 			assertEquals("rule 2 (defence-drain priority) must win at high Defence",
-				DRAGON_WARHAMMER, section.specWeaponCellItemIdForTest());
+				DRAGON_WARHAMMER, section.specWeaponCell.renderedItemIdForTest());
 		});
 	}
 
@@ -328,11 +328,11 @@ public class GearSectionSpecWeaponCellTest
 			// equipment_requirements.min.json); owned in the bank at 50 Attack.
 			section.apply(snapshotWith(unarmedGearWithAttackLevel(50), wealthOwning(DRAGON_CLAWS)));
 
-			section.searchFieldForTest().setText("cerberus");
-			section.monsterListForTest().setSelectedIndex(indexOf(section.monsterListForTest().getModel(), "cerberus"));
+			section.monsterSearchField.setText("cerberus");
+			section.monsterList.setSelectedIndex(indexOf(section.monsterList.getModel(), "cerberus"));
 
 			assertEquals("50 Attack cannot equip a 60-Attack Dragon claws",
-				-1, section.specWeaponCellItemIdForTest());
+				-1, section.specWeaponCell.renderedItemIdForTest());
 		});
 	}
 
@@ -344,10 +344,10 @@ public class GearSectionSpecWeaponCellTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(unarmedGearWithAttackLevel(60), wealthOwning(DRAGON_CLAWS)));
 
-			section.searchFieldForTest().setText("cerberus");
-			section.monsterListForTest().setSelectedIndex(indexOf(section.monsterListForTest().getModel(), "cerberus"));
+			section.monsterSearchField.setText("cerberus");
+			section.monsterList.setSelectedIndex(indexOf(section.monsterList.getModel(), "cerberus"));
 
-			assertEquals(DRAGON_CLAWS, section.specWeaponCellItemIdForTest());
+			assertEquals(DRAGON_CLAWS, section.specWeaponCell.renderedItemIdForTest());
 		});
 	}
 
@@ -379,14 +379,14 @@ public class GearSectionSpecWeaponCellTest
 			// Ranged/Magic — a flying target.
 			section.apply(snapshotWith(gearWielding(DRAGON_CLAWS), null));
 
-			section.searchFieldForTest().setText("aviansie");
-			int index = indexOf(section.monsterListForTest().getModel(), "wilderness");
+			section.monsterSearchField.setText("aviansie");
+			int index = indexOf(section.monsterList.getModel(), "wilderness");
 			assertTrue("a synthetic Wilderness Aviansie twin must appear in the filtered list", index >= 0);
-			section.monsterListForTest().setSelectedIndex(index);
+			section.monsterList.setSelectedIndex(index);
 
 			assertEquals("dragon claws is melee-only and must still be excluded by Aviansie's real gate "
 					+ "even against the synthetic Wilderness twin",
-				-1, section.specWeaponCellItemIdForTest());
+				-1, section.specWeaponCell.renderedItemIdForTest());
 		});
 	}
 
@@ -413,14 +413,14 @@ public class GearSectionSpecWeaponCellTest
 			// Cerberus: bundled defenceLevel 100, well under HIGH_DEFENCE_THRESHOLD,
 			// no combat-requirement gate — a plain DAMAGE-role pick, same target
 			// used by ownedDamageSpecIsRecommendedAgainstALowDefenceTarget.
-			section.searchFieldForTest().setText("cerberus");
-			int index = indexOf(section.monsterListForTest().getModel(), "cerberus");
+			section.monsterSearchField.setText("cerberus");
+			int index = indexOf(section.monsterList.getModel(), "cerberus");
 			assertTrue("Cerberus must appear in the filtered list", index >= 0);
-			section.monsterListForTest().setSelectedIndex(index);
+			section.monsterList.setSelectedIndex(index);
 
 			assertEquals("Voidwaker (deadman) 29607 is mode-restricted, but that must only block "
 					+ "29607 itself — the owned, ordinary 27690 must still be recommended",
-				VOIDWAKER, section.specWeaponCellItemIdForTest());
+				VOIDWAKER, section.specWeaponCell.renderedItemIdForTest());
 		});
 	}
 
@@ -436,16 +436,16 @@ public class GearSectionSpecWeaponCellTest
 		{
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearWielding(VOIDWAKER), null));
-			section.excludeItemFromSuggestionsForTest(VOIDWAKER);
+			section.excludeFromSuggestions(VOIDWAKER);
 
-			section.searchFieldForTest().setText("cerberus");
-			int index = indexOf(section.monsterListForTest().getModel(), "cerberus");
+			section.monsterSearchField.setText("cerberus");
+			int index = indexOf(section.monsterList.getModel(), "cerberus");
 			assertTrue("Cerberus must appear in the filtered list", index >= 0);
-			section.monsterListForTest().setSelectedIndex(index);
+			section.monsterList.setSelectedIndex(index);
 
 			assertEquals("excluding the ordinary Voidwaker is a user action and must still be "
 					+ "family-wide, unlike the permanently-restricted deadman id",
-				-1, section.specWeaponCellItemIdForTest());
+				-1, section.specWeaponCell.renderedItemIdForTest());
 		});
 	}
 
@@ -463,14 +463,14 @@ public class GearSectionSpecWeaponCellTest
 
 			// Kurask: the repo's own real ammo-gated target (leaf-bladed weapons,
 			// broad ammo, or Magic Dart only) — see monster_combat_requirements.json.
-			section.searchFieldForTest().setText("kurask");
-			int index = indexOf(section.monsterListForTest().getModel(), "kurask");
+			section.monsterSearchField.setText("kurask");
+			int index = indexOf(section.monsterList.getModel(), "kurask");
 			assertTrue("Kurask must appear in the filtered list", index >= 0);
-			section.monsterListForTest().setSelectedIndex(index);
+			section.monsterList.setSelectedIndex(index);
 
 			assertEquals("permitsWeapon() alone would accept a worn-ammo bow here; "
 					+ "the actual (non-broad) loaded arrows must still be rejected by permitsAmmo()",
-				-1, section.specWeaponCellItemIdForTest());
+				-1, section.specWeaponCell.renderedItemIdForTest());
 		});
 	}
 
@@ -484,10 +484,10 @@ public class GearSectionSpecWeaponCellTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearWieldingWithAmmo(magicShortbow, broadArrow), null));
 
-			section.searchFieldForTest().setText("kurask");
-			section.monsterListForTest().setSelectedIndex(indexOf(section.monsterListForTest().getModel(), "kurask"));
+			section.monsterSearchField.setText("kurask");
+			section.monsterList.setSelectedIndex(indexOf(section.monsterList.getModel(), "kurask"));
 
-			assertEquals(magicShortbow, section.specWeaponCellItemIdForTest());
+			assertEquals(magicShortbow, section.specWeaponCell.renderedItemIdForTest());
 		});
 	}
 
@@ -527,15 +527,15 @@ public class GearSectionSpecWeaponCellTest
 			// see SpecWeaponSelectorTest's equivalent unit-level scenario.
 			section.apply(snapshotWith(gearWielding(DRAGON_CLAWS), wealthOwning(DRAGON_DAGGER)));
 
-			section.searchFieldForTest().setText("cerberus");
-			section.monsterListForTest().setSelectedIndex(indexOf(section.monsterListForTest().getModel(), "cerberus"));
+			section.monsterSearchField.setText("cerberus");
+			section.monsterList.setSelectedIndex(indexOf(section.monsterList.getModel(), "cerberus"));
 			assertEquals("sanity check: claws must win before exclusion",
-				DRAGON_CLAWS, section.specWeaponCellItemIdForTest());
+				DRAGON_CLAWS, section.specWeaponCell.renderedItemIdForTest());
 
-			section.excludeItemFromSuggestionsForTest(DRAGON_CLAWS);
+			section.excludeFromSuggestions(DRAGON_CLAWS);
 
 			assertEquals("excluding claws must let dagger take over, not just show nothing",
-				DRAGON_DAGGER, section.specWeaponCellItemIdForTest());
+				DRAGON_DAGGER, section.specWeaponCell.renderedItemIdForTest());
 		});
 	}
 
@@ -547,14 +547,14 @@ public class GearSectionSpecWeaponCellTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearWielding(DRAGON_CLAWS), null));
 
-			section.searchFieldForTest().setText("cerberus");
-			section.monsterListForTest().setSelectedIndex(indexOf(section.monsterListForTest().getModel(), "cerberus"));
-			assertEquals(DRAGON_CLAWS, section.specWeaponCellItemIdForTest());
+			section.monsterSearchField.setText("cerberus");
+			section.monsterList.setSelectedIndex(indexOf(section.monsterList.getModel(), "cerberus"));
+			assertEquals(DRAGON_CLAWS, section.specWeaponCell.renderedItemIdForTest());
 
-			section.excludeItemFromSuggestionsForTest(DRAGON_CLAWS);
+			section.excludeFromSuggestions(DRAGON_CLAWS);
 
 			assertEquals("Exclude from suggestions must apply to the spec cell exactly as it does to the optimiser",
-				-1, section.specWeaponCellItemIdForTest());
+				-1, section.specWeaponCell.renderedItemIdForTest());
 		});
 	}
 

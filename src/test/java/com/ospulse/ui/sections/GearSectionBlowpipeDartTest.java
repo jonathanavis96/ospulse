@@ -185,7 +185,7 @@ public class GearSectionBlowpipeDartTest
 		onEdt(() ->
 		{
 			GearSection section = new GearSection(NO_STORE, null, null);
-			assertEquals(BlowpipeDart.DRAGON, section.currentBlowpipeDartForTest());
+			assertEquals(BlowpipeDart.DRAGON, section.currentBlowpipeDart());
 		});
 	}
 
@@ -202,9 +202,9 @@ public class GearSectionBlowpipeDartTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearWithWeapon(TOXIC_BLOWPIPE)));
 
-			section.pickBlowpipeDartForTest(BlowpipeDart.BRONZE);
+			section.pickBlowpipeDart(BlowpipeDart.BRONZE);
 
-			assertEquals(BlowpipeDart.DRAGON, section.currentBlowpipeDartForTest());
+			assertEquals(BlowpipeDart.DRAGON, section.currentBlowpipeDart());
 		});
 	}
 }

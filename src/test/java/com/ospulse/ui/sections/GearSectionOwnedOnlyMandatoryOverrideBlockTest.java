@@ -143,10 +143,10 @@ public class GearSectionOwnedOnlyMandatoryOverrideBlockTest
 
 	private static void pickMonster(GearSection section, String name)
 	{
-		section.searchFieldForTest().setText(name);
-		int index = indexOfContaining(section.monsterListForTest().getModel(), name);
+		section.monsterSearchField.setText(name);
+		int index = indexOfContaining(section.monsterList.getModel(), name);
 		assertTrue(name + " must appear in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
+		section.monsterList.setSelectedIndex(index);
 	}
 
 	/** See {@link GearSectionOwnedOnlyModeTest#mockConfigManager} — the per-profile read owns behaviour now. */
@@ -174,15 +174,15 @@ public class GearSectionOwnedOnlyMandatoryOverrideBlockTest
 			pickMonster(section, "Rune dragon");
 			section.runOptimizerSyncForTest();
 
-			assertTrue("the blocked message must be shown", section.optimizerOwnedOnlyBlockedVisibleForTest());
-			String message = section.optimizerOwnedOnlyBlockedTextForTest();
+			assertTrue("the blocked message must be shown", section.ownedOnlyBlockedLabel.isVisible());
+			String message = section.ownedOnlyBlockedLabel.getText();
 			assertTrue("must name the required item: " + message, message.contains("Insulated boots"));
 			assertTrue("must include the mechanic reason: " + message,
 				message.contains("Halves the lightning special-attack damage"));
 
-			assertNull("no result may be installed while blocked", section.lastOptimizerResultForTest());
+			assertNull("no result may be installed while blocked", section.lastOptimizerResult);
 			assertTrue("no what-if override may be auto-applied while blocked",
-				section.overrideForTest().isEmpty());
+				section.override.isEmpty());
 			Mockito.verify(bankHighlighter, Mockito.atLeastOnce()).clear();
 		});
 	}
@@ -200,9 +200,9 @@ public class GearSectionOwnedOnlyMandatoryOverrideBlockTest
 			section.runOptimizerSyncForTest();
 
 			assertFalse("the blocked message must not show once the requirement is satisfied",
-				section.optimizerOwnedOnlyBlockedVisibleForTest());
+				section.ownedOnlyBlockedLabel.isVisible());
 			assertTrue("a normal usable result must still be shown",
-				section.optimizerResultVisibleForTest());
+				section.resultPanel.isVisible());
 		});
 	}
 
@@ -219,7 +219,7 @@ public class GearSectionOwnedOnlyMandatoryOverrideBlockTest
 			section.runOptimizerSyncForTest();
 
 			assertFalse("outside owned-only mode, the force-include behaviour is unchanged — never blocked",
-				section.optimizerOwnedOnlyBlockedVisibleForTest());
+				section.ownedOnlyBlockedLabel.isVisible());
 		});
 	}
 }
