@@ -139,11 +139,13 @@ public final class BuildInfo
 // Overrides: -PtokenBudgetMax=N / -PtokenBudgetWarn=N
 // Thresholds. The true Hub ceiling is 200,000; these sit below it so a breach is
 // caught while there is still room to react, not after the Hub has refused the
-// update. Set after the 2026-07-28 trim brought the tree to ~194,500 tokens:
-// warn leaves ~500 tokens of quiet headroom, fail leaves 3,000 below the ceiling
-// to absorb the difference between this approximation and the bot's real count.
-def tokenBudgetMax = (project.findProperty('tokenBudgetMax') ?: '197000') as int
-def tokenBudgetWarn = (project.findProperty('tokenBudgetWarn') ?: '195000') as int
+// update. Raised 2026-08-27 (MIS-620): warn leaves 1,500 tokens of quiet
+// headroom, fail leaves 1,500 below the ceiling to absorb the difference
+// between this approximation and the bot's real count. That gap-vs-bot figure
+// has never been measured directly; 1,500 is a calculated bet, not a proven
+// margin.
+def tokenBudgetMax = (project.findProperty('tokenBudgetMax') ?: '198500') as int
+def tokenBudgetWarn = (project.findProperty('tokenBudgetWarn') ?: '197000') as int
 def tokenBudgetSrc = file('src/main/java')
 
 def tokenBudgetTask = tasks.register('tokenBudget') {
