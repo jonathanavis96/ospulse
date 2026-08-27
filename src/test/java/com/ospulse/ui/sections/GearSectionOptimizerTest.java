@@ -154,7 +154,7 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			assertTrue(section.resultPanel.isVisible());
@@ -182,7 +182,7 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
 
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -298,9 +298,9 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(whip)), wealth));
 			pickChaosElemental(section);  // Wilderness target — the risk cap is now gated to these (issue #11)
 
-			section.setBudgetTextForTest("0");                // owned-only: the scimitar is the free de-risk target
+			GearSectionTestOps.setBudgetText(section, "0");                // owned-only: the scimitar is the free de-risk target
 			section.expensiveCountField.setText("0");        // zero expensive items allowed
-			section.setExpensiveThresholdTextForTest("50k");  // whip is expensive, scimitar is not
+			GearSectionTestOps.setExpensiveThresholdText(section, "50k");  // whip is expensive, scimitar is not
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -322,7 +322,7 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
 
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 			section.applyResultToOverride();
 
@@ -351,7 +351,7 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
 
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 			section.applyResultToOverride();
 			assertFalse(section.override.isEmpty());
@@ -397,7 +397,7 @@ public class GearSectionOptimizerTest
 
 			// A huge budget — but with no resolver wired in, nothing non-owned
 			// can ever be priced affordable, by design.
-			section.setBudgetTextForTest("50m");
+			GearSectionTestOps.setBudgetText(section, "50m");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -440,7 +440,7 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 
-			section.setBudgetTextForTest("100k");
+			GearSectionTestOps.setBudgetText(section, "100k");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -476,7 +476,7 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -520,7 +520,7 @@ public class GearSectionOptimizerTest
 			GearSection section = new GearSection(NO_STORE, null, null, null, null, capturingResolver);
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("100k");
+			GearSectionTestOps.setBudgetText(section, "100k");
 
 			section.findBestSetupButton.doClick();
 
@@ -562,7 +562,7 @@ public class GearSectionOptimizerTest
 				fakeResolverWithNeedsProtection(prices, java.util.Set.of(DRAGON_SCIMITAR)));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("100k");
+			GearSectionTestOps.setBudgetText(section, "100k");
 			section.runOptimizerSyncForTest();
 
 			// Each changed slot renders as [row, spacer] — see renderSwapList;
@@ -587,7 +587,7 @@ public class GearSectionOptimizerTest
 				fakeResolverWithNeedsProtection(prices, java.util.Set.of()));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("100k");
+			GearSectionTestOps.setBudgetText(section, "100k");
 			section.runOptimizerSyncForTest();
 
 			assertEquals(2, section.swapList.getComponentCount());
@@ -654,13 +654,13 @@ public class GearSectionOptimizerTest
 		{
 			GearSection section = new GearSection(NO_STORE, null, null);
 
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			assertEquals(0L, section.resolvedBudget());
 
-			section.setBudgetTextForTest("500k");
+			GearSectionTestOps.setBudgetText(section, "500k");
 			assertEquals(500_000L, section.resolvedBudget());
 
-			section.setBudgetTextForTest("10m");
+			GearSectionTestOps.setBudgetText(section, "10m");
 			assertEquals(10_000_000L, section.resolvedBudget());
 		});
 	}
@@ -672,12 +672,12 @@ public class GearSectionOptimizerTest
 		onEdt(() ->
 		{
 			GearSection section = new GearSection(NO_STORE, null, null);
-			section.setBudgetTextForTest("5"); // plain digits, no suffix -> toggle decides the unit
+			GearSectionTestOps.setBudgetText(section, "5"); // plain digits, no suffix -> toggle decides the unit
 
-			section.setBudgetUnitMillionsForTest(false);
+			section.budgetMToggle.setSelected(false); section.budgetKToggle.setSelected(!false);
 			assertEquals(5_000L, section.resolvedBudget());
 
-			section.setBudgetUnitMillionsForTest(true);
+			section.budgetMToggle.setSelected(true); section.budgetKToggle.setSelected(!true);
 			assertEquals(5_000_000L, section.resolvedBudget());
 		});
 	}
@@ -707,7 +707,7 @@ public class GearSectionOptimizerTest
 			section.expensiveCountField.setText("3");
 			assertEquals(3, section.resolvedExpensiveCount());
 
-			section.setExpensiveThresholdTextForTest("20m");
+			GearSectionTestOps.setExpensiveThresholdText(section, "20m");
 			assertEquals(20_000_000L, section.resolvedExpensiveThreshold());
 
 			section.expensiveCountField.setText("not a number");
@@ -764,9 +764,9 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.expensiveCountField.setText("2");
-			section.setExpensiveThresholdTextForTest("10m");
+			GearSectionTestOps.setExpensiveThresholdText(section, "10m");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -797,7 +797,7 @@ public class GearSectionOptimizerTest
 			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("100k");
+			GearSectionTestOps.setBudgetText(section, "100k");
 
 			section.runOptimizerSyncForTest();
 			assertEquals("sanity: the scimitar is suggested before any exclude",
@@ -849,7 +849,7 @@ public class GearSectionOptimizerTest
 			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("100k");
+			GearSectionTestOps.setBudgetText(section, "100k");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -871,7 +871,7 @@ public class GearSectionOptimizerTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(loadout(ABYSSAL_WHIP)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0"); // owned-only, nothing else owned -> whip must stay
+			GearSectionTestOps.setBudgetText(section, "0"); // owned-only, nothing else owned -> whip must stay
 			section.runOptimizerSyncForTest();
 
 			assertEquals(ABYSSAL_WHIP, weaponIdInResult(section.lastOptimizerResult));
@@ -917,7 +917,7 @@ public class GearSectionOptimizerTest
 					java.util.Map.of(), java.util.Set.of(), riskValues, java.util.Set.of())));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.PriceSource risk = section.lastRiskValueSource;
@@ -959,7 +959,7 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
 			section.excludeFromSuggestions(SARADOMIN_CAPE_DEADMAN);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.PriceSource risk = section.lastRiskValueSource;
@@ -1048,8 +1048,8 @@ public class GearSectionOptimizerTest
 					prices, java.util.Set.of(), riskValues, java.util.Set.of())));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickChaosElemental(section); // Wilderness target -> riskCapApplies() is true
-			section.setBudgetTextForTest("5M");
-			section.setExpensiveThresholdTextForTest("10M");
+			GearSectionTestOps.setBudgetText(section, "5M");
+			GearSectionTestOps.setExpensiveThresholdText(section, "10M");
 			section.expensiveCountField.setText("0");
 			section.runOptimizerSyncForTest();
 
@@ -1095,8 +1095,8 @@ public class GearSectionOptimizerTest
 					prices, java.util.Set.of(), riskValues, java.util.Set.of())));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section); // non-Wilderness, override left off -> riskCapApplies() is false
-			section.setBudgetTextForTest("5M");
-			section.setExpensiveThresholdTextForTest("10M");
+			GearSectionTestOps.setBudgetText(section, "5M");
+			GearSectionTestOps.setExpensiveThresholdText(section, "10M");
 			section.expensiveCountField.setText("0");
 			section.runOptimizerSyncForTest();
 
@@ -1146,8 +1146,8 @@ public class GearSectionOptimizerTest
 					prices, java.util.Set.of(), riskValues, java.util.Set.of())));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
-			section.setBudgetTextForTest("5M");
-			section.setExpensiveThresholdTextForTest("100k");
+			GearSectionTestOps.setBudgetText(section, "5M");
+			GearSectionTestOps.setExpensiveThresholdText(section, "100k");
 			// 11 == GearOptimizer.SEARCHABLE_SLOTS.length: the cap cannot bind.
 			section.expensiveCountField.setText("11");
 			section.runOptimizerSyncForTest();

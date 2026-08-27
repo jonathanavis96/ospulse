@@ -237,7 +237,7 @@ public class GearSectionOptimizerStyleTest
 			section.apply(snapshotWith(gearFor(loadout(MAGIC_SHORTBOW)), wealthWith(ABYSSAL_WHIP)));
 			pickCerberus(section);
 
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -269,7 +269,7 @@ public class GearSectionOptimizerStyleTest
 			section.clickOptimizerStyleForTest(CombatStyle.CRUSH);
 			pickCerberus(section);
 
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -298,7 +298,7 @@ public class GearSectionOptimizerStyleTest
 			GearSection bought = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
 			bought.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(bought);
-			bought.setBudgetTextForTest("100k");
+			GearSectionTestOps.setBudgetText(bought, "100k");
 			bought.runOptimizerSyncForTest();
 			assertEquals("the affordable scimitar must be bought",
 				DRAGON_SCIMITAR, weaponIdInResult(bought.lastOptimizerResult));
@@ -309,7 +309,7 @@ public class GearSectionOptimizerStyleTest
 			GearSection owned = new GearSection(NO_STORE, null, null);
 			owned.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealthWith(DRAGON_SCIMITAR)));
 			pickCerberus(owned);
-			owned.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(owned, "0");
 			owned.runOptimizerSyncForTest();
 			assertEquals(DRAGON_SCIMITAR, weaponIdInResult(owned.lastOptimizerResult));
 			assertEquals("an owned suggestion must not render a price label",
@@ -334,7 +334,7 @@ public class GearSectionOptimizerStyleTest
 			assertTrue("pre-preview the weapon cell must read as live: " + liveTooltip,
 				liveTooltip.contains("Weapon slot (live)"));
 
-			section.setBudgetTextForTest("100k");
+			GearSectionTestOps.setBudgetText(section, "100k");
 			section.runOptimizerSyncForTest();
 			section.applyResultToOverride();
 
@@ -425,7 +425,7 @@ public class GearSectionOptimizerStyleTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(loadout(MAGIC_SHORTBOW)), wealthWith(MASORI_MASK_F)));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			int headChoiceId = -1;
@@ -484,7 +484,7 @@ public class GearSectionOptimizerStyleTest
 			section.apply(snapshotWith(gearFor(loadout(MAGIC_SHORTBOW)), wealthWith(MASORI_MASK_F)));
 			section.excludeFromSuggestions(MASORI_MASK_F);
 			pickCerberus(section);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			assertFalse("excluding the only backing variant must withdraw the synthetic credit — the plain "
@@ -564,7 +564,7 @@ public class GearSectionOptimizerStyleTest
 			section.apply(snapshotWith(gearFor(loadout(TRIDENT_OF_THE_SEAS)), wealthWith(IMBUED_SARADOMIN_CAPE_DEADMAN)));
 			pickCerberus(section);
 			section.clickOptimizerStyleForTest(CombatStyle.MAGIC);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			int capeChoiceId = -1;
@@ -641,7 +641,7 @@ public class GearSectionOptimizerStyleTest
 			section.apply(snapshotWith(gearFor(worn), wealthWith(IMBUED_SARADOMIN_CAPE_DEADMAN)));
 			pickCerberus(section);
 			section.clickOptimizerStyleForTest(CombatStyle.MAGIC);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			int capeChoiceId = -1;
@@ -689,7 +689,7 @@ public class GearSectionOptimizerStyleTest
 				wealthWith(IMBUED_SARADOMIN_CAPE_DEADMAN, IMBUED_SARADOMIN_CAPE_PLAIN)));
 			pickCerberus(section);
 			section.clickOptimizerStyleForTest(CombatStyle.MAGIC);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			int capeChoiceId = -1;
@@ -733,7 +733,7 @@ public class GearSectionOptimizerStyleTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(loadout(MAGIC_SHORTBOW)), wealthWith(ABYSSAL_WHIP)));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 
 			section.runOptimizerAndRankStylesSyncForTest();
 
@@ -836,7 +836,7 @@ public class GearSectionOptimizerStyleTest
 			GearSection owned = new GearSection(NO_STORE, null, null);
 			owned.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealthWith(DRAGON_SCIMITAR)));
 			pickCerberus(owned);
-			owned.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(owned, "0");
 			owned.runOptimizerSyncForTest();
 			owned.applyResultToOverride();
 			assertEquals(DRAGON_SCIMITAR, owned.override.itemIdFor(WhatIfLoadout.WEAPON_SLOT));
@@ -849,7 +849,7 @@ public class GearSectionOptimizerStyleTest
 			GearSection buy = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
 			buy.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(buy);
-			buy.setBudgetTextForTest("100k");
+			GearSectionTestOps.setBudgetText(buy, "100k");
 			buy.runOptimizerSyncForTest();
 			buy.applyResultToOverride();
 			assertEquals(DRAGON_SCIMITAR, buy.override.itemIdFor(WhatIfLoadout.WEAPON_SLOT));

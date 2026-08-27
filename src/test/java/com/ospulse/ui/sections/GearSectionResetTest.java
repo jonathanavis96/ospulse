@@ -146,7 +146,7 @@ public class GearSectionResetTest
 			// Apply a what-if weapon override.
 			section.toggleItemSearch(WEAPON_SLOT);
 			section.itemSearchField.setText("dragon scimitar");
-			section.pickItemForTest(0);
+			section.applyOverride(section.searchOpenForSlot, section.filteredItems.get(0).itemId()); section.closeItemSearch();
 			assertFalse("a what-if override is active", section.override.isEmpty());
 
 			// A persisted preference: exclude an item from optimiser suggestions.

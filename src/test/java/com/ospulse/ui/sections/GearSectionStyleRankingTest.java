@@ -148,7 +148,7 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			List<WeaponStyle> ranked = section.rankedStylesForTest();
+			List<WeaponStyle> ranked = section.styleRows.stream().map(r -> r.style).collect(java.util.stream.Collectors.toList());
 			assertEquals("stab sword exposes four distinct styles", 4, ranked.size());
 
 			// Rows must be sorted by DPS descending, matching an independent compute.
@@ -220,7 +220,7 @@ public class GearSectionStyleRankingTest
 			pickCerberus(section);
 
 			int last = section.styleRows.size() - 1;
-			WeaponStyle worst = section.rankedStylesForTest().get(last);
+			WeaponStyle worst = section.styleRows.stream().map(r -> r.style).collect(java.util.stream.Collectors.toList()).get(last);
 			section.selectStyle(section.styleRows.get(last).style);
 
 			assertEquals(worst, section.selectedStyle);
@@ -250,7 +250,7 @@ public class GearSectionStyleRankingTest
 			pickCerberus(section);
 
 			int last = section.styleRows.size() - 1;
-			WeaponStyle worst = section.rankedStylesForTest().get(last);
+			WeaponStyle worst = section.styleRows.stream().map(r -> r.style).collect(java.util.stream.Collectors.toList()).get(last);
 			assertTrue("fixture sanity: the worst style must not already be selected",
 				!worst.equals(section.selectedStyle));
 
@@ -270,7 +270,7 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gearWithWeapon(-1))); // no weapon
 			pickCerberus(section);
 
-			List<WeaponStyle> ranked = section.rankedStylesForTest();
+			List<WeaponStyle> ranked = section.styleRows.stream().map(r -> r.style).collect(java.util.stream.Collectors.toList());
 			assertEquals(3, ranked.size());
 			for (WeaponStyle s : ranked)
 			{
@@ -288,7 +288,7 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gearWithWeapon(4151))); // Abyssal whip -> whip (3 slash styles)
 			pickCerberus(section);
 
-			List<WeaponStyle> ranked = section.rankedStylesForTest();
+			List<WeaponStyle> ranked = section.styleRows.stream().map(r -> r.style).collect(java.util.stream.Collectors.toList());
 			assertEquals(3, ranked.size());
 			for (WeaponStyle s : ranked)
 			{
@@ -354,7 +354,7 @@ public class GearSectionStyleRankingTest
 
 			// Standard book (default tab): rows ranked DPS-descending, matching an
 			// independent engine compute.
-			List<com.ospulse.combat.Spell> ranked = section.rankedSpellsForTest();
+			List<com.ospulse.combat.Spell> ranked = section.spellRows.stream().map(r -> r.spell).collect(java.util.stream.Collectors.toList());
 			assertTrue("standard book must list its offensive spells", ranked.size() >= 20);
 			double prev = Double.MAX_VALUE;
 			for (com.ospulse.combat.Spell spell : ranked)
@@ -390,7 +390,7 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			List<com.ospulse.combat.Spell> ranked = section.rankedSpellsForTest();
+			List<com.ospulse.combat.Spell> ranked = section.spellRows.stream().map(r -> r.spell).collect(java.util.stream.Collectors.toList());
 			assertTrue("Iban Blast must never appear/rank without Iban's staff equipped",
 				ranked.stream().noneMatch(s -> s == com.ospulse.combat.Spell.IBAN_BLAST));
 		});
@@ -407,7 +407,7 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			List<com.ospulse.combat.Spell> ranked = section.rankedSpellsForTest();
+			List<com.ospulse.combat.Spell> ranked = section.spellRows.stream().map(r -> r.spell).collect(java.util.stream.Collectors.toList());
 			assertTrue("Iban Blast must be a candidate when Iban's staff is equipped",
 				ranked.stream().anyMatch(s -> s == com.ospulse.combat.Spell.IBAN_BLAST));
 		});
@@ -424,7 +424,7 @@ public class GearSectionStyleRankingTest
 			pickCerberus(section);
 
 			section.bookTabButtons[1].doClick(); // Ancient
-			List<com.ospulse.combat.Spell> ranked = section.rankedSpellsForTest();
+			List<com.ospulse.combat.Spell> ranked = section.spellRows.stream().map(r -> r.spell).collect(java.util.stream.Collectors.toList());
 			assertEquals("all 16 Ancient Magicks are offensive", 16, ranked.size());
 			for (com.ospulse.combat.Spell spell : ranked)
 			{
@@ -477,7 +477,7 @@ public class GearSectionStyleRankingTest
 			assertTrue("powered staff needs no spell picker",
 				!section.spellPicker.isVisible());
 
-			List<WeaponStyle> ranked = section.rankedStylesForTest();
+			List<WeaponStyle> ranked = section.styleRows.stream().map(r -> r.style).collect(java.util.stream.Collectors.toList());
 			assertTrue("powered staff exposes magic styles", ranked.size() >= 1);
 			assertEquals(CombatStyle.MAGIC, ranked.get(0).type());
 			assertEquals("28", section.maxHitValue.getText());
@@ -559,13 +559,13 @@ public class GearSectionStyleRankingTest
 			assertEquals(null, section.magicPotionVariantForCalc());
 			assertEquals("31", section.maxHitValue.getText());
 
-			section.pickMagicPotionVariantForTest(com.ospulse.combat.CombatIcons.BoostPotion.SATURATED_HEART);
+			section.potionVariantByStyle.put(GearSection.styleKeyFor(CombatStyle.MAGIC), com.ospulse.combat.CombatIcons.BoostPotion.SATURATED_HEART); section.saveVariant("potionVariant", GearSection.styleKeyFor(CombatStyle.MAGIC), com.ospulse.combat.CombatIcons.BoostPotion.SATURATED_HEART); section.rankAndRender();
 			assertEquals(com.ospulse.combat.CombatIcons.BoostPotion.SATURATED_HEART,
 				section.magicPotionVariantForCalc());
 			// Saturated heart: boosted = 99+4+9=112, floor(112/3)-5=32.
 			assertEquals("32", section.maxHitValue.getText());
 
-			section.pickMagicPotionVariantForTest(com.ospulse.combat.CombatIcons.BoostPotion.ANCIENT_BREW);
+			section.potionVariantByStyle.put(GearSection.styleKeyFor(CombatStyle.MAGIC), com.ospulse.combat.CombatIcons.BoostPotion.ANCIENT_BREW); section.saveVariant("potionVariant", GearSection.styleKeyFor(CombatStyle.MAGIC), com.ospulse.combat.CombatIcons.BoostPotion.ANCIENT_BREW); section.rankAndRender();
 			// Ancient brew: boosted = 99+2+4=105, floor(105/3)-5=30.
 			assertEquals("30", section.maxHitValue.getText());
 		});

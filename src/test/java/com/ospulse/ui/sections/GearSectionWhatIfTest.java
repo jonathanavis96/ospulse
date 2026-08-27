@@ -251,7 +251,7 @@ public class GearSectionWhatIfTest
 					break;
 				}
 			}
-			section.pickItemForTest(idx);
+			section.applyOverride(section.searchOpenForSlot, section.filteredItems.get(idx).itemId()); section.closeItemSearch();
 
 			// Override recorded; search closes.
 			assertEquals(DRAGON_SCIMITAR, section.override.itemIdFor(3));
@@ -308,7 +308,7 @@ public class GearSectionWhatIfTest
 
 			section.toggleItemSearch(3);
 			section.itemSearchField.setText("dragon scimitar");
-			section.pickItemForTest(0);
+			section.applyOverride(section.searchOpenForSlot, section.filteredItems.get(0).itemId()); section.closeItemSearch();
 			assertFalse(section.override.isEmpty());
 
 			section.resetAllOverrides();
@@ -344,7 +344,7 @@ public class GearSectionWhatIfTest
 				}
 			}
 			assertTrue(kiteshieldIdx >= 0);
-			section.pickItemForTest(kiteshieldIdx);
+			section.applyOverride(section.searchOpenForSlot, section.filteredItems.get(kiteshieldIdx).itemId()); section.closeItemSearch();
 			assertTrue(section.override.hasOverride(5));
 
 			// Now override the weapon with a 2H bow — must clear the shield override.
@@ -360,7 +360,7 @@ public class GearSectionWhatIfTest
 				}
 			}
 			assertTrue(twistedBowIdx >= 0);
-			section.pickItemForTest(twistedBowIdx);
+			section.applyOverride(section.searchOpenForSlot, section.filteredItems.get(twistedBowIdx).itemId()); section.closeItemSearch();
 
 			assertEquals(TWISTED_BOW, section.override.itemIdFor(3));
 			// A 2H weapon EMPTIES the shield slot (so a live shield would drop too),
@@ -392,7 +392,7 @@ public class GearSectionWhatIfTest
 				}
 			}
 			assertTrue(kiteshieldIdx >= 0);
-			section.pickItemForTest(kiteshieldIdx);
+			section.applyOverride(section.searchOpenForSlot, section.filteredItems.get(kiteshieldIdx).itemId()); section.closeItemSearch();
 
 			assertEquals(RUNE_KITESHIELD, section.override.itemIdFor(5));
 			// Equipping a shield over a LIVE 2H weapon must EMPTY the weapon slot —

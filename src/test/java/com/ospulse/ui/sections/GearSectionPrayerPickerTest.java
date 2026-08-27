@@ -167,7 +167,7 @@ public class GearSectionPrayerPickerTest
 	private static void selectMagicTarget(GearSection section)
 	{
 		section.apply(snapshotWith(magicGear()));
-		section.selectTargetForTest(Monster.builder().name("Cerberus").hitpoints(1).build());
+		section.selectedMonster = Monster.builder().name("Cerberus").hitpoints(1).build(); section.rankAndRender();
 	}
 
 	// ---- reflection seams: buildVariantPopup/loadVariants/saveVariant generalization

@@ -226,7 +226,7 @@ public class GearSectionGearPoolTest
 			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
 			section.apply(snapshotWith(gearFor(ids), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0"); // no budget: only owned items can be picked
+			GearSectionTestOps.setBudgetText(section, "0"); // no budget: only owned items can be picked
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -316,9 +316,9 @@ public class GearSectionGearPoolTest
 			section.apply(snapshotWith(gearFor(ids), wealth));
 			pickChaosElemental(section);  // Wilderness target — the risk cap is now gated to these (issue #11)
 
-			section.setBudgetTextForTest("0");               // owned-only: no purchases, only de-risk swaps
+			GearSectionTestOps.setBudgetText(section, "0");               // owned-only: no purchases, only de-risk swaps
 			section.expensiveCountField.setText("1");        // exactly one expensive item allowed
-			section.setExpensiveThresholdTextForTest("1m");   // whip/both Masori forms exceed this; the scimitar doesn't
+			GearSectionTestOps.setExpensiveThresholdText(section, "1m");   // whip/both Masori forms exceed this; the scimitar doesn't
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -359,7 +359,7 @@ public class GearSectionGearPoolTest
 			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("50m");
+			GearSectionTestOps.setBudgetText(section, "50m");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -386,7 +386,7 @@ public class GearSectionGearPoolTest
 			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("50m");
+			GearSectionTestOps.setBudgetText(section, "50m");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -505,7 +505,7 @@ public class GearSectionGearPoolTest
 				fakeResolver(prices, untradeable));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
-			section.setBudgetTextForTest("50m");
+			GearSectionTestOps.setBudgetText(section, "50m");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -609,7 +609,7 @@ public class GearSectionGearPoolTest
 			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("50m");
+			GearSectionTestOps.setBudgetText(section, "50m");
 			section.runOptimizerSyncForTest();
 
 			GearOptimizer.Result result = section.lastOptimizerResult;

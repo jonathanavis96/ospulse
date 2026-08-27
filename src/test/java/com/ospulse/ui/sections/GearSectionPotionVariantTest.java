@@ -195,12 +195,12 @@ public class GearSectionPotionVariantTest
 			section.apply(snapshotWith(gearWithWeapon(GHRAZI_RAPIER)));
 			pickCerberus(section);
 
-			section.pickPotionVariantForTest(CombatStyle.STAB, CombatIcons.BoostPotion.SUPER_STRENGTH);
+			section.potionVariantByStyle.put(GearSection.styleKeyFor(CombatStyle.STAB), CombatIcons.BoostPotion.SUPER_STRENGTH); section.saveVariant("potionVariant", GearSection.styleKeyFor(CombatStyle.STAB), CombatIcons.BoostPotion.SUPER_STRENGTH); section.rankAndRender();
 			assertEquals(CombatIcons.BoostPotion.SUPER_STRENGTH,
 				section.effectivePotionFor(CombatStyle.STAB));
 
 			// Re-ranking (e.g. a new target) must not silently drop the pick.
-			section.pickPotionVariantForTest(CombatStyle.STAB, CombatIcons.BoostPotion.SUPER_STRENGTH);
+			section.potionVariantByStyle.put(GearSection.styleKeyFor(CombatStyle.STAB), CombatIcons.BoostPotion.SUPER_STRENGTH); section.saveVariant("potionVariant", GearSection.styleKeyFor(CombatStyle.STAB), CombatIcons.BoostPotion.SUPER_STRENGTH); section.rankAndRender();
 			assertEquals(CombatIcons.BoostPotion.SUPER_STRENGTH,
 				section.effectivePotionFor(CombatStyle.STAB));
 		});
@@ -215,7 +215,7 @@ public class GearSectionPotionVariantTest
 			section.apply(snapshotWith(gearWithWeapon(TWISTED_BOW)));
 			pickCerberus(section);
 
-			section.pickPotionVariantForTest(CombatStyle.RANGED, CombatIcons.BoostPotion.BASTION);
+			section.potionVariantByStyle.put(GearSection.styleKeyFor(CombatStyle.RANGED), CombatIcons.BoostPotion.BASTION); section.saveVariant("potionVariant", GearSection.styleKeyFor(CombatStyle.RANGED), CombatIcons.BoostPotion.BASTION); section.rankAndRender();
 			assertEquals(CombatIcons.BoostPotion.BASTION, section.effectivePotionFor(CombatStyle.RANGED));
 
 			// Melee/magic style defaults are untouched by a ranged-only pick.

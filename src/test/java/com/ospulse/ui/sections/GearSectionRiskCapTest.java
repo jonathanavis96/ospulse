@@ -123,7 +123,7 @@ public class GearSectionRiskCapTest
 	 */
 	private static void selectTarget(GearSection section, Monster monster)
 	{
-		section.selectTargetForTest(monster);
+		section.selectedMonster = monster; section.rankAndRender();
 	}
 
 	@Test

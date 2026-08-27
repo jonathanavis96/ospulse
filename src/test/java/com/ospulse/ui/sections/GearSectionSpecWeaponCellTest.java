@@ -505,8 +505,8 @@ public class GearSectionSpecWeaponCellTest
 			SpecWeapon claws = specWeaponByItemId(DRAGON_CLAWS); // two-handed (isTwoHanded=true in equipment_index.min.json); own str bonus 56
 			SpecWeapon dagger = specWeaponByItemId(DRAGON_DAGGER); // one-handed; own str bonus 40
 
-			EquipmentStats clawsStats = section.swappedEquipmentStatsForTest(claws);
-			EquipmentStats daggerStats = section.swappedEquipmentStatsForTest(dagger);
+			EquipmentStats clawsStats = GearSection.swappedEquipmentStats(com.ospulse.combat.optimizer.WhatIfLoadout.effectiveItemIds(section.lastGear.equippedItemIds(), section.override), claws, section.currentBlowpipeDart().rangedStrength());
+			EquipmentStats daggerStats = GearSection.swappedEquipmentStats(com.ospulse.combat.optimizer.WhatIfLoadout.effectiveItemIds(section.lastGear.equippedItemIds(), section.override), dagger, section.currentBlowpipeDart().rangedStrength());
 
 			assertEquals("a two-handed candidate must NOT inherit the equipped shield's strength bonus",
 				56, clawsStats.str()); // Dragon claws' own str bonus only, no +8 from the shield
@@ -581,7 +581,7 @@ public class GearSectionSpecWeaponCellTest
 			section.apply(snapshotWith(gearWielding(TOXIC_BLOWPIPE), null));
 
 			SpecWeapon blowpipe = specWeaponByItemId(TOXIC_BLOWPIPE);
-			EquipmentStats stats = section.swappedEquipmentStatsForTest(blowpipe);
+			EquipmentStats stats = GearSection.swappedEquipmentStats(com.ospulse.combat.optimizer.WhatIfLoadout.effectiveItemIds(section.lastGear.equippedItemIds(), section.override), blowpipe, section.currentBlowpipeDart().rangedStrength());
 
 			int blowpipeOwnRstr = EquipmentStatsRepository.getInstance().statsFor(TOXIC_BLOWPIPE).rstr();
 			assertEquals("test assumes the bundled Toxic blowpipe rstr — if this fails the bundled data changed",
@@ -601,7 +601,7 @@ public class GearSectionSpecWeaponCellTest
 			section.apply(snapshotWith(gearWielding(TOXIC_BLOWPIPE), null));
 
 			SpecWeapon blowpipe = specWeaponByItemId(TOXIC_BLOWPIPE);
-			EquipmentStats stats = section.swappedEquipmentStatsForTest(blowpipe);
+			EquipmentStats stats = GearSection.swappedEquipmentStats(com.ospulse.combat.optimizer.WhatIfLoadout.effectiveItemIds(section.lastGear.equippedItemIds(), section.override), blowpipe, section.currentBlowpipeDart().rangedStrength());
 
 			int blowpipeOwnRstr = EquipmentStatsRepository.getInstance().statsFor(TOXIC_BLOWPIPE).rstr();
 			assertEquals(blowpipeOwnRstr + BlowpipeDart.DRAGON.rangedStrength(), stats.rstr());

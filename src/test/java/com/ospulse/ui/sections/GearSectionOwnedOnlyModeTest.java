@@ -166,8 +166,8 @@ public class GearSectionOwnedOnlyModeTest
 			ConfigManager configManager = mockConfigManager("true");
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
 
-			section.setBudgetTextForTest("50");
-			section.setBudgetUnitMillionsForTest(true);
+			GearSectionTestOps.setBudgetText(section, "50");
+			section.budgetMToggle.setSelected(true); section.budgetKToggle.setSelected(!true);
 
 			assertEquals("owned-only mode must force the optimiser's request budget to 0",
 				0L, section.resolvedBudget());
@@ -184,8 +184,8 @@ public class GearSectionOwnedOnlyModeTest
 			ConfigManager configManager = mockConfigManager("false");
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
 
-			section.setBudgetTextForTest("50");
-			section.setBudgetUnitMillionsForTest(true);
+			GearSectionTestOps.setBudgetText(section, "50");
+			section.budgetMToggle.setSelected(true); section.budgetKToggle.setSelected(!true);
 
 			assertEquals(50_000_000L, section.resolvedBudget());
 			assertEquals(50_000_000L, section.storedBudget());
@@ -200,8 +200,8 @@ public class GearSectionOwnedOnlyModeTest
 			ConfigManager configManager = mockConfigManager("true");
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
 
-			section.setBudgetTextForTest("50");
-			section.setBudgetUnitMillionsForTest(true);
+			GearSectionTestOps.setBudgetText(section, "50");
+			section.budgetMToggle.setSelected(true); section.budgetKToggle.setSelected(!true);
 			assertEquals("mode ON: request budget forced to 0", 0L, section.resolvedBudget());
 
 			// Toggle the mode off (e.g. the user unticks the RuneLite plugin
@@ -234,7 +234,7 @@ public class GearSectionOwnedOnlyModeTest
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			assertTrue("a usable result must still show the result panel",
@@ -271,7 +271,7 @@ public class GearSectionOwnedOnlyModeTest
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			assertTrue(section.resultPanel.isVisible());
@@ -301,7 +301,7 @@ public class GearSectionOwnedOnlyModeTest
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			assertTrue("sanity: budget column visible before the config change",
@@ -342,8 +342,8 @@ public class GearSectionOwnedOnlyModeTest
 			ConfigManager configManager = mockConfigManager("true");
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
 
-			section.setBudgetTextForTest("50");
-			section.setBudgetUnitMillionsForTest(true);
+			GearSectionTestOps.setBudgetText(section, "50");
+			section.budgetMToggle.setSelected(true); section.budgetKToggle.setSelected(!true);
 			assertEquals("sanity: still forced to 0 while on", 0L, section.resolvedBudget());
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
@@ -403,7 +403,7 @@ public class GearSectionOwnedOnlyModeTest
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			// Sanity: a real result/preview exists before the mode flips on —
@@ -500,7 +500,7 @@ public class GearSectionOwnedOnlyModeTest
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 
 			// Capture the generation an in-flight search would have been
 			// stamped with, and a real usable result to stand in for it —

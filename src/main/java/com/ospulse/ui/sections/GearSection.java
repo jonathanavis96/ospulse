@@ -449,7 +449,7 @@ public final class GearSection extends CollapsibleSection
 	 * are cosmetic-only (see {@link CombatIcons.BoostPotion} javadoc) — the
 	 * melee/ranged entries only drive which icon/tooltip is shown.
 	 */
-	private final Map<String, CombatIcons.BoostPotion> potionVariantByStyle = new HashMap<>();
+	final Map<String, CombatIcons.BoostPotion> potionVariantByStyle = new HashMap<>();
 	/**
 	 * The offensive prayer the right-click swap menu has picked, PER combat
 	 * style (same keys as {@link #potionVariantByStyle} — see {@link
@@ -492,16 +492,16 @@ public final class GearSection extends CollapsibleSection
 	/** Owned-item values (worn + top holdings incl. bank), refreshed each {@link #apply}; source for the optimiser's owned pool + GE prices. */
 	private WealthSnapshot lastWealth;
 	/** Budget's numeric entry (unit picked by {@link #budgetKToggle}/{@link #budgetMToggle}) — see {@link #resolvedBudget}. */
-	private final javax.swing.JTextField budgetField;
-	private final JToggleButton budgetKToggle;
-	private final JToggleButton budgetMToggle;
+	final javax.swing.JTextField budgetField;
+	final JToggleButton budgetKToggle;
+	final JToggleButton budgetMToggle;
 	/** Gold-pile badge showing the resolved budget (e.g. "50M") magnitude-coloured over its top-left — see {@link #updateBudgetDisplay}. */
 	private CoinPileBadge budgetBadge;
 	/** "Expensive items to allow" count (wilderness/PvP) — plumbed into {@link GearOptimizer.Request#expensiveItemCount()} and enforced by the search (caps items worth strictly more than the threshold). */
 	final javax.swing.JTextField expensiveCountField;
 	/** GP value strictly above which an item counts as "expensive" (a price exactly at this value is within the ceiling) — see {@link #expensiveCountField}. */
 	final javax.swing.JTextField expensiveThresholdField;
-	private final JToggleButton expensiveThresholdKToggle;
+	final JToggleButton expensiveThresholdKToggle;
 	final JToggleButton expensiveThresholdMToggle;
 	/**
 	 * "Any target" — opts the expensive-item risk cap back in for targets the
@@ -2122,7 +2122,7 @@ public final class GearSection extends CollapsibleSection
 	 * the classic ranked attack-style view. The single entry point whenever
 	 * gear, target, boosts or the spellbook tab change.
 	 */
-	private void rankAndRender()
+	void rankAndRender()
 	{
 		styleRows.clear();
 		spellRows.clear();
@@ -2282,7 +2282,7 @@ public final class GearSection extends CollapsibleSection
 	 * stronger than their real loadout and can wrongly outrank another owned
 	 * spec.
 	 */
-	private static EquipmentStats swappedEquipmentStats(int[] liveItemIds, SpecWeapon weapon, int blowpipeDartRangedStrength)
+	static EquipmentStats swappedEquipmentStats(int[] liveItemIds, SpecWeapon weapon, int blowpipeDartRangedStrength)
 	{
 		int[] swapped = liveItemIds.clone();
 		swapped[WhatIfLoadout.WEAPON_SLOT] = weapon.itemId();
@@ -2292,23 +2292,6 @@ public final class GearSection extends CollapsibleSection
 		}
 		return GearMapper.buildEquipmentStats(swapped, WhatIfLoadout.WEAPON_SLOT, BundledSlotStatsLookup.INSTANCE,
 			blowpipeDartRangedStrength);
-	}
-
-	/**
-	 * Test seam (PR #25 finding 3): the {@link EquipmentStats} {@link
-	 * #updateSpecWeaponCell} would score {@code weapon} against, given the
-	 * CURRENT live/what-if loadout — lets a test assert directly on the
-	 * resulting bonuses (e.g. that an equipped shield's strength bonus is
-	 * excluded for a two-handed candidate) without depending on a specific
-	 * ranking outcome through the full DPS pipeline. Mirrors {@link
-	 * #updateSpecWeaponCell}'s own use of {@link #currentBlowpipeDart} so a
-	 * blowpipe candidate is scored the exact same way here as it would be
-	 * live.
-	 */
-	EquipmentStats swappedEquipmentStatsForTest(SpecWeapon weapon)
-	{
-		int[] baseItemIds = WhatIfLoadout.effectiveItemIds(lastGear.equippedItemIds(), override);
-		return swappedEquipmentStats(baseItemIds, weapon, currentBlowpipeDart().rangedStrength());
 	}
 
 	/**
@@ -3160,7 +3143,7 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/** Stable config-key fragment per style ("melee"/"ranged"/"magic"), or {@code null} for a style with no swappable variant. */
-	private static String styleKeyFor(CombatStyle style)
+	static String styleKeyFor(CombatStyle style)
 	{
 		if (style == null)
 		{
@@ -3216,7 +3199,7 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/** Persists one style's right-click swap-menu pick ({@code keyPrefix} is {@code "potionVariant"} or {@code "prayerVariant"}) so it survives a client restart. */
-	private void saveVariant(String keyPrefix, String styleKey, Enum<?> value)
+	void saveVariant(String keyPrefix, String styleKey, Enum<?> value)
 	{
 		if (configManager == null)
 		{
@@ -3598,7 +3581,7 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/** Closes the item picker (search row + icon grid) — the X button, re-clicking the same slot, or picking an item all route here. */
-	private void closeItemSearch()
+	void closeItemSearch()
 	{
 		searchOpenForSlot = -1;
 		itemSearchRow.setVisible(false);
@@ -6326,12 +6309,6 @@ public final class GearSection extends CollapsibleSection
 
 
 
-	/** Simulates picking the item at {@code index} in the currently-open item search result list. */
-	void pickItemForTest(int index)
-	{
-		applyOverride(searchOpenForSlot, filteredItems.get(index).itemId());
-		closeItemSearch();
-	}
 
 
 
@@ -6400,26 +6377,6 @@ public final class GearSection extends CollapsibleSection
 	 * written against the pre-redesign single-field contract keep working
 	 * unchanged. Mirrors {@link #parseUnitAmount}'s suffix convention.
 	 */
-	void setBudgetTextForTest(String text)
-	{
-		String trimmed = text == null ? "" : text.trim();
-		String lower = trimmed.toLowerCase(Locale.ROOT);
-		if (lower.endsWith("m"))
-		{
-			budgetField.setText(trimmed.substring(0, trimmed.length() - 1));
-			budgetMToggle.setSelected(true);
-		}
-		else if (lower.endsWith("k"))
-		{
-			budgetField.setText(trimmed.substring(0, trimmed.length() - 1));
-			budgetKToggle.setSelected(true);
-		}
-		else
-		{
-			budgetField.setText(trimmed);
-		}
-	}
-
 	/**
 	 * Runs the optimizer SYNCHRONOUSLY for tests (bypassing the real
 	 * {@code SwingWorker}, whose background thread + {@code invokeLater}
@@ -6541,33 +6498,6 @@ public final class GearSection extends CollapsibleSection
 
 
 
-	/** Mirrors {@link #setBudgetTextForTest} for the expensive-threshold field's own K/M toggle. */
-	void setExpensiveThresholdTextForTest(String text)
-	{
-		String trimmed = text == null ? "" : text.trim();
-		String lower = trimmed.toLowerCase(Locale.ROOT);
-		if (lower.endsWith("m"))
-		{
-			expensiveThresholdField.setText(trimmed.substring(0, trimmed.length() - 1));
-			expensiveThresholdMToggle.setSelected(true);
-		}
-		else if (lower.endsWith("k"))
-		{
-			expensiveThresholdField.setText(trimmed.substring(0, trimmed.length() - 1));
-			expensiveThresholdKToggle.setSelected(true);
-		}
-		else
-		{
-			expensiveThresholdField.setText(trimmed);
-		}
-	}
-
-	void setBudgetUnitMillionsForTest(boolean millions)
-	{
-		budgetMToggle.setSelected(millions);
-		budgetKToggle.setSelected(!millions);
-	}
-
 	// ------------------------------- item #6e/#6g optimiser-style test seams
 
 
@@ -6628,11 +6558,6 @@ public final class GearSection extends CollapsibleSection
 	 * without driving {@link #monsterList} through Swing. No existing seam
 	 * accepted an arbitrary {@link Monster} directly, so this one was added.
 	 */
-	void selectTargetForTest(Monster monster)
-	{
-		selectedMonster = monster;
-		rankAndRender();
-	}
 
 
 
@@ -6693,15 +6618,6 @@ public final class GearSection extends CollapsibleSection
 
 
 
-	List<WeaponStyle> rankedStylesForTest()
-	{
-		List<WeaponStyle> out = new ArrayList<>(styleRows.size());
-		for (StyleRow row : styleRows)
-		{
-			out.add(row.style);
-		}
-		return out;
-	}
 
 
 
@@ -6748,23 +6664,6 @@ public final class GearSection extends CollapsibleSection
 
 
 
-	/** Simulates right-clicking the potion toggle and picking a magic potion variant from the swap menu. */
-	void pickMagicPotionVariantForTest(CombatIcons.BoostPotion variant)
-	{
-		potionVariantByStyle.put(styleKeyFor(CombatStyle.MAGIC), variant);
-		saveVariant("potionVariant", styleKeyFor(CombatStyle.MAGIC), variant);
-		rankAndRender();
-	}
-
-
-	/** Simulates right-clicking the potion toggle and picking {@code variant} for {@code style} from the swap menu. */
-	void pickPotionVariantForTest(CombatStyle style, CombatIcons.BoostPotion variant)
-	{
-		String key = styleKeyFor(style);
-		potionVariantByStyle.put(key, variant);
-		saveVariant("potionVariant", key, variant);
-		rankAndRender();
-	}
 
 
 	/** Rebuilds and returns the right-click swap menu's current item labels for the currently selected style (test seam — mirrors what a real right-click would show). */
