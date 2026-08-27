@@ -59,7 +59,7 @@ Bundled data is refreshed from a regeneration script so it doesn't fall behind g
 
 ## Building from source
 
-Requires a JDK 17+ to build (the plugin targets Java 11 at runtime).
+Requires a JDK 11+ to build (the plugin targets Java 11 at runtime; `options.release.set(11)` in `build.gradle`, and the build has been verified clean on Temurin 11.0.31).
 
 ```bash
 # Compile and run the unit tests
