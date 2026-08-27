@@ -6370,14 +6370,6 @@ public final class GearSection extends CollapsibleSection
 	// --------------------------------------- Phase 3 optimiser test seams
 
 	/**
-	 * Test seam accepting the OLD single-field "10m"/"500k"/"0" shape
-	 * {@link #parseBudget} has always parsed, splitting it into the new
-	 * numeric-field + K/M-toggle pair ({@link #budgetField} +
-	 * {@link #budgetKToggle}/{@link #budgetMToggle}) so existing tests
-	 * written against the pre-redesign single-field contract keep working
-	 * unchanged. Mirrors {@link #parseUnitAmount}'s suffix convention.
-	 */
-	/**
 	 * Runs the optimizer SYNCHRONOUSLY for tests (bypassing the real
 	 * {@code SwingWorker}, whose background thread + {@code invokeLater}
 	 * hand-off is awkward to await deterministically in a headless test) by
