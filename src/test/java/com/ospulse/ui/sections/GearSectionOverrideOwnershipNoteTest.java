@@ -132,10 +132,10 @@ public class GearSectionOverrideOwnershipNoteTest
 
 	private static void pickMonster(GearSection section, String name)
 	{
-		section.searchFieldForTest().setText(name);
-		int index = indexOfContaining(section.monsterListForTest().getModel(), name);
+		section.monsterSearchField.setText(name);
+		int index = indexOfContaining(section.monsterList.getModel(), name);
 		assertTrue(name + " must appear in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
+		section.monsterList.setSelectedIndex(index);
 	}
 
 	@Test

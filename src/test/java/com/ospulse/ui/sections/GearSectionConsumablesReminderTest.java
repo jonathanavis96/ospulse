@@ -127,18 +127,18 @@ public class GearSectionConsumablesReminderTest
 	 */
 	private static void pickMonsterExact(GearSection section, String name)
 	{
-		section.searchFieldForTest().setText(name);
-		int index = indexOfExact(section.monsterListForTest().getModel(), name);
+		section.monsterSearchField.setText(name);
+		int index = indexOfExact(section.monsterList.getModel(), name);
 		assertTrue(name + " must appear exactly in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
+		section.monsterList.setSelectedIndex(index);
 	}
 
 	private static void pickMonster(GearSection section, String name)
 	{
-		section.searchFieldForTest().setText(name);
-		int index = indexOfContaining(section.monsterListForTest().getModel(), name);
+		section.monsterSearchField.setText(name);
+		int index = indexOfContaining(section.monsterList.getModel(), name);
 		assertTrue(name + " must appear in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
+		section.monsterList.setSelectedIndex(index);
 	}
 
 	@Test
@@ -150,8 +150,8 @@ public class GearSectionConsumablesReminderTest
 			section.apply(emptyGearSnapshot());
 			pickMonster(section, "Zulrah (Serpentine)");
 
-			assertTrue("Zulrah must show its consumables reminder", section.consumablesReminderVisibleForTest());
-			List<String> notes = section.consumablesReminderNoteTextsForTest();
+			assertTrue("Zulrah must show its consumables reminder", section.consumablesReminderPanel.isVisible());
+			List<String> notes = section.consumablesReminderPanel.noteTextsForTest();
 			assertEquals(1, notes.size());
 			assertTrue("must mention antivenom: " + notes.get(0),
 				notes.get(0).toLowerCase(Locale.ROOT).contains("antivenom"));
@@ -172,9 +172,9 @@ public class GearSectionConsumablesReminderTest
 			pickMonster(section, "Cow");
 
 			assertFalse("a monster with no curated reminder must not show the panel",
-				section.consumablesReminderVisibleForTest());
+				section.consumablesReminderPanel.isVisible());
 			assertTrue("no advisory text must be rendered",
-				section.consumablesReminderNoteTextsForTest().isEmpty());
+				section.consumablesReminderPanel.noteTextsForTest().isEmpty());
 		});
 	}
 
@@ -188,11 +188,11 @@ public class GearSectionConsumablesReminderTest
 			section.apply(emptyGearSnapshot());
 
 			pickMonster(section, "Zulrah");
-			assertTrue(section.consumablesReminderVisibleForTest());
+			assertTrue(section.consumablesReminderPanel.isVisible());
 
 			pickMonster(section, "Cow");
 			assertFalse("must clear once a target with no reminder is picked",
-				section.consumablesReminderVisibleForTest());
+				section.consumablesReminderPanel.isVisible());
 		});
 	}
 
@@ -219,14 +219,14 @@ public class GearSectionConsumablesReminderTest
 			{
 				pickMonster(section, monster);
 				assertFalse(monster + " must yield at least one bank consumable item id",
-					section.bankConsumableItemIdsForTest().isEmpty());
+					section.bankConsumableIds().isEmpty());
 			}
 			// "Nex" needs an exact match — the substring "nex" also matches
 			// "Blood Reaver (Nex's chamber)", which can sort ahead of "Nex"
 			// alphabetically and get picked instead by a contains-based lookup.
 			pickMonsterExact(section, "Nex");
 			assertFalse("Nex must yield at least one bank consumable item id",
-				section.bankConsumableItemIdsForTest().isEmpty());
+				section.bankConsumableIds().isEmpty());
 		});
 	}
 
@@ -240,7 +240,7 @@ public class GearSectionConsumablesReminderTest
 			section.apply(emptyGearSnapshot());
 			pickMonster(section, "Zulrah");
 
-			List<Integer> ids = section.bankConsumableItemIdsForTest();
+			List<Integer> ids = section.bankConsumableIds();
 			assertTrue("must include the serpentine helm (12931)", ids.contains(12931));
 			assertTrue("must include an antivenom+/extended antivenom+ dose",
 				ids.contains(12913) || ids.contains(29824));
@@ -265,7 +265,7 @@ public class GearSectionConsumablesReminderTest
 			section.apply(emptyGearSnapshot());
 			pickMonster(section, "Vorkath (Post-quest)");
 
-			List<Integer> ids = section.bankConsumableItemIdsForTest();
+			List<Integer> ids = section.bankConsumableIds();
 			List<Integer> expectedEquipment = Arrays.asList(1540, 11710, 11283, 11284, 22002, 22003);
 			List<Integer> expectedConsumables = Arrays.asList(
 				21978, 21981, 21984, 21987, 22209, 22212, 22215, 22218,

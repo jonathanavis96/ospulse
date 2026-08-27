@@ -131,10 +131,10 @@ public class GearSectionOwnedOnlyModeTest
 
 	private static void pickCerberus(GearSection section)
 	{
-		section.searchFieldForTest().setText("cerberus");
-		int index = indexOf(section.monsterListForTest().getModel(), "Cerberus");
+		section.monsterSearchField.setText("cerberus");
+		int index = indexOf(section.monsterList.getModel(), "Cerberus");
 		assertTrue("Cerberus must appear in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
+		section.monsterList.setSelectedIndex(index);
 	}
 
 	/**
@@ -166,13 +166,13 @@ public class GearSectionOwnedOnlyModeTest
 			ConfigManager configManager = mockConfigManager("true");
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
 
-			section.setBudgetTextForTest("50");
-			section.setBudgetUnitMillionsForTest(true);
+			GearSectionTestOps.setBudgetText(section, "50");
+			section.budgetMToggle.setSelected(true); section.budgetKToggle.setSelected(!true);
 
 			assertEquals("owned-only mode must force the optimiser's request budget to 0",
-				0L, section.resolvedBudgetForTest());
+				0L, section.resolvedBudget());
 			assertEquals("the user's stored/typed budget must be untouched by owned-only mode",
-				50_000_000L, section.storedBudgetForTest());
+				50_000_000L, section.storedBudget());
 		});
 	}
 
@@ -184,11 +184,11 @@ public class GearSectionOwnedOnlyModeTest
 			ConfigManager configManager = mockConfigManager("false");
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
 
-			section.setBudgetTextForTest("50");
-			section.setBudgetUnitMillionsForTest(true);
+			GearSectionTestOps.setBudgetText(section, "50");
+			section.budgetMToggle.setSelected(true); section.budgetKToggle.setSelected(!true);
 
-			assertEquals(50_000_000L, section.resolvedBudgetForTest());
-			assertEquals(50_000_000L, section.storedBudgetForTest());
+			assertEquals(50_000_000L, section.resolvedBudget());
+			assertEquals(50_000_000L, section.storedBudget());
 		});
 	}
 
@@ -200,9 +200,9 @@ public class GearSectionOwnedOnlyModeTest
 			ConfigManager configManager = mockConfigManager("true");
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
 
-			section.setBudgetTextForTest("50");
-			section.setBudgetUnitMillionsForTest(true);
-			assertEquals("mode ON: request budget forced to 0", 0L, section.resolvedBudgetForTest());
+			GearSectionTestOps.setBudgetText(section, "50");
+			section.budgetMToggle.setSelected(true); section.budgetKToggle.setSelected(!true);
+			assertEquals("mode ON: request budget forced to 0", 0L, section.resolvedBudget());
 
 			// Toggle the mode off (e.g. the user unticks the RuneLite plugin
 			// setting) — resolvedBudget() is a LIVE read (see GearSection#ironmanOwnedOnlyPref),
@@ -212,8 +212,8 @@ public class GearSectionOwnedOnlyModeTest
 				.thenReturn("false");
 
 			assertEquals("mode OFF: the stored 50M budget must be restored exactly, unmutated",
-				50_000_000L, section.resolvedBudgetForTest());
-			assertEquals(50_000_000L, section.storedBudgetForTest());
+				50_000_000L, section.resolvedBudget());
+			assertEquals(50_000_000L, section.storedBudget());
 		});
 	}
 
@@ -228,33 +228,33 @@ public class GearSectionOwnedOnlyModeTest
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
 
 			assertFalse("budget column must be hidden outright in owned-only mode",
-				section.budgetColumnForTest().isVisible());
+				section.budgetColumn.isVisible());
 			assertTrue("risk column must stay reachable for ironmen (issue #11)",
-				section.riskColumnForTest().isVisible());
+				section.riskColumn.isVisible());
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			assertTrue("a usable result must still show the result panel",
-				section.optimizerResultVisibleForTest());
+				section.resultPanel.isVisible());
 
-			assertFalse("'Best DPS found' row must hide", section.optimizerDpsRowVisibleForTest());
-			assertFalse("'vs owned-only' row must hide", section.optimizerDeltaRowVisibleForTest());
-			assertFalse("'Total spend' row must hide", section.optimizerSpendRowVisibleForTest());
-			assertFalse("'DPS per gp spent' row must hide", section.optimizerDpsPerGpRowVisibleForTest());
-			assertFalse("the swap list + heading must hide", section.optimizerSwapListVisibleForTest());
+			assertFalse("'Best DPS found' row must hide", section.statRow(section.resultDps).isVisible());
+			assertFalse("'vs owned-only' row must hide", section.statRow(section.resultDelta).isVisible());
+			assertFalse("'Total spend' row must hide", section.statRow(section.resultSpend).isVisible());
+			assertFalse("'DPS per gp spent' row must hide", section.statRow(section.resultDpsPerGp).isVisible());
+			assertFalse("the swap list + heading must hide", section.swapList.isVisible() && section.swapListHeading.isVisible());
 
 			// Regression guard for the setOptimizerStatRowsVisible split.
 			assertTrue("'Optimised for' must stay visible — it describes the pick, not an upgrade",
-				section.optimizerStyleRowVisibleForTest());
+				section.statRow(section.resultStyle).isVisible());
 			assertTrue("the 'Best setup for this target' heading must stay visible",
-				section.optimizerHeadingVisibleForTest());
+				section.optimizerHeading.isVisible());
 			assertTrue("the style selector must stay visible",
-				section.optimizerStyleSelectorVisibleForTest());
+				section.styleSelectorPanel.isVisible());
 			assertTrue("the visible 'Find Best' grid button must stay visible",
-				section.findBestSetupGridButtonForTest().isVisible());
+				section.findBestGridButton.isVisible());
 		});
 	}
 
@@ -267,25 +267,25 @@ public class GearSectionOwnedOnlyModeTest
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
 
 			assertTrue("budget column must be visible when owned-only mode is off",
-				section.budgetColumnForTest().isVisible());
+				section.budgetColumn.isVisible());
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
-			assertTrue(section.optimizerResultVisibleForTest());
+			assertTrue(section.resultPanel.isVisible());
 
-			assertTrue("'Best DPS found' row must be visible", section.optimizerDpsRowVisibleForTest());
-			assertTrue("'vs owned-only' row must be visible", section.optimizerDeltaRowVisibleForTest());
-			assertTrue("'Total spend' row must be visible", section.optimizerSpendRowVisibleForTest());
-			assertTrue("'DPS per gp spent' row must be visible", section.optimizerDpsPerGpRowVisibleForTest());
-			assertTrue("the swap list + heading must be visible", section.optimizerSwapListVisibleForTest());
+			assertTrue("'Best DPS found' row must be visible", section.statRow(section.resultDps).isVisible());
+			assertTrue("'vs owned-only' row must be visible", section.statRow(section.resultDelta).isVisible());
+			assertTrue("'Total spend' row must be visible", section.statRow(section.resultSpend).isVisible());
+			assertTrue("'DPS per gp spent' row must be visible", section.statRow(section.resultDpsPerGp).isVisible());
+			assertTrue("the swap list + heading must be visible", section.swapList.isVisible() && section.swapListHeading.isVisible());
 
-			assertTrue(section.optimizerStyleRowVisibleForTest());
-			assertTrue(section.optimizerHeadingVisibleForTest());
-			assertTrue(section.optimizerStyleSelectorVisibleForTest());
-			assertTrue(section.findBestSetupGridButtonForTest().isVisible());
+			assertTrue(section.statRow(section.resultStyle).isVisible());
+			assertTrue(section.optimizerHeading.isVisible());
+			assertTrue(section.styleSelectorPanel.isVisible());
+			assertTrue(section.findBestGridButton.isVisible());
 		});
 	}
 
@@ -301,12 +301,12 @@ public class GearSectionOwnedOnlyModeTest
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			assertTrue("sanity: budget column visible before the config change",
-				section.budgetColumnForTest().isVisible());
-			assertTrue(section.optimizerDpsRowVisibleForTest());
+				section.budgetColumn.isVisible());
+			assertTrue(section.statRow(section.resultDps).isVisible());
 
 			// P2 fix: the panel used to only compute this once, at
 			// construction — refreshIronmanOwnedOnlyMode is the new live
@@ -318,19 +318,19 @@ public class GearSectionOwnedOnlyModeTest
 			section.refreshIronmanOwnedOnlyMode();
 
 			assertFalse("budget column must hide once the config flips on, with no rebuild needed",
-				section.budgetColumnForTest().isVisible());
+				section.budgetColumn.isVisible());
 			assertTrue("risk column must stay reachable for ironmen (issue #11)",
-				section.riskColumnForTest().isVisible());
-			assertFalse(section.optimizerDpsRowVisibleForTest());
-			assertFalse(section.optimizerDeltaRowVisibleForTest());
-			assertFalse(section.optimizerSpendRowVisibleForTest());
-			assertFalse(section.optimizerDpsPerGpRowVisibleForTest());
-			assertFalse(section.optimizerSwapListVisibleForTest());
+				section.riskColumn.isVisible());
+			assertFalse(section.statRow(section.resultDps).isVisible());
+			assertFalse(section.statRow(section.resultDelta).isVisible());
+			assertFalse(section.statRow(section.resultSpend).isVisible());
+			assertFalse(section.statRow(section.resultDpsPerGp).isVisible());
+			assertFalse(section.swapList.isVisible() && section.swapListHeading.isVisible());
 
-			assertTrue("'Optimised for' must stay visible", section.optimizerStyleRowVisibleForTest());
-			assertTrue("the heading must stay visible", section.optimizerHeadingVisibleForTest());
-			assertTrue("the style selector must stay visible", section.optimizerStyleSelectorVisibleForTest());
-			assertTrue("Find Best must stay visible", section.findBestSetupGridButtonForTest().isVisible());
+			assertTrue("'Optimised for' must stay visible", section.statRow(section.resultStyle).isVisible());
+			assertTrue("the heading must stay visible", section.optimizerHeading.isVisible());
+			assertTrue("the style selector must stay visible", section.styleSelectorPanel.isVisible());
+			assertTrue("Find Best must stay visible", section.findBestGridButton.isVisible());
 		});
 	}
 
@@ -342,35 +342,35 @@ public class GearSectionOwnedOnlyModeTest
 			ConfigManager configManager = mockConfigManager("true");
 			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
 
-			section.setBudgetTextForTest("50");
-			section.setBudgetUnitMillionsForTest(true);
-			assertEquals("sanity: still forced to 0 while on", 0L, section.resolvedBudgetForTest());
+			GearSectionTestOps.setBudgetText(section, "50");
+			section.budgetMToggle.setSelected(true); section.budgetKToggle.setSelected(!true);
+			assertEquals("sanity: still forced to 0 while on", 0L, section.resolvedBudget());
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 			section.runOptimizerSyncForTest();
 
 			assertFalse("budget column must be hidden while owned-only mode is on",
-				section.budgetColumnForTest().isVisible());
+				section.budgetColumn.isVisible());
 			assertTrue("risk column must stay reachable for ironmen (issue #11)",
-				section.riskColumnForTest().isVisible());
-			assertFalse(section.optimizerDpsRowVisibleForTest());
+				section.riskColumn.isVisible());
+			assertFalse(section.statRow(section.resultDps).isVisible());
 
 			Mockito.when(configManager.getRSProfileConfiguration(com.ospulse.OSPulseConfig.GROUP, "ironmanOwnedOnly"))
 				.thenReturn("false");
 			section.refreshIronmanOwnedOnlyMode();
 
 			assertTrue("budget column must return once the config flips off",
-				section.budgetColumnForTest().isVisible());
-			assertTrue(section.optimizerDpsRowVisibleForTest());
-			assertTrue(section.optimizerDeltaRowVisibleForTest());
-			assertTrue(section.optimizerSpendRowVisibleForTest());
-			assertTrue(section.optimizerDpsPerGpRowVisibleForTest());
-			assertTrue(section.optimizerSwapListVisibleForTest());
+				section.budgetColumn.isVisible());
+			assertTrue(section.statRow(section.resultDps).isVisible());
+			assertTrue(section.statRow(section.resultDelta).isVisible());
+			assertTrue(section.statRow(section.resultSpend).isVisible());
+			assertTrue(section.statRow(section.resultDpsPerGp).isVisible());
+			assertTrue(section.swapList.isVisible() && section.swapListHeading.isVisible());
 
 			assertEquals("the stored 50M budget must be restored, not left forced at 0",
-				50_000_000L, section.resolvedBudgetForTest());
-			assertEquals(50_000_000L, section.storedBudgetForTest());
+				50_000_000L, section.resolvedBudget());
+			assertEquals(50_000_000L, section.storedBudget());
 		});
 	}
 
@@ -403,26 +403,26 @@ public class GearSectionOwnedOnlyModeTest
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 			section.runOptimizerSyncForTest();
 
 			// Sanity: a real result/preview exists before the mode flips on —
 			// B8-4's auto-preview already applied it to the what-if override.
 			assertTrue("sanity: a stale result must exist before the flip",
-				section.lastOptimizerResultForTest() != null);
+				section.lastOptimizerResult != null);
 			assertFalse("sanity: the auto-preview must have applied an override",
-				section.overrideForTest().isEmpty());
+				section.override.isEmpty());
 
 			Mockito.when(configManager.getRSProfileConfiguration(com.ospulse.OSPulseConfig.GROUP, "ironmanOwnedOnly"))
 				.thenReturn("true");
 			section.refreshIronmanOwnedOnlyMode();
 
 			assertEquals("the stale optimiser result must be cleared, not just hidden",
-				null, section.lastOptimizerResultForTest());
+				null, section.lastOptimizerResult);
 			assertTrue("the auto-applied what-if override/preview must be cleared",
-				section.overrideForTest().isEmpty());
+				section.override.isEmpty());
 			assertFalse("the stale result panel must be hidden, not left showing unowned gear",
-				section.optimizerResultVisibleForTest());
+				section.resultPanel.isVisible());
 			Mockito.verify(bankHighlighter, Mockito.atLeastOnce()).clear();
 		});
 	}
@@ -449,14 +449,14 @@ public class GearSectionOwnedOnlyModeTest
 			section.runOptimizerSyncForTest();
 
 			assertTrue("sanity: a result exists, computed while already owned-only",
-				section.lastOptimizerResultForTest() != null);
+				section.lastOptimizerResult != null);
 
 			// No config change at all — mirrors a later unrelated refresh call
 			// (e.g. RS-profile-change mirroring) with the mode still ON.
 			section.refreshIronmanOwnedOnlyMode();
 
 			assertTrue("a result computed while owned-only was already on must survive an unrelated refresh",
-				section.lastOptimizerResultForTest() != null);
+				section.lastOptimizerResult != null);
 		});
 	}
 
@@ -500,7 +500,7 @@ public class GearSectionOwnedOnlyModeTest
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0");
+			GearSectionTestOps.setBudgetText(section, "0");
 
 			// Capture the generation an in-flight search would have been
 			// stamped with, and a real usable result to stand in for it —
@@ -508,9 +508,9 @@ public class GearSectionOwnedOnlyModeTest
 			// in-flight search would eventually compute (a real Bronze
 			// sword -> Dragon scimitar upgrade), all while the generation
 			// token hasn't moved yet.
-			int staleGeneration = section.optimizerGenerationForTest();
+			int staleGeneration = section.optimizerGeneration;
 			section.runOptimizerSyncForTest();
-			GearOptimizer.Result staleResult = section.lastOptimizerResultForTest();
+			GearOptimizer.Result staleResult = section.lastOptimizerResult;
 			assertTrue("sanity: a real usable result exists to stand in for the in-flight search",
 				staleResult != null && staleResult.style() != null);
 
@@ -518,9 +518,9 @@ public class GearSectionOwnedOnlyModeTest
 			// mirrors the real race, where price resolution/the SwingWorker
 			// is still running when the flip happens — without touching the
 			// generation token itself.
-			section.clickResetAllForTest();
+			section.resetAllOverrides();
 			assertNull("sanity: nothing installed yet — mirrors the in-flight race",
-				section.lastOptimizerResultForTest());
+				section.lastOptimizerResult);
 			Mockito.clearInvocations(bankHighlighter);
 
 			// The mode flips ON while that search is (simulated) still in
@@ -532,12 +532,12 @@ public class GearSectionOwnedOnlyModeTest
 
 			// The stale search's result finally "lands", stamped with the
 			// generation captured before the flip.
-			section.installOptimizerResultForTest(staleResult, staleGeneration);
+			section.installResultIfCurrent(staleResult, staleGeneration);
 
 			assertNull("a result from before the OFF->ON flip must never be installed",
-				section.lastOptimizerResultForTest());
+				section.lastOptimizerResult);
 			assertTrue("no what-if override may be auto-applied from a stale result",
-				section.overrideForTest().isEmpty());
+				section.override.isEmpty());
 			Mockito.verify(bankHighlighter, Mockito.never()).showInBank(Mockito.anyMap(), Mockito.anyList());
 		});
 	}

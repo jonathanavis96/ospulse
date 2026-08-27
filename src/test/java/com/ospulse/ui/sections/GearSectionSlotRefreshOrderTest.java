@@ -124,11 +124,11 @@ public class GearSectionSlotRefreshOrderTest
 
 	private static void pickMonster(GearSection section, String name)
 	{
-		section.searchFieldForTest().setText(name);
-		int index = indexOfContaining(section.monsterListForTest().getModel(), name);
+		section.monsterSearchField.setText(name);
+		int index = indexOfContaining(section.monsterList.getModel(), name);
 		assertTrue(name + " must appear in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
-		section.updateGearGridForTest();
+		section.monsterList.setSelectedIndex(index);
+		section.updateGearGrid(section.lastGear);
 	}
 
 	/**
@@ -147,7 +147,7 @@ public class GearSectionSlotRefreshOrderTest
 			pickMonster(section, "Kurask");
 
 			assertEquals("the whip gates out every style vs Kurask, so the weapon slot must start red-crossed",
-				GearSection.INVALID_BORDER, section.slotBorderForTest(WhatIfLoadout.WEAPON_SLOT));
+				GearSection.INVALID_BORDER, section.slotLabels[WhatIfLoadout.WEAPON_SLOT].getBorder());
 
 			// The what-if picker's real action — mirrors clicking the leaf-bladed
 			// spear in the item search grid. Now overridden (a what-if pick), the
@@ -155,12 +155,12 @@ public class GearSectionSlotRefreshOrderTest
 			// recommendation border (still crossed out) or the plain
 			// recommendation border alone (not owned here, so OVERRIDE_BORDER) —
 			// the finding 4 bug showed the former; the fix must show the latter.
-			section.applyOverrideForTest(WhatIfLoadout.WEAPON_SLOT, LEAF_BLADED_SPEAR);
+			section.applyOverride(WhatIfLoadout.WEAPON_SLOT, LEAF_BLADED_SPEAR);
 
 			assertEquals("a newly-equipped, genuinely valid weapon must not stay crossed out "
 					+ "against the PREVIOUS weapon's stale (null) style — expected the plain "
 					+ "not-owned override border, not one compounded with the invalid red-cross",
-				GearSection.OVERRIDE_BORDER, section.slotBorderForTest(WhatIfLoadout.WEAPON_SLOT));
+				GearSection.OVERRIDE_BORDER, section.slotLabels[WhatIfLoadout.WEAPON_SLOT].getBorder());
 		});
 	}
 
@@ -173,14 +173,14 @@ public class GearSectionSlotRefreshOrderTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearWithWeapon(ABYSSAL_WHIP)));
 			pickMonster(section, "Kurask");
-			assertEquals(GearSection.INVALID_BORDER, section.slotBorderForTest(WhatIfLoadout.WEAPON_SLOT));
+			assertEquals(GearSection.INVALID_BORDER, section.slotLabels[WhatIfLoadout.WEAPON_SLOT].getBorder());
 
 			// A new snapshot arrives (e.g. the player re-equipped in-game) while
 			// Kurask is still the selected target.
 			section.apply(snapshotWith(gearWithWeapon(LEAF_BLADED_SPEAR)));
 
 			assertNull("a live weapon change to a valid weapon must not stay crossed out",
-				section.slotBorderForTest(WhatIfLoadout.WEAPON_SLOT));
+				section.slotLabels[WhatIfLoadout.WEAPON_SLOT].getBorder());
 		});
 	}
 }

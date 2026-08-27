@@ -164,7 +164,7 @@ public class GearSectionGearPoolTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(ids), null));
 
-			Map<Integer, Long> owned = section.ownedPriceMapForTest();
+			Map<Integer, Long> owned = section.ownedPriceMap();
 			assertTrue("the worn fortified item itself must be owned", owned.containsKey(MASORI_BODY_F));
 			assertTrue("the plain form must also be marked owned via the (f) suffix rule",
 				owned.containsKey(MASORI_BODY));
@@ -185,7 +185,7 @@ public class GearSectionGearPoolTest
 				GearSection section = new GearSection(NO_STORE, null, null);
 				section.apply(snapshotWith(gearFor(ids), null));
 
-				Map<Integer, Long> owned = section.ownedPriceMapForTest();
+				Map<Integer, Long> owned = section.ownedPriceMap();
 				assertTrue("plain Berserker ring must be owned via imbued id " + imbuedId,
 					owned.containsKey(BERSERKER_RING));
 			});
@@ -202,7 +202,7 @@ public class GearSectionGearPoolTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(ids), null));
 
-			Map<Integer, Long> owned = section.ownedPriceMapForTest();
+			Map<Integer, Long> owned = section.ownedPriceMap();
 			assertTrue(owned.containsKey(MASORI_CHAPS));
 		});
 	}
@@ -226,10 +226,10 @@ public class GearSectionGearPoolTest
 			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
 			section.apply(snapshotWith(gearFor(ids), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("0"); // no budget: only owned items can be picked
+			GearSectionTestOps.setBudgetText(section, "0"); // no budget: only owned items can be picked
 			section.runOptimizerSyncForTest();
 
-			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			GearOptimizer.Result result = section.lastOptimizerResult;
 			assertEquals("no GP should be spent buying the already-effectively-owned plain ring",
 				0L, result.totalSpend());
 		});
@@ -316,12 +316,12 @@ public class GearSectionGearPoolTest
 			section.apply(snapshotWith(gearFor(ids), wealth));
 			pickChaosElemental(section);  // Wilderness target — the risk cap is now gated to these (issue #11)
 
-			section.setBudgetTextForTest("0");               // owned-only: no purchases, only de-risk swaps
-			section.setExpensiveCountTextForTest("1");        // exactly one expensive item allowed
-			section.setExpensiveThresholdTextForTest("1m");   // whip/both Masori forms exceed this; the scimitar doesn't
+			GearSectionTestOps.setBudgetText(section, "0");               // owned-only: no purchases, only de-risk swaps
+			section.expensiveCountField.setText("1");        // exactly one expensive item allowed
+			GearSectionTestOps.setExpensiveThresholdText(section, "1m");   // whip/both Masori forms exceed this; the scimitar doesn't
 			section.runOptimizerSyncForTest();
 
-			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			GearOptimizer.Result result = section.lastOptimizerResult;
 			int weaponChoice = -1;
 			for (GearOptimizer.SlotChoice choice : result.loadout())
 			{
@@ -359,10 +359,10 @@ public class GearSectionGearPoolTest
 			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("50m");
+			GearSectionTestOps.setBudgetText(section, "50m");
 			section.runOptimizerSyncForTest();
 
-			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			GearOptimizer.Result result = section.lastOptimizerResult;
 			for (GearOptimizer.SlotChoice choice : result.loadout())
 			{
 				assertFalse("a Deadman-mode item must never appear in the result",
@@ -386,10 +386,10 @@ public class GearSectionGearPoolTest
 			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("50m");
+			GearSectionTestOps.setBudgetText(section, "50m");
 			section.runOptimizerSyncForTest();
 
-			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			GearOptimizer.Result result = section.lastOptimizerResult;
 			for (GearOptimizer.SlotChoice choice : result.loadout())
 			{
 				assertFalse("a bounty-hunter-only item must never appear in the result",
@@ -436,7 +436,7 @@ public class GearSectionGearPoolTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 
 			GearOptimizer.PriceSource resolved =
-				section.resolveOptimizerPriceSourceForTest(id -> 0L, java.util.Set.of());
+				ItemEligibility.resolveOptimizerPriceSource(id -> 0L, java.util.Set.of());
 			// Some arbitrary unowned, non-special item — must be unaffordable when
 			// the raw resolved price is <= 0 (untradeable, not "free").
 			int arbitraryUnownedId = 4587; // Dragon scimitar
@@ -464,7 +464,7 @@ public class GearSectionGearPoolTest
 				DRAGON_DEFENDER, DRAGON_DEFENDER_L, FIRE_CAPE, FIRE_CAPE_L,
 				AVERNIC_DEFENDER, AVERNIC_DEFENDER_L);
 			GearOptimizer.PriceSource resolved =
-				section.resolveOptimizerPriceSourceForTest(id -> 1_000_000L, untradeable);
+				ItemEligibility.resolveOptimizerPriceSource(id -> 1_000_000L, untradeable);
 
 			for (int id : untradeable)
 			{
@@ -505,10 +505,10 @@ public class GearSectionGearPoolTest
 				fakeResolver(prices, untradeable));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
-			section.setBudgetTextForTest("50m");
+			GearSectionTestOps.setBudgetText(section, "50m");
 			section.runOptimizerSyncForTest();
 
-			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			GearOptimizer.Result result = section.lastOptimizerResult;
 			boolean avernicChosen = false;
 			for (GearOptimizer.SlotChoice choice : result.loadout())
 			{
@@ -552,9 +552,7 @@ public class GearSectionGearPoolTest
 			rawPrices.put(TORMENTED_SYNAPSE, 32_000_000L);
 			rawPrices.put(SCORCHING_BOW, 1_000_000L); // a bogus ItemMapping-style proxy price that must be ignored
 
-			GearOptimizer.PriceSource resolved = section.resolveOptimizerPriceSourceForTest(
-				id -> rawPrices.getOrDefault(id, 0L),
-				java.util.Set.of(SCORCHING_BOW)); // flagged untradeable, as the real client precompute would
+			GearOptimizer.PriceSource resolved = ItemEligibility.resolveOptimizerPriceSource(id -> rawPrices.getOrDefault(id, 0L), java.util.Set.of(SCORCHING_BOW)); // flagged untradeable, as the real client precompute would
 
 			assertEquals("the bow must cost exactly its craft ingredient's GE price",
 				32_000_000L, resolved.priceFor(SCORCHING_BOW));
@@ -570,8 +568,7 @@ public class GearSectionGearPoolTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 
-			GearOptimizer.PriceSource resolved = section.resolveOptimizerPriceSourceForTest(
-				id -> 0L, java.util.Set.of(SCORCHING_BOW));
+			GearOptimizer.PriceSource resolved = ItemEligibility.resolveOptimizerPriceSource(id -> 0L, java.util.Set.of(SCORCHING_BOW));
 
 			assertEquals(Long.MAX_VALUE, resolved.priceFor(SCORCHING_BOW));
 		});
@@ -612,10 +609,10 @@ public class GearSectionGearPoolTest
 			GearSection section = new GearSection(NO_STORE, null, null, null, null, fakeResolver(prices));
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.setBudgetTextForTest("50m");
+			GearSectionTestOps.setBudgetText(section, "50m");
 			section.runOptimizerSyncForTest();
 
-			GearOptimizer.Result result = section.lastOptimizerResultForTest();
+			GearOptimizer.Result result = section.lastOptimizerResult;
 			for (GearOptimizer.SlotChoice choice : result.loadout())
 			{
 				assertFalse("a Gauntlet-only tier must never appear in the result",
@@ -669,8 +666,8 @@ public class GearSectionGearPoolTest
 
 	private static void pickCerberus(GearSection section)
 	{
-		section.searchFieldForTest().setText("cerberus");
-		javax.swing.ListModel<String> model = section.monsterListForTest().getModel();
+		section.monsterSearchField.setText("cerberus");
+		javax.swing.ListModel<String> model = section.monsterList.getModel();
 		int index = -1;
 		for (int i = 0; i < model.getSize(); i++)
 		{
@@ -681,7 +678,7 @@ public class GearSectionGearPoolTest
 			}
 		}
 		assertTrue("Cerberus must appear in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
+		section.monsterList.setSelectedIndex(index);
 	}
 
 	/**
@@ -692,8 +689,8 @@ public class GearSectionGearPoolTest
 	 */
 	private static void pickChaosElemental(GearSection section)
 	{
-		section.searchFieldForTest().setText("chaos elemental");
-		javax.swing.ListModel<String> model = section.monsterListForTest().getModel();
+		section.monsterSearchField.setText("chaos elemental");
+		javax.swing.ListModel<String> model = section.monsterList.getModel();
 		int index = -1;
 		for (int i = 0; i < model.getSize(); i++)
 		{
@@ -704,6 +701,6 @@ public class GearSectionGearPoolTest
 			}
 		}
 		assertTrue("Chaos Elemental must appear in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
+		section.monsterList.setSelectedIndex(index);
 	}
 }

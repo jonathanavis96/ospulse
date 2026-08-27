@@ -123,7 +123,7 @@ public class GearSectionRiskCapTest
 	 */
 	private static void selectTarget(GearSection section, Monster monster)
 	{
-		section.selectTargetForTest(monster);
+		section.selectedMonster = monster; section.rankAndRender();
 	}
 
 	@Test
@@ -134,8 +134,8 @@ public class GearSectionRiskCapTest
 			GearSection section = newSectionWithConfig();
 			setIronmanOwnedOnly(section, true);
 
-			assertFalse("budget column must hide in owned-only mode", section.budgetColumnForTest().isVisible());
-			assertTrue("risk column must stay reachable for ironmen (issue #11)", section.riskColumnForTest().isVisible());
+			assertFalse("budget column must hide in owned-only mode", section.budgetColumn.isVisible());
+			assertTrue("risk column must stay reachable for ironmen (issue #11)", section.riskColumn.isVisible());
 		});
 	}
 
@@ -148,8 +148,8 @@ public class GearSectionRiskCapTest
 			setIronmanOwnedOnly(section, true);
 			setIronmanOwnedOnly(section, false);
 
-			assertTrue(section.budgetColumnForTest().isVisible());
-			assertTrue(section.riskColumnForTest().isVisible());
+			assertTrue(section.budgetColumn.isVisible());
+			assertTrue(section.riskColumn.isVisible());
 		});
 	}
 
@@ -161,7 +161,7 @@ public class GearSectionRiskCapTest
 			GearSection section = newSectionWithConfig();
 			selectTarget(section, monster("Vet'ion", true));
 
-			assertTrue(section.riskCapAppliesForTest());
+			assertTrue(section.riskCapApplies());
 		});
 	}
 
@@ -173,7 +173,7 @@ public class GearSectionRiskCapTest
 			GearSection section = newSectionWithConfig();
 			selectTarget(section, monster("Zulrah", false));
 
-			assertFalse(section.riskCapAppliesForTest());
+			assertFalse(section.riskCapApplies());
 		});
 	}
 
@@ -184,7 +184,7 @@ public class GearSectionRiskCapTest
 		{
 			GearSection section = newSectionWithConfig();
 
-			assertFalse(section.riskCapAppliesForTest());
+			assertFalse(section.riskCapApplies());
 		});
 	}
 
@@ -196,8 +196,8 @@ public class GearSectionRiskCapTest
 			GearSection section = newSectionWithConfig();
 			selectTarget(section, monster("Zulrah", false));
 
-			assertFalse(section.expensiveCountFieldForTest().isEnabled());
-			assertFalse(section.expensiveThresholdFieldForTest().isEnabled());
+			assertFalse(section.expensiveCountField.isEnabled());
+			assertFalse(section.expensiveThresholdField.isEnabled());
 		});
 	}
 
@@ -209,8 +209,8 @@ public class GearSectionRiskCapTest
 			GearSection section = newSectionWithConfig();
 			selectTarget(section, monster("Vet'ion", true));
 
-			assertTrue(section.expensiveCountFieldForTest().isEnabled());
-			assertTrue(section.expensiveThresholdFieldForTest().isEnabled());
+			assertTrue(section.expensiveCountField.isEnabled());
+			assertTrue(section.expensiveThresholdField.isEnabled());
 		});
 	}
 
@@ -221,10 +221,10 @@ public class GearSectionRiskCapTest
 		{
 			GearSection section = newSectionWithConfig();
 			selectTarget(section, monster("Zulrah", false));
-			section.riskCapAnyTargetToggleForTest().doClick();
+			section.riskCapAnyTargetToggle.doClick();
 
-			assertTrue(section.riskCapAppliesForTest());
-			assertTrue(section.expensiveCountFieldForTest().isEnabled());
+			assertTrue(section.riskCapApplies());
+			assertTrue(section.expensiveCountField.isEnabled());
 		});
 	}
 
@@ -236,8 +236,8 @@ public class GearSectionRiskCapTest
 			GearSection section = newSectionWithConfig();
 			selectTarget(section, monster("Zulrah", false));
 
-			assertFalse(section.riskCapAnyTargetToggleForTest().isSelected());
-			assertFalse(section.riskCapAppliesForTest());
+			assertFalse(section.riskCapAnyTargetToggle.isSelected());
+			assertFalse(section.riskCapApplies());
 		});
 	}
 
@@ -251,17 +251,17 @@ public class GearSectionRiskCapTest
 			// Swing's doClick() is a no-op on a disabled button, so open the gate first —
 			// this test is only about the persistence round-trip, not the gate itself.
 			selectTarget(first, monster("Vet'ion", true));
-			first.expensiveCountFieldForTest().setText("3");
-			first.expensiveThresholdFieldForTest().setText("250");
-			first.thresholdMToggleForTest().doClick();
-			first.riskCapAnyTargetToggleForTest().doClick();
+			first.expensiveCountField.setText("3");
+			first.expensiveThresholdField.setText("250");
+			first.expensiveThresholdMToggle.doClick();
+			first.riskCapAnyTargetToggle.doClick();
 
 			GearSection reloaded = newSectionWithConfig();
 
-			assertEquals("3", reloaded.expensiveCountFieldForTest().getText());
-			assertEquals("250", reloaded.expensiveThresholdFieldForTest().getText());
-			assertTrue(reloaded.thresholdMToggleForTest().isSelected());
-			assertTrue(reloaded.riskCapAnyTargetToggleForTest().isSelected());
+			assertEquals("3", reloaded.expensiveCountField.getText());
+			assertEquals("250", reloaded.expensiveThresholdField.getText());
+			assertTrue(reloaded.expensiveThresholdMToggle.isSelected());
+			assertTrue(reloaded.riskCapAnyTargetToggle.isSelected());
 		});
 	}
 
@@ -272,10 +272,10 @@ public class GearSectionRiskCapTest
 		{
 			GearSection section = newSectionWithConfig();
 
-			assertEquals("11", section.expensiveCountFieldForTest().getText());
-			assertEquals("100", section.expensiveThresholdFieldForTest().getText());
-			assertFalse(section.thresholdMToggleForTest().isSelected());
-			assertFalse(section.riskCapAnyTargetToggleForTest().isSelected());
+			assertEquals("11", section.expensiveCountField.getText());
+			assertEquals("100", section.expensiveThresholdField.getText());
+			assertFalse(section.expensiveThresholdMToggle.isSelected());
+			assertFalse(section.riskCapAnyTargetToggle.isSelected());
 		});
 	}
 }

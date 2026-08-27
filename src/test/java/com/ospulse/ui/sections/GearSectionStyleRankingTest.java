@@ -124,10 +124,10 @@ public class GearSectionStyleRankingTest
 
 	private static void pickCerberus(GearSection section)
 	{
-		section.searchFieldForTest().setText("cerberus");
-		int index = indexOf(section.monsterListForTest().getModel(), "Cerberus");
+		section.monsterSearchField.setText("cerberus");
+		int index = indexOf(section.monsterList.getModel(), "Cerberus");
 		assertTrue("Cerberus must appear in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
+		section.monsterList.setSelectedIndex(index);
 	}
 
 	private static double dpsFor(GearSnapshot gear, WeaponStyle style)
@@ -148,7 +148,7 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			List<WeaponStyle> ranked = section.rankedStylesForTest();
+			List<WeaponStyle> ranked = section.styleRows.stream().map(r -> r.style).collect(java.util.stream.Collectors.toList());
 			assertEquals("stab sword exposes four distinct styles", 4, ranked.size());
 
 			// Rows must be sorted by DPS descending, matching an independent compute.
@@ -162,9 +162,9 @@ public class GearSectionStyleRankingTest
 			}
 
 			// The best (row 0) is auto-selected and drives the readout.
-			assertEquals(ranked.get(0), section.selectedStyleForTest());
+			assertEquals(ranked.get(0), section.selectedStyle);
 			assertEquals(String.format(Locale.ROOT, "%.2f", dpsFor(gear, ranked.get(0))),
-				section.dpsTextForTest());
+				section.plainTextForTest(section.dpsValue.getText()));
 		});
 	}
 
@@ -192,7 +192,7 @@ public class GearSectionStyleRankingTest
 				net.runelite.client.ui.ColorScheme.BRAND_ORANGE.getBlue());
 			String dullOrange = com.ospulse.ui.CentFormat.dim(brandOrange);
 
-			String bestRaw = section.styleRowDpsRawTextForTest(0);
+			String bestRaw = section.styleRows.get(0).dpsRawTextForTest();
 			assertTrue("best row's integer must be the row's own orange, not white, got: " + bestRaw,
 				bestRaw.contains("color='" + brandOrange + "'"));
 			assertFalse("best row must not fall back to the default white integer, got: " + bestRaw,
@@ -201,7 +201,7 @@ public class GearSectionStyleRankingTest
 				bestRaw.contains("<font color='" + dullOrange + "'"));
 
 			// A non-best row (still ranked, index > 0) keeps the plain default.
-			String otherRaw = section.styleRowDpsRawTextForTest(1);
+			String otherRaw = section.styleRows.get(1).dpsRawTextForTest();
 			assertTrue("non-best rows must keep the default white integer, got: " + otherRaw,
 				otherRaw.contains("color='" + com.ospulse.ui.CentFormat.WHITE + "'"));
 			assertFalse("non-best rows must not use the orange row colour, got: " + otherRaw,
@@ -219,13 +219,13 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			int last = section.styleRowCountForTest() - 1;
-			WeaponStyle worst = section.rankedStylesForTest().get(last);
-			section.clickStyleRowForTest(last);
+			int last = section.styleRows.size() - 1;
+			WeaponStyle worst = section.styleRows.stream().map(r -> r.style).collect(java.util.stream.Collectors.toList()).get(last);
+			section.selectStyle(section.styleRows.get(last).style);
 
-			assertEquals(worst, section.selectedStyleForTest());
+			assertEquals(worst, section.selectedStyle);
 			assertEquals(String.format(Locale.ROOT, "%.2f", dpsFor(gear, worst)),
-				section.dpsTextForTest());
+				section.plainTextForTest(section.dpsValue.getText()));
 		});
 	}
 
@@ -249,15 +249,15 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			int last = section.styleRowCountForTest() - 1;
-			WeaponStyle worst = section.rankedStylesForTest().get(last);
+			int last = section.styleRows.size() - 1;
+			WeaponStyle worst = section.styleRows.stream().map(r -> r.style).collect(java.util.stream.Collectors.toList()).get(last);
 			assertTrue("fixture sanity: the worst style must not already be selected",
-				!worst.equals(section.selectedStyleForTest()));
+				!worst.equals(section.selectedStyle));
 
 			section.pressStyleRowLabelForTest(last);
 
 			assertEquals("a single press on the row's text label must switch the style",
-				worst, section.selectedStyleForTest());
+				worst, section.selectedStyle);
 		});
 	}
 
@@ -270,7 +270,7 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gearWithWeapon(-1))); // no weapon
 			pickCerberus(section);
 
-			List<WeaponStyle> ranked = section.rankedStylesForTest();
+			List<WeaponStyle> ranked = section.styleRows.stream().map(r -> r.style).collect(java.util.stream.Collectors.toList());
 			assertEquals(3, ranked.size());
 			for (WeaponStyle s : ranked)
 			{
@@ -288,7 +288,7 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gearWithWeapon(4151))); // Abyssal whip -> whip (3 slash styles)
 			pickCerberus(section);
 
-			List<WeaponStyle> ranked = section.rankedStylesForTest();
+			List<WeaponStyle> ranked = section.styleRows.stream().map(r -> r.style).collect(java.util.stream.Collectors.toList());
 			assertEquals(3, ranked.size());
 			for (WeaponStyle s : ranked)
 			{
@@ -296,7 +296,7 @@ public class GearSectionStyleRankingTest
 			}
 			// A pure-melee weapon never shows the spell picker.
 			assertTrue("melee weapon must not show the spell picker",
-				!section.spellPickerForTest().isVisible());
+				!section.spellPicker.isVisible());
 		});
 	}
 
@@ -346,15 +346,15 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			assertTrue("staff must route to the magic-first view", section.magicViewForTest());
+			assertTrue("staff must route to the magic-first view", section.magicView);
 			assertTrue("legacy spell picker stays hidden in the magic view",
-				!section.spellPickerForTest().isVisible());
-			assertEquals("melee style rows are dropped entirely", 0, section.styleRowCountForTest());
-			assertTrue("spellbook tabs must show", section.bookTabsVisibleForTest());
+				!section.spellPicker.isVisible());
+			assertEquals("melee style rows are dropped entirely", 0, section.styleRows.size());
+			assertTrue("spellbook tabs must show", section.bookTabsPanel.isVisible());
 
 			// Standard book (default tab): rows ranked DPS-descending, matching an
 			// independent engine compute.
-			List<com.ospulse.combat.Spell> ranked = section.rankedSpellsForTest();
+			List<com.ospulse.combat.Spell> ranked = section.spellRows.stream().map(r -> r.spell).collect(java.util.stream.Collectors.toList());
 			assertTrue("standard book must list its offensive spells", ranked.size() >= 20);
 			double prev = Double.MAX_VALUE;
 			for (com.ospulse.combat.Spell spell : ranked)
@@ -367,13 +367,13 @@ public class GearSectionStyleRankingTest
 			}
 
 			// The best spell is auto-selected and drives the readout + primary line.
-			assertEquals(ranked.get(0), section.selectedSpellForTest());
+			assertEquals(ranked.get(0), section.selectedSpell);
 			assertEquals(String.format(Locale.ROOT, "%.2f", spellDps(gear, ranked.get(0))),
-				section.dpsTextForTest());
-			assertTrue("primary readout must name the best spell, got: " + section.primaryTextForTest(),
-				section.primaryTextForTest().startsWith(ranked.get(0).displayName()));
-			assertTrue("secondary readout must name the next-best spell, got: " + section.secondaryTextForTest(),
-				section.secondaryTextForTest().startsWith(ranked.get(1).displayName()));
+				section.plainTextForTest(section.dpsValue.getText()));
+			assertTrue("primary readout must name the best spell, got: " + section.plainTextForTest(section.primaryValue.getText()),
+				section.plainTextForTest(section.primaryValue.getText()).startsWith(ranked.get(0).displayName()));
+			assertTrue("secondary readout must name the next-best spell, got: " + section.plainTextForTest(section.secondaryValue.getText()),
+				section.plainTextForTest(section.secondaryValue.getText()).startsWith(ranked.get(1).displayName()));
 		});
 	}
 
@@ -390,7 +390,7 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			List<com.ospulse.combat.Spell> ranked = section.rankedSpellsForTest();
+			List<com.ospulse.combat.Spell> ranked = section.spellRows.stream().map(r -> r.spell).collect(java.util.stream.Collectors.toList());
 			assertTrue("Iban Blast must never appear/rank without Iban's staff equipped",
 				ranked.stream().noneMatch(s -> s == com.ospulse.combat.Spell.IBAN_BLAST));
 		});
@@ -407,7 +407,7 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			List<com.ospulse.combat.Spell> ranked = section.rankedSpellsForTest();
+			List<com.ospulse.combat.Spell> ranked = section.spellRows.stream().map(r -> r.spell).collect(java.util.stream.Collectors.toList());
 			assertTrue("Iban Blast must be a candidate when Iban's staff is equipped",
 				ranked.stream().anyMatch(s -> s == com.ospulse.combat.Spell.IBAN_BLAST));
 		});
@@ -423,8 +423,8 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			section.clickBookTabForTest(1); // Ancient
-			List<com.ospulse.combat.Spell> ranked = section.rankedSpellsForTest();
+			section.bookTabButtons[1].doClick(); // Ancient
+			List<com.ospulse.combat.Spell> ranked = section.spellRows.stream().map(r -> r.spell).collect(java.util.stream.Collectors.toList());
 			assertEquals("all 16 Ancient Magicks are offensive", 16, ranked.size());
 			for (com.ospulse.combat.Spell spell : ranked)
 			{
@@ -432,17 +432,17 @@ public class GearSectionStyleRankingTest
 			}
 			// Ice Barrage (base 30, the book's hardest hitter) auto-selects; the
 			// readout derives max hit from it (no magic-damage gear worn -> 30).
-			assertEquals(com.ospulse.combat.Spell.ICE_BARRAGE, section.selectedSpellForTest());
-			assertEquals("30", section.maxHitTextForTest());
+			assertEquals(com.ospulse.combat.Spell.ICE_BARRAGE, section.selectedSpell);
+			assertEquals("30", section.maxHitValue.getText());
 
 			// Clicking a worse row locks the main readout to it; the primary/
 			// secondary lines keep showing the best/next-best casts.
 			int last = ranked.size() - 1;
-			section.clickSpellRowForTest(last);
-			assertEquals(ranked.get(last), section.selectedSpellForTest());
+			section.selectSpell(section.spellRows.get(last).spell);
+			assertEquals(ranked.get(last), section.selectedSpell);
 			assertEquals(String.format(Locale.ROOT, "%.2f", spellDps(gear, ranked.get(last))),
-				section.dpsTextForTest());
-			assertTrue(section.primaryTextForTest().startsWith(ranked.get(0).displayName()));
+				section.plainTextForTest(section.dpsValue.getText()));
+			assertTrue(section.plainTextForTest(section.primaryValue.getText()).startsWith(ranked.get(0).displayName()));
 		});
 	}
 
@@ -475,12 +475,12 @@ public class GearSectionStyleRankingTest
 			pickCerberus(section);
 
 			assertTrue("powered staff needs no spell picker",
-				!section.spellPickerForTest().isVisible());
+				!section.spellPicker.isVisible());
 
-			List<WeaponStyle> ranked = section.rankedStylesForTest();
+			List<WeaponStyle> ranked = section.styleRows.stream().map(r -> r.style).collect(java.util.stream.Collectors.toList());
 			assertTrue("powered staff exposes magic styles", ranked.size() >= 1);
 			assertEquals(CombatStyle.MAGIC, ranked.get(0).type());
-			assertEquals("28", section.maxHitTextForTest());
+			assertEquals("28", section.maxHitValue.getText());
 		});
 	}
 
@@ -494,7 +494,7 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			String overkill = section.overkillTextForTest();
+			String overkill = section.plainTextForTest(section.overkillValue.getText());
 			assertTrue("overkill must be a number once a target is picked, got: " + overkill,
 				overkill.matches("\\d+\\.\\d"));
 		});
@@ -518,19 +518,19 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			String accuracyRaw = section.accuracyRawTextForTest();
+			String accuracyRaw = section.accuracyValue.getText();
 			assertTrue("accuracy must actually carry the cent HTML markup, got: " + accuracyRaw,
 				accuracyRaw.startsWith("<html>") && accuracyRaw.contains("<font color='#8C8C8C'>"));
 
-			String accuracy = section.accuracyTextForTest();
+			String accuracy = section.plainTextForTest(section.accuracyValue.getText());
 			assertTrue("accuracy must be a plain N.N% once stripped, got: " + accuracy,
 				accuracy.matches("\\d+\\.\\d%"));
 
-			String avgHit = section.avgHitTextForTest();
+			String avgHit = section.plainTextForTest(section.avgHitValue.getText());
 			assertTrue("avg hit must be a plain N.NN once stripped, got: " + avgHit,
 				avgHit.matches("\\d+\\.\\d\\d"));
 
-			String ttk = section.ttkTextForTest();
+			String ttk = section.plainTextForTest(section.ttkValue.getText());
 			assertTrue("ttk must be a plain duration once stripped, got: " + ttk,
 				ttk.matches("\\d+\\.\\ds|\\d+:\\d\\d"));
 		});
@@ -553,21 +553,21 @@ public class GearSectionStyleRankingTest
 				com.ospulse.combat.PoweredStaff.TRIDENT_OF_THE_SEAS);
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
-			section.bestPotionToggleForTest().setSelected(true);
+			section.bestPotionToggle.setSelected(true);
 
 			// Default (no swap yet) == Imbued heart: boosted = 99+1+9=109, floor(109/3)-5=31.
-			assertEquals(null, section.magicPotionVariantForTest());
-			assertEquals("31", section.maxHitTextForTest());
+			assertEquals(null, section.magicPotionVariantForCalc());
+			assertEquals("31", section.maxHitValue.getText());
 
-			section.pickMagicPotionVariantForTest(com.ospulse.combat.CombatIcons.BoostPotion.SATURATED_HEART);
+			section.potionVariantByStyle.put(GearSection.styleKeyFor(CombatStyle.MAGIC), com.ospulse.combat.CombatIcons.BoostPotion.SATURATED_HEART); section.saveVariant("potionVariant", GearSection.styleKeyFor(CombatStyle.MAGIC), com.ospulse.combat.CombatIcons.BoostPotion.SATURATED_HEART); section.rankAndRender();
 			assertEquals(com.ospulse.combat.CombatIcons.BoostPotion.SATURATED_HEART,
-				section.magicPotionVariantForTest());
+				section.magicPotionVariantForCalc());
 			// Saturated heart: boosted = 99+4+9=112, floor(112/3)-5=32.
-			assertEquals("32", section.maxHitTextForTest());
+			assertEquals("32", section.maxHitValue.getText());
 
-			section.pickMagicPotionVariantForTest(com.ospulse.combat.CombatIcons.BoostPotion.ANCIENT_BREW);
+			section.potionVariantByStyle.put(GearSection.styleKeyFor(CombatStyle.MAGIC), com.ospulse.combat.CombatIcons.BoostPotion.ANCIENT_BREW); section.saveVariant("potionVariant", GearSection.styleKeyFor(CombatStyle.MAGIC), com.ospulse.combat.CombatIcons.BoostPotion.ANCIENT_BREW); section.rankAndRender();
 			// Ancient brew: boosted = 99+2+4=105, floor(105/3)-5=30.
-			assertEquals("30", section.maxHitTextForTest());
+			assertEquals("30", section.maxHitValue.getText());
 		});
 	}
 }

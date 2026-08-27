@@ -136,10 +136,10 @@ public class GearSectionWhatIfTest
 
 	private static void pickCerberus(GearSection section)
 	{
-		section.searchFieldForTest().setText("cerberus");
-		int index = indexOf(section.monsterListForTest().getModel(), "Cerberus");
+		section.monsterSearchField.setText("cerberus");
+		int index = indexOf(section.monsterList.getModel(), "Cerberus");
 		assertTrue("Cerberus must appear in the filtered list", index >= 0);
-		section.monsterListForTest().setSelectedIndex(index);
+		section.monsterList.setSelectedIndex(index);
 	}
 
 	private static double dpsFor(GearSnapshot gear, WeaponStyle style)
@@ -161,9 +161,9 @@ public class GearSectionWhatIfTest
 			section.apply(snapshotWith(gearFor(loadout(3, ABYSSAL_WHIP))));
 			pickCerberus(section);
 
-			assertEquals(LoadoutOverride.empty(), section.overrideForTest());
-			assertFalse(section.whatIfRowVisibleForTest());
-			assertEquals(ABYSSAL_WHIP, section.renderedSlotIdForTest(3));
+			assertEquals(LoadoutOverride.empty(), section.override);
+			assertFalse(section.whatIfRow.isVisible());
+			assertEquals(ABYSSAL_WHIP, section.renderedSlotIds[3]);
 		});
 	}
 
@@ -178,12 +178,12 @@ public class GearSectionWhatIfTest
 
 			// The weapon cell is showing the live whip; right-clicking it must
 			// exclude that item from optimiser suggestions (item #5, batch 6).
-			assertEquals(ABYSSAL_WHIP, section.renderedSlotIdForTest(3));
-			assertFalse(section.excludedItemIdsForTest().contains(ABYSSAL_WHIP));
+			assertEquals(ABYSSAL_WHIP, section.renderedSlotIds[3]);
+			assertFalse(new java.util.LinkedHashSet<>(section.excludedItemIds).contains(ABYSSAL_WHIP));
 
 			section.rightClickExcludeSlotForTest(3);
 			assertTrue("right-click on the slot cell must exclude the shown item",
-				section.excludedItemIdsForTest().contains(ABYSSAL_WHIP));
+				new java.util.LinkedHashSet<>(section.excludedItemIds).contains(ABYSSAL_WHIP));
 		});
 	}
 
@@ -196,12 +196,12 @@ public class GearSectionWhatIfTest
 			section.apply(snapshotWith(gearFor(loadout(3, ABYSSAL_WHIP))));
 			pickCerberus(section);
 
-			section.clickSlotForTest(3); // WEAPON
-			assertEquals(3, section.searchOpenForSlotForTest());
-			assertTrue(section.itemSearchFieldForTest().isVisible());
+			section.toggleItemSearch(3); // WEAPON
+			assertEquals(3, section.searchOpenForSlot);
+			assertTrue(section.itemSearchField.isVisible());
 
-			section.itemSearchFieldForTest().setText("dragon scimitar");
-			List<EquipmentIndexRepository.Entry> results = section.filteredItemsForTest();
+			section.itemSearchField.setText("dragon scimitar");
+			List<EquipmentIndexRepository.Entry> results = section.filteredItems;
 			assertTrue("dragon scimitar must appear in the weapon-slot search", !results.isEmpty());
 			for (EquipmentIndexRepository.Entry e : results)
 			{
@@ -219,10 +219,10 @@ public class GearSectionWhatIfTest
 			section.apply(snapshotWith(gearFor(loadout(3, ABYSSAL_WHIP))));
 			pickCerberus(section);
 
-			section.clickSlotForTest(3);
-			assertEquals(3, section.searchOpenForSlotForTest());
-			section.clickSlotForTest(3);
-			assertEquals(-1, section.searchOpenForSlotForTest());
+			section.toggleItemSearch(3);
+			assertEquals(3, section.searchOpenForSlot);
+			section.toggleItemSearch(3);
+			assertEquals(-1, section.searchOpenForSlot);
 		});
 	}
 
@@ -238,28 +238,28 @@ public class GearSectionWhatIfTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			double liveDps = Double.parseDouble(section.dpsTextForTest());
+			double liveDps = Double.parseDouble(section.plainTextForTest(section.dpsValue.getText()));
 
-			section.clickSlotForTest(3);
-			section.itemSearchFieldForTest().setText("dragon scimitar");
+			section.toggleItemSearch(3);
+			section.itemSearchField.setText("dragon scimitar");
 			int idx = 0;
-			for (int i = 0; i < section.filteredItemsForTest().size(); i++)
+			for (int i = 0; i < section.filteredItems.size(); i++)
 			{
-				if (section.filteredItemsForTest().get(i).itemId() == DRAGON_SCIMITAR)
+				if (section.filteredItems.get(i).itemId() == DRAGON_SCIMITAR)
 				{
 					idx = i;
 					break;
 				}
 			}
-			section.pickItemForTest(idx);
+			section.applyOverride(section.searchOpenForSlot, section.filteredItems.get(idx).itemId()); section.closeItemSearch();
 
 			// Override recorded; search closes.
-			assertEquals(DRAGON_SCIMITAR, section.overrideForTest().itemIdFor(3));
-			assertEquals(-1, section.searchOpenForSlotForTest());
+			assertEquals(DRAGON_SCIMITAR, section.override.itemIdFor(3));
+			assertEquals(-1, section.searchOpenForSlot);
 
 			// Readout changed to reflect the what-if weapon (whip and scimitar have
 			// different bonuses, so DPS must differ from the live baseline).
-			double whatIfDps = Double.parseDouble(section.dpsTextForTest());
+			double whatIfDps = Double.parseDouble(section.plainTextForTest(section.dpsValue.getText()));
 			assertFalse("DPS must change after a real bonus-changing swap", liveDps == whatIfDps);
 
 			// Live gear itself is untouched — the snapshot's own item id is unchanged.
@@ -270,19 +270,19 @@ public class GearSectionWhatIfTest
 			// best, since the weapon swap re-ranked) — not the whip's own best style,
 			// which is a different, less meaningful comparison (apples-to-apples on
 			// style, not on weapon).
-			assertTrue(section.whatIfRowVisibleForTest());
-			double expectedBaseline = dpsFor(gear, section.selectedStyleForTest());
-			assertEquals(expectedBaseline, section.baselineDpsForTest(), 1e-6);
+			assertTrue(section.whatIfRow.isVisible());
+			double expectedBaseline = dpsFor(gear, section.selectedStyle);
+			assertEquals(expectedBaseline, section.baselineDps, 1e-6);
 
 			// Item #6b: no literal triangle glyph, "baseline -> current" with the
 			// whole readout coloured green (upgrade) or red (downgrade) instead.
-			String deltaText = section.whatIfDeltaTextForTest();
+			String deltaText = section.whatIfDeltaValue.getText();
 			assertFalse("must not contain the old triangle glyphs", deltaText.contains("▲") || deltaText.contains("▼"));
 			assertTrue("must show baseline -> current as a plain arrow", deltaText.contains("->"));
 			double delta = whatIfDps - expectedBaseline;
 			java.awt.Color expectedColor = delta > 1e-9 ? ColorScheme.PROGRESS_COMPLETE_COLOR
 				: delta < -1e-9 ? ColorScheme.PROGRESS_ERROR_COLOR : java.awt.Color.WHITE;
-			assertEquals("delta colour must match the sign of the DPS change", expectedColor, section.whatIfDeltaColorForTest());
+			assertEquals("delta colour must match the sign of the DPS change", expectedColor, section.whatIfDeltaValue.getForeground());
 
 			// The cent-formatted decimal digits inside the delta row must be dimmed
 			// in the SAME hue as the delta (dull green for an upgrade, dull red for
@@ -304,19 +304,19 @@ public class GearSectionWhatIfTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			double liveDps = Double.parseDouble(section.dpsTextForTest());
+			double liveDps = Double.parseDouble(section.plainTextForTest(section.dpsValue.getText()));
 
-			section.clickSlotForTest(3);
-			section.itemSearchFieldForTest().setText("dragon scimitar");
-			section.pickItemForTest(0);
-			assertFalse(section.overrideForTest().isEmpty());
+			section.toggleItemSearch(3);
+			section.itemSearchField.setText("dragon scimitar");
+			section.applyOverride(section.searchOpenForSlot, section.filteredItems.get(0).itemId()); section.closeItemSearch();
+			assertFalse(section.override.isEmpty());
 
-			section.clickResetAllForTest();
+			section.resetAllOverrides();
 
-			assertTrue(section.overrideForTest().isEmpty());
-			assertFalse(section.whatIfRowVisibleForTest());
-			assertEquals(liveDps, Double.parseDouble(section.dpsTextForTest()), 1e-9);
-			assertEquals(ABYSSAL_WHIP, section.renderedSlotIdForTest(3));
+			assertTrue(section.override.isEmpty());
+			assertFalse(section.whatIfRow.isVisible());
+			assertEquals(liveDps, Double.parseDouble(section.plainTextForTest(section.dpsValue.getText())), 1e-9);
+			assertEquals(ABYSSAL_WHIP, section.renderedSlotIds[3]);
 		});
 	}
 
@@ -332,41 +332,41 @@ public class GearSectionWhatIfTest
 			pickCerberus(section);
 
 			// Override the shield first (still legal — whip is 1H).
-			section.clickSlotForTest(5);
-			section.itemSearchFieldForTest().setText("");
+			section.toggleItemSearch(5);
+			section.itemSearchField.setText("");
 			int kiteshieldIdx = -1;
-			for (int i = 0; i < section.filteredItemsForTest().size(); i++)
+			for (int i = 0; i < section.filteredItems.size(); i++)
 			{
-				if (section.filteredItemsForTest().get(i).itemId() == RUNE_KITESHIELD)
+				if (section.filteredItems.get(i).itemId() == RUNE_KITESHIELD)
 				{
 					kiteshieldIdx = i;
 					break;
 				}
 			}
 			assertTrue(kiteshieldIdx >= 0);
-			section.pickItemForTest(kiteshieldIdx);
-			assertTrue(section.overrideForTest().hasOverride(5));
+			section.applyOverride(section.searchOpenForSlot, section.filteredItems.get(kiteshieldIdx).itemId()); section.closeItemSearch();
+			assertTrue(section.override.hasOverride(5));
 
 			// Now override the weapon with a 2H bow — must clear the shield override.
-			section.clickSlotForTest(3);
-			section.itemSearchFieldForTest().setText("twisted bow");
+			section.toggleItemSearch(3);
+			section.itemSearchField.setText("twisted bow");
 			int twistedBowIdx = -1;
-			for (int i = 0; i < section.filteredItemsForTest().size(); i++)
+			for (int i = 0; i < section.filteredItems.size(); i++)
 			{
-				if (section.filteredItemsForTest().get(i).itemId() == TWISTED_BOW)
+				if (section.filteredItems.get(i).itemId() == TWISTED_BOW)
 				{
 					twistedBowIdx = i;
 					break;
 				}
 			}
 			assertTrue(twistedBowIdx >= 0);
-			section.pickItemForTest(twistedBowIdx);
+			section.applyOverride(section.searchOpenForSlot, section.filteredItems.get(twistedBowIdx).itemId()); section.closeItemSearch();
 
-			assertEquals(TWISTED_BOW, section.overrideForTest().itemIdFor(3));
+			assertEquals(TWISTED_BOW, section.override.itemIdFor(3));
 			// A 2H weapon EMPTIES the shield slot (so a live shield would drop too),
 			// not merely clears its override — the slot is overridden to EMPTIED.
-			assertTrue("2H weapon must empty the shield slot", section.overrideForTest().hasOverride(5));
-			assertEquals(LoadoutOverride.EMPTIED, section.overrideForTest().itemIdFor(5));
+			assertTrue("2H weapon must empty the shield slot", section.override.hasOverride(5));
+			assertEquals(LoadoutOverride.EMPTIED, section.override.itemIdFor(5));
 		});
 	}
 
@@ -380,27 +380,27 @@ public class GearSectionWhatIfTest
 			section.apply(snapshotWith(gearFor(loadout(3, TWISTED_BOW))));
 			pickCerberus(section);
 
-			section.clickSlotForTest(5);
-			section.itemSearchFieldForTest().setText("");
+			section.toggleItemSearch(5);
+			section.itemSearchField.setText("");
 			int kiteshieldIdx = -1;
-			for (int i = 0; i < section.filteredItemsForTest().size(); i++)
+			for (int i = 0; i < section.filteredItems.size(); i++)
 			{
-				if (section.filteredItemsForTest().get(i).itemId() == RUNE_KITESHIELD)
+				if (section.filteredItems.get(i).itemId() == RUNE_KITESHIELD)
 				{
 					kiteshieldIdx = i;
 					break;
 				}
 			}
 			assertTrue(kiteshieldIdx >= 0);
-			section.pickItemForTest(kiteshieldIdx);
+			section.applyOverride(section.searchOpenForSlot, section.filteredItems.get(kiteshieldIdx).itemId()); section.closeItemSearch();
 
-			assertEquals(RUNE_KITESHIELD, section.overrideForTest().itemIdFor(5));
+			assertEquals(RUNE_KITESHIELD, section.override.itemIdFor(5));
 			// Equipping a shield over a LIVE 2H weapon must EMPTY the weapon slot —
 			// clearing an (absent) override cannot unequip the live blowpipe/bow, the
 			// bug where the optimiser paired a shield with a live 2H weapon and summed
 			// both. The effective loadout therefore carries no weapon.
-			assertTrue(section.overrideForTest().hasOverride(3));
-			assertEquals(LoadoutOverride.EMPTIED, section.overrideForTest().itemIdFor(3));
+			assertTrue(section.override.hasOverride(3));
+			assertEquals(LoadoutOverride.EMPTIED, section.override.itemIdFor(3));
 		});
 	}
 }

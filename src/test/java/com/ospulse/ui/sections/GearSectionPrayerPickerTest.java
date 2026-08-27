@@ -167,7 +167,7 @@ public class GearSectionPrayerPickerTest
 	private static void selectMagicTarget(GearSection section)
 	{
 		section.apply(snapshotWith(magicGear()));
-		section.selectTargetForTest(Monster.builder().name("Cerberus").hitpoints(1).build());
+		section.selectedMonster = Monster.builder().name("Cerberus").hitpoints(1).build(); section.rankAndRender();
 	}
 
 	// ---- reflection seams: buildVariantPopup/loadVariants/saveVariant generalization
@@ -243,7 +243,7 @@ public class GearSectionPrayerPickerTest
 			GearSection section = newSectionWithConfig();
 			selectMagicTarget(section);
 
-			JPopupMenu menu = section.bestPrayerToggleForTest().getComponentPopupMenu();
+			JPopupMenu menu = section.bestPrayerToggle.getComponentPopupMenu();
 			populatePrayerVariantPopup(section, menu);
 
 			// Finding 3: the picker's own list (not the level-inferred ladder) —
@@ -267,7 +267,7 @@ public class GearSectionPrayerPickerTest
 			GearSection section = newSectionWithConfig();
 			clearSelectedStyle(section);
 
-			JPopupMenu menu = section.bestPrayerToggleForTest().getComponentPopupMenu();
+			JPopupMenu menu = section.bestPrayerToggle.getComponentPopupMenu();
 			populatePrayerVariantPopup(section, menu);
 
 			assertEquals(1, menu.getComponentCount());
@@ -284,10 +284,10 @@ public class GearSectionPrayerPickerTest
 			selectMagicTarget(section);
 			prayerVariantByStyle(section).put("magic", OffensivePrayer.MYSTIC_MIGHT);
 
-			section.bestPrayerToggleForTest().setSelected(true);
+			section.bestPrayerToggle.setSelected(true);
 			assertEquals(OffensivePrayer.MYSTIC_MIGHT, effectivePrayerFor(section, CombatStyle.MAGIC));
 
-			section.bestPrayerToggleForTest().setSelected(false);
+			section.bestPrayerToggle.setSelected(false);
 			assertNotEquals("toggle off means real prayers win, not the simulation pick",
 				OffensivePrayer.MYSTIC_MIGHT, effectivePrayerFor(section, CombatStyle.MAGIC));
 		});
@@ -309,18 +309,18 @@ public class GearSectionPrayerPickerTest
 		{
 			GearSection section = newSectionWithConfig();
 			selectMagicTarget(section);
-			section.bestPrayerToggleForTest().setSelected(true);
+			section.bestPrayerToggle.setSelected(true);
 
-			String withDefaultPrayer = section.dpsTextForTest();
+			String withDefaultPrayer = section.plainTextForTest(section.dpsValue.getText());
 			assertFalse("fixture sanity: a real DPS number must be showing before the pick",
 				withDefaultPrayer == null || withDefaultPrayer.equals("-"));
 
-			JPopupMenu menu = section.bestPrayerToggleForTest().getComponentPopupMenu();
+			JPopupMenu menu = section.bestPrayerToggle.getComponentPopupMenu();
 			populatePrayerVariantPopup(section, menu);
 			((JMenuItem) menu.getComponent(menu.getComponentCount() - 1)).doClick(); // weakest listed prayer
 
 			assertNotEquals("picking a weaker prayer must move the live DPS readout, not just the icon/config",
-				withDefaultPrayer, section.dpsTextForTest());
+				withDefaultPrayer, section.plainTextForTest(section.dpsValue.getText()));
 		});
 	}
 
