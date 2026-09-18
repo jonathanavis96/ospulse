@@ -20,7 +20,7 @@ public class EquipmentStatsRepositoryTest {
     @Test
     public void loadsBundledResourceWithManyEntries() {
         EquipmentStatsRepository repo = EquipmentStatsRepository.getInstance();
-        assertEquals("expected the full cache-derived item set", 3501, repo.size());
+        assertEquals("expected the full cache-derived item set", 3509, repo.size());
     }
 
     @Test

@@ -21,7 +21,7 @@ import com.ospulse.session.GearMapper;
  * but absent from the bundled cache data resolves to {@code null} here (no
  * wiki-derived fallback, since that requires {@code ItemManager}) — in
  * practice {@code equipment_stats.min.json} covers the full cache-derived
- * item set (3501 items at last regen), so this only matters for a brand-new
+ * item set (3509 items at last regen), so this only matters for a brand-new
  * item release before the bundled data refreshes.
  */
 public final class BundledSlotStatsLookup implements GearMapper.SlotStatsLookup {
