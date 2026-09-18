@@ -21,7 +21,7 @@ public class EquipmentIndexRepositoryTest {
     @Test
     public void loadsBundledResourceWithManyEntries() {
         EquipmentIndexRepository repo = EquipmentIndexRepository.getInstance();
-        assertEquals(3179, repo.size());
+        assertEquals(3187, repo.size());
     }
 
     @Test
