@@ -16,6 +16,8 @@ import static org.junit.Assert.assertEquals;
  * (base max hit = 35 before any target-specific gear bonus).
  */
 public class SlayerHelmEffectTest {
+    static { BundledGson.set(new com.google.gson.Gson()); }
+
     private static PlayerCombat.Builder basePlayer() {
         return PlayerCombat.builder()
                 .attack(99, 99)

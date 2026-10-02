@@ -2,9 +2,7 @@ package com.ospulse.ui.sections;
 
 import com.ospulse.model.ItemStack;
 
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Plain-Java (no Swing) tracker for the loot feed's "Hide item" / "Hide

@@ -1,19 +1,7 @@
 package com.ospulse.combat;
 
-import com.google.gson.Gson;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Loads the bundled, hand-curated monster-mechanic gear override table
@@ -38,7 +26,8 @@ import java.util.Map;
 public final class MonsterGearOverrideRepository {
     private static final String RESOURCE_PATH = "/com/ospulse/combat/monster_gear_overrides.json";
 
-    private static volatile MonsterGearOverrideRepository instance;
+    private static final CombatDataLoader.Lazy<MonsterGearOverrideRepository> INSTANCE =
+            new CombatDataLoader.Lazy<>(() -> loadFromResource(RESOURCE_PATH));
 
     private final Map<String, List<MonsterGearOverride>> byLowercaseMonsterName;
 
@@ -48,65 +37,41 @@ public final class MonsterGearOverrideRepository {
 
     /** Shared, lazily-initialised singleton loaded from the bundled resource. */
     public static MonsterGearOverrideRepository getInstance() {
-        MonsterGearOverrideRepository result = instance;
-        if (result == null) {
-            synchronized (MonsterGearOverrideRepository.class) {
-                result = instance;
-                if (result == null) {
-                    instance = result = loadFromResource(RESOURCE_PATH);
-                }
-            }
-        }
-        return result;
+        return INSTANCE.get();
     }
 
     /** Loads a repository from an arbitrary classpath resource (mainly for tests). */
     static MonsterGearOverrideRepository loadFromResource(String resourcePath) {
-        Gson gson = BundledGson.get();
-        try (Reader reader = new InputStreamReader(requireResource(resourcePath), StandardCharsets.UTF_8)) {
-            RootDto root = gson.fromJson(reader, RootDto.class);
-            Map<String, List<MonsterGearOverride>> byName = new HashMap<>();
-            if (root != null && root.overrides != null) {
-                for (OverrideDto dto : root.overrides) {
-                    if (dto.monsters == null || dto.slot == null || dto.itemName == null) {
-                        continue; // malformed entry — treated as "no data"
+        RootDto root = CombatDataLoader.parse(MonsterGearOverrideRepository.class, resourcePath, RootDto.class);
+        Map<String, List<MonsterGearOverride>> byName = new HashMap<>();
+        if (root != null && root.overrides != null) {
+            for (OverrideDto dto : root.overrides) {
+                if (dto.monsters == null || dto.slot == null || dto.itemName == null) {
+                    continue; // malformed entry — treated as "no data"
+                }
+                MonsterGearOverride.Slot slot = CombatDataLoader.parseEnum(MonsterGearOverride.Slot.class, dto.slot);
+                if (slot == null) {
+                    continue; // unknown slot name in the data — skip defensively
+                }
+                java.util.Set<Integer> alternativeItemIds = dto.alternativeItemIds == null
+                        ? java.util.Collections.emptySet()
+                        : new java.util.LinkedHashSet<>(dto.alternativeItemIds);
+                for (String monsterName : dto.monsters) {
+                    if (monsterName == null || monsterName.isEmpty()) {
+                        continue;
                     }
-                    MonsterGearOverride.Slot slot;
-                    try {
-                        slot = MonsterGearOverride.Slot.valueOf(dto.slot.trim().toUpperCase(Locale.ROOT));
-                    } catch (IllegalArgumentException ignored) {
-                        continue; // unknown slot name in the data — skip defensively
-                    }
-                    java.util.Set<Integer> alternativeItemIds = dto.alternativeItemIds == null
-                            ? java.util.Collections.emptySet()
-                            : new java.util.LinkedHashSet<>(dto.alternativeItemIds);
-                    for (String monsterName : dto.monsters) {
-                        if (monsterName == null || monsterName.isEmpty()) {
-                            continue;
-                        }
-                        MonsterGearOverride override = new MonsterGearOverride(
-                                monsterName, slot, dto.itemId, dto.itemName, dto.reason, alternativeItemIds);
-                        byName.computeIfAbsent(monsterName.toLowerCase(Locale.ROOT), k -> new ArrayList<>())
-                                .add(override);
-                    }
+                    MonsterGearOverride override = new MonsterGearOverride(
+                            monsterName, slot, dto.itemId, dto.itemName, dto.reason, alternativeItemIds);
+                    byName.computeIfAbsent(monsterName.toLowerCase(Locale.ROOT), k -> new ArrayList<>())
+                            .add(override);
                 }
             }
-            Map<String, List<MonsterGearOverride>> immutableByName = new HashMap<>();
-            for (Map.Entry<String, List<MonsterGearOverride>> e : byName.entrySet()) {
-                immutableByName.put(e.getKey(), Collections.unmodifiableList(e.getValue()));
-            }
-            return new MonsterGearOverrideRepository(immutableByName);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to load monster gear override data from " + resourcePath, e);
         }
-    }
-
-    private static InputStream requireResource(String resourcePath) {
-        InputStream in = MonsterGearOverrideRepository.class.getResourceAsStream(resourcePath);
-        if (in == null) {
-            throw new IllegalStateException("Bundled resource not found on classpath: " + resourcePath);
+        Map<String, List<MonsterGearOverride>> immutableByName = new HashMap<>();
+        for (Map.Entry<String, List<MonsterGearOverride>> e : byName.entrySet()) {
+            immutableByName.put(e.getKey(), Collections.unmodifiableList(e.getValue()));
         }
-        return in;
+        return new MonsterGearOverrideRepository(immutableByName);
     }
 
     public int size() {

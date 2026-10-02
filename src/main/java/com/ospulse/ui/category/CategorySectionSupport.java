@@ -1,14 +1,11 @@
 package com.ospulse.ui.category;
 
-import net.runelite.api.Client;
-import net.runelite.api.Player;
+import net.runelite.api.*;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.ui.overlay.OverlayManager;
 
 import javax.swing.JPopupMenu;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Supplier;
 
 /**
@@ -167,5 +164,19 @@ public final class CategorySectionSupport
 	{
 		removeAllOverlays();
 		controller.clearAll();
+		lastSeenEpoch.clear();
+	}
+
+	private final Map<String, Integer> lastSeenEpoch = new HashMap<>();
+
+	/**
+	 * True once per Reset of {@code categoryId}: compares the controller's reset
+	 * epoch with the one last seen here. The first sighting only records it.
+	 */
+	public boolean justReset(String categoryId)
+	{
+		int epoch = controller.resetEpoch(categoryId);
+		Integer last = lastSeenEpoch.put(categoryId, epoch);
+		return last != null && last != epoch;
 	}
 }

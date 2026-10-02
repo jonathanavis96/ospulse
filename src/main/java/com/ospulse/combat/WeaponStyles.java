@@ -3,12 +3,7 @@ package com.ospulse.combat;
 import com.google.gson.reflect.TypeToken;
 
 import java.lang.reflect.Type;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.EnumMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * The attack styles each {@link WeaponCategory} offers — a faithful port of

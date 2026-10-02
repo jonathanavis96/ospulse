@@ -248,14 +248,4 @@ public final class CombatIcons {
         }
         return null;
     }
-
-    /** True for a melee-flavour variant (Super combat/strength/attack) — used to normalize the DPS boost math, which is identical across all three. */
-    public static boolean isMeleeVariant(BoostPotion potion) {
-        return potion == BoostPotion.SUPER_COMBAT || potion == BoostPotion.SUPER_STRENGTH || potion == BoostPotion.SUPER_ATTACK;
-    }
-
-    /** True for a ranged-flavour variant (Ranging/Bastion/Divine ranging) — used to normalize the DPS boost math, which is identical across all three. */
-    public static boolean isRangedVariant(BoostPotion potion) {
-        return potion == BoostPotion.RANGING || potion == BoostPotion.BASTION || potion == BoostPotion.DIVINE_RANGING;
-    }
 }

@@ -1,14 +1,8 @@
 package com.ospulse.ui.sections.gear;
 
-import com.ospulse.combat.EquipmentIndexRepository;
-import com.ospulse.combat.EquipmentRequirementsRepository;
-import com.ospulse.combat.EquipmentStatsRepository;
+import com.ospulse.combat.*;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Fortified/imbued cosmetic-or-charged variant suffixes (e.g. Masori

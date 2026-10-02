@@ -1,18 +1,9 @@
 package com.ospulse.combat;
 
-import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.io.UncheckedIOException;
 import java.lang.reflect.Type;
-import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Resolves a weapon item id → its {@link WeaponCategory} (and thence its
@@ -29,7 +20,8 @@ import java.util.Map;
 public final class WeaponCategoryRepository {
     private static final String RESOURCE_PATH = "/com/ospulse/combat/weapon_categories.min.json";
 
-    private static volatile WeaponCategoryRepository instance;
+    private static final CombatDataLoader.Lazy<WeaponCategoryRepository> INSTANCE =
+            new CombatDataLoader.Lazy<>(() -> loadFromResource(RESOURCE_PATH));
 
     private final Map<Integer, WeaponCategory> byItemId;
 
@@ -39,51 +31,29 @@ public final class WeaponCategoryRepository {
 
     /** Shared, lazily-initialised singleton loaded from the bundled resource. */
     public static WeaponCategoryRepository getInstance() {
-        WeaponCategoryRepository result = instance;
-        if (result == null) {
-            synchronized (WeaponCategoryRepository.class) {
-                result = instance;
-                if (result == null) {
-                    instance = result = loadFromResource(RESOURCE_PATH);
-                }
-            }
-        }
-        return result;
+        return INSTANCE.get();
     }
 
     /** Loads a repository from an arbitrary classpath resource (mainly for tests). */
     static WeaponCategoryRepository loadFromResource(String resourcePath) {
-        Gson gson = BundledGson.get();
-        try (Reader reader = new InputStreamReader(requireResource(resourcePath), StandardCharsets.UTF_8)) {
-            Type mapType = new TypeToken<Map<String, String>>() {
-            }.getType();
-            Map<String, String> raw = gson.fromJson(reader, mapType);
-            java.util.HashMap<Integer, WeaponCategory> parsed = new java.util.HashMap<>();
-            if (raw != null) {
-                for (Map.Entry<String, String> e : raw.entrySet()) {
-                    WeaponCategory category = WeaponCategory.fromDataName(e.getValue());
-                    if (category == null) {
-                        continue; // unknown/blank category — treated as "no data" (caller falls back)
-                    }
-                    try {
-                        parsed.put(Integer.parseInt(e.getKey().trim()), category);
-                    } catch (NumberFormatException ignored) {
-                        // non-numeric key in the data — skip defensively
-                    }
+        Type mapType = new TypeToken<Map<String, String>>() {
+        }.getType();
+        Map<String, String> raw = CombatDataLoader.parse(WeaponCategoryRepository.class, resourcePath, mapType);
+        java.util.HashMap<Integer, WeaponCategory> parsed = new java.util.HashMap<>();
+        if (raw != null) {
+            for (Map.Entry<String, String> e : raw.entrySet()) {
+                WeaponCategory category = WeaponCategory.fromDataName(e.getValue());
+                if (category == null) {
+                    continue; // unknown/blank category — treated as "no data" (caller falls back)
+                }
+                try {
+                    parsed.put(Integer.parseInt(e.getKey().trim()), category);
+                } catch (NumberFormatException ignored) {
+                    // non-numeric key in the data — skip defensively
                 }
             }
-            return new WeaponCategoryRepository(parsed);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to load weapon category data from " + resourcePath, e);
         }
-    }
-
-    private static InputStream requireResource(String resourcePath) {
-        InputStream in = WeaponCategoryRepository.class.getResourceAsStream(resourcePath);
-        if (in == null) {
-            throw new IllegalStateException("Bundled resource not found on classpath: " + resourcePath);
-        }
-        return in;
+        return new WeaponCategoryRepository(parsed);
     }
 
     public int size() {

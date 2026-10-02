@@ -1,18 +1,11 @@
 package com.ospulse.combat;
 
-import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.io.UncheckedIOException;
 import java.lang.reflect.Type;
-import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import lombok.Getter;
+import lombok.experimental.Accessors;
 
 /**
  * Resolves an equipment item id → its offensive/defensive bonuses from the
@@ -48,7 +41,8 @@ public final class EquipmentStatsRepository {
     // so scale it down on load. Ranged strength / all other bonuses are 1:1.
     private static final double MDMG_TENTHS_TO_PERCENT = 10.0;
 
-    private static volatile EquipmentStatsRepository instance;
+    private static final CombatDataLoader.Lazy<EquipmentStatsRepository> INSTANCE =
+            new CombatDataLoader.Lazy<>(() -> loadFromResource(RESOURCE_PATH));
 
     private final Map<Integer, Stats> byItemId;
 
@@ -58,53 +52,31 @@ public final class EquipmentStatsRepository {
 
     /** Shared, lazily-initialised singleton loaded from the bundled resource. */
     public static EquipmentStatsRepository getInstance() {
-        EquipmentStatsRepository result = instance;
-        if (result == null) {
-            synchronized (EquipmentStatsRepository.class) {
-                result = instance;
-                if (result == null) {
-                    instance = result = loadFromResource(RESOURCE_PATH);
-                }
-            }
-        }
-        return result;
+        return INSTANCE.get();
     }
 
     /** Loads a repository from an arbitrary classpath resource (mainly for tests). */
     static EquipmentStatsRepository loadFromResource(String resourcePath) {
-        Gson gson = BundledGson.get();
-        try (Reader reader = new InputStreamReader(requireResource(resourcePath), StandardCharsets.UTF_8)) {
-            Type mapType = new TypeToken<Map<String, int[]>>() {
-            }.getType();
-            Map<String, int[]> raw = gson.fromJson(reader, mapType);
-            HashMap<Integer, Stats> parsed = new HashMap<>();
-            if (raw != null) {
-                for (Map.Entry<String, int[]> e : raw.entrySet()) {
-                    int[] row = e.getValue();
-                    if (row == null || row.length < MIN_ROW_LEN) {
-                        continue; // malformed row — treated as "no data" (caller falls back)
-                    }
-                    int itemId;
-                    try {
-                        itemId = Integer.parseInt(e.getKey().trim());
-                    } catch (NumberFormatException ignored) {
-                        continue; // non-numeric key in the data — skip defensively
-                    }
-                    parsed.put(itemId, Stats.fromRow(row));
+        Type mapType = new TypeToken<Map<String, int[]>>() {
+        }.getType();
+        Map<String, int[]> raw = CombatDataLoader.parse(EquipmentStatsRepository.class, resourcePath, mapType);
+        HashMap<Integer, Stats> parsed = new HashMap<>();
+        if (raw != null) {
+            for (Map.Entry<String, int[]> e : raw.entrySet()) {
+                int[] row = e.getValue();
+                if (row == null || row.length < MIN_ROW_LEN) {
+                    continue; // malformed row — treated as "no data" (caller falls back)
                 }
+                int itemId;
+                try {
+                    itemId = Integer.parseInt(e.getKey().trim());
+                } catch (NumberFormatException ignored) {
+                    continue; // non-numeric key in the data — skip defensively
+                }
+                parsed.put(itemId, Stats.fromRow(row));
             }
-            return new EquipmentStatsRepository(parsed);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to load equipment stats data from " + resourcePath, e);
         }
-    }
-
-    private static InputStream requireResource(String resourcePath) {
-        InputStream in = EquipmentStatsRepository.class.getResourceAsStream(resourcePath);
-        if (in == null) {
-            throw new IllegalStateException("Bundled resource not found on classpath: " + resourcePath);
-        }
-        return in;
+        return new EquipmentStatsRepository(parsed);
     }
 
     public int size() {
@@ -129,22 +101,25 @@ public final class EquipmentStatsRepository {
      * numeric fields, minus {@code isTwoHanded} (not cache-derivable — see class
      * javadoc).
      */
+    @Accessors(fluent = true)
     public static final class Stats {
-        private final int astab;
-        private final int aslash;
-        private final int acrush;
-        private final int amagic;
-        private final int arange;
-        private final int dstab;
-        private final int dslash;
-        private final int dcrush;
-        private final int dmagic;
-        private final int drange;
-        private final int str;
-        private final int rstr;
-        private final double mdmg;
-        private final int prayer;
-        private final int aspeed;
+        @Getter private final int astab;
+        @Getter private final int aslash;
+        @Getter private final int acrush;
+        @Getter private final int amagic;
+        @Getter private final int arange;
+        @Getter private final int dstab;
+        @Getter private final int dslash;
+        @Getter private final int dcrush;
+        @Getter private final int dmagic;
+        @Getter private final int drange;
+        @Getter private final int str;
+        @Getter private final int rstr;
+        /** Magic damage as a whole percent (e.g. 15.0 for +15%), already scaled from the file's tenths. */
+        @Getter private final double mdmg;
+        @Getter private final int prayer;
+        /** Weapon attack speed in ticks; {@code 0} means "derive from weapon category" (powered staves etc.). */
+        @Getter private final int aspeed;
 
         private Stats(int astab, int aslash, int acrush, int amagic, int arange,
                       int dstab, int dslash, int dcrush, int dmagic, int drange,
@@ -169,68 +144,6 @@ public final class EquipmentStatsRepository {
         static Stats fromRow(int[] r) {
             return new Stats(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9],
                     r[10], r[11], r[I_MDMG] / MDMG_TENTHS_TO_PERCENT, r[13], r[I_SPEED]);
-        }
-
-        public int astab() {
-            return astab;
-        }
-
-        public int aslash() {
-            return aslash;
-        }
-
-        public int acrush() {
-            return acrush;
-        }
-
-        public int amagic() {
-            return amagic;
-        }
-
-        public int arange() {
-            return arange;
-        }
-
-        public int dstab() {
-            return dstab;
-        }
-
-        public int dslash() {
-            return dslash;
-        }
-
-        public int dcrush() {
-            return dcrush;
-        }
-
-        public int dmagic() {
-            return dmagic;
-        }
-
-        public int drange() {
-            return drange;
-        }
-
-        public int str() {
-            return str;
-        }
-
-        public int rstr() {
-            return rstr;
-        }
-
-        /** Magic damage as a whole percent (e.g. 15.0 for +15%), already scaled from the file's tenths. */
-        public double mdmg() {
-            return mdmg;
-        }
-
-        public int prayer() {
-            return prayer;
-        }
-
-        /** Weapon attack speed in ticks; {@code 0} means "derive from weapon category" (powered staves etc.). */
-        public int aspeed() {
-            return aspeed;
         }
     }
 }

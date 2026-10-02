@@ -2,10 +2,7 @@ package com.ospulse.combat.optimizer;
 
 import net.runelite.api.gameval.ItemID;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Charge-variant families: groups every charge level of one chargeable item

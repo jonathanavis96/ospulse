@@ -71,7 +71,7 @@ public final class PriceTrendService
 	 */
 	public void setOnUpdate(Runnable r)
 	{
-		this.onUpdate = r == null ? () -> {} : r;
+		onUpdate = r == null ? () -> {} : r;
 	}
 
 	/**

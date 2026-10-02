@@ -1,12 +1,9 @@
 package com.ospulse.ui.category;
 
+import com.ospulse.ui.PanelWidgets;
 import net.runelite.client.util.LinkBrowser;
 
-import javax.swing.JMenuItem;
-import javax.swing.JPopupMenu;
-import javax.swing.event.PopupMenuEvent;
-import javax.swing.event.PopupMenuListener;
-import javax.swing.border.EmptyBorder;
+import javax.swing.*;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
@@ -59,62 +56,28 @@ public final class CategoryContextMenu
 	public static JPopupMenu build(CategoryController controller, String categoryId,
 		RsnSupplier rsnSupplier, String womMetric, java.util.function.LongSupplier nowMs)
 	{
-		JPopupMenu menu = new JPopupMenu();
-		menu.setBorder(new EmptyBorder(5, 5, 5, 5));
-
-		JMenuItem openWom = new JMenuItem("Open Wise Old Man");
-		openWom.addActionListener(e -> LinkBrowser.browse(buildWiseOldManUrl(
+		JPopupMenu menu = PanelWidgets.popupMenu();
+		PanelWidgets.menuItem(menu, "Open Wise Old Man", () -> LinkBrowser.browse(buildWiseOldManUrl(
 			rsnSupplier == null ? null : rsnSupplier.getRsn(), womMetric)));
-		menu.add(openWom);
-
-		JMenuItem reset = new JMenuItem("Reset");
-		reset.addActionListener(e -> controller.reset(categoryId, nowMs.getAsLong()));
-		menu.add(reset);
-
-		JMenuItem resetOthers = new JMenuItem("Reset others");
-		resetOthers.addActionListener(e -> controller.resetOthers(categoryId, nowMs.getAsLong()));
-		menu.add(resetOthers);
-
-		JMenuItem resetAll = new JMenuItem("Reset all");
-		resetAll.addActionListener(e -> controller.resetAll(nowMs.getAsLong()));
-		menu.add(resetAll);
-
-		JMenuItem pause = new JMenuItem(controller.isPaused(categoryId) ? "Unpause" : "Pause");
-		pause.addActionListener(e -> controller.setPaused(categoryId, !controller.isPaused(categoryId)));
-		menu.add(pause);
-
-		JMenuItem pauseAll = new JMenuItem("Pause all");
-		pauseAll.addActionListener(e -> controller.setPausedAll(true));
-		menu.add(pauseAll);
-
-		JMenuItem canvas = new JMenuItem(
-			controller.isOnCanvas(categoryId) ? "Remove from canvas" : "Add to canvas");
-		canvas.addActionListener(e -> controller.toggleOnCanvas(categoryId));
-		menu.add(canvas);
+		PanelWidgets.menuItem(menu, "Reset", () -> controller.reset(categoryId, nowMs.getAsLong()));
+		PanelWidgets.menuItem(menu, "Reset others", () -> controller.resetOthers(categoryId, nowMs.getAsLong()));
+		PanelWidgets.menuItem(menu, "Reset all", () -> controller.resetAll(nowMs.getAsLong()));
+		JMenuItem pause = PanelWidgets.menuItem(menu, controller.isPaused(categoryId) ? "Unpause" : "Pause",
+			() -> controller.setPaused(categoryId, !controller.isPaused(categoryId)));
+		PanelWidgets.menuItem(menu, "Pause all", () -> controller.setPausedAll(true));
+		JMenuItem canvas = PanelWidgets.menuItem(menu,
+			controller.isOnCanvas(categoryId) ? "Remove from canvas" : "Add to canvas",
+			() -> controller.toggleOnCanvas(categoryId));
 
 		// Refresh the toggle-style labels (Pause/Unpause, Add/Remove canvas)
 		// each time the menu is about to show, exactly as XpInfoBox's
 		// PopupMenuListener refreshes canvasItem's text on
 		// popupMenuWillBecomeVisible - state can change between menu opens
 		// without the menu itself being rebuilt.
-		menu.addPopupMenuListener(new PopupMenuListener()
+		PanelWidgets.onPopupShow(menu, () ->
 		{
-			@Override
-			public void popupMenuWillBecomeVisible(PopupMenuEvent e)
-			{
-				pause.setText(controller.isPaused(categoryId) ? "Unpause" : "Pause");
-				canvas.setText(controller.isOnCanvas(categoryId) ? "Remove from canvas" : "Add to canvas");
-			}
-
-			@Override
-			public void popupMenuWillBecomeInvisible(PopupMenuEvent e)
-			{
-			}
-
-			@Override
-			public void popupMenuCanceled(PopupMenuEvent e)
-			{
-			}
+			pause.setText(controller.isPaused(categoryId) ? "Unpause" : "Pause");
+			canvas.setText(controller.isOnCanvas(categoryId) ? "Remove from canvas" : "Add to canvas");
 		});
 
 		return menu;

@@ -59,11 +59,6 @@ public enum SalveType {
         }
     }
 
-    /** Magic accuracy-roll multiplier (only (i)/(ei) affect magic, both at the same 1.15x per the wiki). */
-    public Fraction magicAccuracyBonus() {
-        return isImbued() ? new Fraction(23, 20) : Fraction.ONE; // 1.15
-    }
-
     /** Additive magic-damage percentage folded into the magic max hit calc. */
     public double magicDamagePercent() {
         if (this == SALVE_I) {

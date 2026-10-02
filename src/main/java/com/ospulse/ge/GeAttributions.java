@@ -1,7 +1,6 @@
 package com.ospulse.ge;
 
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 /**
  * Quantity-accurate attribution of tracked-item movements to Grand Exchange

@@ -1,26 +1,12 @@
 package com.ospulse.ui;
 
 import net.runelite.client.game.ItemManager;
-import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
+import net.runelite.client.ui.*;
 
-import javax.swing.Box;
-import javax.swing.ImageIcon;
-import javax.swing.JCheckBox;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.SwingConstants;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Cursor;
-import java.awt.Dimension;
-import java.awt.FontMetrics;
-import java.awt.Image;
-import java.awt.Insets;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import java.awt.*;
+import java.awt.event.*;
 
 /**
  * Shared, stateless builders for the small labelled rows used across every
@@ -31,6 +17,95 @@ public final class PanelWidgets
 {
 	private PanelWidgets()
 	{
+	}
+
+	/** A panel on the section background, left-aligned for BoxLayout stacks. */
+	public static JPanel panel(LayoutManager layout)
+	{
+		JPanel p = new JPanel(layout);
+		p.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		p.setAlignmentX(Component.LEFT_ALIGNMENT);
+		return p;
+	}
+
+	/** {@link #panel} stacking its children vertically. */
+	public static JPanel vbox()
+	{
+		JPanel p = panel(null);
+		p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+		return p;
+	}
+
+	/** {@link #panel} with the 1px top/bottom padding every list row uses. */
+	public static JPanel row(LayoutManager layout)
+	{
+		JPanel p = panel(layout);
+		p.setBorder(new EmptyBorder(1, 0, 1, 0));
+		return p;
+	}
+
+	/** A small-font label in {@code color}. */
+	public static JLabel label(String text, Color color)
+	{
+		JLabel l = new JLabel(text);
+		l.setForeground(color);
+		l.setFont(FontManager.getRunescapeSmallFont());
+		return l;
+	}
+
+	/** A white, right-aligned small-font value label. */
+	public static JLabel valueLabel(String text)
+	{
+		JLabel l = label(text, Color.WHITE);
+		l.setHorizontalAlignment(SwingConstants.RIGHT);
+		return l;
+	}
+
+	/** Caps the component's maximum height at its preferred height so BoxLayout cannot stretch it. */
+	public static <T extends JComponent> T capHeight(T c)
+	{
+		c.setMaximumSize(new Dimension(Integer.MAX_VALUE, c.getPreferredSize().height));
+		return c;
+	}
+
+	/** An empty popup menu with the standard 5px padding. */
+	public static JPopupMenu popupMenu()
+	{
+		JPopupMenu menu = new JPopupMenu();
+		menu.setBorder(new EmptyBorder(5, 5, 5, 5));
+		return menu;
+	}
+
+	/** Adds a menu item running {@code action} and returns it. */
+	public static JMenuItem menuItem(JPopupMenu menu, String text, Runnable action)
+	{
+		JMenuItem item = new JMenuItem(text);
+		item.addActionListener(e -> action.run());
+		menu.add(item);
+		return item;
+	}
+
+	/** Runs {@code action} each time {@code menu} is about to show. */
+	public static void onPopupShow(JPopupMenu menu, Runnable action)
+	{
+		menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener()
+		{
+			@Override
+			public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e)
+			{
+				action.run();
+			}
+
+			@Override
+			public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e)
+			{
+			}
+
+			@Override
+			public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e)
+			{
+			}
+		});
 	}
 
 	/**
@@ -50,21 +125,9 @@ public final class PanelWidgets
 	 */
 	public static JLabel statRow(JPanel container, String labelText, javax.swing.JPopupMenu popupMenu)
 	{
-		JPanel row = new JPanel(new BorderLayout());
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(new EmptyBorder(1, 0, 1, 0));
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-		JLabel label = new JLabel(labelText);
-		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		label.setFont(FontManager.getRunescapeSmallFont());
-
-		JLabel value = new JLabel("-");
-		value.setForeground(Color.WHITE);
-		value.setFont(FontManager.getRunescapeSmallFont());
-		value.setHorizontalAlignment(SwingConstants.RIGHT);
-
-		row.add(label, BorderLayout.WEST);
+		JPanel row = row(new BorderLayout());
+		JLabel value = valueLabel("-");
+		row.add(label(labelText, ColorScheme.LIGHT_GRAY_COLOR), BorderLayout.WEST);
 		row.add(value, BorderLayout.EAST);
 		if (popupMenu != null)
 		{
@@ -129,11 +192,7 @@ public final class PanelWidgets
 	 */
 	public static JCheckBox toggleOnlyRow(JPanel container, String labelText, int nameColumnWidth)
 	{
-		JPanel row = new JPanel(new BorderLayout(4, 0));
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(new EmptyBorder(1, 0, 1, 0));
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-
+		JPanel row = row(new BorderLayout(4, 0));
 		JCheckBox checkbox = toggleCheckBox();
 		row.add(nameColumn(labelText, nameColumnWidth, checkbox, null), BorderLayout.WEST);
 		container.add(row);
@@ -151,9 +210,7 @@ public final class PanelWidgets
 		JPanel namePanel = new JPanel(new BorderLayout(TOGGLE_NAME_BOX_GAP, 0));
 		namePanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 
-		JLabel label = new JLabel(labelText);
-		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		label.setFont(FontManager.getRunescapeSmallFont());
+		JLabel label = label(labelText, ColorScheme.LIGHT_GRAY_COLOR);
 		namePanel.add(label, BorderLayout.CENTER);
 
 		if (tooltip != null)
@@ -226,19 +283,11 @@ public final class PanelWidgets
 	 */
 	public static ToggleRow toggleStatRow(JPanel container, String labelText, int nameColumnWidth)
 	{
-		JPanel row = new JPanel(new BorderLayout(4, 0));
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(new EmptyBorder(1, 0, 1, 0));
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-
+		JPanel row = row(new BorderLayout(4, 0));
 		JCheckBox checkbox = toggleCheckBox();
 		row.add(nameColumn(labelText, nameColumnWidth, checkbox,
 			"Include " + labelText + " in the total"), BorderLayout.WEST);
-
-		JLabel value = new JLabel("-");
-		value.setForeground(Color.WHITE);
-		value.setFont(FontManager.getRunescapeSmallFont());
-		value.setHorizontalAlignment(SwingConstants.RIGHT);
+		JLabel value = valueLabel("-");
 		row.add(value, BorderLayout.EAST);
 
 		container.add(row);
@@ -248,22 +297,9 @@ public final class PanelWidgets
 	/** A "left ........ right" row (no icon), pinned right. */
 	public static JPanel listRow(String left, String right)
 	{
-		JPanel row = new JPanel(new BorderLayout());
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(new EmptyBorder(1, 0, 1, 0));
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-		JLabel leftLabel = new JLabel(left);
-		leftLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		leftLabel.setFont(FontManager.getRunescapeSmallFont());
-
-		JLabel rightLabel = new JLabel(right);
-		rightLabel.setForeground(Color.WHITE);
-		rightLabel.setFont(FontManager.getRunescapeSmallFont());
-		rightLabel.setHorizontalAlignment(SwingConstants.RIGHT);
-
-		row.add(leftLabel, BorderLayout.WEST);
-		row.add(rightLabel, BorderLayout.EAST);
+		JPanel row = row(new BorderLayout());
+		row.add(label(left, ColorScheme.LIGHT_GRAY_COLOR), BorderLayout.WEST);
+		row.add(valueLabel(right), BorderLayout.EAST);
 		return row;
 	}
 
@@ -278,21 +314,10 @@ public final class PanelWidgets
 	 */
 	public static JPanel signedListRow(String left, long value)
 	{
-		JPanel row = new JPanel(new BorderLayout());
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(new EmptyBorder(1, 0, 1, 0));
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-		JLabel leftLabel = new JLabel(left);
-		leftLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		leftLabel.setFont(FontManager.getRunescapeSmallFont());
-
-		JLabel rightLabel = new JLabel();
-		rightLabel.setFont(FontManager.getRunescapeSmallFont());
-		rightLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+		JPanel row = row(new BorderLayout());
+		JLabel rightLabel = valueLabel(null);
 		setSignedGpLabel(rightLabel, value);
-
-		row.add(leftLabel, BorderLayout.WEST);
+		row.add(label(left, ColorScheme.LIGHT_GRAY_COLOR), BorderLayout.WEST);
 		row.add(rightLabel, BorderLayout.EAST);
 		return row;
 	}
@@ -309,33 +334,20 @@ public final class PanelWidgets
 	public static JPanel iconRow(ItemManager itemManager, int itemId, String leftText,
 		String rightText, Color leftColor)
 	{
-		JPanel row = new JPanel(new BorderLayout(4, 0));
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(new EmptyBorder(1, 0, 1, 0));
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-
+		JPanel row = row(new BorderLayout(4, 0));
 		if (itemManager != null && itemId > 0)
 		{
 			JLabel iconLabel = new JLabel();
 			itemManager.getImage(itemId).addTo(iconLabel);
 			row.add(iconLabel, BorderLayout.WEST);
 		}
-
-		JLabel textLabel = new JLabel(leftText);
-		textLabel.setForeground(leftColor);
-		textLabel.setFont(FontManager.getRunescapeSmallFont());
-		row.add(textLabel, BorderLayout.CENTER);
-
-		JLabel rightLabel = new JLabel(rightText);
-		rightLabel.setForeground(Color.WHITE);
-		rightLabel.setFont(FontManager.getRunescapeSmallFont());
-		rightLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+		row.add(label(leftText, leftColor), BorderLayout.CENTER);
+		JLabel rightLabel = valueLabel(rightText);
 		rightLabel.setBorder(new EmptyBorder(0, 4, 0, 0));
 		row.add(rightLabel, BorderLayout.EAST);
 
 		// Don't let the row stretch vertically under BoxLayout.
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		return capHeight(row);
 	}
 
 	/**
@@ -357,29 +369,17 @@ public final class PanelWidgets
 	public static JPanel iconRow(Image image, String leftText, String rightText, Color leftColor,
 		javax.swing.JPopupMenu popupMenu)
 	{
-		JPanel row = new JPanel(new BorderLayout(4, 0));
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(new EmptyBorder(1, 0, 1, 0));
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
-
+		JPanel row = row(new BorderLayout(4, 0));
 		if (image != null)
 		{
 			row.add(new JLabel(new ImageIcon(image)), BorderLayout.WEST);
 		}
-
-		JLabel textLabel = new JLabel(leftText);
-		textLabel.setForeground(leftColor);
-		textLabel.setFont(FontManager.getRunescapeSmallFont());
+		JLabel textLabel = label(leftText, leftColor);
 		row.add(textLabel, BorderLayout.CENTER);
-
-		JLabel rightLabel = new JLabel(rightText);
-		rightLabel.setForeground(Color.WHITE);
-		rightLabel.setFont(FontManager.getRunescapeSmallFont());
-		rightLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+		JLabel rightLabel = valueLabel(rightText);
 		rightLabel.setBorder(new EmptyBorder(0, 4, 0, 0));
 		row.add(rightLabel, BorderLayout.EAST);
-
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		capHeight(row);
 		if (popupMenu != null)
 		{
 			row.setComponentPopupMenu(popupMenu);
@@ -391,9 +391,7 @@ public final class PanelWidgets
 
 	public static JLabel emptyRowLabel(String text)
 	{
-		JLabel label = new JLabel(text);
-		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		label.setFont(FontManager.getRunescapeSmallFont());
+		JLabel label = label(text, ColorScheme.LIGHT_GRAY_COLOR);
 		label.setAlignmentX(Component.LEFT_ALIGNMENT);
 		return label;
 	}

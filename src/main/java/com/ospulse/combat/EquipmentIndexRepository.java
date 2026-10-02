@@ -1,23 +1,12 @@
 package com.ospulse.combat;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
+import com.google.gson.*;
 import com.google.gson.reflect.TypeToken;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.io.UncheckedIOException;
 import java.lang.reflect.Type;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
+import lombok.Getter;
+import lombok.experimental.Accessors;
 
 /**
  * Resolves an equippable item id &lt;-&gt; its display name and
@@ -37,7 +26,8 @@ import java.util.Map;
 public final class EquipmentIndexRepository {
     private static final String RESOURCE_PATH = "/com/ospulse/combat/equipment_index.min.json";
 
-    private static volatile EquipmentIndexRepository instance;
+    private static final CombatDataLoader.Lazy<EquipmentIndexRepository> INSTANCE =
+            new CombatDataLoader.Lazy<>(() -> loadFromResource(RESOURCE_PATH));
 
     private final List<Entry> entries;
     private final Map<Integer, Entry> byItemId;
@@ -73,59 +63,37 @@ public final class EquipmentIndexRepository {
 
     /** Shared, lazily-initialised singleton loaded from the bundled resource. */
     public static EquipmentIndexRepository getInstance() {
-        EquipmentIndexRepository result = instance;
-        if (result == null) {
-            synchronized (EquipmentIndexRepository.class) {
-                result = instance;
-                if (result == null) {
-                    instance = result = loadFromResource(RESOURCE_PATH);
-                }
-            }
-        }
-        return result;
+        return INSTANCE.get();
     }
 
     /** Loads a repository from an arbitrary classpath resource (mainly for tests). */
     static EquipmentIndexRepository loadFromResource(String resourcePath) {
-        Gson gson = BundledGson.get();
-        try (Reader reader = new InputStreamReader(requireResource(resourcePath), StandardCharsets.UTF_8)) {
-            Type mapType = new TypeToken<Map<String, JsonArray>>() {
-            }.getType();
-            Map<String, JsonArray> raw = gson.fromJson(reader, mapType);
-            List<Entry> parsed = new ArrayList<>();
-            if (raw != null) {
-                for (Map.Entry<String, JsonArray> e : raw.entrySet()) {
-                    JsonArray row = e.getValue();
-                    if (row == null || row.size() < 2) {
-                        continue; // malformed row — treated as "no data"
-                    }
-                    int itemId;
-                    try {
-                        itemId = Integer.parseInt(e.getKey().trim());
-                    } catch (NumberFormatException ignored) {
-                        continue;
-                    }
-                    JsonElement nameEl = row.get(0);
-                    JsonElement slotEl = row.get(1);
-                    if (nameEl == null || nameEl.isJsonNull() || slotEl == null || slotEl.isJsonNull()) {
-                        continue;
-                    }
-                    boolean isTwoHanded = row.size() > 2 && !row.get(2).isJsonNull() && row.get(2).getAsBoolean();
-                    parsed.add(new Entry(itemId, nameEl.getAsString(), slotEl.getAsInt(), isTwoHanded));
+        Type mapType = new TypeToken<Map<String, JsonArray>>() {
+        }.getType();
+        Map<String, JsonArray> raw = CombatDataLoader.parse(EquipmentIndexRepository.class, resourcePath, mapType);
+        List<Entry> parsed = new ArrayList<>();
+        if (raw != null) {
+            for (Map.Entry<String, JsonArray> e : raw.entrySet()) {
+                JsonArray row = e.getValue();
+                if (row == null || row.size() < 2) {
+                    continue; // malformed row — treated as "no data"
                 }
+                int itemId;
+                try {
+                    itemId = Integer.parseInt(e.getKey().trim());
+                } catch (NumberFormatException ignored) {
+                    continue;
+                }
+                JsonElement nameEl = row.get(0);
+                JsonElement slotEl = row.get(1);
+                if (nameEl == null || nameEl.isJsonNull() || slotEl == null || slotEl.isJsonNull()) {
+                    continue;
+                }
+                boolean isTwoHanded = row.size() > 2 && !row.get(2).isJsonNull() && row.get(2).getAsBoolean();
+                parsed.add(new Entry(itemId, nameEl.getAsString(), slotEl.getAsInt(), isTwoHanded));
             }
-            return new EquipmentIndexRepository(parsed);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to load equipment index data from " + resourcePath, e);
         }
-    }
-
-    private static InputStream requireResource(String resourcePath) {
-        InputStream in = EquipmentIndexRepository.class.getResourceAsStream(resourcePath);
-        if (in == null) {
-            throw new IllegalStateException("Bundled resource not found on classpath: " + resourcePath);
-        }
-        return in;
+        return new EquipmentIndexRepository(parsed);
     }
 
     public int size() {
@@ -207,10 +175,12 @@ public final class EquipmentIndexRepository {
     }
 
     /** One equippable item's display name, equipment-slot ordinal and two-handedness. Immutable. */
+    @Accessors(fluent = true)
     public static final class Entry {
-        private final int itemId;
-        private final String name;
-        private final int slotOrdinal;
+        @Getter private final int itemId;
+        @Getter private final String name;
+        /** {@code net.runelite.api.EquipmentInventorySlot} ordinal this item is worn in. */
+        @Getter private final int slotOrdinal;
         private final boolean twoHanded;
 
         Entry(int itemId, String name, int slotOrdinal, boolean twoHanded) {
@@ -218,19 +188,6 @@ public final class EquipmentIndexRepository {
             this.name = name;
             this.slotOrdinal = slotOrdinal;
             this.twoHanded = twoHanded;
-        }
-
-        public int itemId() {
-            return itemId;
-        }
-
-        public String name() {
-            return name;
-        }
-
-        /** {@code net.runelite.api.EquipmentInventorySlot} ordinal this item is worn in. */
-        public int slotOrdinal() {
-            return slotOrdinal;
         }
 
         /**

@@ -1,22 +1,7 @@
 package com.ospulse.combat;
 
-import com.google.gson.Gson;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Loads the bundled, hand-curated "don't forget" consumables/gear reminder
@@ -42,7 +27,8 @@ import java.util.Set;
 public final class MonsterConsumablesRepository {
     private static final String RESOURCE_PATH = "/com/ospulse/combat/monster_consumables.json";
 
-    private static volatile MonsterConsumablesRepository instance;
+    private static final CombatDataLoader.Lazy<MonsterConsumablesRepository> INSTANCE =
+            new CombatDataLoader.Lazy<>(() -> loadFromResource(RESOURCE_PATH));
 
     private final Map<String, MonsterConsumablesReminder> byLowercaseMonsterName;
 
@@ -52,57 +38,35 @@ public final class MonsterConsumablesRepository {
 
     /** Shared, lazily-initialised singleton loaded from the bundled resource. */
     public static MonsterConsumablesRepository getInstance() {
-        MonsterConsumablesRepository result = instance;
-        if (result == null) {
-            synchronized (MonsterConsumablesRepository.class) {
-                result = instance;
-                if (result == null) {
-                    instance = result = loadFromResource(RESOURCE_PATH);
-                }
-            }
-        }
-        return result;
+        return INSTANCE.get();
     }
 
     /** Loads a repository from an arbitrary classpath resource (mainly for tests). */
     static MonsterConsumablesRepository loadFromResource(String resourcePath) {
-        Gson gson = BundledGson.get();
-        try (Reader reader = new InputStreamReader(requireResource(resourcePath), StandardCharsets.UTF_8)) {
-            RootDto root = gson.fromJson(reader, RootDto.class);
-            Map<String, MonsterConsumablesReminder> byName = new HashMap<>();
-            if (root != null && root.reminders != null) {
-                for (ReminderDto dto : root.reminders) {
-                    if (dto.monsters == null || dto.note == null) {
-                        continue; // malformed entry — treated as "no data"
+        RootDto root = CombatDataLoader.parse(MonsterConsumablesRepository.class, resourcePath, RootDto.class);
+        Map<String, MonsterConsumablesReminder> byName = new HashMap<>();
+        if (root != null && root.reminders != null) {
+            for (ReminderDto dto : root.reminders) {
+                if (dto.monsters == null || dto.note == null) {
+                    continue; // malformed entry — treated as "no data"
+                }
+                Set<Integer> equipmentItemIds = dto.equipmentItemIds == null
+                    ? Collections.emptySet()
+                    : new LinkedHashSet<>(dto.equipmentItemIds);
+                Set<Integer> consumableItemIds = dto.consumableItemIds == null
+                    ? Collections.emptySet()
+                    : new LinkedHashSet<>(dto.consumableItemIds);
+                MonsterConsumablesReminder reminder =
+                    new MonsterConsumablesReminder(dto.note, equipmentItemIds, consumableItemIds);
+                for (String monsterName : dto.monsters) {
+                    if (monsterName == null || monsterName.isEmpty()) {
+                        continue;
                     }
-                    Set<Integer> equipmentItemIds = dto.equipmentItemIds == null
-                        ? Collections.emptySet()
-                        : new LinkedHashSet<>(dto.equipmentItemIds);
-                    Set<Integer> consumableItemIds = dto.consumableItemIds == null
-                        ? Collections.emptySet()
-                        : new LinkedHashSet<>(dto.consumableItemIds);
-                    MonsterConsumablesReminder reminder =
-                        new MonsterConsumablesReminder(dto.note, equipmentItemIds, consumableItemIds);
-                    for (String monsterName : dto.monsters) {
-                        if (monsterName == null || monsterName.isEmpty()) {
-                            continue;
-                        }
-                        byName.put(monsterName.toLowerCase(Locale.ROOT), reminder);
-                    }
+                    byName.put(monsterName.toLowerCase(Locale.ROOT), reminder);
                 }
             }
-            return new MonsterConsumablesRepository(byName);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to load monster consumables reminder data from " + resourcePath, e);
         }
-    }
-
-    private static InputStream requireResource(String resourcePath) {
-        InputStream in = MonsterConsumablesRepository.class.getResourceAsStream(resourcePath);
-        if (in == null) {
-            throw new IllegalStateException("Bundled resource not found on classpath: " + resourcePath);
-        }
-        return in;
+        return new MonsterConsumablesRepository(byName);
     }
 
     public int size() {

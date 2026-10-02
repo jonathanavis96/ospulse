@@ -21,6 +21,8 @@ import static org.junit.Assert.assertTrue;
  * the live-game reading is the tie-breaker.
  */
 public class DemonbaneEffectTest {
+    static { BundledGson.set(new com.google.gson.Gson()); }
+
 
     /** A representative max-melee STAB loadout; demonbaneWeapon set by the caller. */
     private static EquipmentStats gear(DemonbaneWeapon demonbane, SlayerHeadgear slayer) {

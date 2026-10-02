@@ -144,7 +144,7 @@ public class GearSectionPotionVariantTest
 			section.apply(snapshotWith(gearWithWeapon(GHRAZI_RAPIER)));
 			pickCerberus(section);
 
-			List<String> labels = section.potionVariantPopupLabelsForTest();
+			List<String> labels = GearSectionTestOps.potionVariantPopupLabelsForTest(section);
 			assertEquals(3, labels.size());
 			assertTrue(labels.contains("Super Combat"));
 			assertTrue(labels.contains("Super Strength"));
@@ -163,7 +163,7 @@ public class GearSectionPotionVariantTest
 			section.apply(snapshotWith(gearWithWeapon(TWISTED_BOW)));
 			pickCerberus(section);
 
-			List<String> labels = section.potionVariantPopupLabelsForTest();
+			List<String> labels = GearSectionTestOps.potionVariantPopupLabelsForTest(section);
 			assertEquals(3, labels.size());
 			assertTrue(labels.contains("Ranging"));
 			assertTrue(labels.contains("Bastion"));

@@ -394,7 +394,7 @@ final class DamageDistribution {
             return 0.0;
         }
         double[] p = rerolledHitsplatDistribution(uncappedMaxHit, cap);
-        return overkillFromExplicitDistribution(p, cap, targetHitpoints);
+        return overkillFromExplicitDistribution(p, targetHitpoints);
     }
 
     /**
@@ -570,7 +570,7 @@ final class DamageDistribution {
             for (int d = 0; d <= cap; d++) {
                 p[d] = share;
             }
-            return overkillFromExplicitDistribution(p, cap, targetHitpoints);
+            return overkillFromExplicitDistribution(p, targetHitpoints);
         }
         double w = 1.0 / (hi - lo + 1.0);
         double rerollShare = (hi - cap) * w / (cap + 1.0);
@@ -581,7 +581,7 @@ final class DamageDistribution {
         for (int d = lo; d <= cap; d++) {
             p[d] += w;
         }
-        return overkillFromExplicitDistribution(p, cap, targetHitpoints);
+        return overkillFromExplicitDistribution(p, targetHitpoints);
     }
 
     /**
@@ -601,17 +601,21 @@ final class DamageDistribution {
      * </pre>
      * which rearranges to dividing by {@code (1 - p[0])}, the probability the
      * damage roll produced a real, HP-reducing result.
+     *
+     * <p>Package-private so the multi-hit models ({@code ScytheCascade},
+     * {@code KerisTripleRoll}, {@code TonalzticsDualHit}) can run the same DP
+     * over their combined per-attack distributions.
      */
-    private static double overkillFromExplicitDistribution(double[] p, int cap, int targetHitpoints) {
-        int[] identity = new int[cap + 1];
-        for (int d = 0; d <= cap; d++) {
+    static double overkillFromExplicitDistribution(double[] p, int targetHitpoints) {
+        int[] identity = new int[p.length];
+        for (int d = 0; d < p.length; d++) {
             identity[d] = d;
         }
         return overkillFromExplicitDistribution(p, identity, targetHitpoints);
     }
 
     /**
-     * As {@link #overkillFromExplicitDistribution(double[], int, int)}, but
+     * As {@link #overkillFromExplicitDistribution(double[], int)}, but
      * for a caller whose landed value {@code v} removes some OTHER amount of
      * hitpoints than {@code v} itself — e.g. {@code TwinflameSecondHit}'s
      * combined-hitsplat model, where a displayed first hit of {@code v}
@@ -648,5 +652,90 @@ final class DamageDistribution {
             over[h] = sum / retain;
         }
         return over[targetHitpoints];
+    }
+
+    /**
+     * One attack's full outcome distribution (index 0 = miss, summing to 1
+     * overall): miss with probability {@code 1 - hitChance}, else the ordinary
+     * bumped-uniform {@code 0..maxHit} roll. {@code maxHit <= 0} is folded to
+     * the degenerate "always deals 1 on a landed hit" case. Shared by the
+     * multi-hit models ({@code ScytheCascade}, {@code KerisTripleRoll},
+     * {@code TonalzticsDualHit}).
+     */
+    static double[] perHitDistribution(double hitChance, int maxHit) {
+        if (maxHit <= 0) {
+            double[] p = new double[2];
+            p[0] = 1.0 - hitChance;
+            p[1] = hitChance;
+            return p;
+        }
+        double[] p = new double[maxHit + 1];
+        p[0] = 1.0 - hitChance;
+        double denom = maxHit + 1.0;
+        p[1] = hitChance * 2.0 / denom;
+        for (int d = 2; d <= maxHit; d++) {
+            p[d] = hitChance / denom;
+        }
+        return p;
+    }
+
+    /**
+     * As {@link #perHitDistribution}, but for a target that CLAMPS each
+     * hitsplat onto {@code cap}. {@code maxHit <= 0} is checked FIRST and
+     * always delegates to the uncapped degenerate case regardless of
+     * {@code cap}; a non-positive {@code cap} always deals 0.
+     */
+    static double[] cappedPerHitDistribution(double hitChance, int maxHit, int cap) {
+        if (maxHit <= 0 || cap >= maxHit) {
+            return perHitDistribution(hitChance, maxHit);
+        }
+        if (cap <= 0) {
+            return new double[] {1.0};
+        }
+        double[] capped = cappedHitsplatDistribution(maxHit, cap);
+        double[] p = new double[cap + 1];
+        p[0] = 1.0 - hitChance;
+        for (int d = 1; d <= cap; d++) {
+            p[d] = hitChance * capped[d];
+        }
+        return p;
+    }
+
+    /**
+     * As {@link #perHitDistribution}, but for a target that RE-ROLLS each
+     * hitsplat above {@code cap} into {@code 0..cap}. Same precedence as
+     * {@link #cappedPerHitDistribution}.
+     */
+    static double[] rerolledPerHitDistribution(double hitChance, int maxHit, int cap) {
+        if (maxHit <= 0 || cap >= maxHit) {
+            return perHitDistribution(hitChance, maxHit);
+        }
+        if (cap <= 0) {
+            return new double[] {1.0};
+        }
+        double[] rerolled = rerolledHitsplatDistribution(maxHit, cap);
+        double[] p = new double[cap + 1];
+        p[0] = (1.0 - hitChance) + hitChance * rerolled[0];
+        for (int d = 1; d <= cap; d++) {
+            p[d] = hitChance * rerolled[d];
+        }
+        return p;
+    }
+
+    /** Distribution of the sum of two independent damage values (index = damage). */
+    static double[] convolve(double[] a, double[] b) {
+        double[] out = new double[a.length + b.length - 1];
+        for (int i = 0; i < a.length; i++) {
+            if (a[i] == 0.0) {
+                continue;
+            }
+            for (int j = 0; j < b.length; j++) {
+                if (b[j] == 0.0) {
+                    continue;
+                }
+                out[i + j] += a[i] * b[j];
+            }
+        }
+        return out;
     }
 }

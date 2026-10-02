@@ -2,46 +2,22 @@ package com.ospulse.ui.sections;
 
 import com.ospulse.OSPulseConfig;
 import com.ospulse.model.ItemStack;
-import com.ospulse.session.SessionSnapshot;
-import com.ospulse.session.SourceLoot;
-import com.ospulse.ui.CollapsibleSection;
-import com.ospulse.ui.GpFormat;
-import com.ospulse.ui.PanelWidgets;
-import com.ospulse.ui.category.CategoryOverlay;
-import com.ospulse.ui.category.CategorySectionSupport;
+import com.ospulse.session.*;
+import com.ospulse.ui.*;
+import com.ospulse.ui.category.*;
 
 import net.runelite.api.Client;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
-import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
+import net.runelite.client.ui.*;
 import net.runelite.client.ui.overlay.OverlayManager;
 
-import javax.swing.JButton;
-import javax.swing.JLabel;
-import javax.swing.JMenuItem;
-import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
-import javax.swing.OverlayLayout;
-import javax.swing.SwingConstants;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Cursor;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
-import java.awt.Graphics;
-import java.awt.GridLayout;
-import java.awt.Insets;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.awt.*;
+import java.awt.event.*;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -118,10 +94,7 @@ public final class LootSection extends CollapsibleSection
 		this.categorySupport = new CategorySectionSupport(plugin, client, overlayManager);
 
 		totalValue = PanelWidgets.statRow(body(), "Total value");
-		lootListPanel = new JPanel();
-		lootListPanel.setLayout(new javax.swing.BoxLayout(lootListPanel, javax.swing.BoxLayout.Y_AXIS));
-		lootListPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		lootListPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		lootListPanel = PanelWidgets.vbox();
 		body().add(lootListPanel);
 	}
 
@@ -131,7 +104,6 @@ public final class LootSection extends CollapsibleSection
 	}
 
 	/** Reset-epoch last observed per category id, so a "Reset" click is detected exactly once. */
-	private final Map<String, Integer> lastSeenEpoch = new HashMap<>();
 
 	@Override
 	public void apply(SessionSnapshot snapshot)
@@ -140,7 +112,10 @@ public final class LootSection extends CollapsibleSection
 		for (SourceLoot src : sources == null ? List.<SourceLoot>of() : sources)
 		{
 			String catId = categoryId(src.getSource());
-			detectReset(catId);
+			if (categorySupport.justReset(catId))
+			{
+				hiddenSources.add(catId);
+			}
 			if (!categorySupport.controller().isPaused(catId))
 			{
 				lastSeenBySource.put(catId, src);
@@ -152,23 +127,6 @@ public final class LootSection extends CollapsibleSection
 			categorySupport.setLinesSupplier(catId, () -> canvasLines(catId));
 		}
 		rebuild(sources);
-	}
-
-	/** Marks {@code catId} hidden the moment its reset epoch advances (a "Reset"/"Reset others"/"Reset all" click). */
-	private void detectReset(String catId)
-	{
-		int epoch = categorySupport.controller().resetEpoch(catId);
-		Integer lastEpoch = lastSeenEpoch.get(catId);
-		if (lastEpoch == null)
-		{
-			lastSeenEpoch.put(catId, epoch);
-			return;
-		}
-		if (epoch != lastEpoch)
-		{
-			hiddenSources.add(catId);
-			lastSeenEpoch.put(catId, epoch);
-		}
 	}
 
 	/** Re-applies the latest known sources, e.g. after a collapse-toggle click that doesn't change reset/pause state. */
@@ -297,9 +255,7 @@ public final class LootSection extends CollapsibleSection
 					continue;
 				}
 
-				JPanel grid = new JPanel(new GridLayout(0, ICON_GRID_COLUMNS, 2, 2));
-				grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-				grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+				JPanel grid = PanelWidgets.panel(new GridLayout(0, ICON_GRID_COLUMNS, 2, 2));
 
 				int shown = 0;
 				for (ItemStack item : ds.src.getItems())
@@ -320,8 +276,7 @@ public final class LootSection extends CollapsibleSection
 				{
 					// Don't let BoxLayout stretch the grid to fill leftover
 					// vertical space (which would stretch every cell with it).
-					grid.setMaximumSize(new Dimension(Integer.MAX_VALUE, grid.getPreferredSize().height));
-					lootListPanel.add(grid);
+					lootListPanel.add(PanelWidgets.capHeight(grid));
 				}
 			}
 
@@ -385,17 +340,12 @@ public final class LootSection extends CollapsibleSection
 	/** Right-click menu for a single item cell: just "Hide item". */
 	private JPopupMenu buildItemMenu(ItemStack item)
 	{
-		JPopupMenu menu = new JPopupMenu();
-		menu.setBorder(new EmptyBorder(5, 5, 5, 5));
-
-		JMenuItem hideItem = new JMenuItem("Hide item");
-		hideItem.addActionListener(e ->
+		JPopupMenu menu = PanelWidgets.popupMenu();
+		PanelWidgets.menuItem(menu, "Hide item", () ->
 		{
 			hiddenState.hideItem(item);
 			applyResetsThenRebuild();
 		});
-		menu.add(hideItem);
-
 		return menu;
 	}
 
@@ -410,25 +360,18 @@ public final class LootSection extends CollapsibleSection
 		String left = triangle + " " + src.getSource()
 			+ (src.getCount() > 1 ? " x" + String.format("%,d", src.getCount()) : "");
 
-		JPanel row = new JPanel(new BorderLayout(4, 0));
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		JPanel row = PanelWidgets.panel(new BorderLayout(4, 0));
 		row.setBorder(new EmptyBorder(3, 0, 1, 0));
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
 		row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
-		JLabel leftLabel = new JLabel(left);
-		leftLabel.setForeground(ColorScheme.BRAND_ORANGE);
-		leftLabel.setFont(FontManager.getRunescapeSmallFont());
+		JLabel leftLabel = PanelWidgets.label(left, ColorScheme.BRAND_ORANGE);
 
 		// Value shown excludes any per-item "Hide item" hides in this source.
-		JLabel rightLabel = new JLabel(GpFormat.format(shownValue));
-		rightLabel.setForeground(Color.WHITE);
-		rightLabel.setFont(FontManager.getRunescapeSmallFont());
-		rightLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+		JLabel rightLabel = PanelWidgets.valueLabel(GpFormat.format(shownValue));
 
 		row.add(leftLabel, BorderLayout.CENTER);
 		row.add(rightLabel, BorderLayout.EAST);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+		PanelWidgets.capHeight(row);
 
 		final String source = src.getSource();
 		final String catId = categoryId(source);
@@ -479,57 +422,28 @@ public final class LootSection extends CollapsibleSection
 	 */
 	private JPopupMenu buildSourceMenu(String catId, String source)
 	{
-		JPopupMenu menu = new JPopupMenu();
-		menu.setBorder(new EmptyBorder(5, 5, 5, 5));
-
-		JMenuItem hideLoot = new JMenuItem("Hide loot");
-		hideLoot.addActionListener(e ->
+		JPopupMenu menu = PanelWidgets.popupMenu();
+		PanelWidgets.menuItem(menu, "Hide loot", () ->
 		{
 			hiddenState.hideSource(catId, source);
 			applyResetsThenRebuild();
 		});
-		menu.add(hideLoot);
-
-		JMenuItem reset = new JMenuItem("Reset");
-		reset.addActionListener(e -> categorySupport.controller().reset(catId, System.currentTimeMillis()));
-		menu.add(reset);
+		PanelWidgets.menuItem(menu, "Reset", () -> categorySupport.controller().reset(catId, System.currentTimeMillis()));
 
 		// A clickable toggle (not a submenu list): reveals/hides the grayed
 		// "hidden items" tray at the bottom of the feed, where each hidden item
 		// is a grayed icon carrying a ✕ that adds it straight back to the feed.
-		JMenuItem viewHidden = new JMenuItem(showHiddenTray ? "Hide hidden items" : "View hidden items");
-		viewHidden.addActionListener(e ->
+		PanelWidgets.menuItem(menu, showHiddenTray ? "Hide hidden items" : "View hidden items", () ->
 		{
 			showHiddenTray = !showHiddenTray;
 			applyResetsThenRebuild();
 		});
-		menu.add(viewHidden);
 
-		JMenuItem canvas = new JMenuItem(
-			categorySupport.controller().isOnCanvas(catId) ? "Remove from canvas" : "Add to canvas");
-		canvas.addActionListener(e ->
-			categorySupport.controller().setOnCanvas(catId, !categorySupport.controller().isOnCanvas(catId)));
-		menu.add(canvas);
-
-		menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener()
-		{
-			@Override
-			public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e)
-			{
-				canvas.setText(categorySupport.controller().isOnCanvas(catId)
-					? "Remove from canvas" : "Add to canvas");
-			}
-
-			@Override
-			public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e)
-			{
-			}
-
-			@Override
-			public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e)
-			{
-			}
-		});
+		JMenuItem canvas = PanelWidgets.menuItem(menu,
+			categorySupport.controller().isOnCanvas(catId) ? "Remove from canvas" : "Add to canvas",
+			() -> categorySupport.controller().setOnCanvas(catId, !categorySupport.controller().isOnCanvas(catId)));
+		PanelWidgets.onPopupShow(menu, () -> canvas.setText(categorySupport.controller().isOnCanvas(catId)
+			? "Remove from canvas" : "Add to canvas"));
 
 		return menu;
 	}
@@ -566,9 +480,7 @@ public final class LootSection extends CollapsibleSection
 
 		if (!items.isEmpty())
 		{
-			JPanel grid = new JPanel(new GridLayout(0, ICON_GRID_COLUMNS, 2, 2));
-			grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-			grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+			JPanel grid = PanelWidgets.panel(new GridLayout(0, ICON_GRID_COLUMNS, 2, 2));
 			for (Map.Entry<Integer, String> entry : items.entrySet())
 			{
 				int itemId = entry.getKey();
@@ -576,8 +488,7 @@ public final class LootSection extends CollapsibleSection
 					? ("Item #" + itemId) : entry.getValue();
 				grid.add(buildHiddenItemCell(itemId, name));
 			}
-			grid.setMaximumSize(new Dimension(Integer.MAX_VALUE, grid.getPreferredSize().height));
-			lootListPanel.add(grid);
+			lootListPanel.add(PanelWidgets.capHeight(grid));
 		}
 
 		for (Map.Entry<String, String> entry : srcs.entrySet())
@@ -621,19 +532,7 @@ public final class LootSection extends CollapsibleSection
 		dim.setPreferredSize(new Dimension(ITEM_SPRITE_W, ITEM_SPRITE_H));
 		dim.setMaximumSize(new Dimension(ITEM_SPRITE_W, ITEM_SPRITE_H));
 
-		JButton restore = new JButton("✕");
-		restore.setFont(FontManager.getRunescapeSmallFont());
-		restore.setFocusPainted(false);
-		restore.setBorder(null);
-		restore.setMargin(new Insets(0, 0, 0, 0));
-		restore.setContentAreaFilled(false);
-		restore.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
-		restore.setToolTipText("Add " + name + " back to the loot feed");
-		restore.addActionListener(e ->
-		{
-			hiddenState.unhideItem(itemId);
-			applyResetsThenRebuild();
-		});
+		JButton restore = restoreButton("Add " + name + " back to the loot feed", () -> hiddenState.unhideItem(itemId));
 
 		JPanel topRight = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
 		topRight.setOpaque(false);
@@ -665,15 +564,16 @@ public final class LootSection extends CollapsibleSection
 	 */
 	private JPanel buildHiddenSourceChip(String catId, String name)
 	{
-		JPanel chip = new JPanel(new BorderLayout(4, 0));
-		chip.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		chip.setBorder(new EmptyBorder(1, 0, 1, 0));
-		chip.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JPanel chip = PanelWidgets.row(new BorderLayout(4, 0));
+		chip.add(PanelWidgets.label(name, ColorScheme.LIGHT_GRAY_COLOR), BorderLayout.CENTER);
+		chip.add(restoreButton("Add the " + name + " loot back to the feed", () -> hiddenState.unhideSource(catId)),
+			BorderLayout.EAST);
+		return PanelWidgets.capHeight(chip);
+	}
 
-		JLabel label = new JLabel(name);
-		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		label.setFont(FontManager.getRunescapeSmallFont());
-
+	/** The red ✕ that un-hides an item or source and rebuilds the feed. */
+	private JButton restoreButton(String tooltip, Runnable unhide)
+	{
 		JButton restore = new JButton("✕");
 		restore.setFont(FontManager.getRunescapeSmallFont());
 		restore.setFocusPainted(false);
@@ -681,17 +581,13 @@ public final class LootSection extends CollapsibleSection
 		restore.setMargin(new Insets(0, 0, 0, 0));
 		restore.setContentAreaFilled(false);
 		restore.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
-		restore.setToolTipText("Add the " + name + " loot back to the feed");
+		restore.setToolTipText(tooltip);
 		restore.addActionListener(e ->
 		{
-			hiddenState.unhideSource(catId);
+			unhide.run();
 			applyResetsThenRebuild();
 		});
-
-		chip.add(label, BorderLayout.CENTER);
-		chip.add(restore, BorderLayout.EAST);
-		chip.setMaximumSize(new Dimension(Integer.MAX_VALUE, chip.getPreferredSize().height));
-		return chip;
+		return restore;
 	}
 
 	/**
@@ -724,7 +620,6 @@ public final class LootSection extends CollapsibleSection
 		hiddenSources.clear();
 		collapsedSources.clear();
 		lastSeenBySource.clear();
-		lastSeenEpoch.clear();
 		hiddenState.clear();
 		showHiddenTray = false;
 		lastRenderSignature = null;

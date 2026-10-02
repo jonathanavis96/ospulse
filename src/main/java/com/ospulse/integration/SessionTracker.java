@@ -9,9 +9,12 @@ import com.ospulse.ge.GeOfferState;
 import com.ospulse.ge.GeOfferView;
 import com.ospulse.ge.GeReconciler;
 import com.ospulse.model.ItemStack;
+import com.ospulse.session.DiffLoot;
 import com.ospulse.session.GearMapper;
+import com.ospulse.session.LootReceipt;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.session.MovementSignals;
+import com.ospulse.session.OutstandingReceiptLedger;
 import com.ospulse.session.ProductionActivity;
 import com.ospulse.session.SessionEngine;
 import com.ospulse.session.SessionListener;
@@ -27,6 +30,7 @@ import com.ospulse.xp.XpTracker;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.EnumComposition;
 import net.runelite.api.EnumID;
@@ -39,6 +43,7 @@ import net.runelite.api.Prayer;
 import net.runelite.api.Skill;
 import net.runelite.api.Varbits;
 import net.runelite.api.gameval.ItemID;
+import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemEquipmentStats;
 import net.runelite.client.game.ItemManager;
@@ -48,6 +53,7 @@ import java.util.EnumSet;
 
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -203,7 +209,7 @@ public class SessionTracker implements SessionService
 		this.configManager = configManager;
 		this.gson = gson;
 		this.engine = engine;
-		this.fishBarrelTracker = new FishBarrelTracker(client);
+		fishBarrelTracker = new FishBarrelTracker(client);
 		engine.setVerboseDiagnostics(config.verboseDiagnostics());
 	}
 
@@ -285,7 +291,7 @@ public class SessionTracker implements SessionService
 				int canonicalId = valuation.canonical(caught.getKey());
 				long unit = valuation.unitValue(caught.getKey());
 				pendingSignals.lootReceived(
-					new com.ospulse.session.LootReceipt(canonicalId, caught.getValue(), unit, true));
+					new LootReceipt(canonicalId, caught.getValue(), unit, true));
 			}
 			// Barrel emptied into the bank/deposit box this tick: tell the engine the
 			// exact stored-loot entries that materialise in the bank (keyed the same
@@ -372,7 +378,7 @@ public class SessionTracker implements SessionService
 			// commit attributes a matched appearance to exactly the group this
 			// event just booked it under.
 			pendingSignals.lootReceived(
-				new com.ospulse.session.LootReceipt(canonicalId, it.getQuantity(), unit, false, key));
+				new LootReceipt(canonicalId, it.getQuantity(), unit, false, key));
 		}
 
 		// Accumulate the receipt now, preview immediately, but let onTick commit it
@@ -419,7 +425,7 @@ public class SessionTracker implements SessionService
 	 */
 	public void onAnimationChanged(int animationId)
 	{
-		this.currentAnimationId = animationId;
+		currentAnimationId = animationId;
 	}
 
 	public void onStatChanged(Skill skill, int xp)
@@ -449,7 +455,7 @@ public class SessionTracker implements SessionService
 	 * Forwards a chat message to the fish-barrel tracker. See
 	 * {@code com.ospulse.OSPulsePlugin#onChatMessage}.
 	 */
-	public void onChatMessage(net.runelite.api.ChatMessageType type, String message)
+	public void onChatMessage(ChatMessageType type, String message)
 	{
 		fishBarrelTracker.onChatMessage(type, message);
 	}
@@ -518,7 +524,11 @@ public class SessionTracker implements SessionService
 			return;
 		}
 
-		long ts = System.currentTimeMillis();
+		beginSession(System.currentTimeMillis(), true);
+	}
+
+	private void beginSession(long ts, boolean replayBankOpen)
+	{
 		xpTracker.start(captureXpBaseline());
 		lootBySource.clear();
 		// Round-2 bot-review Finding A: a receipt still pending when the panel's
@@ -528,20 +538,26 @@ public class SessionTracker implements SessionService
 		// perfectly genuine post-reset pickup and silently drop it from the
 		// fresh session's feed. See #bootstrapSession for the other clearing site.
 		outstandingReceipts.clear();
-		geReconciler.reset();
-		// Restore the GE cost-basis ledger immediately after the reset, mirroring
-		// bootstrapSession — a manual "reset session" must not wipe the cost basis
-		// of GE buys still open, or the next save (logout/flush/bank-close) exports
-		// the emptied ledger over the good one and a later sale credits zero flip
-		// P&L instead of sale-minus-basis-minus-tax.
-		loadGeLedger();
+		// A manual reset (replayBankOpen) carries the live GE cost-basis ledger
+		// across in memory, gp totals intact: the saved copy only dates from the
+		// last bank close or logout and stores whole-gp averages. A login
+		// restores the saved copy.
+		if (replayBankOpen)
+		{
+			geReconciler.resetKeepingCostBasis();
+		}
+		else
+		{
+			geReconciler.reset();
+			loadGeLedger();
+		}
 		// Drop any signals accumulated in the tick preceding this reset so they
 		// don't leak into the fresh session's first #refresh.
 		pendingSignals = MovementSignals.builder();
 		primeGeOffers();
 		WealthSnapshot current = buildWealth(ts);
 		engine.startSession(current, ts);
-		if (lastBankOpenState)
+		if (replayBankOpen && lastBankOpenState)
 		{
 			engine.setBankOpen(true, current, ts);
 		}
@@ -577,20 +593,10 @@ public class SessionTracker implements SessionService
 	private void bootstrapSession(long ts)
 	{
 		loadBankCache();
-		xpTracker.start(captureXpBaseline());
-		lootBySource.clear();
-		// Round-2 bot-review Finding A: same rationale as resetSession() — a
-		// genuine login must not carry a stale pre-login receipt forward to
-		// silently swallow a fresh-session pickup that happens to land within
-		// OUTSTANDING_RECEIPT_WINDOW_MS of it.
-		outstandingReceipts.clear();
-		geReconciler.reset();
-		// Restore the GE cost-basis ledger immediately after the reset, so a buy
-		// made in an earlier session (before this relog/login) still has its
-		// cost basis when it's eventually sold — otherwise the reset above would
-		// wipe it and a weeks-old buy sold after this relog would credit zero
-		// flip P&L instead of the correct sale-minus-basis-minus-tax profit.
-		loadGeLedger();
+		// Round-2 bot-review Finding A applies here too (see beginSession): a
+		// genuine login must not carry a stale pre-login receipt forward. The GE
+		// cost-basis ledger is restored right after the reconciler reset so a buy
+		// from an earlier session keeps its basis when sold after this relog.
 		// A genuine login (not a mere zone hop, and not the panel's manual
 		// session-value reset — see resetSession()'s javadoc) is the only point
 		// the barrel's inferred contents should be wiped: unlike bank/pouches,
@@ -601,13 +607,7 @@ public class SessionTracker implements SessionService
 		// diff is against real contents rather than empty maps.
 		fishBarrelTracker.reset();
 		fishBarrelTracker.primeContainers();
-		// Start the fresh session with an empty signal builder (see #refresh).
-		pendingSignals = MovementSignals.builder();
-		primeGeOffers();
-		WealthSnapshot initial = buildWealth(ts);
-		engine.startSession(initial, ts);
-		started = true;
-		publish(buildSnapshot(initial, ts, true));
+		beginSession(ts, false);
 	}
 
 	/**
@@ -694,7 +694,7 @@ public class SessionTracker implements SessionService
 				continue;
 			}
 			geReconciler.primeCollectable(slot, GeOfferStateMapper.map(offer.getState()),
-				offer.getItemId(), offer.getQuantitySold(), offer.getSpent(), offer.getPrice());
+				offer.getItemId(), offer.getTotalQuantity(), offer.getQuantitySold(), offer.getSpent(), offer.getPrice());
 		}
 	}
 
@@ -741,7 +741,8 @@ public class SessionTracker implements SessionService
 			base.getHoldingPnls(),
 			base.getSuppliesUsed(),
 			base.getGePositions(),
-			base.getBankDelta());
+			base.getBankDelta(),
+			base.getEpisodePnl());
 	}
 
 	/**
@@ -758,7 +759,7 @@ public class SessionTracker implements SessionService
 	private GearSnapshot buildGear()
 	{
 		int[] equippedItemIds = new int[EquipmentInventorySlot.values().length];
-		java.util.Arrays.fill(equippedItemIds, -1);
+		Arrays.fill(equippedItemIds, -1);
 
 		ItemContainer equipment = client.getItemContainer(InventoryID.EQUIPMENT);
 		if (equipment != null)
@@ -805,26 +806,26 @@ public class SessionTracker implements SessionService
 		// log it: an in-client pass that autocasts each spell reveals the mapping,
 		// which then lets the magic readout show the actual current cast instead
 		// of the next-best-DPS fallback (GearSection secondary readout TODO).
-		int autocastSpellId = client.getVarbitValue(net.runelite.api.gameval.VarbitID.AUTOCAST_SPELL);
+		int autocastSpellId = client.getVarbitValue(VarbitID.AUTOCAST_SPELL);
 		if (log.isDebugEnabled())
 		{
 			log.debug("[autocast] varbit276={} spellbook={} weaponId={}",
 				autocastSpellId,
-				client.getVarbitValue(net.runelite.api.gameval.VarbitID.SPELLBOOK),
+				client.getVarbitValue(VarbitID.SPELLBOOK),
 				equippedItemIds[EquipmentInventorySlot.WEAPON.ordinal()]);
 		}
 
 		return GearSnapshot.builder()
 			.equippedItemIds(equippedItemIds)
-			.attack(client.getRealSkillLevel(Skill.ATTACK), client.getBoostedSkillLevel(Skill.ATTACK))
-			.strength(client.getRealSkillLevel(Skill.STRENGTH), client.getBoostedSkillLevel(Skill.STRENGTH))
-			.defence(client.getRealSkillLevel(Skill.DEFENCE), client.getBoostedSkillLevel(Skill.DEFENCE))
-			.ranged(client.getRealSkillLevel(Skill.RANGED), client.getBoostedSkillLevel(Skill.RANGED))
-			.magic(client.getRealSkillLevel(Skill.MAGIC), client.getBoostedSkillLevel(Skill.MAGIC))
-			.prayer(client.getRealSkillLevel(Skill.PRAYER), client.getBoostedSkillLevel(Skill.PRAYER))
-			.hitpoints(client.getRealSkillLevel(Skill.HITPOINTS), client.getBoostedSkillLevel(Skill.HITPOINTS))
-			.slayer(client.getRealSkillLevel(Skill.SLAYER), client.getBoostedSkillLevel(Skill.SLAYER))
-			.agility(client.getRealSkillLevel(Skill.AGILITY), client.getBoostedSkillLevel(Skill.AGILITY))
+			.attack(real(Skill.ATTACK), boosted(Skill.ATTACK))
+			.strength(real(Skill.STRENGTH), boosted(Skill.STRENGTH))
+			.defence(real(Skill.DEFENCE), boosted(Skill.DEFENCE))
+			.ranged(real(Skill.RANGED), boosted(Skill.RANGED))
+			.magic(real(Skill.MAGIC), boosted(Skill.MAGIC))
+			.prayer(real(Skill.PRAYER), boosted(Skill.PRAYER))
+			.hitpoints(real(Skill.HITPOINTS), boosted(Skill.HITPOINTS))
+			.slayer(real(Skill.SLAYER), boosted(Skill.SLAYER))
+			.agility(real(Skill.AGILITY), boosted(Skill.AGILITY))
 			.activePrayers(activePrayers)
 			// TODO Phase 2+: on-task Slayer detection has no confirmed live read yet.
 			.onSlayerTask(false)
@@ -841,6 +842,16 @@ public class SessionTracker implements SessionService
 	 * #buildGear()} exists to avoid: it runs here, on the client thread, once
 	 * per tick, so the UI layer never needs to call this itself).
 	 */
+	private int real(Skill skill)
+	{
+		return client.getRealSkillLevel(skill);
+	}
+
+	private int boosted(Skill skill)
+	{
+		return client.getBoostedSkillLevel(skill);
+	}
+
 	private GearMapper.SlotStats lookupSlotStats(int itemId)
 	{
 		if (itemManager == null || itemId <= 0)
@@ -900,41 +911,26 @@ public class SessionTracker implements SessionService
 			long currentXp = xpTracker.currentXp(skill);
 			int level = LevelTable.levelForXp(currentXp);
 
-			long xpLeft;
-			long actionsLeft;
-			double progress;
-			if (level >= LevelTable.MAX_LEVEL)
+			long xpLeft = 0L;
+			long actionsLeft = -1L;
+			double progress = 1.0;
+			// Past 99: keep climbing via virtual levels, up to the 126 cap.
+			boolean virtual = level >= LevelTable.MAX_LEVEL;
+			if (virtual)
 			{
-				// Past 99: keep climbing via virtual levels, up to the 126 cap.
 				level = VirtualLevelTable.levelForXp(currentXp);
-				if (level >= VirtualLevelTable.MAX_LEVEL)
-				{
-					xpLeft = 0L;
-					actionsLeft = -1L;
-					progress = 1.0;
-				}
-				else
-				{
-					long levelFloor = VirtualLevelTable.xpForLevel(level);
-					long levelCeiling = VirtualLevelTable.xpForLevel(level + 1);
-					xpLeft = levelCeiling - currentXp;
-					progress = (double) (currentXp - levelFloor) / (levelCeiling - levelFloor);
-					long lastActionXp = xpTracker.lastActionXp(skill);
-					actionsLeft = lastActionXp > 0
-						? (xpLeft + lastActionXp - 1) / lastActionXp
-						: -1L;
-				}
 			}
-			else
+			if (!virtual || level < VirtualLevelTable.MAX_LEVEL)
 			{
-				long levelFloor = LevelTable.xpForLevel(level);
-				long levelCeiling = LevelTable.xpForLevel(level + 1);
+				long levelFloor = virtual ? VirtualLevelTable.xpForLevel(level) : LevelTable.xpForLevel(level);
+				long levelCeiling = virtual ? VirtualLevelTable.xpForLevel(level + 1) : LevelTable.xpForLevel(level + 1);
 				xpLeft = levelCeiling - currentXp;
 				progress = (double) (currentXp - levelFloor) / (levelCeiling - levelFloor);
 				long lastActionXp = xpTracker.lastActionXp(skill);
-				actionsLeft = lastActionXp > 0
-					? (xpLeft + lastActionXp - 1) / lastActionXp
-					: -1L;
+				if (lastActionXp > 0)
+				{
+					actionsLeft = (xpLeft + lastActionXp - 1) / lastActionXp;
+				}
 			}
 
 			views.add(new XpSkillView(skill, skillGained, xpPerHour, currentXp,
@@ -1093,21 +1089,7 @@ public class SessionTracker implements SessionService
 			{
 				continue; // bank placeholder: reserved empty slot, not actually owned
 			}
-			long qty = item.getQuantity();
-			int canonicalId = valuation.canonical(itemId);
-			long unit = valuation.unitValue(itemId);
-			String name = valuation.name(itemId);
-
-			total += unit * qty;
-			if (trackedOrNull != null)
-			{
-				mergeItem(trackedOrNull, canonicalId, name, qty, unit);
-			}
-			if (captureOrNull != null)
-			{
-				mergeItem(captureOrNull, canonicalId, name, qty, unit);
-			}
-			mergeItem(allHoldings, canonicalId, name, qty, unit);
+			total += hold(itemId, item.getQuantity(), trackedOrNull, captureOrNull, allHoldings);
 		}
 		return total;
 	}
@@ -1283,13 +1265,7 @@ public class SessionTracker implements SessionService
 				continue;
 			}
 
-			int canonicalId = valuation.canonical(itemId);
-			long unit = valuation.unitValue(itemId);
-			String name = valuation.name(itemId);
-
-			total += unit * amount;
-			mergeItem(tracked, canonicalId, name, amount, unit);
-			mergeItem(allHoldings, canonicalId, name, amount, unit);
+			total += hold(itemId, amount, tracked, allHoldings);
 		}
 		return total;
 	}
@@ -1347,13 +1323,7 @@ public class SessionTracker implements SessionService
 				continue;
 			}
 
-			int canonicalId = valuation.canonical(ItemID.BLANKRUNE_HIGH);
-			long unit = valuation.unitValue(ItemID.BLANKRUNE_HIGH);
-			String name = valuation.name(ItemID.BLANKRUNE_HIGH);
-
-			total += unit * amount;
-			mergeItem(tracked, canonicalId, name, amount, unit);
-			mergeItem(allHoldings, canonicalId, name, amount, unit);
+			total += hold(ItemID.BLANKRUNE_HIGH, amount, tracked, allHoldings);
 		}
 		return total;
 	}
@@ -1383,8 +1353,8 @@ public class SessionTracker implements SessionService
 	 * tracker's instance is separate (different quantities, different
 	 * clearing points), only the mechanism is shared.
 	 */
-	private final com.ospulse.session.OutstandingReceiptLedger outstandingReceipts =
-		new com.ospulse.session.OutstandingReceiptLedger(OUTSTANDING_RECEIPT_WINDOW_MS);
+	private final OutstandingReceiptLedger outstandingReceipts =
+		new OutstandingReceiptLedger(OUTSTANDING_RECEIPT_WINDOW_MS);
 
 	/**
 	 * Feeds this tick's inventory-diff loot into the per-source feed, so the feed
@@ -1429,7 +1399,7 @@ public class SessionTracker implements SessionService
 	 * touched this feed, so netting against it would silently swallow a genuine
 	 * full-barrel overflow catch that did land in the inventory.
 	 */
-	private void attributeDiffLoot(long ts, MovementSignals signals, List<com.ospulse.session.DiffLoot> diffLoot)
+	private void attributeDiffLoot(long ts, MovementSignals signals, List<DiffLoot> diffLoot)
 	{
 		outstandingReceipts.pruneExpired(ts);
 
@@ -1437,7 +1407,7 @@ public class SessionTracker implements SessionService
 		// netting below, so a same-tick kill+pickup still nets in full (as
 		// before); a receipt with no diff this tick simply joins the pool and
 		// waits for whichever later tick the pickup actually lands on.
-		for (com.ospulse.session.LootReceipt r : signals.lootReceipts())
+		for (LootReceipt r : signals.lootReceipts())
 		{
 			if (r.source == null)
 			{
@@ -1455,7 +1425,7 @@ public class SessionTracker implements SessionService
 		// panel's persisted collapse/hide identity — see UNATTRIBUTED_LOOT_SOURCE),
 		// and the tick counts as a single "drop" no matter how many ids it carried.
 		SourceAgg agg = null;
-		for (com.ospulse.session.DiffLoot d : diffLoot)
+		for (DiffLoot d : diffLoot)
 		{
 			long remaining = outstandingReceipts.claim(d.itemId, d.quantity);
 			if (remaining <= 0)
@@ -1491,14 +1461,30 @@ public class SessionTracker implements SessionService
 		{
 			List<ItemStack> items = new ArrayList<>(e.getValue().items.values());
 			items.sort((a, b) -> Long.compare(b.value(), a.value()));
-			long total = 0L;
-			for (ItemStack s : items)
-			{
-				total += s.value();
-			}
+			long total = items.stream().mapToLong(ItemStack::value).sum();
 			out.add(new SourceLoot(e.getKey(), total, e.getValue().count, items));
 		}
 		return out;
+	}
+
+	/**
+	 * Value {@code qty} of {@code itemId} at its canonical id and merge it into
+	 * every non-null map; returns the gp value added.
+	 */
+	@SafeVarargs
+	private final long hold(int itemId, long qty, Map<Integer, ItemStack>... maps)
+	{
+		int canonicalId = valuation.canonical(itemId);
+		long unit = valuation.unitValue(itemId);
+		String name = valuation.name(itemId);
+		for (Map<Integer, ItemStack> map : maps)
+		{
+			if (map != null)
+			{
+				mergeItem(map, canonicalId, name, qty, unit);
+			}
+		}
+		return unit * qty;
 	}
 
 	private void mergeItem(Map<Integer, ItemStack> map, int canonicalId, String name, long qty, long unitValue)
@@ -1524,7 +1510,7 @@ public class SessionTracker implements SessionService
 		lastKnownBankValue = 0L;
 		bankEverSeen = false;
 
-		if (configManager == null || gson == null || client.getAccountHash() == -1L)
+		if (!canPersist())
 		{
 			return;
 		}
@@ -1550,11 +1536,7 @@ public class SessionTracker implements SessionService
 				{
 					continue;
 				}
-				int canonicalId = valuation.canonical(e.getId());
-				long unit = valuation.unitValue(e.getId());
-				String name = valuation.name(e.getId());
-				mergeItem(cachedBankItems, canonicalId, name, e.getQuantity(), unit);
-				total += unit * e.getQuantity();
+				total += hold(e.getId(), e.getQuantity(), cachedBankItems);
 			}
 
 			lastKnownBankValue = total;
@@ -1572,10 +1554,14 @@ public class SessionTracker implements SessionService
 	}
 
 	/** Persists the current bank contents to the logged-in account's RS profile. */
+	private boolean canPersist()
+	{
+		return configManager != null && gson != null && client.getAccountHash() != -1L;
+	}
+
 	private void saveBankCache()
 	{
-		if (configManager == null || gson == null
-			|| client.getAccountHash() == -1L || cachedBankItems.isEmpty())
+		if (!canPersist() || cachedBankItems.isEmpty())
 		{
 			return;
 		}
@@ -1602,7 +1588,7 @@ public class SessionTracker implements SessionService
 	 */
 	private void loadGeLedger()
 	{
-		if (configManager == null || gson == null || client.getAccountHash() == -1L)
+		if (!canPersist())
 		{
 			return;
 		}
@@ -1639,7 +1625,7 @@ public class SessionTracker implements SessionService
 	 */
 	private void saveGeLedger()
 	{
-		if (configManager == null || gson == null || client.getAccountHash() == -1L)
+		if (!canPersist())
 		{
 			return;
 		}

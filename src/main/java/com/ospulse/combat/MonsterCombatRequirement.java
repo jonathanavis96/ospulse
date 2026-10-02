@@ -1,17 +1,15 @@
 package com.ospulse.combat;
 
-import java.util.Collections;
-import java.util.EnumMap;
-import java.util.EnumSet;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import lombok.Getter;
+import lombok.experimental.Accessors;
 
 /**
  * A monster's combat requirement: a weapon/ammo/style damage gate, a finisher
  * item, or a damage-magnitude effect (penalty/cap) a hard style-gate cannot
  * express. Pure, no RuneLite deps.
  */
+@Accessors(fluent = true)
 public final class MonsterCombatRequirement
 {
     public enum Type { WEAPON_GATE, FINISHER, DAMAGE_PENALTY, DAMAGE_CAP }
@@ -49,19 +47,27 @@ public final class MonsterCombatRequirement
      */
     public enum CapMode { CLAMP, REROLL }
 
-    private final Type type;
+    @Getter private final Type type;
     private final Set<Integer> allowedItemIds;
     private final Set<Integer> allowedAmmoIds;
     private final Set<CombatStyle> allowedStyles;
     private final Set<Integer> finisherItemIds;
-    private final String note;
-    private final double damageMultiplier;
+    @Getter private final String note;
+    /** Multiplier applied to max hit when the weapon is NOT in {@link #allowedItemIds()}. Default {@code 1.0}. */
+    @Getter private final double damageMultiplier;
     private final Set<CombatStyle> penalisedStyles;
     private final Set<CombatStyle> exemptStyles;
-    private final int maxHitCap;
-    private final int maxHitCapWhenCrushHighest;
+    /** Flat max-hit ceiling; {@code -1} means "no cap". Default {@code -1}. */
+    @Getter private final int maxHitCap;
+    /** Alternative cap used when crush is the loadout's highest attack bonus; {@code -1} means "no such rule". Default {@code -1}. */
+    @Getter private final int maxHitCapWhenCrushHighest;
     private final Map<CombatStyle, Integer> maxHitCapByStyle;
-    private final CapMode capMode;
+    /**
+     * How the cap is applied to the damage roll — see {@link CapMode}.
+     * Default {@link CapMode#CLAMP}, matching every entry shipped before this
+     * enum existed.
+     */
+    @Getter private final CapMode capMode;
 
     private MonsterCombatRequirement(Type type, Set<Integer> allowedItemIds, Set<Integer> allowedAmmoIds,
                                      Set<CombatStyle> allowedStyles, Set<Integer> finisherItemIds, String note,
@@ -151,27 +157,15 @@ public final class MonsterCombatRequirement
             EnumSet.noneOf(CombatStyle.class), Collections.emptySet(), note, 1.0, Collections.emptySet(),
             Collections.emptySet(), maxHitCap, maxHitCapWhenCrushHighest, maxHitCapByStyle, capMode);
     }
-
-    public Type type() { return type; }
-    public String note() { return note; }
     public Set<Integer> finisherItemIds() { return Collections.unmodifiableSet(finisherItemIds); }
     public Set<Integer> allowedItemIds() { return Collections.unmodifiableSet(allowedItemIds); }
     public Set<Integer> allowedAmmoIds() { return Collections.unmodifiableSet(allowedAmmoIds); }
     public Set<CombatStyle> allowedStyles() { return Collections.unmodifiableSet(allowedStyles); }
 
-    /** Multiplier applied to max hit when the weapon is NOT in {@link #allowedItemIds()}. Default {@code 1.0}. */
-    public double damageMultiplier() { return damageMultiplier; }
-
     /** Styles the {@link #damageMultiplier()} applies to; empty means "all styles". Default empty. */
     public Set<CombatStyle> penalisedStyles() { return Collections.unmodifiableSet(penalisedStyles); }
     /** Styles on which {@code allowedItemIds} actually grants the exemption; empty = any penalised style. */
     public Set<CombatStyle> exemptStyles() { return Collections.unmodifiableSet(exemptStyles); }
-
-    /** Flat max-hit ceiling; {@code -1} means "no cap". Default {@code -1}. */
-    public int maxHitCap() { return maxHitCap; }
-
-    /** Alternative cap used when crush is the loadout's highest attack bonus; {@code -1} means "no such rule". Default {@code -1}. */
-    public int maxHitCapWhenCrushHighest() { return maxHitCapWhenCrushHighest; }
 
     /**
      * Per-{@link CombatStyle} cap override (e.g. Verzik Vitur phase 1: melee
@@ -181,13 +175,6 @@ public final class MonsterCombatRequirement
      * crush-highest value. Default empty.
      */
     public Map<CombatStyle, Integer> maxHitCapByStyle() { return Collections.unmodifiableMap(maxHitCapByStyle); }
-
-    /**
-     * How the cap is applied to the damage roll — see {@link CapMode}.
-     * Default {@link CapMode#CLAMP}, matching every entry shipped before this
-     * enum existed.
-     */
-    public CapMode capMode() { return capMode; }
 
     /** Full-attack truth: can this weapon+style+ammo deal damage to the monster? */
     public boolean permits(int weaponId, CombatStyle style, int ammoId)

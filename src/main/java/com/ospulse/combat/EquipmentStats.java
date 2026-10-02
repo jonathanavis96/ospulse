@@ -10,183 +10,119 @@ package com.ospulse.combat;
  * stats via {@link Builder#add(EquipmentStats)}.
  */
 public final class EquipmentStats {
-    private final int astab;
-    private final int aslash;
-    private final int acrush;
-    private final int amagic;
-    private final int arange;
-    private final int dstab;
-    private final int dslash;
-    private final int dcrush;
-    private final int dmagic;
-    private final int drange;
-    private final int str;
-    private final int rstr;
-    private final double mdmg;
-    private final int prayer;
-    private final int weaponSpeedTicks;
-    private final boolean isTwoHanded;
-    private final SalveType salveType;
-    private final SlayerHeadgear slayerHeadgear;
-    private final VoidSet voidSet;
-    private final DemonbaneWeapon demonbaneWeapon;
-    private final DragonHunterWeapon dragonHunterWeapon;
-    private final boolean twistedBow;
-    private final boolean osmumtensFang;
-    private final boolean twinflameStaff;
-    private final boolean harmonisedNightmareStaff;
-    private final PoweredStaff poweredStaff;
-    private final Tome tome;
-    private final boolean tonalzticsOfRalosCharged;
-    private final boolean tonalzticsOfRalosUncharged;
-    private final boolean scytheOfVitur;
-    private final boolean colossalBlade;
-    private final KerisPartisan kerisPartisan;
-    private final RevenantWeapon revenantWeapon;
-    private final boolean crystalSetBonusActive;
+
+    /** Private snapshot of the builder that made this object; never mutated after construction. */
+    private final Builder v;
 
     private EquipmentStats(Builder b) {
-        this.astab = b.astab;
-        this.aslash = b.aslash;
-        this.acrush = b.acrush;
-        this.amagic = b.amagic;
-        this.arange = b.arange;
-        this.dstab = b.dstab;
-        this.dslash = b.dslash;
-        this.dcrush = b.dcrush;
-        this.dmagic = b.dmagic;
-        this.drange = b.drange;
-        this.str = b.str;
-        this.rstr = b.rstr;
-        this.mdmg = b.mdmg;
-        this.prayer = b.prayer;
-        this.weaponSpeedTicks = b.weaponSpeedTicks;
-        this.isTwoHanded = b.isTwoHanded;
-        this.salveType = b.salveType;
-        this.slayerHeadgear = b.slayerHeadgear;
-        this.voidSet = b.voidSet;
-        this.demonbaneWeapon = b.demonbaneWeapon;
-        this.dragonHunterWeapon = b.dragonHunterWeapon;
-        this.twistedBow = b.twistedBow;
-        this.osmumtensFang = b.osmumtensFang;
-        this.twinflameStaff = b.twinflameStaff;
-        this.harmonisedNightmareStaff = b.harmonisedNightmareStaff;
-        this.poweredStaff = b.poweredStaff;
-        this.tome = b.tome;
-        this.tonalzticsOfRalosCharged = b.tonalzticsOfRalosCharged;
-        this.tonalzticsOfRalosUncharged = b.tonalzticsOfRalosUncharged;
-        this.scytheOfVitur = b.scytheOfVitur;
-        this.colossalBlade = b.colossalBlade;
-        this.kerisPartisan = b.kerisPartisan;
-        this.revenantWeapon = b.revenantWeapon;
-        this.crystalSetBonusActive = b.crystalSetBonusActive;
+        this.v = b.copy();
     }
 
     public int astab() {
-        return astab;
+        return v.astab;
     }
 
     public int aslash() {
-        return aslash;
+        return v.aslash;
     }
 
     public int acrush() {
-        return acrush;
+        return v.acrush;
     }
 
     public int amagic() {
-        return amagic;
+        return v.amagic;
     }
 
     public int arange() {
-        return arange;
+        return v.arange;
     }
 
     public int dstab() {
-        return dstab;
+        return v.dstab;
     }
 
     public int dslash() {
-        return dslash;
+        return v.dslash;
     }
 
     public int dcrush() {
-        return dcrush;
+        return v.dcrush;
     }
 
     public int dmagic() {
-        return dmagic;
+        return v.dmagic;
     }
 
     public int drange() {
-        return drange;
+        return v.drange;
     }
 
     public int str() {
-        return str;
+        return v.str;
     }
 
     public int rstr() {
-        return rstr;
+        return v.rstr;
     }
 
     public double mdmg() {
-        return mdmg;
+        return v.mdmg;
     }
 
     public int prayer() {
-        return prayer;
+        return v.prayer;
     }
 
     public int weaponSpeedTicks() {
-        return weaponSpeedTicks;
+        return v.weaponSpeedTicks;
     }
 
     public boolean isTwoHanded() {
-        return isTwoHanded;
+        return v.isTwoHanded;
     }
 
     /** Attack-bonus for the given style (astab/aslash/acrush/arange/amagic). */
     public int attackBonus(CombatStyle style) {
         switch (style) {
             case STAB:
-                return astab;
+                return v.astab;
             case SLASH:
-                return aslash;
+                return v.aslash;
             case CRUSH:
-                return acrush;
+                return v.acrush;
             case RANGED:
-                return arange;
+                return v.arange;
             case MAGIC:
-                return amagic;
+                return v.amagic;
             default:
                 throw new IllegalArgumentException("Unknown style: " + style);
         }
     }
 
     public SalveType salveType() {
-        return salveType;
+        return v.salveType;
     }
 
     public SlayerHeadgear slayerHeadgear() {
-        return slayerHeadgear;
+        return v.slayerHeadgear;
     }
 
     public VoidSet voidSet() {
-        return voidSet;
+        return v.voidSet;
     }
 
     public DemonbaneWeapon demonbaneWeapon() {
-        return demonbaneWeapon;
+        return v.demonbaneWeapon;
     }
 
     public DragonHunterWeapon dragonHunterWeapon() {
-        return dragonHunterWeapon;
+        return v.dragonHunterWeapon;
     }
 
     /** True when the worn weapon is the Twisted bow (its vs-target magic scaling applies to ranged attacks). */
     public boolean twistedBow() {
-        return twistedBow;
+        return v.twistedBow;
     }
 
     /**
@@ -196,7 +132,7 @@ public final class EquipmentStats {
      * {@link DpsCalculator#computeMelee}.
      */
     public boolean osmumtensFang() {
-        return osmumtensFang;
+        return v.osmumtensFang;
     }
 
     /**
@@ -206,7 +142,7 @@ public final class EquipmentStats {
      * TwinflameSecondHit} / {@link Spell#twinflameEligible()}.
      */
     public boolean twinflameStaff() {
-        return twinflameStaff;
+        return v.twinflameStaff;
     }
 
     /**
@@ -215,16 +151,16 @@ public final class EquipmentStats {
      * ticks otherwise) applies to magic casts; see {@link MagicCastSpeed}.
      */
     public boolean harmonisedNightmareStaff() {
-        return harmonisedNightmareStaff;
+        return v.harmonisedNightmareStaff;
     }
 
     public PoweredStaff poweredStaff() {
-        return poweredStaff;
+        return v.poweredStaff;
     }
 
     /** The charged shield-slot elemental tome (fire/water/earth), or {@link Tome#NONE}. */
     public Tome tome() {
-        return tome;
+        return v.tome;
     }
 
     /**
@@ -234,7 +170,7 @@ public final class EquipmentStats {
      * uncharged variant (28919) leaves this {@code false}.
      */
     public boolean tonalzticsOfRalosCharged() {
-        return tonalzticsOfRalosCharged;
+        return v.tonalzticsOfRalosCharged;
     }
 
     /**
@@ -246,7 +182,7 @@ public final class EquipmentStats {
      * variant (28922) leaves this {@code false}.
      */
     public boolean tonalzticsOfRalosUncharged() {
-        return tonalzticsOfRalosUncharged;
+        return v.tonalzticsOfRalosUncharged;
     }
 
     /**
@@ -255,7 +191,7 @@ public final class EquipmentStats {
      * melee attacks; see {@link ScytheCascade}.
      */
     public boolean scytheOfVitur() {
-        return scytheOfVitur;
+        return v.scytheOfVitur;
     }
 
     /**
@@ -265,7 +201,7 @@ public final class EquipmentStats {
      * {@link DpsCalculator#computeMelee}.
      */
     public boolean colossalBlade() {
-        return colossalBlade;
+        return v.colossalBlade;
     }
 
     /**
@@ -276,7 +212,7 @@ public final class EquipmentStats {
      * DpsCalculator#computeMelee} / {@link KerisTripleRoll}.
      */
     public KerisPartisan kerisPartisan() {
-        return kerisPartisan;
+        return v.kerisPartisan;
     }
 
     /**
@@ -287,7 +223,7 @@ public final class EquipmentStats {
      * WildernessMonsterRepository}.
      */
     public RevenantWeapon revenantWeapon() {
-        return revenantWeapon;
+        return v.revenantWeapon;
     }
 
     /**
@@ -301,14 +237,14 @@ public final class EquipmentStats {
      * it is the only place with access to every relevant slot).
      */
     public boolean crystalSetBonusActive() {
-        return crystalSetBonusActive;
+        return v.crystalSetBonusActive;
     }
 
     public static Builder builder() {
         return new Builder();
     }
 
-    public static final class Builder {
+    public static final class Builder implements Cloneable {
         private int astab;
         private int aslash;
         private int acrush;
@@ -370,9 +306,9 @@ public final class EquipmentStats {
 
         /** Accumulates the totals of an already-built {@link EquipmentStats} (e.g. merging two loadouts). */
         public Builder add(EquipmentStats other) {
-            return add(other.astab, other.aslash, other.acrush, other.amagic, other.arange,
-                    other.dstab, other.dslash, other.dcrush, other.dmagic, other.drange,
-                    other.str, other.rstr, other.mdmg, other.prayer);
+            return add(other.v.astab, other.v.aslash, other.v.acrush, other.v.amagic, other.v.arange,
+                    other.v.dstab, other.v.dslash, other.v.dcrush, other.v.dmagic, other.v.drange,
+                    other.v.str, other.v.rstr, other.v.mdmg, other.v.prayer);
         }
 
         public Builder weaponSpeedTicks(int ticks) {
@@ -473,6 +409,14 @@ public final class EquipmentStats {
         public Builder crystalSetBonusActive(boolean value) {
             this.crystalSetBonusActive = value;
             return this;
+        }
+
+        private Builder copy() {
+            try {
+                return (Builder) clone();
+            } catch (CloneNotSupportedException e) {
+                throw new AssertionError(e);
+            }
         }
 
         public EquipmentStats build() {

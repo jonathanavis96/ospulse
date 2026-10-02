@@ -1,7 +1,6 @@
 package com.ospulse.xp;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Pure tracker of per-skill XP gained since session start.

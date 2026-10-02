@@ -5,10 +5,8 @@ import com.ospulse.combat.SpecWeaponRecommendation;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ColorScheme;
 
-import javax.swing.JLabel;
-import javax.swing.SwingConstants;
-import java.awt.Cursor;
-import java.awt.Dimension;
+import javax.swing.*;
+import java.awt.*;
 
 /**
  * The "best spec weapon" cell in the Gear section's equipment grid (design

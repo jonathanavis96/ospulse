@@ -15,6 +15,8 @@ import static org.junit.Assert.assertEquals;
  * Tome of fire against a fire-weak dragon and preferred a plain magic book.
  */
 public class TomeTest {
+    static { BundledGson.set(new com.google.gson.Gson()); }
+
     private static PlayerCombat mage99() {
         return PlayerCombat.builder()
                 .magic(99, 99)

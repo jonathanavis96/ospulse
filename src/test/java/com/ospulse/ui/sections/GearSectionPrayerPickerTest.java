@@ -311,7 +311,7 @@ public class GearSectionPrayerPickerTest
 			selectMagicTarget(section);
 			section.bestPrayerToggle.setSelected(true);
 
-			String withDefaultPrayer = section.plainTextForTest(section.dpsValue.getText());
+			String withDefaultPrayer = GearSectionTestOps.plainTextForTest(section.dpsValue.getText());
 			assertFalse("fixture sanity: a real DPS number must be showing before the pick",
 				withDefaultPrayer == null || withDefaultPrayer.equals("-"));
 
@@ -320,7 +320,7 @@ public class GearSectionPrayerPickerTest
 			((JMenuItem) menu.getComponent(menu.getComponentCount() - 1)).doClick(); // weakest listed prayer
 
 			assertNotEquals("picking a weaker prayer must move the live DPS readout, not just the icon/config",
-				withDefaultPrayer, section.plainTextForTest(section.dpsValue.getText()));
+				withDefaultPrayer, GearSectionTestOps.plainTextForTest(section.dpsValue.getText()));
 		});
 	}
 

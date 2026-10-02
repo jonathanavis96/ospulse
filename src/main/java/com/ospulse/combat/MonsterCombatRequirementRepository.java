@@ -1,24 +1,7 @@
 package com.ospulse.combat;
 
-import com.google.gson.Gson;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.EnumMap;
-import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Loads the bundled, hand-curated monster combat-requirement table
@@ -38,7 +21,8 @@ import java.util.Set;
 public final class MonsterCombatRequirementRepository {
     private static final String RESOURCE_PATH = "/com/ospulse/combat/monster_combat_requirements.json";
 
-    private static volatile MonsterCombatRequirementRepository instance;
+    private static final CombatDataLoader.Lazy<MonsterCombatRequirementRepository> INSTANCE =
+            new CombatDataLoader.Lazy<>(() -> loadFromResource(RESOURCE_PATH));
 
     private final Map<String, MonsterCombatRequirement> byLowercaseMonsterName;
 
@@ -48,100 +32,64 @@ public final class MonsterCombatRequirementRepository {
 
     /** Shared, lazily-initialised singleton loaded from the bundled resource. */
     public static MonsterCombatRequirementRepository getInstance() {
-        MonsterCombatRequirementRepository result = instance;
-        if (result == null) {
-            synchronized (MonsterCombatRequirementRepository.class) {
-                result = instance;
-                if (result == null) {
-                    instance = result = loadFromResource(RESOURCE_PATH);
-                }
-            }
-        }
-        return result;
+        return INSTANCE.get();
     }
 
     /** Loads a repository from an arbitrary classpath resource (mainly for tests). */
     static MonsterCombatRequirementRepository loadFromResource(String resourcePath) {
-        Gson gson = BundledGson.get();
-        try (Reader reader = new InputStreamReader(requireResource(resourcePath), StandardCharsets.UTF_8)) {
-            RootDto root = gson.fromJson(reader, RootDto.class);
-            Map<String, MonsterCombatRequirement> byName = new HashMap<>();
-            if (root != null && root.requirements != null) {
-                for (ReqDto dto : root.requirements) {
-                    if (dto.monsters == null || dto.type == null) {
-                        continue; // malformed entry — treated as "no data"
+        RootDto root = CombatDataLoader.parse(MonsterCombatRequirementRepository.class, resourcePath, RootDto.class);
+        Map<String, MonsterCombatRequirement> byName = new HashMap<>();
+        if (root != null && root.requirements != null) {
+            for (ReqDto dto : root.requirements) {
+                if (dto.monsters == null || dto.type == null) {
+                    continue; // malformed entry — treated as "no data"
+                }
+                MonsterCombatRequirement.Type type = CombatDataLoader.parseEnum(MonsterCombatRequirement.Type.class, dto.type);
+                if (type == null) {
+                    continue; // unknown type in the data — skip defensively
+                }
+                MonsterCombatRequirement requirement;
+                if (type == MonsterCombatRequirement.Type.FINISHER) {
+                    requirement = MonsterCombatRequirement.finisher(ids(dto.finisherItemIds), dto.note);
+                } else if (type == MonsterCombatRequirement.Type.DAMAGE_PENALTY) {
+                    requirement = MonsterCombatRequirement.damagePenalty(ids(dto.allowedItemIds),
+                            dto.damageMultiplier == null ? 1.0 : dto.damageMultiplier,
+                            parseStyles(dto.penalisedStyles), parseStyles(dto.exemptStyles), dto.note);
+                } else if (type == MonsterCombatRequirement.Type.DAMAGE_CAP) {
+                    requirement = MonsterCombatRequirement.damageCap(
+                            dto.maxHitCap == null ? -1 : dto.maxHitCap,
+                            dto.maxHitCapWhenCrushHighest == null ? -1 : dto.maxHitCapWhenCrushHighest,
+                            ids(dto.allowedItemIds), parseCapByStyle(dto.maxHitCapByStyle), parseCapMode(dto.capMode),
+                            dto.note);
+                } else {
+                    requirement = MonsterCombatRequirement.weaponGate(ids(dto.allowedItemIds), ids(dto.allowedAmmoIds),
+                            parseStyles(dto.allowedStyles), dto.note);
+                }
+                for (String monsterName : dto.monsters) {
+                    if (monsterName == null || monsterName.isEmpty()) {
+                        continue;
                     }
-                    MonsterCombatRequirement.Type type;
-                    try {
-                        type = MonsterCombatRequirement.Type.valueOf(dto.type.trim().toUpperCase(Locale.ROOT));
-                    } catch (IllegalArgumentException ignored) {
-                        continue; // unknown type in the data — skip defensively
-                    }
-                    Set<CombatStyle> allowedStyles = EnumSet.noneOf(CombatStyle.class);
-                    if (dto.allowedStyles != null) {
-                        for (String styleName : dto.allowedStyles) {
-                            if (styleName == null) {
-                                continue;
-                            }
-                            try {
-                                allowedStyles.add(CombatStyle.valueOf(styleName.trim().toUpperCase(Locale.ROOT)));
-                            } catch (IllegalArgumentException ignored) {
-                                // unknown style name in the data — skip defensively
-                            }
-                        }
-                    }
-                    MonsterCombatRequirement requirement;
-                    if (type == MonsterCombatRequirement.Type.FINISHER) {
-                        requirement = MonsterCombatRequirement.finisher(
-                                dto.finisherItemIds == null ? Collections.emptySet() : new HashSet<>(dto.finisherItemIds),
-                                dto.note);
-                    } else if (type == MonsterCombatRequirement.Type.DAMAGE_PENALTY) {
-                        requirement = MonsterCombatRequirement.damagePenalty(
-                                dto.allowedItemIds == null ? Collections.emptySet() : new HashSet<>(dto.allowedItemIds),
-                                dto.damageMultiplier == null ? 1.0 : dto.damageMultiplier,
-                                parseStyles(dto.penalisedStyles), parseStyles(dto.exemptStyles), dto.note);
-                    } else if (type == MonsterCombatRequirement.Type.DAMAGE_CAP) {
-                        requirement = MonsterCombatRequirement.damageCap(
-                                dto.maxHitCap == null ? -1 : dto.maxHitCap,
-                                dto.maxHitCapWhenCrushHighest == null ? -1 : dto.maxHitCapWhenCrushHighest,
-                                dto.allowedItemIds == null ? Collections.emptySet() : new HashSet<>(dto.allowedItemIds),
-                                parseCapByStyle(dto.maxHitCapByStyle),
-                                parseCapMode(dto.capMode),
-                                dto.note);
-                    } else {
-                        requirement = MonsterCombatRequirement.weaponGate(
-                                dto.allowedItemIds == null ? Collections.emptySet() : new HashSet<>(dto.allowedItemIds),
-                                dto.allowedAmmoIds == null ? Collections.emptySet() : new HashSet<>(dto.allowedAmmoIds),
-                                allowedStyles, dto.note);
-                    }
-                    for (String monsterName : dto.monsters) {
-                        if (monsterName == null || monsterName.isEmpty()) {
-                            continue;
-                        }
-                        byName.put(monsterName.toLowerCase(Locale.ROOT), requirement);
-                    }
+                    byName.put(monsterName.toLowerCase(Locale.ROOT), requirement);
                 }
             }
-            return new MonsterCombatRequirementRepository(byName);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to load monster combat requirement data from " + resourcePath, e);
         }
+        return new MonsterCombatRequirementRepository(byName);
+    }
+
+    /** A mutable copy of an optional id list (empty when absent). */
+    private static Set<Integer> ids(List<Integer> raw) {
+        return raw == null ? Collections.emptySet() : new HashSet<>(raw);
     }
 
     /** Parses a style-name list from the curated data, skipping anything unrecognised. */
     private static Set<CombatStyle> parseStyles(List<String> styleNames) {
         Set<CombatStyle> styles = EnumSet.noneOf(CombatStyle.class);
-        if (styleNames == null) {
-            return styles;
-        }
-        for (String styleName : styleNames) {
-            if (styleName == null) {
-                continue;
-            }
-            try {
-                styles.add(CombatStyle.valueOf(styleName.trim().toUpperCase(Locale.ROOT)));
-            } catch (IllegalArgumentException ignored) {
-                // unknown style name in the data — skip defensively
+        if (styleNames != null) {
+            for (String styleName : styleNames) {
+                CombatStyle style = CombatDataLoader.parseEnum(CombatStyle.class, styleName);
+                if (style != null) {
+                    styles.add(style);
+                }
             }
         }
         return styles;
@@ -162,13 +110,9 @@ public final class MonsterCombatRequirementRepository {
             return result;
         }
         for (Map.Entry<String, Integer> entry : raw.entrySet()) {
-            if (entry.getKey() == null || entry.getValue() == null) {
-                continue;
-            }
-            try {
-                result.put(CombatStyle.valueOf(entry.getKey().trim().toUpperCase(Locale.ROOT)), entry.getValue());
-            } catch (IllegalArgumentException ignored) {
-                // unknown style name in the data — skip defensively
+            CombatStyle style = CombatDataLoader.parseEnum(CombatStyle.class, entry.getKey());
+            if (style != null && entry.getValue() != null) {
+                result.put(style, entry.getValue());
             }
         }
         return result;
@@ -182,22 +126,8 @@ public final class MonsterCombatRequirementRepository {
      * semantics.
      */
     private static MonsterCombatRequirement.CapMode parseCapMode(String raw) {
-        if (raw == null) {
-            return MonsterCombatRequirement.CapMode.CLAMP;
-        }
-        try {
-            return MonsterCombatRequirement.CapMode.valueOf(raw.trim().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException ignored) {
-            return MonsterCombatRequirement.CapMode.CLAMP;
-        }
-    }
-
-    private static InputStream requireResource(String resourcePath) {
-        InputStream in = MonsterCombatRequirementRepository.class.getResourceAsStream(resourcePath);
-        if (in == null) {
-            throw new IllegalStateException("Bundled resource not found on classpath: " + resourcePath);
-        }
-        return in;
+        MonsterCombatRequirement.CapMode mode = CombatDataLoader.parseEnum(MonsterCombatRequirement.CapMode.class, raw);
+        return mode == null ? MonsterCombatRequirement.CapMode.CLAMP : mode;
     }
 
     public int size() {

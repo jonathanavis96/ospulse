@@ -164,7 +164,7 @@ public class GearSectionStyleRankingTest
 			// The best (row 0) is auto-selected and drives the readout.
 			assertEquals(ranked.get(0), section.selectedStyle);
 			assertEquals(String.format(Locale.ROOT, "%.2f", dpsFor(gear, ranked.get(0))),
-				section.plainTextForTest(section.dpsValue.getText()));
+				GearSectionTestOps.plainTextForTest(section.dpsValue.getText()));
 		});
 	}
 
@@ -192,7 +192,7 @@ public class GearSectionStyleRankingTest
 				net.runelite.client.ui.ColorScheme.BRAND_ORANGE.getBlue());
 			String dullOrange = com.ospulse.ui.CentFormat.dim(brandOrange);
 
-			String bestRaw = section.styleRows.get(0).dpsRawTextForTest();
+			String bestRaw = section.styleRows.get(0).dpsLabel.getText();
 			assertTrue("best row's integer must be the row's own orange, not white, got: " + bestRaw,
 				bestRaw.contains("color='" + brandOrange + "'"));
 			assertFalse("best row must not fall back to the default white integer, got: " + bestRaw,
@@ -201,7 +201,7 @@ public class GearSectionStyleRankingTest
 				bestRaw.contains("<font color='" + dullOrange + "'"));
 
 			// A non-best row (still ranked, index > 0) keeps the plain default.
-			String otherRaw = section.styleRows.get(1).dpsRawTextForTest();
+			String otherRaw = section.styleRows.get(1).dpsLabel.getText();
 			assertTrue("non-best rows must keep the default white integer, got: " + otherRaw,
 				otherRaw.contains("color='" + com.ospulse.ui.CentFormat.WHITE + "'"));
 			assertFalse("non-best rows must not use the orange row colour, got: " + otherRaw,
@@ -225,7 +225,7 @@ public class GearSectionStyleRankingTest
 
 			assertEquals(worst, section.selectedStyle);
 			assertEquals(String.format(Locale.ROOT, "%.2f", dpsFor(gear, worst)),
-				section.plainTextForTest(section.dpsValue.getText()));
+				GearSectionTestOps.plainTextForTest(section.dpsValue.getText()));
 		});
 	}
 
@@ -254,7 +254,7 @@ public class GearSectionStyleRankingTest
 			assertTrue("fixture sanity: the worst style must not already be selected",
 				!worst.equals(section.selectedStyle));
 
-			section.pressStyleRowLabelForTest(last);
+			GearSectionTestOps.pressStyleRowLabelForTest(section, last);
 
 			assertEquals("a single press on the row's text label must switch the style",
 				worst, section.selectedStyle);
@@ -369,11 +369,11 @@ public class GearSectionStyleRankingTest
 			// The best spell is auto-selected and drives the readout + primary line.
 			assertEquals(ranked.get(0), section.selectedSpell);
 			assertEquals(String.format(Locale.ROOT, "%.2f", spellDps(gear, ranked.get(0))),
-				section.plainTextForTest(section.dpsValue.getText()));
-			assertTrue("primary readout must name the best spell, got: " + section.plainTextForTest(section.primaryValue.getText()),
-				section.plainTextForTest(section.primaryValue.getText()).startsWith(ranked.get(0).displayName()));
-			assertTrue("secondary readout must name the next-best spell, got: " + section.plainTextForTest(section.secondaryValue.getText()),
-				section.plainTextForTest(section.secondaryValue.getText()).startsWith(ranked.get(1).displayName()));
+				GearSectionTestOps.plainTextForTest(section.dpsValue.getText()));
+			assertTrue("primary readout must name the best spell, got: " + GearSectionTestOps.plainTextForTest(section.primaryValue.getText()),
+				GearSectionTestOps.plainTextForTest(section.primaryValue.getText()).startsWith(ranked.get(0).displayName()));
+			assertTrue("secondary readout must name the next-best spell, got: " + GearSectionTestOps.plainTextForTest(section.secondaryValue.getText()),
+				GearSectionTestOps.plainTextForTest(section.secondaryValue.getText()).startsWith(ranked.get(1).displayName()));
 		});
 	}
 
@@ -441,8 +441,8 @@ public class GearSectionStyleRankingTest
 			section.selectSpell(section.spellRows.get(last).spell);
 			assertEquals(ranked.get(last), section.selectedSpell);
 			assertEquals(String.format(Locale.ROOT, "%.2f", spellDps(gear, ranked.get(last))),
-				section.plainTextForTest(section.dpsValue.getText()));
-			assertTrue(section.plainTextForTest(section.primaryValue.getText()).startsWith(ranked.get(0).displayName()));
+				GearSectionTestOps.plainTextForTest(section.dpsValue.getText()));
+			assertTrue(GearSectionTestOps.plainTextForTest(section.primaryValue.getText()).startsWith(ranked.get(0).displayName()));
 		});
 	}
 
@@ -494,7 +494,7 @@ public class GearSectionStyleRankingTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			String overkill = section.plainTextForTest(section.overkillValue.getText());
+			String overkill = GearSectionTestOps.plainTextForTest(section.overkillValue.getText());
 			assertTrue("overkill must be a number once a target is picked, got: " + overkill,
 				overkill.matches("\\d+\\.\\d"));
 		});
@@ -522,15 +522,15 @@ public class GearSectionStyleRankingTest
 			assertTrue("accuracy must actually carry the cent HTML markup, got: " + accuracyRaw,
 				accuracyRaw.startsWith("<html>") && accuracyRaw.contains("<font color='#8C8C8C'>"));
 
-			String accuracy = section.plainTextForTest(section.accuracyValue.getText());
+			String accuracy = GearSectionTestOps.plainTextForTest(section.accuracyValue.getText());
 			assertTrue("accuracy must be a plain N.N% once stripped, got: " + accuracy,
 				accuracy.matches("\\d+\\.\\d%"));
 
-			String avgHit = section.plainTextForTest(section.avgHitValue.getText());
+			String avgHit = GearSectionTestOps.plainTextForTest(section.avgHitValue.getText());
 			assertTrue("avg hit must be a plain N.NN once stripped, got: " + avgHit,
 				avgHit.matches("\\d+\\.\\d\\d"));
 
-			String ttk = section.plainTextForTest(section.ttkValue.getText());
+			String ttk = GearSectionTestOps.plainTextForTest(section.ttkValue.getText());
 			assertTrue("ttk must be a plain duration once stripped, got: " + ttk,
 				ttk.matches("\\d+\\.\\ds|\\d+:\\d\\d"));
 		});

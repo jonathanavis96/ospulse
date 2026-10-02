@@ -301,12 +301,7 @@ public final class SessionEngine
 
 	private long storedLootValue()
 	{
-		long total = 0L;
-		for (StoredLoot s : storedLoot.values())
-		{
-			total += s.value;
-		}
-		return total;
+		return storedLoot.values().stream().mapToLong(s -> s.value).sum();
 	}
 
 	/**
@@ -315,12 +310,7 @@ public final class SessionEngine
 	 */
 	private long storageMaterialisingValue()
 	{
-		long total = 0L;
-		for (StoredLoot s : storageMaterialising.values())
-		{
-			total += s.value;
-		}
-		return total;
+		return storageMaterialising.values().stream().mapToLong(s -> s.value).sum();
 	}
 
 	/**
@@ -728,17 +718,16 @@ public final class SessionEngine
 		final long basisTotalCost;
 		final long tsMs;
 
-		PendingSwing(int itemId, long quantity, long unitValue, boolean fullSwing,
-			boolean suppliesCharged, boolean hadBasis, long basisQuantity, long basisTotalCost, long tsMs)
+		PendingSwing(Swing s, long quantity, boolean suppliesCharged, long tsMs)
 		{
-			this.itemId = itemId;
+			itemId = s.itemId;
 			this.quantity = quantity;
-			this.unitValue = unitValue;
-			this.fullSwing = fullSwing;
+			unitValue = s.unitValue;
+			fullSwing = s.fullSwing;
 			this.suppliesCharged = suppliesCharged;
-			this.hadBasis = hadBasis;
-			this.basisQuantity = basisQuantity;
-			this.basisTotalCost = basisTotalCost;
+			hadBasis = s.hadBasis;
+			basisQuantity = s.basisQuantity;
+			basisTotalCost = s.basisTotalCost;
 			this.tsMs = tsMs;
 		}
 	}
@@ -862,14 +851,7 @@ public final class SessionEngine
 	 */
 	private boolean hasOwnedGroundParcel()
 	{
-		for (Parcel p : onGround.values())
-		{
-			if (p.qty > p.lootedQty)
-			{
-				return true;
-			}
-		}
-		return false;
+		return onGround.values().stream().anyMatch(p -> p.qty > p.lootedQty);
 	}
 
 	/**
@@ -883,14 +865,7 @@ public final class SessionEngine
 	 */
 	private boolean hasPendingOwnedVanish()
 	{
-		for (PendingSwing p : pendingVanished)
-		{
-			if (!p.suppliesCharged && p.quantity > p.reversedLootQty)
-			{
-				return true;
-			}
-		}
-		return false;
+		return pendingVanished.stream().anyMatch(p -> !p.suppliesCharged && p.quantity > p.reversedLootQty);
 	}
 
 	/** Mutable per-item cost-basis accumulator (quantity held + total cost). */
@@ -906,52 +881,51 @@ public final class SessionEngine
 	 */
 	public void startSession(WealthSnapshot initial, long tsMs)
 	{
-		if (diagEnabled())
-		{
-			logDiag("[reanchor] session RESET baseline {} -> {} startNetWorth {} -> {} bankOpenWasTrue={}",
-				this.baseline, initial.tracked(), this.startNetWorth, initial.netWorth(), this.bankOpen);
-		}
-		this.baseline = initial.tracked();
-		this.startMs = tsMs;
-		this.previous = initial;
-		this.startNetWorth = initial.netWorth();
+		logDiag("[reanchor] session RESET baseline {} -> {} startNetWorth {} -> {} bankOpenWasTrue={}",
+			this.baseline, initial.tracked(), this.startNetWorth, initial.netWorth(), this.bankOpen);
+		// A deployed cannon and items held by Death stay owned across the
+		// reset: they open the new session as part of its starting wealth, so
+		// getting them back afterwards is a reclaim, not loot.
+		long ownedAway = deployedValue() + atDeathValue();
+		this.baseline = initial.tracked() + ownedAway;
+		startMs = tsMs;
+		previous = initial;
+		this.startNetWorth = initial.netWorth() + ownedAway;
 		this.startBankKnown = initial.isBankKnown();
 		this.bankOpen = false;
-		this.trackedAtBankOpen = 0L;
-		this.visitSawBank = false;
-		this.bankAnchorKnown = initial.isBankKnown();
-		this.bankAnchor = initial.isBankKnown() ? initial.getBankValue() : 0L;
+		trackedAtBankOpen = 0L;
+		visitSawBank = false;
+		bankAnchorKnown = initial.isBankKnown();
+		bankAnchor = initial.isBankKnown() ? initial.getBankValue() : 0L;
 		long initialGePool = initial.getGeInFlightValue() + initial.getGeCollectableValue();
-		this.geAnchor = initialGePool;
-		this.geCostBasis = initialGePool;
-		this.gePoolLastObserved = initialGePool;
-		this.geNonPoolLastObserved = initial.tracked() - initialGePool;
-		this.pendingBankSettles.clear();
+		geAnchor = initialGePool;
+		geCostBasis = initialGePool;
+		gePoolLastObserved = initialGePool;
+		geNonPoolLastObserved = initial.tracked() - initialGePool;
+		pendingBankSettles.clear();
 		this.pendingEpisodeInputs.clear();
 		this.receiptLedger.clear();
 		this.episodeOpen = false;
-		this.episodeLastActivityMs = 0L;
+		episodeLastActivityMs = 0L;
 		this.episodePnl = 0L;
-		this.lastTransferFoldKnown = false;
+		lastTransferFoldKnown = false;
 		this.revertSuspectAmount = 0L;
 		this.pendingStaleBankDrop = 0L;
-		this.closeGraceArmed = false;
-		this.lastBankCloseTsMs = 0L;
-		this.lootTotals.clear();
+		closeGraceArmed = false;
+		lastBankCloseTsMs = 0L;
+		lootTotals.clear();
 		this.suppliesUsed = 0L;
-		this.costBasis.clear();
-		this.lootLedger.reset();
+		costBasis.clear();
+		lootLedger.reset();
 		this.onGround.clear();
-		this.deployed.clear();
-		this.atDeath.clear();
-		this.storedLoot.clear();
+		storedLoot.clear();
 		this.storageMaterialising.clear();
-		this.lastRiseSettled = 0L;
-		this.lastLoggedFigures = null;
-		this.invariantWarned = false;
-		this.modeledResidualShiftSeen = false;
-		this.pendingVanished = new ArrayList<>();
-		this.pendingLooted = new ArrayList<>();
+		lastRiseSettled = 0L;
+		lastLoggedFigures = null;
+		invariantWarned = false;
+		modeledResidualShiftSeen = false;
+		pendingVanished = new ArrayList<>();
+		pendingLooted = new ArrayList<>();
 		// Holdings present at session start enter at their live price, so
 		// unrealized P/L starts the session at zero.
 		syncCostBasis(initial);
@@ -986,7 +960,7 @@ public final class SessionEngine
 		// transition's own observation (the pre-rewrite semantics: a bank
 		// value first revealed by the close snapshot itself never yielded a
 		// usable bank-side measurement, so the blind fallback still applies).
-		boolean sawBankBeforeTransition = this.visitSawBank;
+		boolean sawBankBeforeTransition = visitSawBank;
 		// Book any bank movement delivered in the same batch as this
 		// transition against the state the movement was observed in (still
 		// open for a close, still closed for an open).
@@ -1000,13 +974,10 @@ public final class SessionEngine
 			// is a transfer, not a craft.
 			closeEpisode(tsMs, "bank opened");
 			// FALSE -> TRUE: bank just opened. Anchor the blind-visit fallback.
-			this.trackedAtBankOpen = current.tracked();
-			this.visitSawBank = current.isBankKnown();
-			if (diagEnabled())
-			{
-				logDiag("[reanchor] bank OPEN tracked={} bankKnown={} baseline={}",
-					trackedAtBankOpen, current.isBankKnown(), baseline);
-			}
+			trackedAtBankOpen = current.tracked();
+			visitSawBank = current.isBankKnown();
+			logDiag("[reanchor] bank OPEN tracked={} bankKnown={} baseline={}",
+				trackedAtBankOpen, current.isBankKnown(), baseline);
 		}
 		else if (this.bankOpen && !open)
 		{
@@ -1023,13 +994,10 @@ public final class SessionEngine
 				// such a blind visit are swallowed too — accepted).
 				long oldBaseline = this.baseline;
 				this.baseline += current.tracked() - trackedAtBankOpen;
-				if (diagEnabled())
-				{
-					logDiag("[reanchor] bank CLOSE (blind visit) trackedShift={} baseline {} -> {}",
-						current.tracked() - trackedAtBankOpen, oldBaseline, this.baseline);
-				}
+				logDiag("[reanchor] bank CLOSE (blind visit) trackedShift={} baseline {} -> {}",
+					current.tracked() - trackedAtBankOpen, oldBaseline, this.baseline);
 			}
-			else if (diagEnabled())
+			else
 			{
 				logDiag("[reanchor] bank CLOSE baseline={} pendingSettle={}", baseline, pendingSettleTotal());
 			}
@@ -1038,16 +1006,16 @@ public final class SessionEngine
 			// treating closed-bank movements as transfer tails briefly (see
 			// reconcileBankMovement) so the late tail is still neutralised
 			// instead of booking as phantom profit.
-			this.closeGraceArmed = current.isBankKnown();
-			this.lastBankCloseTsMs = tsMs;
+			closeGraceArmed = current.isBankKnown();
+			lastBankCloseTsMs = tsMs;
 		}
 
-		this.previous = current;
+		previous = current;
 		this.bankOpen = open;
 		// A bank visit re-anchors all diffing; stale equip-transient records
 		// from before the visit must never net against post-visit changes.
-		this.pendingVanished = new ArrayList<>();
-		this.pendingLooted = new ArrayList<>();
+		pendingVanished = new ArrayList<>();
+		pendingLooted = new ArrayList<>();
 	}
 
 	/**
@@ -1126,7 +1094,7 @@ public final class SessionEngine
 	 */
 	private long reconcileBankMovement(WealthSnapshot current, long tsMs)
 	{
-		this.lastRiseSettled = 0L;
+		lastRiseSettled = 0L;
 		expirePendingSettles(tsMs);
 		if (!current.isBankKnown())
 		{
@@ -1134,12 +1102,12 @@ public final class SessionEngine
 		}
 		if (bankOpen)
 		{
-			this.visitSawBank = true;
+			visitSawBank = true;
 		}
 		if (!bankAnchorKnown)
 		{
-			this.bankAnchor = current.getBankValue();
-			this.bankAnchorKnown = true;
+			bankAnchor = current.getBankValue();
+			bankAnchorKnown = true;
 			return 0L;
 		}
 		long delta = current.getBankValue() - bankAnchor;
@@ -1147,8 +1115,8 @@ public final class SessionEngine
 		{
 			return 0L;
 		}
-		long anchorFrom = this.bankAnchor;
-		this.bankAnchor = current.getBankValue();
+		long anchorFrom = bankAnchor;
+		bankAnchor = current.getBankValue();
 		boolean withinGrace = closeGraceArmed
 			&& tsMs - lastBankCloseTsMs <= BANK_CLOSE_TRANSFER_GRACE_MS;
 		long oldBaseline = this.baseline;
@@ -1159,7 +1127,7 @@ public final class SessionEngine
 			// portion's baseline fold and expectation consumption cancel in the
 			// mark-to-market, so the (already-neutral) deposit stays neutral.
 			long settled = consumePendingSettles(delta);
-			this.lastRiseSettled = settled;
+			lastRiseSettled = settled;
 			long transfer = (bankOpen || withinGrace) ? delta : settled;
 			long revaluation = delta - transfer;
 			// A closed-bank rise beyond the in-flight settles, while stored
@@ -1210,11 +1178,8 @@ public final class SessionEngine
 			{
 				this.baseline -= remaining;
 				rememberTransferFold(anchorFrom, delta, tsMs);
-				if (diagEnabled())
-				{
-					logDiag("[reanchor] bank drop {} (open={} grace={} staleSwallowed={}): transferShift={} baseline {} -> {}",
-						delta, bankOpen, withinGrace, swallowed, -remaining, oldBaseline, this.baseline);
-				}
+				logDiag("[reanchor] bank drop {} (open={} grace={} staleSwallowed={}): transferShift={} baseline {} -> {}",
+					delta, bankOpen, withinGrace, swallowed, -remaining, oldBaseline, this.baseline);
 			}
 			else if (remaining != 0)
 			{
@@ -1223,13 +1188,10 @@ public final class SessionEngine
 				// startNetWorth (the root-cause fix — see the class-level
 				// docs on reconcileBankMovement), so it flows into the raw
 				// net-worth delta and shows through as a Bank residual.
-				if (diagEnabled())
-				{
-					logDiag("[reanchor] closed-bank revaluation {} (staleSwallowed={}): flows to Bank residual",
-						remaining, swallowed);
-				}
+				logDiag("[reanchor] closed-bank revaluation {} (staleSwallowed={}): flows to Bank residual",
+					remaining, swallowed);
 			}
-			else if (diagEnabled())
+			else
 			{
 				logDiag("[reanchor] bank drop {} fully swallowed by stale re-read expectation (remaining owed {})",
 					delta, pendingStaleBankDrop);
@@ -1270,23 +1232,20 @@ public final class SessionEngine
 			return false;
 		}
 		this.revertSuspectAmount = delta;
-		this.revertSuspectTracked = previous.tracked();
-		this.revertSuspectTsMs = tsMs;
-		if (diagEnabled())
-		{
-			logDiag("[reanchor] bank rise {} exactly undoes the last transfer fold — possible stale re-read (snap-back tracked would be {})",
-				delta, revertSuspectTracked);
-		}
+		revertSuspectTracked = previous.tracked();
+		revertSuspectTsMs = tsMs;
+		logDiag("[reanchor] bank rise {} exactly undoes the last transfer fold — possible stale re-read (snap-back tracked would be {})",
+			delta, revertSuspectTracked);
 		return true;
 	}
 
 	/** Records the transfer fold just booked so the next movement can be recognised as its exact undo. */
 	private void rememberTransferFold(long bankFrom, long delta, long tsMs)
 	{
-		this.lastTransferFoldBankFrom = bankFrom;
-		this.lastTransferFoldDelta = delta;
-		this.lastTransferFoldTsMs = tsMs;
-		this.lastTransferFoldKnown = true;
+		lastTransferFoldBankFrom = bankFrom;
+		lastTransferFoldDelta = delta;
+		lastTransferFoldTsMs = tsMs;
+		lastTransferFoldKnown = true;
 	}
 
 	/**
@@ -1331,11 +1290,8 @@ public final class SessionEngine
 		this.baseline += unexplainedRise;
 		this.pendingStaleBankDrop += unexplainedRise;
 		this.revertSuspectAmount = 0L;
-		if (diagEnabled())
-		{
-			logDiag("[reanchor] tracked snap-back {} confirms stale bank re-read: baseline {} -> {}, bank drop owed {}",
-				unexplainedRise, this.baseline - unexplainedRise, this.baseline, pendingStaleBankDrop);
-		}
+		logDiag("[reanchor] tracked snap-back {} confirms stale bank re-read: baseline {} -> {}, bank drop owed {}",
+			unexplainedRise, this.baseline - unexplainedRise, this.baseline, pendingStaleBankDrop);
 		return unexplainedRise;
 	}
 
@@ -1369,11 +1325,8 @@ public final class SessionEngine
 			if (uncovered > 0)
 			{
 				pendingBankSettles.add(new PendingBankSettle(uncovered, tsMs));
-				if (diagEnabled())
-				{
-					logDiag("[reanchor] in-flight deposit hold {} (pendingSettle total {})",
-						uncovered, pendingSettleTotal());
-				}
+				logDiag("[reanchor] in-flight deposit hold {} (pendingSettle total {})",
+					uncovered, pendingSettleTotal());
 			}
 		}
 		else if (trackedDelta > 0)
@@ -1440,44 +1393,31 @@ public final class SessionEngine
 			// own nonPool-based matching cannot see this exit (the value went
 			// straight to the bank, never touching non-GE tracked wealth).
 			reduceGeCostBasis(deposit);
-			if (diagEnabled())
-			{
-				logDiag("[reanchor] GE collect-to-bank deposit hold {} (collectableDrop={} trackedDrop={} pendingSettle total {})",
-					deposit, collectableDrop, trackedDrop, pendingSettleTotal());
-			}
+			logDiag("[reanchor] GE collect-to-bank deposit hold {} (collectableDrop={} trackedDrop={} pendingSettle total {})",
+				deposit, collectableDrop, trackedDrop, pendingSettleTotal());
 		}
 	}
 
 	/** Sum of the outstanding in-flight deposit expectations. */
 	private long pendingSettleTotal()
 	{
-		long total = 0L;
-		for (PendingBankSettle p : pendingBankSettles)
-		{
-			total += p.amount;
-		}
-		return total;
+		return pendingBankSettles.stream().mapToLong(p -> p.amount).sum();
 	}
 
 	/** Sum of the value of cannon parts currently parked as deployed. */
 	private long deployedValue()
 	{
-		long total = 0L;
-		for (Parcel p : deployed.values())
-		{
-			total += p.qty * p.unitValue;
-		}
-		return total;
+		return parcelValue(deployed);
 	}
 
 	private long atDeathValue()
 	{
-		long total = 0L;
-		for (Parcel p : atDeath.values())
-		{
-			total += p.qty * p.unitValue;
-		}
-		return total;
+		return parcelValue(atDeath);
+	}
+
+	private static long parcelValue(Map<Integer, Parcel> parcels)
+	{
+		return parcels.values().stream().mapToLong(p -> p.qty * p.unitValue).sum();
 	}
 
 	/**
@@ -1516,11 +1456,8 @@ public final class SessionEngine
 			PendingBankSettle p = it.next();
 			if (tsMs - p.tsMs > BANK_TRANSFER_SETTLE_WINDOW_MS)
 			{
-				if (diagEnabled())
-				{
-					logDiag("[reanchor] in-flight hold {} expired after {}ms — booking as loss",
-						p.amount, tsMs - p.tsMs);
-				}
+				logDiag("[reanchor] in-flight hold {} expired after {}ms — booking as loss",
+					p.amount, tsMs - p.tsMs);
 				it.remove();
 			}
 		}
@@ -1529,7 +1466,7 @@ public final class SessionEngine
 	/** Enables/disables promoting the per-update wealth/attribution diagnostics to INFO — see {@link #verboseDiagnostics}. */
 	public void setVerboseDiagnostics(boolean enabled)
 	{
-		this.verboseDiagnostics = enabled;
+		verboseDiagnostics = enabled;
 	}
 
 	/** Logs a diagnostic line at INFO when {@link #verboseDiagnostics} is on (dev), else DEBUG (default). */
@@ -1745,7 +1682,7 @@ public final class SessionEngine
 			}
 			trackOpenSwing(current, bankDelta, tsMs);
 			logUpdateBreakdown(current, 0L, 0L, 0L, 0L, 0L, 0L);
-			this.previous = current;
+			previous = current;
 			return;
 		}
 
@@ -1806,7 +1743,7 @@ public final class SessionEngine
 			logUpdateBreakdown(current, 0L, 0L, 0L, 0L, 0L, 0L);
 			syncCostBasis(current);
 			syncGeCostBasis(current);
-			this.previous = current;
+			previous = current;
 			return;
 		}
 
@@ -2146,8 +2083,7 @@ public final class SessionEngine
 						if (restoreQty > 0)
 						{
 							long restoreValue = restoreQty * p.unitValue;
-							addLoot(new LootEntry(a.itemId, a.name, restoreQty, restoreValue, tsMs));
-							lootLedger.recordLoot(a.itemId, restoreQty, p.unitValue);
+							bookLoot(a.itemId, a.name, restoreQty, p.unitValue, tsMs);
 							p.reversedLootQty -= restoreQty;
 							logAttribution(a.itemId, a.name, restoreQty, restoreValue,
 								"REVERSAL-NET(returned stack, restored to Loot)");
@@ -2176,37 +2112,8 @@ public final class SessionEngine
 				}
 			}
 
-			if (a.quantity > 0)
-			{
-				Parcel d = deployed.get(a.itemId);
-				if (d != null && d.qty > 0)
-				{
-					long ret = Math.min(a.quantity, d.qty);
-					d.qty -= ret;
-					if (d.qty <= 0)
-					{
-						deployed.remove(a.itemId);
-					}
-					a.quantity -= ret;
-					logAttribution(a.itemId, a.name, ret, ret * a.unitValue, "CANNON-PICKUP(owned holding restored)");
-				}
-			}
-
-			if (a.quantity > 0)
-			{
-				Parcel dp = atDeath.get(a.itemId);
-				if (dp != null && dp.qty > 0)
-				{
-					long ret = Math.min(a.quantity, dp.qty);
-					dp.qty -= ret;
-					if (dp.qty <= 0)
-					{
-						atDeath.remove(a.itemId);
-					}
-					a.quantity -= ret;
-					logAttribution(a.itemId, a.name, ret, ret * a.unitValue, "RECLAIM(from Death, owned holding restored)");
-				}
-			}
+			reclaim(deployed, a, "CANNON-PICKUP(owned holding restored)");
+			reclaim(atDeath, a, "RECLAIM(from Death, owned holding restored)");
 
 			// Only a herb sack / gem bag (SACK_ROUTED ids) can be emptied into the
 			// INVENTORY, so only those net a same-id inventory appearance against the
@@ -2245,8 +2152,7 @@ public final class SessionEngine
 					long restore = Math.min(ret, g.lootedQty);
 					if (restore > 0)
 					{
-						addLoot(new LootEntry(a.itemId, a.name, restore, restore * g.unitValue, tsMs));
-						lootLedger.recordLoot(a.itemId, restore, g.unitValue);
+						bookLoot(a.itemId, a.name, restore, g.unitValue, tsMs);
 					}
 					g.qty -= ret;
 					g.lootedQty -= restore;
@@ -2302,8 +2208,7 @@ public final class SessionEngine
 			if (a.quantity > 0)
 			{
 				long lootValue = a.quantity * a.unitValue;
-				addLoot(new LootEntry(a.itemId, a.name, a.quantity, lootValue, tsMs));
-				lootLedger.recordLoot(a.itemId, a.quantity, a.unitValue);
+				bookLoot(a.itemId, a.name, a.quantity, a.unitValue, tsMs);
 				lootRecorded += lootValue;
 				logAttribution(a.itemId, a.name, a.quantity, lootValue, "LOOT");
 				// Reaching here already means "unexplained appear": every earlier
@@ -2313,8 +2218,7 @@ public final class SessionEngine
 				// reporting it out, since a menu-driven LootReceived is only one of
 				// the ways loot can land in the inventory.
 				lastDiffLoot.add(new DiffLoot(a.itemId, a.name, a.quantity, a.unitValue));
-				newPendingLooted.add(new PendingSwing(a.itemId, a.quantity, a.unitValue,
-					a.fullSwing, false, a.hadBasis, a.basisQuantity, a.basisTotalCost, tsMs));
+				newPendingLooted.add(new PendingSwing(a, a.quantity, false, tsMs));
 			}
 		}
 
@@ -2336,11 +2240,7 @@ public final class SessionEngine
 			{
 				// DROP: reduce Loot only for the looted portion, never supplies, and park
 				// on the ground for re-pickup. Bypasses transient/bank reconciliation.
-				long looted = lootLedger.reverseLoot(v.itemId, v.quantity);
-				if (looted > 0)
-				{
-					retractLoot(v.itemId, looted, looted * v.unitValue);
-				}
+				long looted = reverseLoot(v);
 				Parcel g = onGround.get(v.itemId);
 				if (g == null)
 				{
@@ -2362,11 +2262,7 @@ public final class SessionEngine
 			{
 				// DESTROY: permanent loss. Reduce Loot only for the looted portion,
 				// never supplies, and never park — a destroyed item cannot come back.
-				long looted = lootLedger.reverseLoot(v.itemId, v.quantity);
-				if (looted > 0)
-				{
-					retractLoot(v.itemId, looted, looted * v.unitValue);
-				}
+				long looted = reverseLoot(v);
 				logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue,
 					"DESTROY(permanent; " + looted + " looted units removed from Loot)");
 				if (v.quantity - looted > 0)
@@ -2384,15 +2280,7 @@ public final class SessionEngine
 				// DEPLOY: a cannon part leaving tracked wealth to be set up is
 				// still owned (deployed, not dropped) — park it and fold its
 				// value back into net worth via deployedValue(), never loot/supplies.
-				Parcel d = deployed.get(v.itemId);
-				if (d == null)
-				{
-					deployed.put(v.itemId, new Parcel(v.quantity, 0L, v.unitValue, tsMs));
-				}
-				else
-				{
-					d.qty += v.quantity;
-				}
+				park(deployed, v, tsMs);
 				logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue,
 					"CANNON-DEPLOY(owned holding)");
 				v.quantity = 0L;
@@ -2409,15 +2297,7 @@ public final class SessionEngine
 				// LIMITATION: a retrieval fee paid from Death's Coffer is invisible to item/bank
 				// diffs and is therefore an untracked cost (documented; deferred until a readable
 				// coffer varbit/varp or reclaim-interface fee text is found).
-				Parcel dp = atDeath.get(v.itemId);
-				if (dp == null)
-				{
-					atDeath.put(v.itemId, new Parcel(v.quantity, 0L, v.unitValue, tsMs));
-				}
-				else
-				{
-					dp.qty += v.quantity;
-				}
+				park(atDeath, v, tsMs);
 				logAttribution(v.itemId, v.name, -v.quantity, -v.quantity * v.unitValue,
 					"DEATH(owned, in abeyance)");
 				v.quantity = 0L; // never supplies, never loot change
@@ -2508,11 +2388,7 @@ public final class SessionEngine
 					// quantity is remembered so a re-pickup within the return
 					// window restores exactly this much and the round trip
 					// nets.
-					reversedLootQty = lootLedger.reverseLoot(v.itemId, v.quantity);
-					if (reversedLootQty > 0)
-					{
-						retractLoot(v.itemId, reversedLootQty, reversedLootQty * v.unitValue);
-					}
+					reversedLootQty = reverseLoot(v);
 					if (episodeOpen)
 					{
 						// An episode INPUT — the herb this whole design exists to
@@ -2557,8 +2433,7 @@ public final class SessionEngine
 				// Supplies above, so its reappearance must cancel the pending
 				// episode input, not try to un-charge a Supply record that was
 				// never made.
-				PendingSwing pending = new PendingSwing(v.itemId, v.quantity, v.unitValue,
-					v.fullSwing, charge, v.hadBasis, v.basisQuantity, v.basisTotalCost, tsMs);
+				PendingSwing pending = new PendingSwing(v, v.quantity, charge, tsMs);
 				pending.reversedLootQty = reversedLootQty;
 				newPendingVanished.add(pending);
 			}
@@ -2582,11 +2457,7 @@ public final class SessionEngine
 		// it — recipe correlation would be a materially larger change.
 		if (!manufacturedCandidates.isEmpty())
 		{
-			long budget = 0L;
-			for (PendingEpisodeInput p : pendingEpisodeInputs)
-			{
-				budget += p.value;
-			}
+			long budget = pendingEpisodeInputs.stream().mapToLong(p -> p.value).sum();
 			manufacturedCandidates.sort(
 				Comparator.comparingLong(c -> c.quantity * c.swing.unitValue));
 			for (ManufacturedCandidate c : manufacturedCandidates)
@@ -2611,15 +2482,12 @@ public final class SessionEngine
 					// manufactured output, whatever episodeOpen says. Book it as
 					// ordinary loot — same as the fallback path below.
 					long lootValue = unfunded * c.swing.unitValue;
-					addLoot(new LootEntry(c.swing.itemId, c.swing.name, unfunded, lootValue, tsMs));
-					lootLedger.recordLoot(c.swing.itemId, unfunded, c.swing.unitValue);
+					bookLoot(c.swing.itemId, c.swing.name, unfunded, c.swing.unitValue, tsMs);
 					lootRecorded += lootValue;
 					logAttribution(c.swing.itemId, c.swing.name, unfunded, lootValue,
 						"LOOT(unreceipted episode appear beyond the charged-input budget)");
 					lastDiffLoot.add(new DiffLoot(c.swing.itemId, c.swing.name, unfunded, c.swing.unitValue));
-					newPendingLooted.add(new PendingSwing(c.swing.itemId, unfunded, c.swing.unitValue,
-						c.swing.fullSwing, false, c.swing.hadBasis, c.swing.basisQuantity,
-						c.swing.basisTotalCost, tsMs));
+					newPendingLooted.add(new PendingSwing(c.swing, unfunded, false, tsMs));
 				}
 			}
 		}
@@ -2658,8 +2526,8 @@ public final class SessionEngine
 			}
 		}
 		retainedVanished.addAll(newPendingVanished);
-		this.pendingVanished = retainedVanished;
-		this.pendingLooted = newPendingLooted;
+		pendingVanished = retainedVanished;
+		pendingLooted = newPendingLooted;
 
 		// ---- 5. Reconcile LootReceived signals against what actually landed in
 		// tracked inventory this tick (the same previous/current diff the
@@ -2696,8 +2564,7 @@ public final class SessionEngine
 				continue; // fully landed in inventory: already booked by the diff loot path
 			}
 			long value = toStorage * r.unitValue;
-			addLoot(new LootEntry(r.itemId, "id" + r.itemId, toStorage, value, tsMs));
-			lootLedger.recordLoot(r.itemId, toStorage, r.unitValue);
+			bookLoot(r.itemId, "id" + r.itemId, toStorage, r.unitValue, tsMs);
 			StoredLoot s = storedLoot.computeIfAbsent(r.itemId, k -> new StoredLoot());
 			s.qty += toStorage;
 			s.value += value;
@@ -2716,7 +2583,7 @@ public final class SessionEngine
 		logUpdateBreakdown(current, trackedDelta, lootRecorded, suppliesRecorded,
 			lootReversed + transferPaired, suppliesReversed, trackedDelta - baselineDelta);
 
-		this.previous = current;
+		previous = current;
 	}
 
 	/**
@@ -2770,6 +2637,51 @@ public final class SessionEngine
 	 * (an equip-transient reversal, see {@link #update}), deleting the row
 	 * outright once nothing remains.
 	 */
+	private long reverseLoot(Swing v)
+	{
+		long looted = lootLedger.reverseLoot(v.itemId, v.quantity);
+		if (looted > 0)
+		{
+			retractLoot(v.itemId, looted, looted * v.unitValue);
+		}
+		return looted;
+	}
+
+	private static void park(Map<Integer, Parcel> parcels, Swing v, long tsMs)
+	{
+		Parcel p = parcels.get(v.itemId);
+		if (p == null)
+		{
+			parcels.put(v.itemId, new Parcel(v.quantity, 0L, v.unitValue, tsMs));
+		}
+		else
+		{
+			p.qty += v.quantity;
+		}
+	}
+
+	private void reclaim(Map<Integer, Parcel> parcels, Swing a, String bucket)
+	{
+		Parcel p = parcels.get(a.itemId);
+		if (a.quantity > 0 && p != null && p.qty > 0)
+		{
+			long ret = Math.min(a.quantity, p.qty);
+			p.qty -= ret;
+			if (p.qty <= 0)
+			{
+				parcels.remove(a.itemId);
+			}
+			a.quantity -= ret;
+			logAttribution(a.itemId, a.name, ret, ret * a.unitValue, bucket);
+		}
+	}
+
+	private void bookLoot(int itemId, String name, long qty, long unitValue, long tsMs)
+	{
+		addLoot(new LootEntry(itemId, name, qty, qty * unitValue, tsMs));
+		lootLedger.recordLoot(itemId, qty, unitValue);
+	}
+
 	private void retractLoot(int itemId, long quantity, long value)
 	{
 		LootEntry existing = lootTotals.get(itemId);
@@ -2917,15 +2829,15 @@ public final class SessionEngine
 		if (poolDelta > 0)
 		{
 			long entry = Math.min(poolDelta, Math.max(0L, -nonPoolDelta));
-			this.geCostBasis += entry;
+			geCostBasis += entry;
 		}
 		else if (poolDelta < 0)
 		{
 			long exit = Math.min(-poolDelta, Math.max(0L, nonPoolDelta));
 			reduceGeCostBasis(exit);
 		}
-		this.gePoolLastObserved = pool;
-		this.geNonPoolLastObserved = nonPool;
+		gePoolLastObserved = pool;
+		geNonPoolLastObserved = nonPool;
 	}
 
 	/**
@@ -2943,10 +2855,10 @@ public final class SessionEngine
 			return;
 		}
 		long share = Math.min(exitValue, gePoolLastObserved);
-		this.geCostBasis -= Math.round((double) geCostBasis * share / gePoolLastObserved);
-		if (this.geCostBasis < 0)
+		geCostBasis -= Math.round((double) geCostBasis * share / gePoolLastObserved);
+		if (geCostBasis < 0)
 		{
-			this.geCostBasis = 0L;
+			geCostBasis = 0L;
 		}
 	}
 
@@ -3062,11 +2974,7 @@ public final class SessionEngine
 	/** Removes every held input and returns their total value. */
 	private long drainPendingEpisodeInputs()
 	{
-		long total = 0L;
-		for (PendingEpisodeInput p : pendingEpisodeInputs)
-		{
-			total += p.value;
-		}
+		long total = pendingEpisodeInputs.stream().mapToLong(p -> p.value).sum();
 		pendingEpisodeInputs.clear();
 		return total;
 	}
@@ -3116,11 +3024,8 @@ public final class SessionEngine
 		long flushed = drainPendingEpisodeInputs();
 		episodePnl -= flushed;
 		episodeOpen = false;
-		if (diagEnabled())
-		{
-			logDiag("[episode] closed ({}) at {}: flushed held inputs={} episodePnl={}",
-				reason, tsMs, flushed, episodePnl);
-		}
+		logDiag("[episode] closed ({}) at {}: flushed held inputs={} episodePnl={}",
+			reason, tsMs, flushed, episodePnl);
 	}
 
 	private void addLoot(LootEntry entry)
@@ -3241,11 +3146,7 @@ public final class SessionEngine
 		// realised activity — loot, trade P&L, genuine quantity changes.
 		// Price drift moves only the unrealized side.
 		List<HoldingPnl> holdingPnls = holdingPnls(current);
-		long unrealizedPnl = 0L;
-		for (HoldingPnl row : holdingPnls)
-		{
-			unrealizedPnl += row.unrealized();
-		}
+		long unrealizedPnl = holdingPnls.stream().mapToLong(HoldingPnl::unrealized).sum();
 		long profit = markToMarket - unrealizedPnl;
 
 		// "Loot" is now a bottom-up figure: value of items picked up, realised to
@@ -3418,21 +3319,14 @@ public final class SessionEngine
 			long oldStartNetWorth = startNetWorth;
 			startNetWorth += current.getBankValue();
 			startBankKnown = true;
-			if (diagEnabled())
-			{
-				logDiag("[reanchor] bank newly known, folding into startNetWorth: bankValue={} startNetWorth {} -> {}",
-					current.getBankValue(), oldStartNetWorth, startNetWorth);
-			}
+			logDiag("[reanchor] bank newly known, folding into startNetWorth: bankValue={} startNetWorth {} -> {}",
+				current.getBankValue(), oldStartNetWorth, startNetWorth);
 		}
 	}
 
 	// Accessors below are useful for tests/inspection; state remains
 	// otherwise fully encapsulated.
 
-	public long getBaseline()
-	{
-		return baseline;
-	}
 
 	/** Whether a production episode is currently open — see {@link ProductionActivity}. */
 	public boolean isEpisodeOpen()
@@ -3456,10 +3350,6 @@ public final class SessionEngine
 		return Collections.unmodifiableList(lootSummary());
 	}
 
-	public boolean isStartBankKnown()
-	{
-		return startBankKnown;
-	}
 
 	/**
 	 * Running session total (gp value) of consumable supplies used so far —

@@ -1,8 +1,9 @@
 package com.ospulse.combat;
 
-import java.util.Collections;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
+import lombok.Getter;
+import lombok.experimental.Accessors;
 
 /**
  * Combat spells and their base max hits — hand-transcribed raw FACTS from the
@@ -28,6 +29,7 @@ import java.util.stream.Collectors;
  * exact {@code SPELL_<NAME>} match in that class (verified against the
  * pinned client jar) — none needed a rune-icon fallback.
  */
+@Accessors(fluent = true)
 public enum Spell {
     // ---- Standard spellbook (elemental tiers at their tier-cap max hits) ----
     WIND_STRIKE("Wind Strike", SpellBook.STANDARD, 8, 15, Element.WIND, Tier.STRIKE),
@@ -116,31 +118,38 @@ public enum Spell {
         SURGE
     }
 
+    @Accessors(fluent = true)
     public enum SpellBook {
         STANDARD("Standard"),
         ANCIENT("Ancient");
 
-        private final String displayName;
+        @Getter private final String displayName;
 
         SpellBook(String displayName) {
             this.displayName = displayName;
         }
-
-        public String displayName() {
-            return displayName;
-        }
     }
 
-    private final String displayName;
-    private final SpellBook book;
-    private final int baseMaxHit;
-    private final int spriteId;
+    @Getter private final String displayName;
+    @Getter private final SpellBook book;
+    /** The spell's base max hit BEFORE any magic-damage bonuses (see class javadoc for the tier-cap simplification). */
+    @Getter private final int baseMaxHit;
+    /** The {@code net.runelite.api.SpriteID.SPELL_*} constant for this spell's icon (see class javadoc). */
+    @Getter private final int spriteId;
     /** Weapon item ids this spell may be cast with; empty = castable with any (magic) weapon. */
     private final Set<Integer> requiredWeaponItemIds;
-    /** This spell's elemental-weakness-matching element, or {@code null} if it has none. */
-    private final Element element;
-    /** This spell's elemental {@link Tier}, or {@code null} if it has none (see {@link Tier}'s javadoc). */
-    private final Tier tier;
+    /**
+     * This spell's element for elemental-weakness matching, or {@code null}
+     * when it has none (Iban Blast, Magic Dart, god spells, all Ancient
+     * Magicks — see {@link Element}).
+     */
+    @Getter private final Element element;
+    /**
+     * This spell's elemental {@link Tier} (Strike/Bolt/Blast/Wave/Surge), or
+     * {@code null} when it has none — see {@link Tier}'s javadoc for exactly
+     * which spells carry one.
+     */
+    @Getter private final Tier tier;
 
     Spell(String displayName, SpellBook book, int baseMaxHit, int spriteId) {
         this(displayName, book, baseMaxHit, spriteId, null, null, new int[0]);
@@ -171,42 +180,6 @@ public enum Spell {
         this.requiredWeaponItemIds = requiredWeaponItemIds.length == 0
                 ? Collections.emptySet()
                 : java.util.Arrays.stream(requiredWeaponItemIds).boxed().collect(Collectors.toSet());
-    }
-
-    public String displayName() {
-        return displayName;
-    }
-
-    public SpellBook book() {
-        return book;
-    }
-
-    /** The spell's base max hit BEFORE any magic-damage bonuses (see class javadoc for the tier-cap simplification). */
-    public int baseMaxHit() {
-        return baseMaxHit;
-    }
-
-    /** The {@code net.runelite.api.SpriteID.SPELL_*} constant for this spell's icon (see class javadoc). */
-    public int spriteId() {
-        return spriteId;
-    }
-
-    /**
-     * This spell's element for elemental-weakness matching, or {@code null}
-     * when it has none (Iban Blast, Magic Dart, god spells, all Ancient
-     * Magicks — see {@link Element}).
-     */
-    public Element element() {
-        return element;
-    }
-
-    /**
-     * This spell's elemental {@link Tier} (Strike/Bolt/Blast/Wave/Surge), or
-     * {@code null} when it has none — see {@link Tier}'s javadoc for exactly
-     * which spells carry one.
-     */
-    public Tier tier() {
-        return tier;
     }
 
     /**

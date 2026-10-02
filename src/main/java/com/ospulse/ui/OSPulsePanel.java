@@ -2,47 +2,21 @@ package com.ospulse.ui;
 
 import com.ospulse.OSPulseConfig;
 import com.ospulse.integration.PriceTrendService;
-import com.ospulse.session.SessionListener;
-import com.ospulse.session.SessionSnapshot;
-import com.ospulse.ui.sections.GearSection;
-import com.ospulse.ui.sections.GeSection;
-import com.ospulse.ui.sections.HoldingsSection;
-import com.ospulse.ui.sections.LootSection;
-import com.ospulse.ui.sections.SessionSection;
-import com.ospulse.ui.sections.WealthSection;
-import com.ospulse.ui.sections.XpSection;
+import com.ospulse.session.*;
+import com.ospulse.ui.sections.*;
 
 import net.runelite.api.Client;
 import net.runelite.client.config.ConfigManager;
-import net.runelite.client.game.ItemManager;
-import net.runelite.client.game.SkillIconManager;
+import net.runelite.client.game.*;
 import net.runelite.client.plugins.Plugin;
-import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
-import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.ui.*;
 import net.runelite.client.ui.overlay.OverlayManager;
 
-import javax.swing.BorderFactory;
-import javax.swing.BoxLayout;
-import javax.swing.JButton;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.Scrollable;
-import javax.swing.SwingConstants;
-import javax.swing.SwingUtilities;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.Rectangle;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.LinkedHashSet;
+import java.awt.*;
+import java.util.*;
 import java.util.List;
-import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**

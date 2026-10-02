@@ -24,6 +24,8 @@ import static org.junit.Assert.assertTrue;
  */
 public class GearMapperTest
 {
+	static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
+
 	private static final int WEAPON_SLOT = 3; // net.runelite.api.EquipmentInventorySlot.WEAPON.ordinal()
 
 	@Test

@@ -173,7 +173,7 @@ public class GearSectionItemPickerTest
 
 			// A REAL mouse click on the grid cell itself (not the filteredItems
 			// test seam) — exercises ItemGridCell's own MouseListener.
-			section.clickItemGridCellForTest(idx);
+			GearSectionTestOps.clickItemGridCellForTest(section, idx);
 
 			assertEquals(DRAGON_SCIMITAR, section.override.itemIdFor(3));
 			assertFalse("picker must close after a pick", section.itemGridScroll.isVisible());

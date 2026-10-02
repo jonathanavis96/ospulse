@@ -1,8 +1,8 @@
 package com.ospulse.combat;
 
-import java.util.Collections;
-import java.util.LinkedHashSet;
-import java.util.Set;
+import java.util.*;
+import lombok.Getter;
+import lombok.experimental.Accessors;
 
 /**
  * One curated monster-mechanic gear requirement: a specific item that matters
@@ -12,12 +12,14 @@ import java.util.Set;
  * is loaded and looked up, and that class's bundled resource README for the
  * data shape/provenance.
  */
+@Accessors(fluent = true)
 public final class MonsterGearOverride {
     /**
      * The {@code net.runelite.api.EquipmentInventorySlot} this override
      * applies to, named (not the raw ordinal) for readability in the bundled
      * JSON. Ordinals mirror {@link EquipmentIndexRepository}'s README.
      */
+    @Accessors(fluent = true)
     public enum Slot {
         HEAD(0),
         CAPE(1),
@@ -31,24 +33,29 @@ public final class MonsterGearOverride {
         RING(12),
         AMMO(13);
 
-        private final int slotOrdinal;
+        /** The {@code EquipmentInventorySlot} ordinal this named slot maps to. */
+        @Getter private final int slotOrdinal;
 
         Slot(int slotOrdinal) {
             this.slotOrdinal = slotOrdinal;
         }
-
-        /** The {@code EquipmentInventorySlot} ordinal this named slot maps to. */
-        public int slotOrdinal() {
-            return slotOrdinal;
-        }
     }
 
-    private final String monsterName;
-    private final Slot slot;
-    private final int itemId;
-    private final String itemName;
-    private final String reason;
-    private final Set<Integer> alternativeItemIds;
+    /** The exact monster display name this entry was declared under (one name per expanded entry). */
+    @Getter private final String monsterName;
+    @Getter private final Slot slot;
+    /** The primary/canonical item id — shown in the advisory note and what the optimiser force-includes. */
+    @Getter private final int itemId;
+    @Getter private final String itemName;
+    /** One short sentence explaining why this item matters (shown verbatim in the advisory note). */
+    @Getter private final String reason;
+    /**
+     * Other item ids that satisfy this requirement equally well as
+     * {@link #itemId()} (e.g. every Slayer helmet variant substitutes for a
+     * plain face-protection item like a Facemask) — see {@link #satisfiedBy}.
+     * Empty when this requirement has no known substitutes.
+     */
+    @Getter private final Set<Integer> alternativeItemIds;
 
     MonsterGearOverride(String monsterName, Slot slot, int itemId, String itemName, String reason) {
         this(monsterName, slot, itemId, itemName, reason, Collections.emptySet());
@@ -70,39 +77,6 @@ public final class MonsterGearOverride {
         this.alternativeItemIds = alternativeItemIds == null || alternativeItemIds.isEmpty()
             ? Collections.emptySet()
             : Collections.unmodifiableSet(new LinkedHashSet<>(alternativeItemIds));
-    }
-
-    /** The exact monster display name this entry was declared under (one name per expanded entry). */
-    public String monsterName() {
-        return monsterName;
-    }
-
-    public Slot slot() {
-        return slot;
-    }
-
-    /** The primary/canonical item id — shown in the advisory note and what the optimiser force-includes. */
-    public int itemId() {
-        return itemId;
-    }
-
-    public String itemName() {
-        return itemName;
-    }
-
-    /** One short sentence explaining why this item matters (shown verbatim in the advisory note). */
-    public String reason() {
-        return reason;
-    }
-
-    /**
-     * Other item ids that satisfy this requirement equally well as
-     * {@link #itemId()} (e.g. every Slayer helmet variant substitutes for a
-     * plain face-protection item like a Facemask) — see {@link #satisfiedBy}.
-     * Empty when this requirement has no known substitutes.
-     */
-    public Set<Integer> alternativeItemIds() {
-        return alternativeItemIds;
     }
 
     /** True when {@code shownId} is either the primary {@link #itemId()} or one of {@link #alternativeItemIds()}. */

@@ -1,29 +1,15 @@
 package com.ospulse.combat.optimizer;
 
-import com.ospulse.combat.AmmoCompatibility;
-import com.ospulse.combat.CombatStyle;
-import com.ospulse.combat.DpsCalculator;
-import com.ospulse.combat.DpsResult;
-import com.ospulse.combat.EquipmentIndexRepository;
-import com.ospulse.combat.EquipmentRequirementsRepository;
-import com.ospulse.combat.EquipmentStats;
-import com.ospulse.combat.Monster;
-import com.ospulse.combat.MonsterCombatRequirement;
-import com.ospulse.combat.PlayerCombat;
-import com.ospulse.combat.Spell;
-import com.ospulse.combat.WeaponCategoryRepository;
-import com.ospulse.combat.WeaponStyle;
+import com.ospulse.combat.*;
 import com.ospulse.session.GearMapper;
 
 import net.runelite.api.gameval.ItemID;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.function.IntPredicate;
+import lombok.*;
+import lombok.experimental.Accessors;
+
 
 /**
  * Phase 3 gear optimiser (design spec section 3): given a starting loadout, a
@@ -90,29 +76,14 @@ public final class GearOptimizer {
      * owned/untradeable — owned items are always "affordable" regardless of
      * price since no purchase is needed).
      */
+    @Getter
+    @Accessors(fluent = true)
+    @AllArgsConstructor
     public static final class Candidate {
         private final int itemId;
+        /** GE price (0 if owned/untradeable); irrelevant to affordability when {@link #owned()}. */
         private final long price;
         private final boolean owned;
-
-        public Candidate(int itemId, long price, boolean owned) {
-            this.itemId = itemId;
-            this.price = price;
-            this.owned = owned;
-        }
-
-        public int itemId() {
-            return itemId;
-        }
-
-        /** GE price (0 if owned/untradeable); irrelevant to affordability when {@link #owned()}. */
-        public long price() {
-            return price;
-        }
-
-        public boolean owned() {
-            return owned;
-        }
     }
 
     /**
@@ -148,6 +119,7 @@ public final class GearOptimizer {
      * Search inputs (design spec section 3 "Inputs"). Immutable; build with
      * {@link Builder}.
      */
+    @Accessors(fluent = true)
     public static final class Request {
         private final int[] liveItemIds;
         private final Monster target;
@@ -158,14 +130,46 @@ public final class GearOptimizer {
         private final int candidatesPerSlot;
         private final PlayerCombat.Builder playerTemplate;
         private final PriceSource priceSource;
-        private final PriceSource riskValueSource;
-        private final int expensiveItemCount;
-        private final long expensiveItemThreshold;
-        private final CombatStyle style;
+        /**
+         * The per-item risk-value source for the expensive-item cap — see
+         * {@link Builder#riskValueSource}. Never {@code null}: defaults to
+         * {@link #priceSource()} when the caller doesn't set one.
+         */
+        @Getter private final PriceSource riskValueSource;
+        /**
+         * The number of "expensive" items (see {@link #expensiveItemThreshold()})
+         * the caller wants allowed in the result (e.g. for wilderness/PvP risk
+         * budgeting). Enforced by {@link GearOptimizer#optimize}: the returned
+         * loadout holds no more than this many items priced ABOVE the threshold
+         * whenever that's achievable from the candidate pool — the local search
+         * de-risks even a live loadout that starts over the cap. Counts owned
+         * items too (an owned high-value item is still riskable). Inert unless
+         * the threshold is positive and this allowance is below the searchable
+         * slot count (an allowance that large can never bind).
+         */
+        @Getter private final int expensiveItemCount;
+        /**
+         * The gp value STRICTLY ABOVE which an item is considered "expensive"
+         * for {@link #expensiveItemCount()} — a price exactly equal to this
+         * threshold is "spend up to X", i.e. within the ceiling. A threshold
+         * of 0 (the default) means "no item is expensive" and disables the
+         * cap in {@link GearOptimizer#optimize}.
+         */
+        @Getter private final long expensiveItemThreshold;
+        /** The damage-type constraint for the search, or {@code null} for the unconstrained best-of-any-style search. */
+        @Getter private final CombatStyle style;
         private final Spell.SpellBook spellBook;
-        private final MonsterCombatRequirement combatRequirement;
-        private final java.util.Map<String, Integer> playerBaseLevels;
-        private final java.util.Map<Integer, Long> ownedItemPrices;
+        /** The monster combat gate constraining weapon/ammo candidates, or {@code null} if unconstrained. */
+        @Getter private final MonsterCombatRequirement combatRequirement;
+        /** The player's base skill levels for the equip-requirement gate (empty = gate disabled). */
+        @Getter private final Map<String, Integer> playerBaseLevels;
+        /**
+         * Known GE/bank values for owned item ids — see {@link Builder#ownedItemPrices}.
+         * No longer consulted by the expensive-item risk cap (see {@link #riskValueSource()}),
+         * which now owns that job exclusively; this map/getter is left in place
+         * for any other budget-side caller and for backward compatibility.
+         */
+        @Getter private final Map<Integer, Long> ownedItemPrices;
 
         private Request(Builder b) {
             this.liveItemIds = b.liveItemIds.clone();
@@ -186,8 +190,8 @@ public final class GearOptimizer {
             this.style = b.style;
             this.spellBook = b.spellBook;
             this.combatRequirement = b.combatRequirement;
-            this.playerBaseLevels = java.util.Collections.unmodifiableMap(new java.util.HashMap<>(b.playerBaseLevels));
-            this.ownedItemPrices = java.util.Collections.unmodifiableMap(new java.util.HashMap<>(b.ownedItemPrices));
+            this.playerBaseLevels = Collections.unmodifiableMap(new HashMap<>(b.playerBaseLevels));
+            this.ownedItemPrices = Collections.unmodifiableMap(new HashMap<>(b.ownedItemPrices));
         }
 
         public static Builder builder(int[] liveItemIds, Monster target, PlayerCombat.Builder playerTemplate) {
@@ -210,8 +214,8 @@ public final class GearOptimizer {
             private CombatStyle style;
             private Spell.SpellBook spellBook;
             private MonsterCombatRequirement combatRequirement;
-            private java.util.Map<String, Integer> playerBaseLevels = java.util.Collections.emptyMap();
-            private java.util.Map<Integer, Long> ownedItemPrices = java.util.Collections.emptyMap();
+            private Map<String, Integer> playerBaseLevels = Collections.emptyMap();
+            private Map<Integer, Long> ownedItemPrices = Collections.emptyMap();
 
             private Builder(int[] liveItemIds, Monster target, PlayerCombat.Builder playerTemplate) {
                 this.liveItemIds = liveItemIds;
@@ -359,8 +363,8 @@ public final class GearOptimizer {
              * or empty (the default) disables the level gate entirely — every
              * item is assumed wearable, preserving the historical behaviour.
              */
-            public Builder playerBaseLevels(java.util.Map<String, Integer> playerBaseLevels) {
-                this.playerBaseLevels = playerBaseLevels != null ? playerBaseLevels : java.util.Collections.emptyMap();
+            public Builder playerBaseLevels(Map<String, Integer> playerBaseLevels) {
+                this.playerBaseLevels = playerBaseLevels != null ? playerBaseLevels : Collections.emptyMap();
                 return this;
             }
 
@@ -380,8 +384,8 @@ public final class GearOptimizer {
              * empty (the default) leaves every owned item priced by {@link
              * #priceSource} unchanged, preserving historical behaviour.
              */
-            public Builder ownedItemPrices(java.util.Map<Integer, Long> ownedItemPrices) {
-                this.ownedItemPrices = ownedItemPrices != null ? ownedItemPrices : java.util.Collections.emptyMap();
+            public Builder ownedItemPrices(Map<Integer, Long> ownedItemPrices) {
+                this.ownedItemPrices = ownedItemPrices != null ? ownedItemPrices : Collections.emptyMap();
                 return this;
             }
 
@@ -389,107 +393,33 @@ public final class GearOptimizer {
                 return new Request(this);
             }
         }
-
-        /** The damage-type constraint for the search, or {@code null} for the unconstrained best-of-any-style search. */
-        public CombatStyle style() {
-            return style;
-        }
-
-        /** The monster combat gate constraining weapon/ammo candidates, or {@code null} if unconstrained. */
-        public MonsterCombatRequirement combatRequirement() {
-            return combatRequirement;
-        }
-
-        /** The player's base skill levels for the equip-requirement gate (empty = gate disabled). */
-        public java.util.Map<String, Integer> playerBaseLevels() {
-            return playerBaseLevels;
-        }
-
-        /**
-         * The number of "expensive" items (see {@link #expensiveItemThreshold()})
-         * the caller wants allowed in the result (e.g. for wilderness/PvP risk
-         * budgeting). Enforced by {@link GearOptimizer#optimize}: the returned
-         * loadout holds no more than this many items priced ABOVE the threshold
-         * whenever that's achievable from the candidate pool — the local search
-         * de-risks even a live loadout that starts over the cap. Counts owned
-         * items too (an owned high-value item is still riskable). Inert unless
-         * the threshold is positive and this allowance is below the searchable
-         * slot count (an allowance that large can never bind).
-         */
-        public int expensiveItemCount() {
-            return expensiveItemCount;
-        }
-
-        /**
-         * The gp value STRICTLY ABOVE which an item is considered "expensive"
-         * for {@link #expensiveItemCount()} — a price exactly equal to this
-         * threshold is "spend up to X", i.e. within the ceiling. A threshold
-         * of 0 (the default) means "no item is expensive" and disables the
-         * cap in {@link GearOptimizer#optimize}.
-         */
-        public long expensiveItemThreshold() {
-            return expensiveItemThreshold;
-        }
-
-        /**
-         * Known GE/bank values for owned item ids — see {@link Builder#ownedItemPrices}.
-         * No longer consulted by the expensive-item risk cap (see {@link #riskValueSource()}),
-         * which now owns that job exclusively; this map/getter is left in place
-         * for any other budget-side caller and for backward compatibility.
-         */
-        public java.util.Map<Integer, Long> ownedItemPrices() {
-            return ownedItemPrices;
-        }
-
-        /**
-         * The per-item risk-value source for the expensive-item cap — see
-         * {@link Builder#riskValueSource}. Never {@code null}: defaults to
-         * {@link #priceSource()} when the caller doesn't set one.
-         */
-        public PriceSource riskValueSource() {
-            return riskValueSource;
-        }
     }
 
     /** One slot's chosen item in the result loadout, with its role for the DPS-per-gp readout. */
+    @Getter
+    @Accessors(fluent = true)
+    @AllArgsConstructor(access = AccessLevel.PACKAGE)
     public static final class SlotChoice {
         private final int slotOrdinal;
         private final int itemId;
         private final boolean owned;
-        private final long price;
-
-        SlotChoice(int slotOrdinal, int itemId, boolean owned, long price) {
-            this.slotOrdinal = slotOrdinal;
-            this.itemId = itemId;
-            this.owned = owned;
-            this.price = price;
-        }
-
-        public int slotOrdinal() {
-            return slotOrdinal;
-        }
-
-        public int itemId() {
-            return itemId;
-        }
-
-        public boolean owned() {
-            return owned;
-        }
-
         /** GE price if this is a purchase (0 if owned or the slot is empty). */
-        public long price() {
-            return price;
-        }
+        private final long price;
     }
 
     /** The optimiser's result: the best loadout found, its DPS, total spend, and the upgrade-vs-owned-only comparison. */
+    @Getter
+    @Accessors(fluent = true)
     public static final class Result {
         private final List<SlotChoice> loadout;
         private final DpsResult dps;
+        /** The (possibly {@code null} for a spell-driven magic result) style the DPS above was computed with. */
         private final WeaponStyle style;
+        /** The spell driving the DPS above, or {@code null} for a non-magic result. */
         private final Spell spell;
+        /** Total GE spend of every non-owned slot choice. */
         private final long totalSpend;
+        /** DPS of the best owned-items-only loadout (budget=0 equivalent) — the baseline for the upgrade comparison. */
         private final double ownedOnlyDps;
 
         Result(List<SlotChoice> loadout, DpsResult dps, WeaponStyle style, Spell spell, long totalSpend, double ownedOnlyDps) {
@@ -499,34 +429,6 @@ public final class GearOptimizer {
             this.spell = spell;
             this.totalSpend = totalSpend;
             this.ownedOnlyDps = ownedOnlyDps;
-        }
-
-        public List<SlotChoice> loadout() {
-            return loadout;
-        }
-
-        public DpsResult dps() {
-            return dps;
-        }
-
-        /** The (possibly {@code null} for a spell-driven magic result) style the DPS above was computed with. */
-        public WeaponStyle style() {
-            return style;
-        }
-
-        /** The spell driving the DPS above, or {@code null} for a non-magic result. */
-        public Spell spell() {
-            return spell;
-        }
-
-        /** Total GE spend of every non-owned slot choice. */
-        public long totalSpend() {
-            return totalSpend;
-        }
-
-        /** DPS of the best owned-items-only loadout (budget=0 equivalent) — the baseline for the upgrade comparison. */
-        public double ownedOnlyDps() {
-            return ownedOnlyDps;
         }
 
         /** DPS gained over the owned-only baseline. */
@@ -593,12 +495,7 @@ public final class GearOptimizer {
             if (request.include.contains(current[slot])) {
                 continue; // forced include already applied (incl. the weapon slot) — never second-guessed here
             }
-            List<Candidate> ownedForSlot = new ArrayList<>();
-            for (Candidate c : candidatesBySlot.get(i)) {
-                if (c.owned()) {
-                    ownedForSlot.add(c);
-                }
-            }
+            List<Candidate> ownedForSlot = ownedOnly(candidatesBySlot.get(i));
             if (!ownedForSlot.isEmpty()) {
                 current = bestSingleSlotChoice(current, slot, ownedForSlot, request, ownedAmmoCandidates);
             }
@@ -636,15 +533,12 @@ public final class GearOptimizer {
                     if (c.itemId() == current[slot]) {
                         continue;
                     }
-                    int[] trial = applySlotChoice(current, slot, c.itemId());
-                    if (slot == WhatIfLoadout.WEAPON_SLOT) {
-                        // A weapon swap carries its ammo requirement with it: a
-                        // bow tried while (say) a blessing or nothing is worn
-                        // would otherwise score without any arrow ranged
-                        // strength and lose to the incumbent — the classic
-                        // two-slot interaction single-slot local search misses.
-                        trial = withBestCompatibleAmmo(trial, ammoCandidates, request);
-                    }
+                    // A weapon swap carries its ammo requirement with it: a
+                    // bow tried while (say) a blessing or nothing is worn
+                    // would otherwise score without any arrow ranged
+                    // strength and lose to the incumbent — the classic
+                    // two-slot interaction single-slot local search misses.
+                    int[] trial = trialWith(current, slot, c.itemId(), ammoCandidates, request);
                     if (!withinBudget(trial, request)) {
                         continue; // would push cumulative spend over budget — reject regardless of DPS
                     }
@@ -665,25 +559,9 @@ public final class GearOptimizer {
                         // DPS/tie-break decision below; an inactive cap keeps
                         // every overflow 0, so this is a no-op there.
                         better = trialOverflow < currentOverflow;
-                    } else if (slot == AMMO_SLOT) {
-                        // Ammo compares (DPS, then prayer on a DPS tie): worn
-                        // ammo a weapon doesn't fire is DPS-invisible (see
-                        // AmmoCompatibility/GearMapper), so among DPS-tied
-                        // candidates the freed slot goes to the best blessing.
-                        double currentDps = currentEval == null ? Double.NEGATIVE_INFINITY : currentEval.dps.dps();
-                        double diff = trialEval.dps.dps() - currentDps;
-                        better = diff > 1e-9
-                                || (Math.abs(diff) <= 1e-9 && CandidateScore.prayerBonusOf(c.itemId()) > CandidateScore.prayerBonusOf(current[slot]));
-                    } else if (currentEval == null) {
-                        better = true;
                     } else {
-                        // Same DPS tie-break as the greedy seed (B9-2): fill a
-                        // DPS-neutral slot with the best-stat wearable item rather
-                        // than leaving whatever the seed held (possibly empty).
-                        double diff = trialEval.dps.dps() - currentEval.dps.dps();
-                        better = diff > 1e-9
-                                || (Math.abs(diff) <= 1e-9
-                                    && CandidateScore.tieBreakScore(c.itemId()) > CandidateScore.tieBreakScore(current[slot]));
+                        // Same DPS + tie-break rule as the greedy seed (see beats).
+                        better = beats(slot, trialEval, currentEval, c.itemId(), current[slot]);
                     }
                     if (better) {
                         current = trial;
@@ -976,6 +854,7 @@ public final class GearOptimizer {
     }
 
     /** One candidate de-risk swap: the loadout it produces and how that loadout scores. */
+    @AllArgsConstructor
     private static final class DeriskMove {
         /**
          * Best DPS first; an exact DPS tie falls to the incoming item's
@@ -993,14 +872,6 @@ public final class GearOptimizer {
         final long spend;
         final double dps;
         final int swapInId;
-
-        DeriskMove(int[] trial, int overflow, long spend, double dps, int swapInId) {
-            this.trial = trial;
-            this.overflow = overflow;
-            this.spend = spend;
-            this.dps = dps;
-            this.swapInId = swapInId;
-        }
     }
 
     /**
@@ -1026,10 +897,7 @@ public final class GearOptimizer {
                 if (c.itemId() == current[slot]) {
                     continue;
                 }
-                int[] trial = applySlotChoice(current, slot, c.itemId());
-                if (slot == WhatIfLoadout.WEAPON_SLOT) {
-                    trial = withBestCompatibleAmmo(trial, ammoCandidates, request);
-                }
+                int[] trial = trialWith(current, slot, c.itemId(), ammoCandidates, request);
                 int trialOverflow = expensiveOverflowOf(trial, request);
                 if (trialOverflow >= overflow) {
                     continue;
@@ -1092,8 +960,7 @@ public final class GearOptimizer {
         } else if (slot == WhatIfLoadout.SHIELD_SLOT) {
             single = WhatIfLoadout.equipShield(LoadoutOverride.empty(), itemIds, itemId);
         }
-        int[] next = WhatIfLoadout.effectiveItemIds(itemIds, single);
-        return next;
+        return WhatIfLoadout.effectiveItemIds(itemIds, single);
     }
 
     /**
@@ -1111,42 +978,51 @@ public final class GearOptimizer {
                                               List<Candidate> ammoCandidates) {
         int[] best = itemIds;
         Evaluation bestEval = evaluate(itemIds, request);
-        int bestPrayer = slot == AMMO_SLOT ? CandidateScore.prayerBonusOf(slotItemId(itemIds, slot)) : 0;
         for (Candidate c : candidates) {
-            int[] trial = applySlotChoice(itemIds, slot, c.itemId());
-            if (slot == WhatIfLoadout.WEAPON_SLOT) {
-                trial = withBestCompatibleAmmo(trial, ammoCandidates, request);
-            }
+            int[] trial = trialWith(itemIds, slot, c.itemId(), ammoCandidates, request);
             Evaluation trialEval = evaluate(trial, request);
             if (trialEval == null) {
                 continue;
             }
-            boolean better;
-            int trialPrayer = slot == AMMO_SLOT ? CandidateScore.prayerBonusOf(c.itemId()) : 0;
-            if (bestEval == null) {
-                better = true;
-            } else if (slot == AMMO_SLOT) {
-                double diff = trialEval.dps.dps() - bestEval.dps.dps();
-                better = diff > 1e-9 || (Math.abs(diff) <= 1e-9 && trialPrayer > bestPrayer);
-            } else {
-                // DPS tie-break (B9-2): a DPS-neutral slot (legs, ring, most
-                // armour under a fixed style) never RAISES DPS, so a pure ">"
-                // test would leave it at its seed value — empty when starting
-                // from naked gear ("recommend no legs"). On a DPS tie prefer the
-                // higher-stat wearable item so the slot gets filled with the best
-                // owned piece instead of being left empty.
-                double diff = trialEval.dps.dps() - bestEval.dps.dps();
-                better = diff > 1e-9
-                        || (Math.abs(diff) <= 1e-9
-                            && CandidateScore.tieBreakScore(c.itemId()) > CandidateScore.tieBreakScore(slotItemId(best, slot)));
-            }
-            if (better) {
+            if (beats(slot, trialEval, bestEval, c.itemId(), slotItemId(best, slot))) {
                 best = trial;
                 bestEval = trialEval;
-                bestPrayer = trialPrayer;
             }
         }
         return best;
+    }
+
+    /**
+     * Whether {@code trial} (holding {@code newId} in {@code slot}) beats
+     * {@code incumbent} (holding {@code oldId}): anything beats a {@code null}
+     * incumbent; otherwise higher DPS wins, and on a DPS tie (within 1e-9) the
+     * slot-specific tie-break decides.
+     *
+     * <p>Ammo ties go to the higher prayer bonus: worn ammo a weapon doesn't
+     * fire is DPS-invisible (see AmmoCompatibility/GearMapper), so among
+     * DPS-tied candidates the freed slot goes to the best blessing.
+     *
+     * <p>Other ties (B9-2): a DPS-neutral slot (legs, ring, most armour under
+     * a fixed style) never RAISES DPS, so a pure ">" test would leave it at
+     * its seed value — empty when starting from naked gear ("recommend no
+     * legs"). On a DPS tie prefer the higher-stat wearable item so the slot
+     * gets filled with the best piece instead of being left empty.
+     */
+    private static boolean beats(int slot, Evaluation trial, Evaluation incumbent, int newId, int oldId) {
+        if (incumbent == null) {
+            return true;
+        }
+        double diff = trial.dps.dps() - incumbent.dps.dps();
+        return diff > 1e-9 || (Math.abs(diff) <= 1e-9 && (slot == AMMO_SLOT
+                ? CandidateScore.prayerBonusOf(newId) > CandidateScore.prayerBonusOf(oldId)
+                : CandidateScore.tieBreakScore(newId) > CandidateScore.tieBreakScore(oldId)));
+    }
+
+    /** {@code itemIds} with {@code itemId} in {@code slot}; a weapon also gets its best compatible ammo. */
+    private static int[] trialWith(int[] itemIds, int slot, int itemId, List<Candidate> ammoCandidates,
+                                   Request request) {
+        int[] trial = applySlotChoice(itemIds, slot, itemId);
+        return slot == WhatIfLoadout.WEAPON_SLOT ? withBestCompatibleAmmo(trial, ammoCandidates, request) : trial;
     }
 
     /**
@@ -1260,7 +1136,7 @@ public final class GearOptimizer {
 
         // Families with a force-included member are never collapsed — the user's
         // explicit choice of a specific charge must reach the search intact.
-        Set<int[]> includedFamilies = Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        Set<int[]> includedFamilies = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Candidate c : candidates) {
             int[] family = ChargeFamilies.familyOf(c.itemId());
             if (family != null && request.include.contains(c.itemId())) {
@@ -1269,7 +1145,7 @@ public final class GearOptimizer {
         }
 
         List<Candidate> out = new ArrayList<>();
-        Set<int[]> emitted = Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        Set<int[]> emitted = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Candidate c : candidates) {
             int[] family = ChargeFamilies.familyOf(c.itemId());
             if (family == null || includedFamilies.contains(family)) {
@@ -1323,21 +1199,8 @@ public final class GearOptimizer {
         if (capRiskValueOf(representative.itemId(), request) <= threshold) {
             return null; // representative already within the ceiling — nothing to de-risk
         }
-        Candidate best = null;
-        for (int memberId : family) { // highest charge first — a price tie resolves to the higher charge
-            if (memberId == representative.itemId() || capRiskValueOf(memberId, request) > threshold) {
-                continue;
-            }
-            for (Candidate c : candidates) {
-                if (c.itemId() == memberId && !c.owned()) {
-                    if (best == null || c.price() < best.price()) {
-                        best = c;
-                    }
-                    break;
-                }
-            }
-        }
-        return best;
+        return cheapestUnownedMember(family, candidates,
+                memberId -> memberId != representative.itemId() && capRiskValueOf(memberId, request) <= threshold);
     }
 
     /**
@@ -1405,8 +1268,21 @@ public final class GearOptimizer {
         if (ownedBest != null) {
             return new Candidate(ownedBest, 0L, true);
         }
+        return cheapestUnownedMember(family, candidates, memberId -> true);
+    }
+
+    /**
+     * The cheapest not-owned member of {@code family} present in {@code
+     * candidates} and accepted by {@code filter}; a price tie resolves to the
+     * higher charge (family order). {@code null} when none qualifies.
+     */
+    private static Candidate cheapestUnownedMember(int[] family, List<Candidate> candidates,
+                                                   IntPredicate filter) {
         Candidate best = null;
         for (int memberId : family) { // highest charge first
+            if (!filter.test(memberId)) {
+                continue;
+            }
             for (Candidate c : candidates) {
                 if (c.itemId() == memberId && !c.owned()) {
                     if (best == null || c.price() < best.price()) {
@@ -1527,14 +1403,7 @@ public final class GearOptimizer {
             // weapons of that style (Tumeken's shadow, bow of faerdhinen, ...);
             // the advisory shield then yields (equipWeapon empties the shield
             // slot for a 2H weapon). See B8-5.
-            boolean hasOneHanded = false;
-            for (Candidate c : affordable) {
-                if (!WhatIfLoadout.isTwoHanded(c.itemId())) {
-                    hasOneHanded = true;
-                    break;
-                }
-            }
-            if (hasOneHanded) {
+            if (affordable.stream().anyMatch(c -> !WhatIfLoadout.isTwoHanded(c.itemId()))) {
                 affordable.removeIf(c -> WhatIfLoadout.isTwoHanded(c.itemId()));
             }
         }
@@ -1697,7 +1566,7 @@ public final class GearOptimizer {
      * which {@link #withBestCompatibleAmmo} relies on.
      */
     private static List<Candidate> pruneAmmoCandidates(List<Candidate> affordable, Request request) {
-        java.util.Map<AmmoCompatibility.AmmoClass, List<Candidate>> byClass = new java.util.LinkedHashMap<>();
+        Map<AmmoCompatibility.AmmoClass, List<Candidate>> byClass = new LinkedHashMap<>();
         for (AmmoCompatibility.AmmoClass ammoClass : AmmoCompatibility.AmmoClass.values()) {
             byClass.put(ammoClass, new ArrayList<>());
         }
@@ -1708,7 +1577,7 @@ public final class GearOptimizer {
         }
 
         List<Candidate> pruned = new ArrayList<>();
-        for (java.util.Map.Entry<AmmoCompatibility.AmmoClass, List<Candidate>> entry : byClass.entrySet()) {
+        for (Map.Entry<AmmoCompatibility.AmmoClass, List<Candidate>> entry : byClass.entrySet()) {
             List<Candidate> group = entry.getValue();
             if (entry.getKey().isConsumable()) {
                 // Ranged strength drives consumable ammo's DPS contribution.
@@ -1745,16 +1614,11 @@ public final class GearOptimizer {
     // pure proxies with no dependency on Request or an in-progress loadout.
 
     /** One fully-evaluated candidate loadout: its best style/spell and resulting DPS. */
+    @AllArgsConstructor
     private static final class Evaluation {
         final DpsResult dps;
         final WeaponStyle style;
         final Spell spell;
-
-        Evaluation(DpsResult dps, WeaponStyle style, Spell spell) {
-            this.dps = dps;
-            this.style = style;
-            this.spell = spell;
-        }
     }
 
     /**
@@ -1801,43 +1665,36 @@ public final class GearOptimizer {
                 continue;
             }
             PlayerCombat player = request.playerTemplate.stance(style.stance()).build();
-            if (style.type() == CombatStyle.MAGIC) {
-                if (poweredStaff) {
-                    DpsResult r = DpsCalculator.compute(stats, player, CombatStyle.MAGIC, request.target, (Spell) null,
+            if (style.type() == CombatStyle.MAGIC && !poweredStaff) {
+                for (Spell spell : Spell.values()) {
+                    if (spell.book() != Spell.SpellBook.STANDARD && spell.book() != Spell.SpellBook.ANCIENT) {
+                        continue;
+                    }
+                    if (request.spellBook != null && spell.book() != request.spellBook) {
+                        // Constrained to the magic view's selected spellbook
+                        // tab: the gear DPS follows the book the user chose,
+                        // not whichever book's best spell is globally higher.
+                        continue;
+                    }
+                    if (!spell.isCastableWith(weaponId)) {
+                        // Mirrors GearSection's ranked spell picker: e.g. Iban
+                        // Blast must never inflate a non-Iban's-staff weapon.
+                        continue;
+                    }
+                    DpsResult r = DpsCalculator.compute(stats, player, CombatStyle.MAGIC, request.target, spell,
                             weaponId, request.combatRequirement);
                     if (best == null || r.dps() > best.dps()) {
                         best = r;
                         bestStyle = style;
-                        bestSpell = null;
-                    }
-                } else {
-                    for (Spell spell : Spell.values()) {
-                        if (spell.book() != Spell.SpellBook.STANDARD && spell.book() != Spell.SpellBook.ANCIENT) {
-                            continue;
-                        }
-                        if (request.spellBook != null && spell.book() != request.spellBook) {
-                            // Constrained to the magic view's selected spellbook
-                            // tab: the gear DPS follows the book the user chose,
-                            // not whichever book's best spell is globally higher.
-                            continue;
-                        }
-                        if (!spell.isCastableWith(weaponId)) {
-                            // Mirrors GearSection's ranked spell picker: e.g. Iban
-                            // Blast must never inflate a non-Iban's-staff weapon.
-                            continue;
-                        }
-                        DpsResult r = DpsCalculator.compute(stats, player, CombatStyle.MAGIC, request.target, spell,
-                                weaponId, request.combatRequirement);
-                        if (best == null || r.dps() > best.dps()) {
-                            best = r;
-                            bestStyle = style;
-                            bestSpell = spell;
-                        }
+                        bestSpell = spell;
                     }
                 }
             } else {
-                DpsResult r = DpsCalculator.compute(stats, player, style.type(), request.target, 0, weaponId,
-                        request.combatRequirement);
+                DpsResult r = style.type() == CombatStyle.MAGIC
+                        ? DpsCalculator.compute(stats, player, CombatStyle.MAGIC, request.target, (Spell) null,
+                                weaponId, request.combatRequirement)
+                        : DpsCalculator.compute(stats, player, style.type(), request.target, 0, weaponId,
+                                request.combatRequirement);
                 if (best == null || r.dps() > best.dps()) {
                     best = r;
                     bestStyle = style;
@@ -1853,35 +1710,18 @@ public final class GearOptimizer {
         // Owned ammo, best-first by the ranged proxy, for weapon-trial ammo
         // pairing (see withBestCompatibleAmmo) — an owned bow's baseline DPS
         // must include the player's own best arrows.
-        List<Candidate> ownedAmmo = new ArrayList<>();
-        for (EquipmentIndexRepository.Entry e : index.forSlot(AMMO_SLOT)) {
-            if (request.owned.contains(e.itemId()) && !request.exclude.contains(e.itemId())) {
-                ownedAmmo.add(new Candidate(e.itemId(), 0L, true));
-            }
-        }
+        List<Candidate> ownedAmmo = ownedForSlot(index, AMMO_SLOT, request);
         ownedAmmo.sort(Comparator.comparingInt((Candidate c) ->
                 -CandidateScore.proxyOffensiveScore(c.itemId(), CombatStyle.RANGED)));
         for (int slot : SEARCHABLE_SLOTS) {
-            List<Candidate> ownedCandidates = new ArrayList<>();
-            for (EquipmentIndexRepository.Entry e : index.forSlot(slot)) {
-                if (request.owned.contains(e.itemId()) && !request.exclude.contains(e.itemId())) {
-                    ownedCandidates.add(new Candidate(e.itemId(), 0L, true));
-                }
-            }
-            current = bestSingleSlotChoice(current, slot, ownedCandidates, request, ownedAmmo);
+            current = bestSingleSlotChoice(current, slot, ownedForSlot(index, slot, request), request, ownedAmmo);
         }
         // One local-search pass for interactions among owned items too (cheap — owned pools are small).
         for (int pass = 0; pass < MAX_LOCAL_SEARCH_PASSES; pass++) {
             boolean improved = false;
             for (int slot : SEARCHABLE_SLOTS) {
-                List<Candidate> ownedCandidates = new ArrayList<>();
-                for (EquipmentIndexRepository.Entry e : index.forSlot(slot)) {
-                    if (request.owned.contains(e.itemId()) && !request.exclude.contains(e.itemId())) {
-                        ownedCandidates.add(new Candidate(e.itemId(), 0L, true));
-                    }
-                }
                 Evaluation before = evaluate(current, request);
-                int[] afterArr = bestSingleSlotChoice(current, slot, ownedCandidates, request, ownedAmmo);
+                int[] afterArr = bestSingleSlotChoice(current, slot, ownedForSlot(index, slot, request), request, ownedAmmo);
                 Evaluation after = evaluate(afterArr, request);
                 if (after != null && (before == null || after.dps.dps() > before.dps.dps() + 1e-9)) {
                     current = afterArr;
@@ -1894,6 +1734,17 @@ public final class GearOptimizer {
         }
         Evaluation eval = evaluate(current, request);
         return eval == null ? 0.0 : eval.dps.dps();
+    }
+
+    /** Every owned, non-excluded item for {@code slot}, as free owned candidates in index order. */
+    private static List<Candidate> ownedForSlot(EquipmentIndexRepository index, int slot, Request request) {
+        List<Candidate> out = new ArrayList<>();
+        for (EquipmentIndexRepository.Entry e : index.forSlot(slot)) {
+            if (request.owned.contains(e.itemId()) && !request.exclude.contains(e.itemId())) {
+                out.add(new Candidate(e.itemId(), 0L, true));
+            }
+        }
+        return out;
     }
 
     private static DpsResult zeroDps() {

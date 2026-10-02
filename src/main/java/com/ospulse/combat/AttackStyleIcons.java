@@ -3,10 +3,7 @@ package com.ospulse.combat;
 import com.google.gson.reflect.TypeToken;
 
 import java.lang.reflect.Type;
-import java.util.Collections;
-import java.util.EnumMap;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Maps a {@link WeaponCategory} + {@link WeaponStyle} to the NATIVE in-game

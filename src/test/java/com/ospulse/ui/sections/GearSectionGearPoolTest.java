@@ -227,7 +227,7 @@ public class GearSectionGearPoolTest
 			section.apply(snapshotWith(gearFor(ids), null));
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "0"); // no budget: only owned items can be picked
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
 			assertEquals("no GP should be spent buying the already-effectively-owned plain ring",
@@ -319,7 +319,7 @@ public class GearSectionGearPoolTest
 			GearSectionTestOps.setBudgetText(section, "0");               // owned-only: no purchases, only de-risk swaps
 			section.expensiveCountField.setText("1");        // exactly one expensive item allowed
 			GearSectionTestOps.setExpensiveThresholdText(section, "1m");   // whip/both Masori forms exceed this; the scimitar doesn't
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
 			int weaponChoice = -1;
@@ -360,7 +360,7 @@ public class GearSectionGearPoolTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "50m");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
 			for (GearOptimizer.SlotChoice choice : result.loadout())
@@ -387,7 +387,7 @@ public class GearSectionGearPoolTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "50m");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
 			for (GearOptimizer.SlotChoice choice : result.loadout())
@@ -506,7 +506,7 @@ public class GearSectionGearPoolTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "50m");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
 			boolean avernicChosen = false;
@@ -610,7 +610,7 @@ public class GearSectionGearPoolTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "50m");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
 			for (GearOptimizer.SlotChoice choice : result.loadout())

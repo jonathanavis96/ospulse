@@ -1,14 +1,6 @@
 package com.ospulse.ge;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.OptionalLong;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Pure reconciler for Grand Exchange offers.
@@ -102,10 +94,11 @@ public final class GeReconciler implements GeAttributions
 		}
 	}
 
+	/** Held quantity and the gp paid for it, as a total so sub-gp averages are not truncated. */
 	private static final class CostBasis
 	{
 		long qty;
-		long avgUnitCost;
+		long totalCost;
 	}
 
 	/**
@@ -290,7 +283,9 @@ public final class GeReconciler implements GeAttributions
 			{
 				case BUYING:
 				case BOUGHT:
-					applyBuy(itemId, incremental, pricePerItem);
+					// Basis is the gp actually paid: a fill below the offer
+					// price is refunded, and that saving is flip margin.
+					applyBuy(itemId, incremental, incrementalGp > 0 ? incrementalGp : incremental * pricePerItem);
 					addArrival(slot, itemId, incremental);
 					// A buy that filled under the offer price refunds the
 					// difference in coins (collectable alongside the items).
@@ -305,12 +300,12 @@ public final class GeReconciler implements GeAttributions
 					break;
 				case SELLING:
 				case SOLD:
-					long matched = applySell(slot, itemId, incremental, pricePerItem, incrementalGp);
 					// The collectable proceeds are the gp actually transacted (a
 					// sell can fill ABOVE the offer price) minus the per-item
-					// tax.
+					// tax. Flip P&L is realised from the same figure.
 					long gross = incrementalGp > 0 ? incrementalGp : incremental * pricePerItem;
 					long netProceeds = gross - saleTaxPerItem(itemId, gross / incremental) * incremental;
+					long matched = applySell(slot, itemId, incremental, netProceeds);
 					if (netProceeds > 0)
 					{
 						addArrival(slot, COINS_ITEM_ID, netProceeds);
@@ -387,7 +382,8 @@ public final class GeReconciler implements GeAttributions
 	 * {@link #collectableValue} in the meantime.
 	 *
 	 * <p>Restricted to COMPLETED offers ({@link GeOfferState#BOUGHT} /
-	 * {@link GeOfferState#SOLD}): a non-EMPTY completed slot means the goods are
+	 * {@link GeOfferState#SOLD}, and cancelled ones, whose unfilled remainder
+	 * is returned to the box): a non-EMPTY completed slot means the goods are
 	 * definitively still in the collection box (collecting a completed offer takes
 	 * everything and empties the slot), so there is no risk of over-recording an
 	 * already-collected partial. In-progress offers (BUYING/SELLING) can be
@@ -396,51 +392,43 @@ public final class GeReconciler implements GeAttributions
 	 * <p>Records NO flip P&amp;L — pre-session activity is not session activity —
 	 * exactly like {@link #primeSlot}, which it delegates the slot seeding to.
 	 */
-	public void primeCollectable(int slot, GeOfferState state, int itemId,
+	public void primeCollectable(int slot, GeOfferState state, int itemId, long totalQuantity,
 		long quantityTransacted, long gpTransacted, long pricePerItem)
 	{
 		primeSlot(slot, state, itemId, quantityTransacted, gpTransacted);
-		if (quantityTransacted <= 0)
-		{
-			return;
-		}
-		if (state == GeOfferState.BOUGHT)
+		boolean cancelled = state == GeOfferState.CANCELLED_BUY || state == GeOfferState.CANCELLED_SELL;
+		if (state == GeOfferState.BOUGHT || state == GeOfferState.CANCELLED_BUY)
 		{
 			addArrival(slot, itemId, quantityTransacted);
-			// A buy that filled under the offer price left refund coins collectable
-			// alongside the items (only when real gp movement is known).
-			long refund = quantityTransacted * pricePerItem - gpTransacted;
-			if (gpTransacted > 0 && refund > 0)
-			{
-				addArrival(slot, COINS_ITEM_ID, refund);
-			}
+			// Unspent escrow comes back as coins: a fill under the offer price
+			// (only when real gp movement is known) and, once cancelled, the
+			// unfilled remainder too.
+			long spent = gpTransacted > 0 ? gpTransacted : quantityTransacted * pricePerItem;
+			addArrival(slot, COINS_ITEM_ID, (cancelled ? totalQuantity : quantityTransacted) * pricePerItem - spent);
 		}
-		else if (state == GeOfferState.SOLD)
+		else if (state == GeOfferState.SOLD || state == GeOfferState.CANCELLED_SELL)
 		{
-			long gross = gpTransacted > 0 ? gpTransacted : quantityTransacted * pricePerItem;
-			long netProceeds = gross - saleTaxPerItem(itemId, gross / quantityTransacted) * quantityTransacted;
-			if (netProceeds > 0)
+			if (quantityTransacted > 0)
 			{
-				addArrival(slot, COINS_ITEM_ID, netProceeds);
+				long gross = gpTransacted > 0 ? gpTransacted : quantityTransacted * pricePerItem;
+				addArrival(slot, COINS_ITEM_ID,
+					gross - saleTaxPerItem(itemId, gross / quantityTransacted) * quantityTransacted);
+			}
+			if (cancelled)
+			{
+				addArrival(slot, itemId, totalQuantity - quantityTransacted);
 			}
 		}
 	}
 
-	private void applyBuy(int itemId, long qty, long pricePerItem)
+	private void applyBuy(int itemId, long qty, long cost)
 	{
 		CostBasis basis = costBasis.computeIfAbsent(itemId, k -> new CostBasis());
-		long newQty = basis.qty + qty;
-		if (newQty <= 0)
-		{
-			basis.qty = 0;
-			basis.avgUnitCost = 0;
-			return;
-		}
-		basis.avgUnitCost = (basis.qty * basis.avgUnitCost + qty * pricePerItem) / newQty;
-		basis.qty = newQty;
+		basis.qty += qty;
+		basis.totalCost += cost;
 	}
 
-	private long applySell(int slot, int itemId, long qty, long pricePerItem, long incrementalGp)
+	private long applySell(int slot, int itemId, long qty, long netProceeds)
 	{
 		CostBasis basis = costBasis.get(itemId);
 		if (basis == null || basis.qty <= 0)
@@ -456,17 +444,11 @@ public final class GeReconciler implements GeAttributions
 		// Only the quantity actually bought via the GE counts as a flip.
 		long matched = Math.min(qty, basis.qty);
 
-		// The realized price is what the GE actually paid, not the offer's
-		// listed (minimum) price — a sell can fill ABOVE that price, exactly
-		// like the collectable-proceeds calc just above this call at the call
-		// site. Falling back to pricePerItem only when a zero incrementalGp
-		// means no real gp movement is known yet (mirrors every other
-		// incrementalGp > 0 ? ... : ... fallback in this class).
-		long actualPricePerItem = incrementalGp > 0 ? incrementalGp / qty : pricePerItem;
-
-		// The seller nets the actual sale price minus the GE's per-item sales tax.
-		long netProceedsPerItem = actualPricePerItem - saleTaxPerItem(itemId, actualPricePerItem);
-		long delta = (netProceedsPerItem - basis.avgUnitCost) * matched;
+		// The matched share of the after-tax proceeds against the matched
+		// share of the gp paid, both from totals so cheap items filled at
+		// mixed prices are not truncated to whole gp per item.
+		long costOut = Math.round((double) basis.totalCost * matched / basis.qty);
+		long delta = Math.round((double) netProceeds * matched / qty) - costOut;
 		realizedPnl += delta;
 
 		// Mirror the same delta into this slot's own accumulator so the panel
@@ -477,10 +459,7 @@ public final class GeReconciler implements GeAttributions
 		sp.hasFlip = true;
 
 		basis.qty -= matched;
-		if (basis.qty == 0)
-		{
-			basis.avgUnitCost = 0;
-		}
+		basis.totalCost -= costOut;
 		return matched;
 	}
 
@@ -604,6 +583,14 @@ public final class GeReconciler implements GeAttributions
 		slotPnl.clear();
 	}
 
+	/** {@link #reset()} that carries the open buy ledger over exactly (manual session reset). */
+	public void resetKeepingCostBasis()
+	{
+		Map<Integer, CostBasis> open = new HashMap<>(costBasis);
+		reset();
+		costBasis.putAll(open);
+	}
+
 	/**
 	 * Exports a plain, serializable snapshot of the cost-basis buy ledger only —
 	 * itemId -&gt; {@link CostBasisSnapshot} for every item still holding an open
@@ -626,7 +613,7 @@ public final class GeReconciler implements GeAttributions
 			CostBasis basis = e.getValue();
 			if (basis.qty > 0)
 			{
-				out.put(e.getKey(), new CostBasisSnapshot(basis.qty, basis.avgUnitCost));
+				out.put(e.getKey(), new CostBasisSnapshot(basis.qty, Math.round((double) basis.totalCost / basis.qty)));
 			}
 		}
 		return out;
@@ -658,7 +645,7 @@ public final class GeReconciler implements GeAttributions
 			}
 			CostBasis basis = new CostBasis();
 			basis.qty = s.qty;
-			basis.avgUnitCost = s.avgUnitCost;
+			basis.totalCost = s.qty * s.avgUnitCost;
 			costBasis.put(e.getKey(), basis);
 		}
 	}

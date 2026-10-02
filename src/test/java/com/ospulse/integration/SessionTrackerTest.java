@@ -103,7 +103,7 @@ public class SessionTrackerTest
 		when(comp.getHaPrice()).thenReturn(0);
 		when(itemManager.canonicalize(itemId)).thenReturn(itemId);
 		when(itemManager.getItemComposition(itemId)).thenReturn(comp);
-		when(itemManager.getItemPrice(itemId)).thenReturn(unitValue);
+		when(itemManager.getItemPrice(itemId)).thenReturn((long) unitValue);
 	}
 
 	/** The published feed's group for {@code source}, or null when absent. */
@@ -469,5 +469,92 @@ public class SessionTrackerTest
 			50_000L, published.getBankDelta());
 		assertEquals("Net worth change must survive the wrapping too",
 			130_000L, published.getNetWorthDelta());
+	}
+
+	/**
+	 * Same wrapping seam for the episode (skilling) P&amp;L: the tracker
+	 * rebuilds the engine snapshot and must carry episodePnl across, or the
+	 * published Profit drops every crafting gain and loss.
+	 */
+	@Test
+	public void tickCommitPreservesEpisodePnlFromTheEngineSnapshot()
+	{
+		SessionSnapshot canned = new SessionSnapshot(
+			0L, 1000L, 10_000L, 0L, 0L, 0L, true,
+			java.util.Collections.emptyList(), java.util.Collections.emptyMap(), 0L,
+			WealthSnapshot.builder().build(),
+			java.util.Collections.emptyList(), java.util.Collections.emptyList(),
+			java.util.Collections.emptyList(), 0L, null, 0L,
+			java.util.Collections.emptyList(), 0L,
+			0L, 0L, 25_000L);
+		doReturn(canned).when(engine).snapshot(any(WealthSnapshot.class), anyLong(),
+			anyList(), anyList(), anyMap(), anyLong(), anyLong(), eq(true));
+
+		tracker.onTick();
+
+		SessionSnapshot published = tracker.getLatest();
+		assertEquals("Episode P&L must survive SessionTracker's snapshot wrapping",
+			25_000L, published.getEpisodePnl());
+		assertEquals("Profit must include the episode P&L",
+			35_000L, published.getNetProfit());
+	}
+
+	/**
+	 * A manual reset must keep the cost basis of GE buys made since the ledger
+	 * was last saved (bank close / logout). Restoring only the saved copy
+	 * drops them, and selling those items afterwards credits no flip P&amp;L.
+	 */
+	@Test
+	public void resetSessionKeepsTheCostBasisOfUnsavedGeBuys()
+	{
+		int whip = 4151;
+		priceItem(whip, "Abyssal whip", 1_000);
+		tracker.onGrandExchangeOfferChanged(0,
+			offer(net.runelite.api.GrandExchangeOfferState.BOUGHT, whip, 10, 10, 10_000, 1_000));
+
+		tracker.resetSession();
+
+		tracker.onGrandExchangeOfferChanged(1,
+			offer(net.runelite.api.GrandExchangeOfferState.SOLD, whip, 10, 10, 12_000, 1_200));
+		tracker.onTick();
+
+		assertEquals("(1,200 - 24 tax - 1,000 basis) x 10",
+			1_760L, tracker.getLatest().getGeRealizedPnl());
+	}
+
+	/**
+	 * The carried ledger must keep the gp total, not the whole-gp average the
+	 * persisted copy stores: 10,000 runes bought for 45,000 (4.5 gp each) must
+	 * not come back from a manual reset costing 50,000.
+	 */
+	@Test
+	public void resetSessionKeepsTheExactGpPaidForUnsoldGeBuys()
+	{
+		int fireRune = 554;
+		priceItem(fireRune, "Fire rune", 5);
+		tracker.onGrandExchangeOfferChanged(0,
+			offer(net.runelite.api.GrandExchangeOfferState.BOUGHT, fireRune, 10_000, 10_000, 45_000, 5));
+
+		tracker.resetSession();
+
+		tracker.onGrandExchangeOfferChanged(1,
+			offer(net.runelite.api.GrandExchangeOfferState.SOLD, fireRune, 10_000, 10_000, 55_555, 5));
+		tracker.onTick();
+
+		assertEquals("55,555 sold (untaxed below 50 gp) - 45,000 paid",
+			10_555L, tracker.getLatest().getGeRealizedPnl());
+	}
+
+	private static GrandExchangeOffer offer(net.runelite.api.GrandExchangeOfferState state,
+		int itemId, int total, int sold, long spent, long price)
+	{
+		GrandExchangeOffer o = mock(GrandExchangeOffer.class);
+		when(o.getState()).thenReturn(state);
+		when(o.getItemId()).thenReturn(itemId);
+		when(o.getTotalQuantity()).thenReturn(total);
+		when(o.getQuantitySold()).thenReturn(sold);
+		when(o.getSpent()).thenReturn(spent);
+		when(o.getPrice()).thenReturn(price);
+		return o;
 	}
 }

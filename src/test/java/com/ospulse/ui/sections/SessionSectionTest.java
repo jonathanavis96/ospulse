@@ -138,4 +138,20 @@ public class SessionSectionTest
 		section.setBankToggleForTest(false);
 		assertEquals(20_000L, section.netWorthChangeForTest());
 	}
+
+	/**
+	 * A row's "Reset" must read 0 on the very next snapshot. Rendering before
+	 * capturing the new baseline showed the pre-reset figure for one more
+	 * snapshot, and kept showing it while no new snapshot arrived.
+	 */
+	@Test
+	public void resettingTheLootRowReadsZeroOnTheNextSnapshot()
+	{
+		section.apply(snapshotWith(10_000L, 0L, 0L, 0L));
+		assertEquals(10_000L, section.displayedProfitForTest());
+
+		section.resetCategoryForTest("session:profit");
+		section.apply(snapshotWith(10_000L, 0L, 0L, 0L));
+		assertEquals(0L, section.displayedProfitForTest());
+	}
 }

@@ -1,34 +1,77 @@
 package com.ospulse.combat;
 
-import java.util.Collections;
-import java.util.EnumSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import lombok.Getter;
+import lombok.experimental.Accessors;
 
 /**
  * A monster's combat-relevant stats: the data RuneLite does not expose
  * (defensive bonuses, magic level, attributes), sourced from a bundled/
  * refreshed data snapshot via {@link MonsterRepository}.
  */
+@Accessors(fluent = true)
 public final class Monster {
-    private final String name;
-    private final List<Integer> npcIds;
-    private final int hitpoints;
-    private final int defenceLevel;
-    private final int dstab;
-    private final int dslash;
-    private final int dcrush;
-    private final int dmagic;
-    private final int drange;
-    private final int magicLevel;
-    private final int size;
-    private final Set<MonsterAttribute> attributes;
-    private final Integer attackSpeedTicks;
-    private final int demonbaneResistPercent;
-    private final String weaknessElement;
-    private final int weaknessSeverity;
+    @Getter private final String name;
+    @Getter private final List<Integer> npcIds;
+    @Getter private final int hitpoints;
+    @Getter private final int defenceLevel;
+    @Getter private final int dstab;
+    @Getter private final int dslash;
+    @Getter private final int dcrush;
+    @Getter private final int dmagic;
+    @Getter private final int drange;
+    @Getter private final int magicLevel;
+    @Getter private final int size;
+    @Getter private final Set<MonsterAttribute> attributes;
+    /** Attack speed in ticks, if known (not always present in the source data). */
+    @Getter private final Integer attackSpeedTicks;
+    /**
+     * Percent by which this monster resists the demonbane weapon BONUS
+     * (0-100; default 0 = no resistance). E.g. Duke Sucellus is 30: a
+     * demonbane weapon's excess-over-1 multiplier is scaled down by
+     * {@code (1 - resistPercent / 100)} — see {@code DpsCalculator}'s
+     * demonbane apply step for the exact formula. Populated from the bundled
+     * monster data when present; otherwise 0 (mechanism is data-driven, so it
+     * activates automatically once a monster's data carries a non-zero value).
+     */
+    @Getter private final int demonbaneResistPercent;
+    /**
+     * This monster's elemental weakness element ({@code "WIND"}/{@code "WATER"}/
+     * {@code "EARTH"}/{@code "FIRE"}, matching {@link Spell.Element} names), or
+     * {@code null} when this monster has no elemental weakness. Populated from
+     * the bundled monster data's {@code weakness.element} (upstream's
+     * {@code "air"} is mapped to {@code "WIND"} at minify time — see the
+     * monsters.min.json.README.md field-mapping table).
+     */
+    @Getter private final String weaknessElement;
+    /**
+     * The elemental-weakness damage bonus, as a percent added to the caster's
+     * magic-damage percent when the cast spell's {@link Spell.Element} matches
+     * {@link #weaknessElement()} (0 when {@link #weaknessElement()} is
+     * {@code null}) — see {@code DpsCalculator.computeMagic}.
+     */
+    @Getter private final int weaknessSeverity;
     private final boolean wildernessTarget;
-    private final String lookupName;
+    /**
+     * The name every OTHER lookup (per-target damage caps/penalties via
+     * {@code MonsterCombatRequirementRepository}, required-gear reminders
+     * via {@code MonsterGearOverrideRepository}, consumables reminders via
+     * {@code MonsterConsumablesRepository}) should resolve against — equal
+     * to {@link #name()} for an ordinary monster, but for a SYNTHETIC
+     * "(Wilderness)" variant this returns the REAL underlying monster's
+     * name instead (e.g. "Black dragon (Level 227)" for the "Black dragon
+     * (Wilderness)" synthetic entry).
+     *
+     * <p>This is the reverse-map a synthetic target needs so it behaves
+     * identically to its base monster in every respect except the
+     * revenant-weapon bonus: a Wilderness Black dragon must still gate on
+     * the same weapon requirements, get the same required-gear warnings,
+     * and get the same dragonfire consumables reminder as the ordinary
+     * Black dragon (Level 227) — only {@link #isWildernessTarget()} and the
+     * DISPLAY name ({@link #name()}) differ. Callers resolving identity-based
+     * data must use this method, never {@link #name()}, for that reason.
+     */
+    @Getter private final String lookupName;
 
     private Monster(Builder b) {
         this.name = b.name;
@@ -58,42 +101,6 @@ public final class Monster {
         this.lookupName = b.lookupName != null ? b.lookupName : b.name;
     }
 
-    public String name() {
-        return name;
-    }
-
-    public List<Integer> npcIds() {
-        return npcIds;
-    }
-
-    public int hitpoints() {
-        return hitpoints;
-    }
-
-    public int defenceLevel() {
-        return defenceLevel;
-    }
-
-    public int dstab() {
-        return dstab;
-    }
-
-    public int dslash() {
-        return dslash;
-    }
-
-    public int dcrush() {
-        return dcrush;
-    }
-
-    public int dmagic() {
-        return dmagic;
-    }
-
-    public int drange() {
-        return drange;
-    }
-
     /** Defensive bonus relevant to the given attacking style (dstab/dslash/dcrush/drange, or dmagic for MAGIC). */
     public int defenceBonus(CombatStyle style) {
         switch (style) {
@@ -112,18 +119,6 @@ public final class Monster {
         }
     }
 
-    public int magicLevel() {
-        return magicLevel;
-    }
-
-    public int size() {
-        return size;
-    }
-
-    public Set<MonsterAttribute> attributes() {
-        return attributes;
-    }
-
     public boolean isUndead() {
         return attributes.contains(MonsterAttribute.UNDEAD);
     }
@@ -135,46 +130,6 @@ public final class Monster {
     /** True for draconic creatures (dragons, hydras, wyverns, Great Olm) — gates Dragon Hunter and similar dragonbane effects. */
     public boolean isDragon() {
         return attributes.contains(MonsterAttribute.DRAGON);
-    }
-
-    /** Attack speed in ticks, if known (not always present in the source data). */
-    public Integer attackSpeedTicks() {
-        return attackSpeedTicks;
-    }
-
-    /**
-     * Percent by which this monster resists the demonbane weapon BONUS
-     * (0-100; default 0 = no resistance). E.g. Duke Sucellus is 30: a
-     * demonbane weapon's excess-over-1 multiplier is scaled down by
-     * {@code (1 - resistPercent / 100)} — see {@code DpsCalculator}'s
-     * demonbane apply step for the exact formula. Populated from the bundled
-     * monster data when present; otherwise 0 (mechanism is data-driven, so it
-     * activates automatically once a monster's data carries a non-zero value).
-     */
-    public int demonbaneResistPercent() {
-        return demonbaneResistPercent;
-    }
-
-    /**
-     * This monster's elemental weakness element ({@code "WIND"}/{@code "WATER"}/
-     * {@code "EARTH"}/{@code "FIRE"}, matching {@link Spell.Element} names), or
-     * {@code null} when this monster has no elemental weakness. Populated from
-     * the bundled monster data's {@code weakness.element} (upstream's
-     * {@code "air"} is mapped to {@code "WIND"} at minify time — see the
-     * monsters.min.json.README.md field-mapping table).
-     */
-    public String weaknessElement() {
-        return weaknessElement;
-    }
-
-    /**
-     * The elemental-weakness damage bonus, as a percent added to the caster's
-     * magic-damage percent when the cast spell's {@link Spell.Element} matches
-     * {@link #weaknessElement()} (0 when {@link #weaknessElement()} is
-     * {@code null}) — see {@code DpsCalculator.computeMagic}.
-     */
-    public int weaknessSeverity() {
-        return weaknessSeverity;
     }
 
     /**
@@ -192,29 +147,6 @@ public final class Monster {
      */
     public boolean isWildernessTarget() {
         return wildernessTarget;
-    }
-
-    /**
-     * The name every OTHER lookup (per-target damage caps/penalties via
-     * {@code MonsterCombatRequirementRepository}, required-gear reminders
-     * via {@code MonsterGearOverrideRepository}, consumables reminders via
-     * {@code MonsterConsumablesRepository}) should resolve against — equal
-     * to {@link #name()} for an ordinary monster, but for a SYNTHETIC
-     * "(Wilderness)" variant this returns the REAL underlying monster's
-     * name instead (e.g. "Black dragon (Level 227)" for the "Black dragon
-     * (Wilderness)" synthetic entry).
-     *
-     * <p>This is the reverse-map a synthetic target needs so it behaves
-     * identically to its base monster in every respect except the
-     * revenant-weapon bonus: a Wilderness Black dragon must still gate on
-     * the same weapon requirements, get the same required-gear warnings,
-     * and get the same dragonfire consumables reminder as the ordinary
-     * Black dragon (Level 227) — only {@link #isWildernessTarget()} and the
-     * DISPLAY name ({@link #name()}) differ. Callers resolving identity-based
-     * data must use this method, never {@link #name()}, for that reason.
-     */
-    public String lookupName() {
-        return lookupName;
     }
 
     /**

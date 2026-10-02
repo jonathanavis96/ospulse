@@ -11,7 +11,6 @@ import com.ospulse.combat.SlayerHeadgear;
 import com.ospulse.combat.Tome;
 import com.ospulse.combat.VoidSet;
 
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
@@ -55,14 +54,12 @@ public final class GearVariants
 	 * names id 4081 {@code CRYSTALSHARD_NECKLACE} — a stale internal/dev label;
 	 * the live item cache confirms id 4081 is genuinely "Salve amulet".
 	 */
-	private static final int SALVE_AMULET = 4081;
 
 	/**
 	 * Salve amulet (e). {@code gameval.ItemID} names id 10588 {@code
 	 * LOTR_CRYSTALSHARD_NECKLACE_UPGRADE} (same stale-internal-name caveat as
-	 * {@link #SALVE_AMULET}); the live item cache confirms it is "Salve amulet (e)".
+	 * {@code SALVE_AMULET}); the live item cache confirms it is "Salve amulet (e)".
 	 */
-	private static final int SALVE_AMULET_E = 10588;
 
 	/**
 	 * Salve amulet(i) — three id families exist for the identical item/effect,
@@ -86,11 +83,11 @@ public final class GearVariants
 	/** Maps a worn AMULET-slot item id to the {@link SalveType} it grants ({@link SalveType#NONE} if not a Salve amulet). */
 	static SalveType salveTypeFor(int amuletItemId)
 	{
-		if (amuletItemId == SALVE_AMULET)
+		if (amuletItemId == 4081) // SALVE_AMULET
 		{
 			return SalveType.SALVE;
 		}
-		if (amuletItemId == SALVE_AMULET_E)
+		if (amuletItemId == 10588) // SALVE_AMULET_E
 		{
 			return SalveType.SALVE_E;
 		}
@@ -246,7 +243,6 @@ public final class GearVariants
 	 *
 	 * <p>TODO: dyed Silverlight variants are still unwired.
 	 */
-	private static final int EMBERLIGHT = 29589;
 
 	/**
 	 * Burning claws — melee (slash) demonbane weapon; +5% accuracy AND damage
@@ -255,7 +251,6 @@ public final class GearVariants
 	 * +32 / 4-tick / weapon slot), which exactly matches the OSRS Wiki's
 	 * published stats for Burning claws.
 	 */
-	private static final int BURNING_CLAWS = 29577;
 
 	/**
 	 * Rest of the melee sword line. Ids are the OSRS Wiki infobox values for
@@ -263,9 +258,6 @@ public final class GearVariants
 	 * Arclight 19675) — same live-cache cross-check caveat as the class
 	 * javadoc.
 	 */
-	private static final int SILVERLIGHT = 2402;
-	private static final int DARKLIGHT = 6746;
-	private static final int ARCLIGHT = 19675;
 
 	/**
 	 * Scorching bow — the RANGED demonbane weapon; +30% accuracy AND damage vs
@@ -275,24 +267,23 @@ public final class GearVariants
 	 * {@code equipment_stats.min.json} (29591 = arange +124 / rstr +40 /
 	 * 5-tick, exactly the bow's published stats).
 	 */
-	private static final int SCORCHING_BOW = 29591;
 
 	/** Maps a worn WEAPON-slot item id to the {@link DemonbaneWeapon} it is ({@link DemonbaneWeapon#NONE} if not demonbane). */
 	public static DemonbaneWeapon demonbaneWeaponFor(int weaponItemId)
 	{
 		switch (weaponItemId)
 		{
-			case EMBERLIGHT:
+			case 29589: // EMBERLIGHT
 				return DemonbaneWeapon.EMBERLIGHT;
-			case ARCLIGHT:
+			case 19675: // ARCLIGHT
 				return DemonbaneWeapon.ARCLIGHT;
-			case DARKLIGHT:
+			case 6746: // DARKLIGHT
 				return DemonbaneWeapon.DARKLIGHT;
-			case SILVERLIGHT:
+			case 2402: // SILVERLIGHT
 				return DemonbaneWeapon.SILVERLIGHT;
-			case SCORCHING_BOW:
+			case 29591: // SCORCHING_BOW
 				return DemonbaneWeapon.SCORCHING_BOW;
-			case BURNING_CLAWS:
+			case 29577: // BURNING_CLAWS
 				return DemonbaneWeapon.BURNING_CLAWS;
 			default:
 				return DemonbaneWeapon.NONE;
@@ -307,19 +298,12 @@ public final class GearVariants
 	 * 2026-07-03 (dragon-hunter crossbow (b)/(t) cosmetic variants are TODO).
 	 * Twisted bow 20997.
 	 */
-	private static final int DRAGON_HUNTER_CROSSBOW = 21012;
-	private static final int DRAGON_HUNTER_LANCE = 22978;
-	private static final int DRAGON_HUNTER_WAND = 30070;
-	private static final int TWISTED_BOW = 20997;
 
 	/**
 	 * Osmumten's fang 26219, the "(or)" cosmetic variant 27246, and the
 	 * Fang of the hound re-skin 33249 — all identical mechanically, verified
 	 * against the OSRS Wiki 2026-07-04.
 	 */
-	private static final int OSMUMTENS_FANG = 26219;
-	private static final int OSMUMTENS_FANG_OR = 27246;
-	private static final int FANG_OF_THE_HOUND = 33249;
 
 	/**
 	 * CHARGED elemental tome shield-slot ids (the empty variants +2 give no
@@ -327,20 +311,17 @@ public final class GearVariants
 	 * Tome of water 25574 (empty 25576), Tome of earth 30064 (empty 30066).
 	 * Verified vs the OSRS Wiki + the bundled equipment_index 2026-07-04.
 	 */
-	private static final int TOME_OF_FIRE = 20714;
-	private static final int TOME_OF_WATER = 25574;
-	private static final int TOME_OF_EARTH = 30064;
 
 	/** Maps a worn WEAPON-slot item id to its {@link DragonHunterWeapon} ({@link DragonHunterWeapon#NONE} if not dragonbane). */
 	public static DragonHunterWeapon dragonHunterWeaponFor(int weaponItemId)
 	{
 		switch (weaponItemId)
 		{
-			case DRAGON_HUNTER_LANCE:
+			case 22978: // DRAGON_HUNTER_LANCE
 				return DragonHunterWeapon.LANCE;
-			case DRAGON_HUNTER_CROSSBOW:
+			case 21012: // DRAGON_HUNTER_CROSSBOW
 				return DragonHunterWeapon.CROSSBOW;
-			case DRAGON_HUNTER_WAND:
+			case 30070: // DRAGON_HUNTER_WAND
 				return DragonHunterWeapon.WAND;
 			default:
 				return DragonHunterWeapon.NONE;
@@ -350,13 +331,13 @@ public final class GearVariants
 	/** True when the worn weapon is the Twisted bow. */
 	static boolean isTwistedBow(int weaponItemId)
 	{
-		return weaponItemId == TWISTED_BOW;
+		return weaponItemId == 20997; // TWISTED_BOW
 	}
 
 	/** True when the worn weapon is Osmumten's fang (either cosmetic variant, or the Fang of the hound re-skin). */
 	static boolean isOsmumtensFang(int weaponItemId)
 	{
-		return weaponItemId == OSMUMTENS_FANG || weaponItemId == OSMUMTENS_FANG_OR || weaponItemId == FANG_OF_THE_HOUND;
+		return weaponItemId == 26219 || weaponItemId == 27246 || weaponItemId == 33249; // FANG_OF_THE_HOUND OSMUMTENS_FANG_OR OSMUMTENS_FANG
 	}
 
 	/** Maps a worn SHIELD-slot item id to its charged {@link Tome} ({@link Tome#NONE} if empty/not a tome). */
@@ -364,11 +345,11 @@ public final class GearVariants
 	{
 		switch (shieldItemId)
 		{
-			case TOME_OF_FIRE:
+			case 20714: // TOME_OF_FIRE
 				return Tome.FIRE;
-			case TOME_OF_WATER:
+			case 25574: // TOME_OF_WATER
 				return Tome.WATER;
-			case TOME_OF_EARTH:
+			case 30064: // TOME_OF_EARTH
 				return Tome.EARTH;
 			default:
 				return Tome.NONE;
@@ -440,7 +421,6 @@ public final class GearVariants
 	 * interacts with the optimizer's spell selection, so it is a separate
 	 * follow-up, not part of the cast-speed/second-hit wiring here.
 	 */
-	private static final int TWINFLAME_STAFF = 30634;
 
 	/**
 	 * Harmonised nightmare staff. Bundled {@code equipment_stats} index 14 = 5
@@ -454,18 +434,17 @@ public final class GearVariants
 	 * Ancient Magicks and the Arceuus spellbook)" — see {@code
 	 * com.ospulse.combat.MagicCastSpeed}.
 	 */
-	private static final int HARMONISED_NIGHTMARE_STAFF = 24423;
 
 	/** True when the worn weapon is the Twinflame staff. */
 	static boolean isTwinflameStaff(int weaponItemId)
 	{
-		return weaponItemId == TWINFLAME_STAFF;
+		return weaponItemId == 30634; // TWINFLAME_STAFF
 	}
 
 	/** True when the worn weapon is the Harmonised nightmare staff. */
 	static boolean isHarmonisedNightmareStaff(int weaponItemId)
 	{
-		return weaponItemId == HARMONISED_NIGHTMARE_STAFF;
+		return weaponItemId == 24423; // HARMONISED_NIGHTMARE_STAFF
 	}
 
 	// ==== Tonalztics of Ralos (charged dual-hit passive) ==================================
@@ -482,7 +461,6 @@ public final class GearVariants
 	 * (the single source of truth for the 75% figure) and
 	 * {@code DpsCalculator#computeRanged}'s uncharged branch.
 	 */
-	private static final int TONALZTICS_OF_RALOS_UNCHARGED = 28919;
 
 	/**
 	 * Tonalztics of Ralos, CHARGED — fires two full, independent damage
@@ -493,18 +471,17 @@ public final class GearVariants
 	 * #TONALZTICS_OF_RALOS_UNCHARGED}), not an ordinary full-range 0..M
 	 * single-hit weapon.
 	 */
-	private static final int TONALZTICS_OF_RALOS_CHARGED = 28922;
 
 	/** True when the worn weapon is the CHARGED Tonalztics of Ralos (its dual-hit passive applies). */
 	static boolean isTonalzticsOfRalosCharged(int weaponItemId)
 	{
-		return weaponItemId == TONALZTICS_OF_RALOS_CHARGED;
+		return weaponItemId == 28922; // TONALZTICS_OF_RALOS_CHARGED
 	}
 
 	/** True when the worn weapon is the UNCHARGED Tonalztics of Ralos (single hit over the reduced 75% range). */
 	static boolean isTonalzticsOfRalosUncharged(int weaponItemId)
 	{
-		return weaponItemId == TONALZTICS_OF_RALOS_UNCHARGED;
+		return weaponItemId == 28919; // TONALZTICS_OF_RALOS_UNCHARGED
 	}
 
 	// ==== Scythe of Vitur family (target-size-scaled multi-hit cascade) ==================
@@ -548,13 +525,11 @@ public final class GearVariants
 
 	// ==== Colossal blade (flat target-size max-hit bonus) =================================
 
-	/** Colossal blade — id 27021, verified against the bundled equipment_index.min.json 2026-07-26. */
-	private static final int COLOSSAL_BLADE = 27021;
 
 	/** True when the worn weapon is the Colossal blade (its flat +2*min(size,5) max-hit bonus applies). */
 	static boolean isColossalBlade(int weaponItemId)
 	{
-		return weaponItemId == COLOSSAL_BLADE;
+		return weaponItemId == 27021; // COLOSSAL_BLADE — id verified against the bundled equipment_index.min.json 2026-07-26
 	}
 
 	// ==== Keris partisan family (vs-Kalphite/Scarabite damage + triple-roll) ==============
@@ -567,15 +542,12 @@ public final class GearVariants
 	 * vs-Kalphite accuracy bonus), Keris partisan of corruption (27287),
 	 * Keris partisan of the sun (27291).
 	 */
-	private static final Map<Integer, KerisPartisan> KERIS_PARTISAN_IDS = new HashMap<>();
-	static
-	{
-		KERIS_PARTISAN_IDS.put(25979, KerisPartisan.PARTISAN);
-		KERIS_PARTISAN_IDS.put(30891, KerisPartisan.OF_AMASCUT);
-		KERIS_PARTISAN_IDS.put(25981, KerisPartisan.OF_BREACHING);
-		KERIS_PARTISAN_IDS.put(27287, KerisPartisan.OF_CORRUPTION);
-		KERIS_PARTISAN_IDS.put(27291, KerisPartisan.OF_THE_SUN);
-	}
+	private static final Map<Integer, KerisPartisan> KERIS_PARTISAN_IDS = Map.of(
+		25979, KerisPartisan.PARTISAN,
+		30891, KerisPartisan.OF_AMASCUT,
+		25981, KerisPartisan.OF_BREACHING,
+		27287, KerisPartisan.OF_CORRUPTION,
+		27291, KerisPartisan.OF_THE_SUN);
 
 	/** Maps a worn WEAPON-slot item id to its {@link KerisPartisan} variant ({@link KerisPartisan#NONE} if not a Keris). */
 	public static KerisPartisan kerisPartisanFor(int weaponItemId)
@@ -635,18 +607,15 @@ public final class GearVariants
 	 * the optimiser's pricing layer rather than in this id map. Raised on PR #24
 	 * review round 13.
 	 */
-	private static final Map<Integer, RevenantWeapon> REVENANT_WEAPON_IDS = new HashMap<>();
-	static
-	{
-		REVENANT_WEAPON_IDS.put(22550, RevenantWeapon.CRAWS_BOW);
-		REVENANT_WEAPON_IDS.put(27655, RevenantWeapon.CRAWS_BOW);
-		REVENANT_WEAPON_IDS.put(22545, RevenantWeapon.VIGGORAS_CHAINMACE);
-		REVENANT_WEAPON_IDS.put(27660, RevenantWeapon.VIGGORAS_CHAINMACE);
-		REVENANT_WEAPON_IDS.put(22555, RevenantWeapon.THAMMARONS_SCEPTRE);
-		REVENANT_WEAPON_IDS.put(27788, RevenantWeapon.THAMMARONS_SCEPTRE);
-		REVENANT_WEAPON_IDS.put(27665, RevenantWeapon.THAMMARONS_SCEPTRE);
-		REVENANT_WEAPON_IDS.put(27679, RevenantWeapon.THAMMARONS_SCEPTRE);
-	}
+	private static final Map<Integer, RevenantWeapon> REVENANT_WEAPON_IDS = Map.of(
+		22550, RevenantWeapon.CRAWS_BOW,
+		27655, RevenantWeapon.CRAWS_BOW,
+		22545, RevenantWeapon.VIGGORAS_CHAINMACE,
+		27660, RevenantWeapon.VIGGORAS_CHAINMACE,
+		22555, RevenantWeapon.THAMMARONS_SCEPTRE,
+		27788, RevenantWeapon.THAMMARONS_SCEPTRE,
+		27665, RevenantWeapon.THAMMARONS_SCEPTRE,
+		27679, RevenantWeapon.THAMMARONS_SCEPTRE);
 
 	/** Maps a worn WEAPON-slot item id to its {@link RevenantWeapon} ({@link RevenantWeapon#NONE} if not one). */
 	public static RevenantWeapon revenantWeaponFor(int weaponItemId)

@@ -1,16 +1,9 @@
 package com.ospulse.ui.sections.gear;
 
-import com.ospulse.combat.EquipmentIndexRepository;
-import com.ospulse.combat.Monster;
-import com.ospulse.combat.MonsterGearOverride;
-import com.ospulse.combat.MonsterGearOverrideRepository;
+import com.ospulse.combat.*;
 import com.ospulse.combat.optimizer.GearOptimizer;
 
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Pattern;
 
 /**

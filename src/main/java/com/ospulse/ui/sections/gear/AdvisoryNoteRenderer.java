@@ -3,10 +3,7 @@ package com.ospulse.ui.sections.gear;
 import net.runelite.client.ui.FontManager;
 
 import javax.swing.JTextArea;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Container;
-import java.awt.Dimension;
+import java.awt.*;
 
 /**
  * Builds the one word-wrapping advisory "label" every DPS-blind curated note

@@ -1,8 +1,6 @@
 package com.ospulse.combat;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Curated map of an assembled (untradeable) piece of equipment to the tradeable

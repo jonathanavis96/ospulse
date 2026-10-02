@@ -1,14 +1,8 @@
 package com.ospulse.ui.sections.gear;
 
-import java.awt.Color;
-import java.awt.Cursor;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.Insets;
-import java.awt.RenderingHints;
+import java.awt.*;
 import java.awt.event.ActionListener;
-import javax.swing.ButtonModel;
-import javax.swing.JButton;
+import javax.swing.*;
 import net.runelite.client.ui.FontManager;
 
 /**
