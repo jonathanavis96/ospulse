@@ -332,7 +332,7 @@ public final class SessionSection extends CollapsibleSection
 	 * {@code baseline = raw} at that instant. When the panel-wide Reset
 	 * re-anchors the engine so {@code raw} returns to ~0, a stale non-zero
 	 * baseline would render {@code 0 - baseline} — a large phantom of the
-	 * opposite sign. Zeroing the baselines (and clearing {@link #lastSeenEpoch}
+	 * opposite sign. Zeroing the baselines (and clearing {@code lastSeenEpoch}
 	 * so the next {@code apply} re-syncs the epoch without re-capturing a
 	 * baseline) makes the fresh figure {@code raw - 0 = raw}.
 	 */

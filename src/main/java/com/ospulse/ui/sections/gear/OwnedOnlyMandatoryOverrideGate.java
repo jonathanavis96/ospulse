@@ -18,7 +18,7 @@ import java.util.*;
  * purchase suggestion. In owned-only mode specifically it is not — the
  * mode's entire guarantee is that every recommendation is something the
  * player already owns, and a forced item the player owns neither the
- * primary form of nor any {@link MonsterGearOverride#alternativeItemIds()}
+ * primary form of nor any {@code MonsterGearOverride.alternativeItemIds()}
  * substitute for breaks that guarantee outright.
  *
  * <p>The earlier attempt at this finding only disclosed the gap (an
@@ -58,9 +58,9 @@ public final class OwnedOnlyMandatoryOverrideGate
 
 	/**
 	 * The first mandatory {@link MonsterGearOverride} for {@code target} that
-	 * owned-only mode cannot satisfy — the player owns neither {@link
-	 * MonsterGearOverride#itemId()} nor any of {@link
-	 * MonsterGearOverride#alternativeItemIds()} — or empty when owned-only
+	 * owned-only mode cannot satisfy — the player owns neither {@code
+	 * MonsterGearOverride.itemId()} nor any of {@code
+	 * MonsterGearOverride.alternativeItemIds()} — or empty when owned-only
 	 * mode is off, no target is selected, or every mandatory override (if
 	 * any) is satisfied by something owned. Same substitution rule {@code
 	 * GearSection#updateGearOverrideNote()} already uses for its "you don't

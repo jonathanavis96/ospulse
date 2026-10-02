@@ -69,7 +69,7 @@ public final class OwnedVariantResolver
 {
 	/**
 	 * Space-prefixed variant suffixes, as they appear at the end of an
-	 * {@link EquipmentIndexRepository.Entry#name()}. " (deadman)" covers
+	 * {@code EquipmentIndexRepository.Entry.name()}. " (deadman)" covers
 	 * Deadman Mode reward duplicates (e.g. "Imbued saradomin cape
 	 * (deadman)") — most are stat-identical to a real, non-mode-locked
 	 * counterpart item, but Deadman crystal armour's active/inactive split

@@ -162,15 +162,15 @@ public final class MonsterCombatRequirement
     public Set<Integer> allowedAmmoIds() { return Collections.unmodifiableSet(allowedAmmoIds); }
     public Set<CombatStyle> allowedStyles() { return Collections.unmodifiableSet(allowedStyles); }
 
-    /** Styles the {@link #damageMultiplier()} applies to; empty means "all styles". Default empty. */
+    /** Styles the {@code damageMultiplier()} applies to; empty means "all styles". Default empty. */
     public Set<CombatStyle> penalisedStyles() { return Collections.unmodifiableSet(penalisedStyles); }
     /** Styles on which {@code allowedItemIds} actually grants the exemption; empty = any penalised style. */
     public Set<CombatStyle> exemptStyles() { return Collections.unmodifiableSet(exemptStyles); }
 
     /**
      * Per-{@link CombatStyle} cap override (e.g. Verzik Vitur phase 1: melee
-     * 10, ranged/magic 3) — takes priority over {@link #maxHitCap()}/
-     * {@link #maxHitCapWhenCrushHighest()} for a style present in this map.
+     * 10, ranged/magic 3) — takes priority over {@code maxHitCap()}/
+     * {@code maxHitCapWhenCrushHighest()} for a style present in this map.
      * Empty means no per-style split; every entry falls back to the flat/
      * crush-highest value. Default empty.
      */

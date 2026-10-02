@@ -7,7 +7,7 @@ import java.util.*;
  * "what-if" state (see the design spec section 2). Purely a
  * {@code slotOrdinal -> itemId} map; it is never mutated into the real
  * {@code GearSnapshot}, only merged with the live gear at compute time by
- * {@link WhatIfLoadout#apply}.
+ * {@code WhatIfLoadout.apply}.
  *
  * <p>Immutable — every mutator returns a new instance, which keeps the
  * {@code GearSection} UI state simple to reason about (undo/redo would be

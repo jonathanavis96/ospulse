@@ -58,7 +58,7 @@ import java.util.function.IntToLongFunction;
  * on this project's classpath) — it does NOT touch {@code ItemManager} or
  * any other client-thread-only API, so this class runs anywhere, including
  * plain unit tests, given a caller-supplied {@code isTradeable}/{@code
- * gePrice} pair (see {@link RiskValuationTest}).
+ * gePrice} pair (see {@code RiskValuationTest}).
  */
 public final class RiskValuation
 {

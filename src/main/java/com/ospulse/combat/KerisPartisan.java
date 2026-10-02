@@ -23,7 +23,7 @@ package com.ospulse.combat;
  * KerisTripleRoll} instead and bypasses the generic {@code finish()}.
  *
  * <p>Gate: applies only when the target carries {@link
- * MonsterAttribute#KALPHITE} — see {@link Monster#attributes()}. The
+ * MonsterAttribute#KALPHITE} — see {@code Monster.attributes()}. The
  * bundled monster data confirms every Kalphite/Scarab-family monster this
  * matters for (Kalphite Queen's both forms, Kalphite Guardian, Kalphite
  * Worker/Soldier, every "Scarab"-named monster) carries this attribute.

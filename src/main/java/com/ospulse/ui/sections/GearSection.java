@@ -67,7 +67,7 @@ import static com.ospulse.ui.PanelWidgets.*;
  * Ultimate-or-Superhuman-Strength, ranged→Rigour/Eagle-Eye/Hawk-Eye,
  * magic→Augury/Mystic-Might/Mystic-Lore, each degrading by the player's
  * Prayer level; per-style potion icons incl. imbued heart) sit next to the
- * boost toggles — see {@link #prayerIconLabel} / {@link #potionIconLabel},
+ * boost toggles — see {@code prayerIconLabel} / {@code potionIconLabel},
  * driven by {@link CombatIcons} (pure mapping over the existing
  * OffensivePrayer/PotionBoosts model) so the icon always matches whichever
  * prayer/potion {@link DpsCalculator} is actually applying for the selected
@@ -380,7 +380,7 @@ public final class GearSection extends CollapsibleSection
 	final JButton closeSearchButton;
 	/** The search-field + close-button row — shown/hidden together as one unit (see {@link #toggleItemSearch}/{@link #closeItemSearch}). */
 	final JPanel itemSearchRow;
-	/** 4-columns-wide scrollable icon grid of {@link #filteredItems} — see {@link #populateItemList}/{@link #ItemGridCell}. */
+	/** 4-columns-wide scrollable icon grid of {@link #filteredItems} — see {@link #populateItemList}/{@code ItemGridCell}. */
 	final JPanel itemGridPanel;
 	final JScrollPane itemGridScroll;
 	List<EquipmentIndexRepository.Entry> filteredItems = Collections.emptyList();
@@ -397,7 +397,7 @@ public final class GearSection extends CollapsibleSection
 	final JToggleButton budgetMToggle;
 	/** Gold-pile badge showing the resolved budget (e.g. "50M") magnitude-coloured over its top-left — see {@link #updateBudgetDisplay}. */
 	private CoinPileBadge budgetBadge;
-	/** "Expensive items to allow" count (wilderness/PvP) — plumbed into {@link GearOptimizer.Request#expensiveItemCount()} and enforced by the search (caps items worth strictly more than the threshold). */
+	/** "Expensive items to allow" count (wilderness/PvP) — plumbed into {@code GearOptimizer.Request.expensiveItemCount()} and enforced by the search (caps items worth strictly more than the threshold). */
 	final JTextField expensiveCountField;
 	/** GP value strictly above which an item counts as "expensive" (a price exactly at this value is within the ceiling) — see {@link #expensiveCountField}. */
 	final JTextField expensiveThresholdField;
@@ -581,7 +581,7 @@ public final class GearSection extends CollapsibleSection
 	 *       untradeable is never purchasable regardless of any price RuneLite
 	 *       reports for it (e.g. trouver-locked items are "priced" at the
 	 *       Trouver parchment's GE cost via {@code ItemMapping}) — see
-	 *       {@link #resolveOptimizerPriceSource}.</li>
+	 *       {@code resolveOptimizerPriceSource}.</li>
 	 * </ul>
 	 */
 	public static final class PriceLookup

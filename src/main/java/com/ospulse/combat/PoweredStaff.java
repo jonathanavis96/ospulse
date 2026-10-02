@@ -22,7 +22,7 @@ package com.ospulse.combat;
  * <p><b>Tumeken's shadow is approximate:</b> its passive also multiplies the
  * worn equipment's magic attack bonus and magic damage by 3 (4 inside ToA),
  * with its own caps — that multiplier is NOT yet modelled, so shadow results
- * set {@link DpsResult#baseEstimate()}. Warped sceptre, the enhanced "(e)"
+ * set {@code DpsResult.baseEstimate()}. Warped sceptre, the enhanced "(e)"
  * tridents, salamanders and the Crystal staff line are TODO (formulas not
  * yet transcribed/verified).
  */

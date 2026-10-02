@@ -86,7 +86,7 @@ public enum Spell {
 
     /**
      * The classic elemental-spell element, used to match a monster's
-     * elemental weakness (see {@link Monster#weaknessElement()} /
+     * elemental weakness (see {@code Monster.weaknessElement()} /
      * {@code DpsCalculator.computeMagic}). Only the standard Strike/Bolt/
      * Blast/Wave/Surge tiers carry one; Iban Blast, Magic Dart, the god
      * spells and every Ancient Magicks spell (ice/blood/smoke/shadow) have
@@ -189,7 +189,7 @@ public enum Spell {
      * (excluding Strike and Surge spells)" — i.e. Bolt/Blast/Wave across all
      * four elements (12 spells total).
      *
-     * <p><b>Deliberately gated on {@link #element()} + {@link #tier()}, NOT
+     * <p><b>Deliberately gated on {@code element()} + {@code tier()}, NOT
      * on the spell's display name.</b> The reference JS implementation
      * (weirdgloop/osrs-dps-calc) gates on {@code name.includes('Bolt'|'Blast'|
      * 'Wave')}, which also incorrectly matches "Iban Blast" — a non-elemental
