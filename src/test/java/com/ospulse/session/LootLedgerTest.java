@@ -78,4 +78,76 @@ public class LootLedgerTest
 		l.reset();
 		assertEquals(0L, l.lootValue());
 	}
+
+	@Test
+	public void nonPositiveQuantitiesAreIgnoredEverywhere()
+	{
+		LootLedger l = new LootLedger();
+		l.recordLoot(SHIELD, 0, 100L);
+		l.recordLoot(SHIELD, -5, 100L);
+		assertEquals(0L, l.lootValue());
+		l.recordLoot(SHIELD, 2, 100L);
+		l.realiseSale(SHIELD, 0, 999L);
+		l.realiseSale(SHIELD, -1, 999L);
+		assertEquals(0L, l.reverseLoot(SHIELD, 0));
+		assertEquals(0L, l.reverseLoot(SHIELD, -1));
+		assertEquals(200L, l.lootValue());
+	}
+
+	@Test
+	public void saleOrReverseOfNeverLootedItemChangesNothing()
+	{
+		LootLedger l = new LootLedger();
+		l.realiseSale(SHIELD, 3, 1_000L);
+		assertEquals(0L, l.reverseLoot(SHIELD, 3));
+		assertEquals(0L, l.lootValue());
+	}
+
+	@Test
+	public void zeroProceedsSaleRealisesLootToZero()
+	{
+		LootLedger l = new LootLedger();
+		l.recordLoot(SHIELD, 1, 5_000L);
+		l.realiseSale(SHIELD, 1, 0L);
+		assertEquals(0L, l.lootValue());
+	}
+
+	@Test
+	public void oversizedSaleRealisesOnlyHeldShareOfProceeds()
+	{
+		LootLedger l = new LootLedger();
+		l.recordLoot(SHIELD, 2, 100L);
+		// Sold 4 for 400 total; only the 2 looted units' share (200) counts.
+		l.realiseSale(SHIELD, 4, 400L);
+		assertEquals(200L, l.lootValue());
+	}
+
+	@Test
+	public void reverseMoreThanHeldReturnsOnlyWhatWasHeld()
+	{
+		LootLedger l = new LootLedger();
+		l.recordLoot(SHIELD, 2, 100L);
+		assertEquals(2L, l.reverseLoot(SHIELD, 10));
+		assertEquals(0L, l.lootValue());
+	}
+
+	@Test
+	public void relootAfterFullSaleStartsFreshAtNewPickupValue()
+	{
+		LootLedger l = new LootLedger();
+		l.recordLoot(SHIELD, 1, 100L);
+		l.realiseSale(SHIELD, 1, 98L);
+		l.recordLoot(SHIELD, 1, 500L);
+		assertEquals(598L, l.lootValue());
+	}
+
+	@Test
+	public void averagePickupValueSurvivesPartialReverseOfMixedStack()
+	{
+		LootLedger l = new LootLedger();
+		l.recordLoot(SHIELD, 1, 100L);
+		l.recordLoot(SHIELD, 1, 300L); // avg 200
+		assertEquals(1L, l.reverseLoot(SHIELD, 1));
+		assertEquals(200L, l.lootValue());
+	}
 }
