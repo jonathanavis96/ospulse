@@ -1,11 +1,9 @@
 package com.ospulse.wealth;
 
+import lombok.Getter;
 import com.ospulse.model.ItemStack;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 /**
  * Serializable snapshot of a player's last-observed bank contents, persisted
@@ -18,7 +16,7 @@ import java.util.List;
  */
 public final class BankCache
 {
-	private final long timestampMs;
+	@Getter private final long timestampMs;
 	private final List<Entry> items;
 
 	public BankCache(long timestampMs, Collection<ItemStack> stacks)
@@ -37,11 +35,6 @@ public final class BankCache
 		}
 	}
 
-	public long getTimestampMs()
-	{
-		return timestampMs;
-	}
-
 	public List<Entry> getItems()
 	{
 		return items == null ? Collections.emptyList() : items;
@@ -50,8 +43,8 @@ public final class BankCache
 	/** A single cached bank line: canonical item id and quantity. */
 	public static final class Entry
 	{
-		private final int id;
-		private final long quantity;
+		@Getter private final int id;
+		@Getter private final long quantity;
 
 		public Entry(int id, long quantity)
 		{
@@ -59,14 +52,5 @@ public final class BankCache
 			this.quantity = quantity;
 		}
 
-		public int getId()
-		{
-			return id;
-		}
-
-		public long getQuantity()
-		{
-			return quantity;
-		}
 	}
 }

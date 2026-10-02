@@ -1,42 +1,21 @@
 package com.ospulse.ui.sections;
 
 import com.ospulse.session.SessionSnapshot;
-import com.ospulse.ui.CollapsibleSection;
-import com.ospulse.ui.GpFormat;
-import com.ospulse.ui.PanelWidgets;
-import com.ospulse.ui.ThinProgressBar;
-import com.ospulse.ui.category.CategoryOverlay;
-import com.ospulse.ui.category.CategorySectionSupport;
-import com.ospulse.xp.VirtualLevelTable;
-import com.ospulse.xp.XpSkillView;
+import com.ospulse.ui.*;
+import com.ospulse.ui.category.*;
+import com.ospulse.xp.*;
 
-import net.runelite.api.Client;
-import net.runelite.api.Skill;
+import net.runelite.api.*;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.plugins.Plugin;
-import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
-import net.runelite.client.ui.SkillColor;
+import net.runelite.client.ui.*;
 import net.runelite.client.ui.overlay.OverlayManager;
 
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
-import javax.swing.SwingConstants;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.GridLayout;
-import java.awt.Image;
+import javax.swing.*;
+import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.*;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -92,9 +71,6 @@ public final class XpSection extends CollapsibleSection
 	private final Map<String, XpSkillView> lastSeenBySkill = new ConcurrentHashMap<>();
 	/** Skills hidden via "Reset"/"Reset others"/"Reset all". */
 	private final java.util.Set<String> hiddenSkills = new java.util.HashSet<>();
-	/** Reset-epoch last observed per category id, so a "Reset" click is detected exactly once. */
-	private final Map<String, Integer> lastSeenEpoch = new HashMap<>();
-
 	private long xpTotal;
 	private long elapsedMs;
 
@@ -104,10 +80,7 @@ public final class XpSection extends CollapsibleSection
 		super(KEY, "XP gained", store);
 		this.skillIconManager = skillIconManager;
 		this.categorySupport = new CategorySectionSupport(plugin, client, overlayManager);
-		breakdownPanel = new JPanel();
-		breakdownPanel.setLayout(new BoxLayout(breakdownPanel, BoxLayout.Y_AXIS));
-		breakdownPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		breakdownPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		breakdownPanel = PanelWidgets.vbox();
 		body().add(breakdownPanel);
 	}
 
@@ -149,7 +122,10 @@ public final class XpSection extends CollapsibleSection
 		for (XpSkillView view : skills)
 		{
 			String catId = categoryId(view.getSkillName());
-			detectReset(catId);
+			if (categorySupport.justReset(catId))
+			{
+				hiddenSkills.add(catId);
+			}
 			categorySupport.setLinesSupplier(catId, () -> canvasLines(catId));
 			categorySupport.setProgressSupplier(catId, () -> canvasProgress(catId));
 			// RuneLite-XpInfoBox-style canvas overlay: icon + colour are constant
@@ -202,23 +178,6 @@ public final class XpSection extends CollapsibleSection
 		line.setMinimumSize(new Dimension(0, 1));
 		line.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
 		return line;
-	}
-
-	/** Marks {@code catId} hidden the moment its reset epoch advances (a "Reset"/"Reset others"/"Reset all" click). */
-	private void detectReset(String catId)
-	{
-		int epoch = categorySupport.controller().resetEpoch(catId);
-		Integer lastEpoch = lastSeenEpoch.get(catId);
-		if (lastEpoch == null)
-		{
-			lastSeenEpoch.put(catId, epoch);
-			return;
-		}
-		if (epoch != lastEpoch)
-		{
-			hiddenSkills.add(catId);
-			lastSeenEpoch.put(catId, epoch);
-		}
 	}
 
 	private List<CategoryOverlay.Line> canvasLines(String catId)
@@ -308,17 +267,12 @@ public final class XpSection extends CollapsibleSection
 		Color accent = skill != null ? SkillColor.find(skill).getColor() : ColorScheme.BRAND_ORANGE;
 		boolean maxed = view.getCurrentLevel() >= VirtualLevelTable.MAX_LEVEL;
 
-		JPanel card = new JPanel();
-		card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-		card.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		card.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JPanel card = PanelWidgets.vbox();
 
 		String catId = categoryId(view.getSkillName());
 		JPopupMenu popupMenu = categorySupport.buildMenu(catId, view.getSkillName());
 
-		JPanel top = new JPanel(new BorderLayout(6, 0));
-		top.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		top.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JPanel top = PanelWidgets.panel(new BorderLayout(6, 0));
 
 		Image iconImage = skillIcon(skill);
 		JLabel iconLabel = new JLabel();
@@ -335,8 +289,7 @@ public final class XpSection extends CollapsibleSection
 		iconLabel.setPreferredSize(new Dimension(CARD_ICON_SIZE, CARD_ICON_SIZE));
 		top.add(iconLabel, BorderLayout.WEST);
 		top.add(statGrid(view, maxed), BorderLayout.CENTER);
-		top.setMaximumSize(new Dimension(Integer.MAX_VALUE, top.getPreferredSize().height));
-		card.add(top);
+		card.add(PanelWidgets.capHeight(top));
 
 		card.add(rigidSpacer(3));
 
@@ -348,7 +301,7 @@ public final class XpSection extends CollapsibleSection
 		card.add(rigidSpacer(1));
 		card.add(barAnnotation(view, maxed));
 
-		card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
+		PanelWidgets.capHeight(card);
 		attachPopupRecursively(card, popupMenu);
 		return card;
 	}
@@ -378,9 +331,7 @@ public final class XpSection extends CollapsibleSection
 	/** Labelled 2x2 grid: XP Gained / XP/hr on the first row, XP left / Actions on the second. */
 	private static JPanel statGrid(XpSkillView view, boolean maxed)
 	{
-		JPanel grid = new JPanel(new GridLayout(2, 2, 8, 1));
-		grid.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		grid.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JPanel grid = PanelWidgets.panel(new GridLayout(2, 2, 8, 1));
 
 		String xpLeft = maxed ? "0" : GpFormat.format(view.getXpLeft());
 		String actions = maxed ? "Maxed"
@@ -391,8 +342,7 @@ public final class XpSection extends CollapsibleSection
 		grid.add(statCell("XP left", xpLeft));
 		grid.add(statCell("Actions", actions));
 
-		grid.setMaximumSize(new Dimension(Integer.MAX_VALUE, grid.getPreferredSize().height));
-		return grid;
+		return PanelWidgets.capHeight(grid);
 	}
 
 	/** A "Label value" cell: grey label pinned left, white value pinned right. */
@@ -401,26 +351,15 @@ public final class XpSection extends CollapsibleSection
 		JPanel cell = new JPanel(new BorderLayout(4, 0));
 		cell.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 
-		JLabel labelLabel = new JLabel(label);
-		labelLabel.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		labelLabel.setFont(FontManager.getRunescapeSmallFont());
-
-		JLabel valueLabel = new JLabel(value);
-		valueLabel.setForeground(Color.WHITE);
-		valueLabel.setFont(FontManager.getRunescapeSmallFont());
-		valueLabel.setHorizontalAlignment(SwingConstants.RIGHT);
-
-		cell.add(labelLabel, BorderLayout.WEST);
-		cell.add(valueLabel, BorderLayout.CENTER);
+		cell.add(PanelWidgets.label(label, ColorScheme.LIGHT_GRAY_COLOR), BorderLayout.WEST);
+		cell.add(PanelWidgets.valueLabel(value), BorderLayout.CENTER);
 		return cell;
 	}
 
 	/** Under-bar annotation row: current level (left) · % complete (centre) · next level or "Max" (right). */
 	private static JPanel barAnnotation(XpSkillView view, boolean maxed)
 	{
-		JPanel row = new JPanel(new BorderLayout());
-		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setAlignmentX(Component.LEFT_ALIGNMENT);
+		JPanel row = PanelWidgets.panel(new BorderLayout());
 
 		JLabel current = miniLabel(String.valueOf(view.getCurrentLevel()), SwingConstants.LEFT);
 		JLabel percent = miniLabel(Math.round(view.getProgressToNextLevel() * 100.0) + "%", SwingConstants.CENTER);
@@ -429,15 +368,13 @@ public final class XpSection extends CollapsibleSection
 		row.add(current, BorderLayout.WEST);
 		row.add(percent, BorderLayout.CENTER);
 		row.add(next, BorderLayout.EAST);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-		return row;
+		return PanelWidgets.capHeight(row);
 	}
 
 	private static JLabel miniLabel(String text, int alignment)
 	{
-		JLabel label = new JLabel(text, alignment);
-		label.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		label.setFont(FontManager.getRunescapeSmallFont());
+		JLabel label = PanelWidgets.label(text, ColorScheme.LIGHT_GRAY_COLOR);
+		label.setHorizontalAlignment(alignment);
 		return label;
 	}
 
@@ -547,7 +484,6 @@ public final class XpSection extends CollapsibleSection
 	{
 		lastSeenBySkill.clear();
 		hiddenSkills.clear();
-		lastSeenEpoch.clear();
 		xpTotal = 0;
 		elapsedMs = 0;
 		categorySupport.clearAll();

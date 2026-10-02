@@ -1,20 +1,9 @@
 package com.ospulse.combat;
 
-import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.io.UncheckedIOException;
 import java.lang.reflect.Type;
-import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Resolves an equipment item id → its skill EQUIP requirements (e.g. Dragon
@@ -37,7 +26,8 @@ import java.util.Map;
 public final class EquipmentRequirementsRepository {
     private static final String RESOURCE_PATH = "/com/ospulse/combat/equipment_requirements.min.json";
 
-    private static volatile EquipmentRequirementsRepository instance;
+    private static final CombatDataLoader.Lazy<EquipmentRequirementsRepository> INSTANCE =
+            new CombatDataLoader.Lazy<>(() -> loadFromResource(RESOURCE_PATH));
 
     /** item id → (skill name → required level). Inner maps are unmodifiable. */
     private final Map<Integer, Map<String, Integer>> byItemId;
@@ -48,61 +38,39 @@ public final class EquipmentRequirementsRepository {
 
     /** Shared, lazily-initialised singleton loaded from the bundled resource. */
     public static EquipmentRequirementsRepository getInstance() {
-        EquipmentRequirementsRepository result = instance;
-        if (result == null) {
-            synchronized (EquipmentRequirementsRepository.class) {
-                result = instance;
-                if (result == null) {
-                    instance = result = loadFromResource(RESOURCE_PATH);
-                }
-            }
-        }
-        return result;
+        return INSTANCE.get();
     }
 
     /** Loads a repository from an arbitrary classpath resource (mainly for tests). */
     static EquipmentRequirementsRepository loadFromResource(String resourcePath) {
-        Gson gson = BundledGson.get();
-        try (Reader reader = new InputStreamReader(requireResource(resourcePath), StandardCharsets.UTF_8)) {
-            Type mapType = new TypeToken<Map<String, Map<String, Number>>>() {
-            }.getType();
-            Map<String, Map<String, Number>> raw = gson.fromJson(reader, mapType);
-            HashMap<Integer, Map<String, Integer>> parsed = new HashMap<>();
-            if (raw != null) {
-                for (Map.Entry<String, Map<String, Number>> e : raw.entrySet()) {
-                    Map<String, Number> reqs = e.getValue();
-                    if (reqs == null || reqs.isEmpty()) {
-                        continue;
-                    }
-                    int itemId;
-                    try {
-                        itemId = Integer.parseInt(e.getKey().trim());
-                    } catch (NumberFormatException ignored) {
-                        continue; // non-numeric key — skip defensively
-                    }
-                    Map<String, Integer> levels = new LinkedHashMap<>();
-                    for (Map.Entry<String, Number> r : reqs.entrySet()) {
-                        if (r.getKey() != null && r.getValue() != null) {
-                            levels.put(r.getKey().toLowerCase(Locale.ROOT), r.getValue().intValue());
-                        }
-                    }
-                    if (!levels.isEmpty()) {
-                        parsed.put(itemId, Collections.unmodifiableMap(levels));
+        Type mapType = new TypeToken<Map<String, Map<String, Number>>>() {
+        }.getType();
+        Map<String, Map<String, Number>> raw = CombatDataLoader.parse(EquipmentRequirementsRepository.class, resourcePath, mapType);
+        HashMap<Integer, Map<String, Integer>> parsed = new HashMap<>();
+        if (raw != null) {
+            for (Map.Entry<String, Map<String, Number>> e : raw.entrySet()) {
+                Map<String, Number> reqs = e.getValue();
+                if (reqs == null || reqs.isEmpty()) {
+                    continue;
+                }
+                int itemId;
+                try {
+                    itemId = Integer.parseInt(e.getKey().trim());
+                } catch (NumberFormatException ignored) {
+                    continue; // non-numeric key — skip defensively
+                }
+                Map<String, Integer> levels = new LinkedHashMap<>();
+                for (Map.Entry<String, Number> r : reqs.entrySet()) {
+                    if (r.getKey() != null && r.getValue() != null) {
+                        levels.put(r.getKey().toLowerCase(Locale.ROOT), r.getValue().intValue());
                     }
                 }
+                if (!levels.isEmpty()) {
+                    parsed.put(itemId, Collections.unmodifiableMap(levels));
+                }
             }
-            return new EquipmentRequirementsRepository(parsed);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to load equipment requirements data from " + resourcePath, e);
         }
-    }
-
-    private static InputStream requireResource(String resourcePath) {
-        InputStream in = EquipmentRequirementsRepository.class.getResourceAsStream(resourcePath);
-        if (in == null) {
-            throw new IllegalStateException("Bundled resource not found on classpath: " + resourcePath);
-        }
-        return in;
+        return new EquipmentRequirementsRepository(parsed);
     }
 
     public int size() {

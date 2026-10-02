@@ -162,13 +162,13 @@ public class GearSectionOwnedOnlyBlockedLabelClearsTest
 
 			section.apply(snapshotWith(gearWithBoots(RANDOM_UNRELATED_BOOTS)));
 			pickMonster(section, "Rune dragon");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertTrue("sanity: the blocked message must be showing before the target switch",
 				section.ownedOnlyBlockedLabel.isVisible());
 
 			pickMonster(section, "Cerberus");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertFalse("the stale blocked message from the Rune dragon search must be hidden "
 					+ "once a non-blocked result for a different target lands",

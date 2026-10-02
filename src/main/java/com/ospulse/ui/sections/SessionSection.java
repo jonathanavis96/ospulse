@@ -1,23 +1,15 @@
 package com.ospulse.ui.sections;
 
 import com.ospulse.session.SessionSnapshot;
-import com.ospulse.ui.CollapsibleSection;
-import com.ospulse.ui.GpFormat;
-import com.ospulse.ui.PanelWidgets;
-import com.ospulse.ui.category.CategoryOverlay;
-import com.ospulse.ui.category.CategorySectionSupport;
+import com.ospulse.ui.*;
+import com.ospulse.ui.category.*;
 
 import net.runelite.api.Client;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.ui.overlay.OverlayManager;
-import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
+import net.runelite.client.ui.*;
 
-import javax.swing.BoxLayout;
-import javax.swing.JCheckBox;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import java.awt.Component;
+import javax.swing.*;
 import java.util.List;
 
 /**
@@ -131,10 +123,7 @@ public final class SessionSection extends CollapsibleSection
 		// Rows 1-6 (+ Profit/hr) of the LOCKED layout live in their own panel so
 		// the "Show breakdown" toggle can hide them as one block while leaving
 		// Elapsed and the Net worth change total (row 8) always visible.
-		breakdownPanel = new JPanel();
-		breakdownPanel.setLayout(new BoxLayout(breakdownPanel, BoxLayout.Y_AXIS));
-		breakdownPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		breakdownPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		breakdownPanel = PanelWidgets.vbox();
 		body().add(breakdownPanel);
 
 		// 1. Loot — gross realised gains (loot + trade P&L), before the cost of
@@ -210,6 +199,15 @@ public final class SessionSection extends CollapsibleSection
 		lastRawGePositions = rawGePositions;
 		lastRawBankDelta = rawBankDelta;
 
+		// Capture any just-reset baselines BEFORE rendering, so a reset row
+		// reads 0 on this snapshot rather than one snapshot later.
+		rebaseIfJustReset(CAT_PROFIT, rawProfit, v -> profitBaseline = v);
+		rebaseIfJustReset(CAT_SUPPLIES, rawSuppliesUsed, v -> suppliesBaseline = v);
+		rebaseIfJustReset(CAT_NET_PROFIT, rawNetProfit, v -> netProfitBaseline = v);
+		rebaseIfJustReset(CAT_PROFIT_PER_HOUR, rawProfitPerHour, v -> profitPerHourBaseline = v);
+		rebaseIfJustReset(CAT_GE_PNL, rawGePnl, v -> gePnlBaseline = v);
+		rebaseNetWorthChangeIfJustReset(rawNetProfit, rawGePnl, rawGePositions, rawBankDelta);
+
 		if (!categorySupport.controller().isPaused(CAT_ELAPSED))
 		{
 			elapsedValue.setText(PanelWidgets.formatElapsed(elapsedMs));
@@ -247,13 +245,6 @@ public final class SessionSection extends CollapsibleSection
 			PanelWidgets.setSignedGpLabel(bankValue, rawBankDelta);
 		}
 
-		rebaseIfJustReset(CAT_PROFIT, rawProfit, v -> profitBaseline = v);
-		rebaseIfJustReset(CAT_SUPPLIES, rawSuppliesUsed, v -> suppliesBaseline = v);
-		rebaseIfJustReset(CAT_NET_PROFIT, rawNetProfit, v -> netProfitBaseline = v);
-		rebaseIfJustReset(CAT_PROFIT_PER_HOUR, rawProfitPerHour, v -> profitPerHourBaseline = v);
-		rebaseIfJustReset(CAT_GE_PNL, rawGePnl, v -> gePnlBaseline = v);
-		rebaseNetWorthChangeIfJustReset(rawNetProfit, rawGePnl, rawGePositions, rawBankDelta);
-
 		refreshNetWorthChange();
 		refreshSummary();
 	}
@@ -267,20 +258,12 @@ public final class SessionSection extends CollapsibleSection
 	private void rebaseNetWorthChangeIfJustReset(long rawNetProfit, long rawGePnl,
 		long rawGePositions, long rawBankDelta)
 	{
-		int epoch = categorySupport.controller().resetEpoch(CAT_NET_WORTH_DELTA);
-		Integer lastEpoch = lastSeenEpoch.get(CAT_NET_WORTH_DELTA);
-		if (lastEpoch == null)
-		{
-			lastSeenEpoch.put(CAT_NET_WORTH_DELTA, epoch);
-			return;
-		}
-		if (epoch != lastEpoch)
+		if (categorySupport.justReset(CAT_NET_WORTH_DELTA))
 		{
 			nwProfitBaseline = rawNetProfit;
 			nwGeFlipBaseline = rawGePnl;
 			nwGePositionsBaseline = rawGePositions;
 			nwBankBaseline = rawBankDelta;
-			lastSeenEpoch.put(CAT_NET_WORTH_DELTA, epoch);
 		}
 	}
 
@@ -325,22 +308,11 @@ public final class SessionSection extends CollapsibleSection
 		return total;
 	}
 
-	/** Reset-epoch tracking per category, so a baseline is captured exactly once per "Reset" click. */
-	private final java.util.Map<String, Integer> lastSeenEpoch = new java.util.HashMap<>();
-
 	private void rebaseIfJustReset(String categoryId, long rawValue, java.util.function.LongConsumer setBaseline)
 	{
-		int epoch = categorySupport.controller().resetEpoch(categoryId);
-		Integer lastEpoch = lastSeenEpoch.get(categoryId);
-		if (lastEpoch == null)
-		{
-			lastSeenEpoch.put(categoryId, epoch);
-			return;
-		}
-		if (epoch != lastEpoch)
+		if (categorySupport.justReset(categoryId))
 		{
 			setBaseline.accept(rawValue);
-			lastSeenEpoch.put(categoryId, epoch);
 		}
 	}
 
@@ -382,7 +354,6 @@ public final class SessionSection extends CollapsibleSection
 		lastRawGePnl = 0;
 		lastRawGePositions = 0;
 		lastRawBankDelta = 0;
-		lastSeenEpoch.clear();
 		categorySupport.clearAll();
 		refreshSummary();
 	}

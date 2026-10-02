@@ -1,16 +1,7 @@
 package com.ospulse.combat;
 
-import com.google.gson.Gson;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 /**
  * Loads the bundled, hand-curated "both-locations" monster list ({@code
@@ -34,7 +25,8 @@ import java.util.List;
 public final class WildernessVariantMonsterRepository {
     private static final String RESOURCE_PATH = "/com/ospulse/combat/wilderness_variant_monsters.json";
 
-    private static volatile WildernessVariantMonsterRepository instance;
+    private static final CombatDataLoader.Lazy<WildernessVariantMonsterRepository> INSTANCE =
+            new CombatDataLoader.Lazy<>(() -> loadFromResource(RESOURCE_PATH));
 
     private final List<Variant> variants;
 
@@ -65,45 +57,23 @@ public final class WildernessVariantMonsterRepository {
 
     /** Shared, lazily-initialised singleton loaded from the bundled resource. */
     public static WildernessVariantMonsterRepository getInstance() {
-        WildernessVariantMonsterRepository result = instance;
-        if (result == null) {
-            synchronized (WildernessVariantMonsterRepository.class) {
-                result = instance;
-                if (result == null) {
-                    instance = result = loadFromResource(RESOURCE_PATH);
-                }
-            }
-        }
-        return result;
+        return INSTANCE.get();
     }
 
     /** Loads a repository from an arbitrary classpath resource (mainly for tests). */
     static WildernessVariantMonsterRepository loadFromResource(String resourcePath) {
-        Gson gson = BundledGson.get();
-        try (Reader reader = new InputStreamReader(requireResource(resourcePath), StandardCharsets.UTF_8)) {
-            RootDto root = gson.fromJson(reader, RootDto.class);
-            List<Variant> parsed = new ArrayList<>();
-            if (root != null && root.variants != null) {
-                for (VariantDto dto : root.variants) {
-                    if (dto.baseMonster == null || dto.baseMonster.isEmpty()
-                            || dto.displayName == null || dto.displayName.isEmpty()) {
-                        continue; // malformed entry - treated as "no data"
-                    }
-                    parsed.add(new Variant(dto.baseMonster, dto.displayName));
+        RootDto root = CombatDataLoader.parse(WildernessVariantMonsterRepository.class, resourcePath, RootDto.class);
+        List<Variant> parsed = new ArrayList<>();
+        if (root != null && root.variants != null) {
+            for (VariantDto dto : root.variants) {
+                if (dto.baseMonster == null || dto.baseMonster.isEmpty()
+                        || dto.displayName == null || dto.displayName.isEmpty()) {
+                    continue; // malformed entry - treated as "no data"
                 }
+                parsed.add(new Variant(dto.baseMonster, dto.displayName));
             }
-            return new WildernessVariantMonsterRepository(parsed);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to load wilderness variant monster data from " + resourcePath, e);
         }
-    }
-
-    private static InputStream requireResource(String resourcePath) {
-        InputStream in = WildernessVariantMonsterRepository.class.getResourceAsStream(resourcePath);
-        if (in == null) {
-            throw new IllegalStateException("Bundled resource not found on classpath: " + resourcePath);
-        }
-        return in;
+        return new WildernessVariantMonsterRepository(parsed);
     }
 
     public int size() {

@@ -1,8 +1,6 @@
 package com.ospulse.ui.sections.gear;
 
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Pure decision logic for the P2-A fix (Codex finding on PR #19, {@code

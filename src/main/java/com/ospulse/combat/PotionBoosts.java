@@ -26,11 +26,6 @@ final class PotionBoosts {
         return baseLevel + 4 + (int) Math.floor(baseLevel * 0.1);
     }
 
-    /** Imbued heart: best readily-repeatable magic accuracy boost (saturated heart's +3 is a Tier-B refinement). */
-    static int bestMagicBoostedLevel(int baseLevel) {
-        return imbuedHeartBoostedLevel(baseLevel);
-    }
-
     /** Imbued heart (Invigorate): {@code 1 + floor(level * 0.1)}. */
     static int imbuedHeartBoostedLevel(int baseLevel) {
         return baseLevel + (int) Math.floor(baseLevel * 0.1) + 1;

@@ -9,6 +9,8 @@ package com.ospulse.xp;
  * <p>Pure DTO — no RuneLite types — computed by the integration layer and
  * carried on the session snapshot for the panel to render.
  */
+@lombok.Getter
+@lombok.AllArgsConstructor
 public final class XpSkillView
 {
 	private final String skillName;
@@ -24,63 +26,4 @@ public final class XpSkillView
 	/** Fraction of the current level completed, 0..1; 1.0 once maxed at 126. */
 	private final double progressToNextLevel;
 
-	public XpSkillView(
-		String skillName,
-		long gained,
-		long xpPerHour,
-		long currentXp,
-		int currentLevel,
-		long xpLeft,
-		long actionsLeft,
-		double progressToNextLevel)
-	{
-		this.skillName = skillName;
-		this.gained = gained;
-		this.xpPerHour = xpPerHour;
-		this.currentXp = currentXp;
-		this.currentLevel = currentLevel;
-		this.xpLeft = xpLeft;
-		this.actionsLeft = actionsLeft;
-		this.progressToNextLevel = progressToNextLevel;
-	}
-
-	public String getSkillName()
-	{
-		return skillName;
-	}
-
-	public long getGained()
-	{
-		return gained;
-	}
-
-	public long getXpPerHour()
-	{
-		return xpPerHour;
-	}
-
-	public long getCurrentXp()
-	{
-		return currentXp;
-	}
-
-	public int getCurrentLevel()
-	{
-		return currentLevel;
-	}
-
-	public long getXpLeft()
-	{
-		return xpLeft;
-	}
-
-	public long getActionsLeft()
-	{
-		return actionsLeft;
-	}
-
-	public double getProgressToNextLevel()
-	{
-		return progressToNextLevel;
-	}
 }

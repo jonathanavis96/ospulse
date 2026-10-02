@@ -17,11 +17,10 @@ import java.util.Map;
  * The {@link #getLoot()} list is aggregated per item and ordered by total
  * value descending (index 0 = most valuable item this session).
  */
+@Getter
 public final class SessionSnapshot
 {
-	@Getter
 	private final long startMs;
-	@Getter
 	private final long elapsedMs;
 	/**
 	 * Session "Loot": gp value of items actually picked up — realised wealth
@@ -32,11 +31,8 @@ public final class SessionSnapshot
 	 * zero even when the feed shows drops. Selling looted items is not a flip, so
 	 * that value stays here.
 	 */
-	@Getter
 	private final long lootValue;
-	@Getter
 	private final long profitPerHour;
-	@Getter
 	private final long geRealizedPnl;
 	/**
 	 * "Net worth change" — the LOCKED session-panel model: the SUM of {@code
@@ -49,44 +45,34 @@ public final class SessionSnapshot
 	 * Bank (default both on) is display-only and subtracts the relevant raw
 	 * component when rendering, never mutating this value.
 	 */
-	@Getter
 	private final long netWorthDelta;
-	@Getter
 	private final boolean bankKnown;
 	/**
 	 * Loot aggregated per item (one row per distinct item, quantities and
 	 * values summed across the session), ordered by total value descending.
 	 */
-	@Getter
 	private final List<LootEntry> loot;
-	@Getter
 	private final Map<String, Long> xpGained;
-	@Getter
 	private final long xpTotal;
-	@Getter
 	private final WealthSnapshot wealth;
 	/**
 	 * Active Grand Exchange offers (buy/sell), for the panel's GE breakdown.
 	 * Empty when there are no active offers.
 	 */
-	@Getter
 	private final List<GeOfferView> geOffers;
 	/**
 	 * Loot grouped by source (NPC/boss/activity), ordered by total value
 	 * descending — the collapsible Loot-Tracker-style feed. Empty when nothing
 	 * has been looted yet this session.
 	 */
-	@Getter
 	private final List<SourceLoot> lootSources;
 	/**
 	 * Per-skill XP progress views (gained, rate, xp/actions left, level
 	 * progress), ordered by XP gained descending. Empty until the integration
 	 * layer supplies them (e.g. before the first XP gain of the session).
 	 */
-	@Getter
 	private final List<XpSkillView> xpSkills;
 	/** Overall XP gained per hour across all skills; 0 while elapsed is 0. */
-	@Getter
 	private final long xpPerHour;
 	/**
 	 * Live worn gear + boosted levels + active prayers for the Gear/DPS
@@ -94,14 +80,12 @@ public final class SessionSnapshot
 	 * {@link GearSnapshot#empty()} for snapshots built before that plumbing
 	 * existed (older constructors) or before the first live read.
 	 */
-	@Getter
 	private final GearSnapshot gear;
 	/**
 	 * Total unrealized P/L: current holdings valued at live price minus their
 	 * session cost basis. Pure price drift on held items moves this figure —
 	 * never {@link #getLootValue()}, which is realised activity only.
 	 */
-	@Getter
 	private final long unrealizedPnl;
 	/**
 	 * Per-holding unrealized P/L breakdown (cost basis vs current value per
@@ -109,7 +93,6 @@ public final class SessionSnapshot
 	 * sum to {@link #getUnrealizedPnl()}. Empty when nothing is held or the
 	 * engine predates cost-basis tracking (older constructors).
 	 */
-	@Getter
 	private final List<HoldingPnl> holdingPnls;
 	/**
 	 * Running session total (gp value) of consumable supplies used
@@ -121,7 +104,6 @@ public final class SessionSnapshot
 	 * reduction already visible in loot value. Zero for snapshots built before
 	 * this tracking existed (older constructors).
 	 */
-	@Getter
 	private final long suppliesUsed;
 	/**
 	 * "GE positions" — the LOCKED session-panel model's unrealised
@@ -135,7 +117,6 @@ public final class SessionSnapshot
 	 * #getNetWorthDelta()}; a session-panel toggle (default on) may exclude it
 	 * from the displayed "Net worth change" without affecting this raw value.
 	 */
-	@Getter
 	private final long gePositions;
 	/**
 	 * "Bank" — the LOCKED session-panel model's bank component: current bank
@@ -147,7 +128,6 @@ public final class SessionSnapshot
 	 * session-panel toggle (default on) may exclude it from the displayed "Net
 	 * worth change" without affecting this raw value.
 	 */
-	@Getter
 	private final long bankDelta;
 	/**
 	 * Session-cumulative profit/loss of skilling episodes: what conversion
@@ -156,7 +136,6 @@ public final class SessionSnapshot
 	 * loss. Folded into {@link #getNetProfit()}; exposed separately for
 	 * diagnostics and display, NOT as a fifth net-worth component.
 	 */
-	@Getter
 	private final long episodePnl;
 
 	/**
@@ -178,58 +157,7 @@ public final class SessionSnapshot
 	{
 		this(startMs, elapsedMs, lootValue, profitPerHour, geRealizedPnl, netWorthDelta,
 			bankKnown, loot, xpGained, xpTotal, wealth, Collections.emptyList(),
-			Collections.emptyList());
-	}
-
-	/**
-	 * Backward-compatible constructor: no per-skill XP views / overall XP rate.
-	 * Delegates to the full constructor with empty defaults.
-	 */
-	public SessionSnapshot(
-		long startMs,
-		long elapsedMs,
-		long lootValue,
-		long profitPerHour,
-		long geRealizedPnl,
-		long netWorthDelta,
-		boolean bankKnown,
-		List<LootEntry> loot,
-		Map<String, Long> xpGained,
-		long xpTotal,
-		WealthSnapshot wealth,
-		List<GeOfferView> geOffers,
-		List<SourceLoot> lootSources)
-	{
-		this(startMs, elapsedMs, lootValue, profitPerHour, geRealizedPnl, netWorthDelta,
-			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
-			Collections.emptyList(), 0L);
-	}
-
-	/**
-	 * Backward-compatible constructor: no {@link GearSnapshot}. Delegates to the
-	 * full constructor with {@code gear = null}, which is normalised to
-	 * {@link GearSnapshot#empty()}.
-	 */
-	public SessionSnapshot(
-		long startMs,
-		long elapsedMs,
-		long lootValue,
-		long profitPerHour,
-		long geRealizedPnl,
-		long netWorthDelta,
-		boolean bankKnown,
-		List<LootEntry> loot,
-		Map<String, Long> xpGained,
-		long xpTotal,
-		WealthSnapshot wealth,
-		List<GeOfferView> geOffers,
-		List<SourceLoot> lootSources,
-		List<XpSkillView> xpSkills,
-		long xpPerHour)
-	{
-		this(startMs, elapsedMs, lootValue, profitPerHour, geRealizedPnl, netWorthDelta,
-			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
-			xpSkills, xpPerHour, null);
+			Collections.emptyList(), Collections.emptyList(), 0L, null);
 	}
 
 	/**
@@ -257,32 +185,7 @@ public final class SessionSnapshot
 	{
 		this(startMs, elapsedMs, lootValue, profitPerHour, geRealizedPnl, netWorthDelta,
 			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
-			xpSkills, xpPerHour, gear, 0L, Collections.emptyList());
-	}
-
-	public SessionSnapshot(
-		long startMs,
-		long elapsedMs,
-		long lootValue,
-		long profitPerHour,
-		long geRealizedPnl,
-		long netWorthDelta,
-		boolean bankKnown,
-		List<LootEntry> loot,
-		Map<String, Long> xpGained,
-		long xpTotal,
-		WealthSnapshot wealth,
-		List<GeOfferView> geOffers,
-		List<SourceLoot> lootSources,
-		List<XpSkillView> xpSkills,
-		long xpPerHour,
-		GearSnapshot gear,
-		long unrealizedPnl,
-		List<HoldingPnl> holdingPnls)
-	{
-		this(startMs, elapsedMs, lootValue, profitPerHour, geRealizedPnl, netWorthDelta,
-			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
-			xpSkills, xpPerHour, gear, unrealizedPnl, holdingPnls, 0L);
+			xpSkills, xpPerHour, gear, 0L, Collections.emptyList(), 0L);
 	}
 
 	/**
@@ -312,7 +215,7 @@ public final class SessionSnapshot
 	{
 		this(startMs, elapsedMs, lootValue, profitPerHour, geRealizedPnl, netWorthDelta,
 			bankKnown, loot, xpGained, xpTotal, wealth, geOffers, lootSources,
-			xpSkills, xpPerHour, gear, unrealizedPnl, holdingPnls, suppliesUsed, 0L, 0L);
+			xpSkills, xpPerHour, gear, unrealizedPnl, holdingPnls, suppliesUsed, 0L, 0L, 0L);
 	}
 
 	/**
@@ -392,29 +295,19 @@ public final class SessionSnapshot
 		this.geRealizedPnl = geRealizedPnl;
 		this.netWorthDelta = netWorthDelta;
 		this.bankKnown = bankKnown;
-		this.loot = loot == null
-			? Collections.emptyList()
-			: Collections.unmodifiableList(new ArrayList<>(loot));
+		this.loot = copy(loot);
 		this.xpGained = xpGained == null
 			? Collections.emptyMap()
 			: Collections.unmodifiableMap(new LinkedHashMap<>(xpGained));
 		this.xpTotal = xpTotal;
 		this.wealth = wealth;
-		this.geOffers = geOffers == null
-			? Collections.emptyList()
-			: Collections.unmodifiableList(new ArrayList<>(geOffers));
-		this.lootSources = lootSources == null
-			? Collections.emptyList()
-			: Collections.unmodifiableList(new ArrayList<>(lootSources));
-		this.xpSkills = xpSkills == null
-			? Collections.emptyList()
-			: Collections.unmodifiableList(new ArrayList<>(xpSkills));
+		this.geOffers = copy(geOffers);
+		this.lootSources = copy(lootSources);
+		this.xpSkills = copy(xpSkills);
 		this.xpPerHour = xpPerHour;
 		this.gear = gear == null ? GearSnapshot.empty() : gear;
 		this.unrealizedPnl = unrealizedPnl;
-		this.holdingPnls = holdingPnls == null
-			? Collections.emptyList()
-			: Collections.unmodifiableList(new ArrayList<>(holdingPnls));
+		this.holdingPnls = copy(holdingPnls);
 		this.suppliesUsed = suppliesUsed;
 		this.gePositions = gePositions;
 		this.bankDelta = bankDelta;
@@ -438,5 +331,10 @@ public final class SessionSnapshot
 	public long getNetProfit()
 	{
 		return lootValue - suppliesUsed + episodePnl;
+	}
+
+	private static <T> List<T> copy(List<T> list)
+	{
+		return list == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(list));
 	}
 }

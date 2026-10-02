@@ -1,8 +1,6 @@
 package com.ospulse.ui.sections.gear;
 
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.function.LongUnaryOperator;
 
 /**

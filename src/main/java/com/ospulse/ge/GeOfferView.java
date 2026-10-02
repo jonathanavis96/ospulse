@@ -1,7 +1,6 @@
 package com.ospulse.ge;
 
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
+import lombok.*;
 
 import java.util.OptionalLong;
 

@@ -147,7 +147,7 @@ public class GearSectionOverrideOwnershipNoteTest
 			section.apply(snapshotWith(gearWithBoots(RANDOM_UNRELATED_BOOTS)));
 			pickMonster(section, "Rune dragon");
 
-			List<String> notes = section.gearOverrideNoteTextsForTest();
+			List<String> notes = GearSectionTestOps.gearOverrideNoteTextsForTest(section);
 			assertEquals("exactly one advisory line for the Rune dragon boots override", 1, notes.size());
 			assertTrue("must name the required item",
 				notes.get(0).contains("Insulated boots"));
@@ -165,7 +165,7 @@ public class GearSectionOverrideOwnershipNoteTest
 			section.apply(snapshotWith(gearWithBoots(INSULATED_BOOTS)));
 			pickMonster(section, "Rune dragon");
 
-			List<String> notes = section.gearOverrideNoteTextsForTest();
+			List<String> notes = GearSectionTestOps.gearOverrideNoteTextsForTest(section);
 			assertEquals(1, notes.size());
 			assertTrue("must still name the required item", notes.get(0).contains("Insulated boots"));
 			assertTrue("must NOT disclose 'not owned' when the boots are actually worn: " + notes.get(0),

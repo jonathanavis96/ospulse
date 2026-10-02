@@ -24,6 +24,8 @@ import static org.junit.Assert.assertEquals;
  * Defence and +60 slash defence bonus, 4-tick weapon.
  */
 public class MeleeDpsWorkedExampleTest {
+    static { BundledGson.set(new com.google.gson.Gson()); }
+
     private static final double DELTA = 1e-9;
 
     @Test

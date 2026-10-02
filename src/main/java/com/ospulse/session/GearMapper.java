@@ -1,10 +1,13 @@
 package com.ospulse.session;
 
+import com.ospulse.combat.AmmoCompatibility;
 import com.ospulse.combat.CombatIcons;
 import com.ospulse.combat.EquipmentStats;
 import com.ospulse.combat.OffensivePrayer;
 import com.ospulse.combat.PlayerCombat;
 import com.ospulse.combat.Stance;
+
+import static com.ospulse.session.GearVariants.*;
 
 /**
  * Pure mapping helpers between the plugin's own snapshot/session types and
@@ -135,7 +138,7 @@ public final class GearMapper
 									int blowpipeDartRangedStrength)
 	{
 		int weaponItemId = slotItemId(equippedItemIds, weaponSlotIndex);
-		boolean weaponIsBlowpipe = GearVariants.isBlowpipe(weaponItemId);
+		boolean weaponIsBlowpipe = isBlowpipe(weaponItemId);
 
 		EquipmentStats.Builder builder = EquipmentStats.builder();
 		for (int slot = 0; slot < equippedItemIds.length; slot++)
@@ -150,7 +153,7 @@ public final class GearMapper
 			{
 				continue;
 			}
-			if (slot == AMMO_SLOT && !com.ospulse.combat.AmmoCompatibility.wornAmmoContributes(weaponItemId, itemId))
+			if (slot == AMMO_SLOT && !AmmoCompatibility.wornAmmoContributes(weaponItemId, itemId))
 			{
 				// Consumable ammo the weapon can't fire (e.g. javelins on a bow) contributes nothing.
 				continue;
@@ -178,34 +181,29 @@ public final class GearMapper
 			builder.add(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, blowpipeDartRangedStrength, 0.0, 0);
 		}
 
-		builder.salveType(GearVariants.salveTypeFor(slotItemId(equippedItemIds, SLOT_AMULET)));
-		builder.slayerHeadgear(GearVariants.slayerHeadgearFor(slotItemId(equippedItemIds, SLOT_HEAD)));
-		builder.demonbaneWeapon(GearVariants.demonbaneWeaponFor(weaponItemId));
-		builder.dragonHunterWeapon(GearVariants.dragonHunterWeaponFor(weaponItemId));
-		builder.twistedBow(GearVariants.isTwistedBow(weaponItemId));
-		builder.osmumtensFang(GearVariants.isOsmumtensFang(weaponItemId));
-		builder.twinflameStaff(GearVariants.isTwinflameStaff(weaponItemId));
-		builder.harmonisedNightmareStaff(GearVariants.isHarmonisedNightmareStaff(weaponItemId));
-		builder.poweredStaff(GearVariants.poweredStaffFor(weaponItemId));
-		builder.tonalzticsOfRalosCharged(GearVariants.isTonalzticsOfRalosCharged(weaponItemId));
-		builder.tonalzticsOfRalosUncharged(GearVariants.isTonalzticsOfRalosUncharged(weaponItemId));
-		builder.scytheOfVitur(GearVariants.isScytheOfVitur(weaponItemId));
-		builder.colossalBlade(GearVariants.isColossalBlade(weaponItemId));
-		builder.kerisPartisan(GearVariants.kerisPartisanFor(weaponItemId));
-		builder.revenantWeapon(GearVariants.revenantWeaponFor(weaponItemId));
-		builder.crystalSetBonusActive(GearVariants.isActiveCrystalBowOrFaerdhinen(weaponItemId)
-			&& GearVariants.isActiveCrystalArmourSet(
-				slotItemId(equippedItemIds, SLOT_HEAD),
-				slotItemId(equippedItemIds, SLOT_BODY),
-				slotItemId(equippedItemIds, SLOT_LEGS)));
-		builder.tome(GearVariants.tomeFor(slotItemId(equippedItemIds, SLOT_SHIELD)));
-		builder.voidSet(GearVariants.voidSetFor(
-			slotItemId(equippedItemIds, SLOT_HEAD),
-			slotItemId(equippedItemIds, SLOT_BODY),
-			slotItemId(equippedItemIds, SLOT_LEGS),
-			slotItemId(equippedItemIds, SLOT_GLOVES)));
-
-		return builder.build();
+		int head = slotItemId(equippedItemIds, SLOT_HEAD);
+		int body = slotItemId(equippedItemIds, SLOT_BODY);
+		int legs = slotItemId(equippedItemIds, SLOT_LEGS);
+		int w = weaponItemId;
+		return builder.salveType(salveTypeFor(slotItemId(equippedItemIds, SLOT_AMULET)))
+			.slayerHeadgear(slayerHeadgearFor(head))
+			.demonbaneWeapon(demonbaneWeaponFor(w))
+			.dragonHunterWeapon(dragonHunterWeaponFor(w))
+			.twistedBow(isTwistedBow(w))
+			.osmumtensFang(isOsmumtensFang(w))
+			.twinflameStaff(isTwinflameStaff(w))
+			.harmonisedNightmareStaff(isHarmonisedNightmareStaff(w))
+			.poweredStaff(poweredStaffFor(w))
+			.tonalzticsOfRalosCharged(isTonalzticsOfRalosCharged(w))
+			.tonalzticsOfRalosUncharged(isTonalzticsOfRalosUncharged(w))
+			.scytheOfVitur(isScytheOfVitur(w))
+			.colossalBlade(isColossalBlade(w))
+			.kerisPartisan(kerisPartisanFor(w))
+			.revenantWeapon(revenantWeaponFor(w))
+			.crystalSetBonusActive(isActiveCrystalBowOrFaerdhinen(w) && isActiveCrystalArmourSet(head, body, legs))
+			.tome(tomeFor(slotItemId(equippedItemIds, SLOT_SHIELD)))
+			.voidSet(voidSetFor(head, body, legs, slotItemId(equippedItemIds, SLOT_GLOVES)))
+			.build();
 	}
 
 	/** {@code equippedItemIds[slot]}, or {@code -1} (empty) if {@code slot} is out of bounds. */

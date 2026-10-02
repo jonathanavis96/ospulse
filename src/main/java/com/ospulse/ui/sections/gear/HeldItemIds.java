@@ -4,10 +4,7 @@ import com.ospulse.model.ItemStack;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.wealth.WealthSnapshot;
 import com.ospulse.combat.EquipmentIndexRepository;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 
 /**
  * The indexed item ids the player PHYSICALLY holds — banked/valued holdings

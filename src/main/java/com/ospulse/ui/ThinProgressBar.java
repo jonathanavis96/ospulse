@@ -3,9 +3,7 @@ package com.ospulse.ui;
 import net.runelite.client.ui.ColorScheme;
 
 import javax.swing.JComponent;
-import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.Graphics;
+import java.awt.*;
 
 /**
  * A slim, flat horizontal progress bar in the RuneLite side-panel style: a dark

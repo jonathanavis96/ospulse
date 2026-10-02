@@ -4,11 +4,7 @@ import com.ospulse.combat.EquipmentIndexRepository;
 import com.ospulse.model.ItemStack;
 import com.ospulse.session.GearSnapshot;
 import com.ospulse.wealth.WealthSnapshot;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * For each plain item id the player owns only by CREDIT, the id of the held

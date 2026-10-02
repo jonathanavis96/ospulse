@@ -172,7 +172,7 @@ public class GearSectionOwnedOnlyMandatoryOverrideBlockTest
 
 			section.apply(snapshotWith(gearWithBoots(RANDOM_UNRELATED_BOOTS)));
 			pickMonster(section, "Rune dragon");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertTrue("the blocked message must be shown", section.ownedOnlyBlockedLabel.isVisible());
 			String message = section.ownedOnlyBlockedLabel.getText();
@@ -197,7 +197,7 @@ public class GearSectionOwnedOnlyMandatoryOverrideBlockTest
 
 			section.apply(snapshotWith(gearWithBoots(INSULATED_BOOTS)));
 			pickMonster(section, "Rune dragon");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertFalse("the blocked message must not show once the requirement is satisfied",
 				section.ownedOnlyBlockedLabel.isVisible());
@@ -216,7 +216,7 @@ public class GearSectionOwnedOnlyMandatoryOverrideBlockTest
 
 			section.apply(snapshotWith(gearWithBoots(RANDOM_UNRELATED_BOOTS)));
 			pickMonster(section, "Rune dragon");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertFalse("outside owned-only mode, the force-include behaviour is unchanged — never blocked",
 				section.ownedOnlyBlockedLabel.isVisible());

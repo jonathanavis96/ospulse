@@ -1,9 +1,7 @@
 package com.ospulse.ui.sections;
 
 import com.ospulse.session.SessionSnapshot;
-import com.ospulse.ui.CollapsibleSection;
-import com.ospulse.ui.GpFormat;
-import com.ospulse.ui.PanelWidgets;
+import com.ospulse.ui.*;
 import com.ospulse.wealth.WealthSnapshot;
 
 import javax.swing.JLabel;

@@ -71,7 +71,7 @@ package com.ospulse.combat;
  * twice the single-hit overkill and not a distribution built from the full
  * weapon max hit. Both hits share one convolution helper ({@link
  * #convolveAndOverkill}) fed a single-hit distribution ({@link
- * #uncappedPerHitDistribution} or its capped/re-rolled equivalents) built
+ * DamageDistribution#perHitDistribution} or its capped/re-rolled equivalents) built
  * from the SAME single-hit distribution the average functions consume (a
  * miss contributes a real, explicit {@code 0}, a landed hit contributes the
  * ordinary bumped-uniform-or-capped-or-rerolled pmf over {@code
@@ -160,8 +160,7 @@ final class TonalzticsDualHit {
         if (perHit <= 0 || targetHitpoints <= 0) {
             return 0.0;
         }
-        double[] perHitDist = uncappedPerHitDistribution(hitChance, perHit);
-        return convolveAndOverkill(perHitDist, targetHitpoints);
+        return convolveAndOverkill(DamageDistribution.perHitDistribution(hitChance, perHit), targetHitpoints);
     }
 
     /** Combined expected overkill for one attack cycle against a target that CLAMPS each hitsplat. */
@@ -177,13 +176,7 @@ final class TonalzticsDualHit {
         if (cap <= 0 || targetHitpoints <= 0 || perHit <= 0) {
             return 0.0;
         }
-        double[] capped = DamageDistribution.cappedHitsplatDistribution(perHit, cap);
-        double[] perHitDist = new double[cap + 1];
-        perHitDist[0] = 1.0 - hitChance;
-        for (int d = 1; d <= cap; d++) {
-            perHitDist[d] = hitChance * capped[d];
-        }
-        return convolveAndOverkill(perHitDist, targetHitpoints);
+        return convolveAndOverkill(DamageDistribution.cappedPerHitDistribution(hitChance, perHit, cap), targetHitpoints);
     }
 
     /** Combined expected overkill for one attack cycle against a target that RE-ROLLS each hitsplat above a cap. */
@@ -199,63 +192,19 @@ final class TonalzticsDualHit {
         if (cap <= 0 || targetHitpoints <= 0 || perHit <= 0) {
             return 0.0;
         }
-        double[] rerolled = DamageDistribution.rerolledHitsplatDistribution(perHit, cap);
-        double[] perHitDist = new double[cap + 1];
-        perHitDist[0] = (1.0 - hitChance) + hitChance * rerolled[0];
-        for (int d = 1; d <= cap; d++) {
-            perHitDist[d] = hitChance * rerolled[d];
-        }
-        return convolveAndOverkill(perHitDist, targetHitpoints);
-    }
-
-    /**
-     * One hit's full outcome distribution INCLUDING the miss probability at
-     * index 0 (unlike {@link DamageDistribution}'s "landed only" arrays,
-     * which sum to 1 over a genuine hit) — a miss (probability
-     * {@code 1 - hitChance}) contributes 0, and a landed hit
-     * (probability {@code hitChance}) contributes the ordinary
-     * "rolled 0 becomes 1" bumped-uniform pmf over {@code 1..maxHit} (here,
-     * {@code maxHit} is already the REDUCED {@link #perHitMaxHit}, not the
-     * raw calculated weapon max hit).
-     */
-    private static double[] uncappedPerHitDistribution(double hitChance, int maxHit) {
-        double[] p = new double[maxHit + 1];
-        p[0] = 1.0 - hitChance;
-        double denom = maxHit + 1.0;
-        p[1] = hitChance * 2.0 / denom;
-        for (int d = 2; d <= maxHit; d++) {
-            p[d] = hitChance / denom;
-        }
-        return p;
+        return convolveAndOverkill(DamageDistribution.rerolledPerHitDistribution(hitChance, perHit, cap), targetHitpoints);
     }
 
     /**
      * Convolves a single-hit outcome distribution (index 0 = miss/zero,
      * summing to 1 overall) with itself to get the two-hit combined
      * per-cycle distribution, then runs {@link
-     * DamageDistribution#overkillFromExplicitDistribution(double[], int[], int)}
+     * DamageDistribution#overkillFromExplicitDistribution(double[], int)}
      * over it (identity {@code amount[v] = v}, since both hits' raw values
      * are exactly the HP removed).
      */
     private static double convolveAndOverkill(double[] perHit, int targetHitpoints) {
-        int n = perHit.length - 1;
-        double[] combined = new double[2 * n + 1];
-        for (int a = 0; a <= n; a++) {
-            if (perHit[a] == 0.0) {
-                continue;
-            }
-            for (int b = 0; b <= n; b++) {
-                if (perHit[b] == 0.0) {
-                    continue;
-                }
-                combined[a + b] += perHit[a] * perHit[b];
-            }
-        }
-        int[] identity = new int[combined.length];
-        for (int v = 0; v < combined.length; v++) {
-            identity[v] = v;
-        }
-        return DamageDistribution.overkillFromExplicitDistribution(combined, identity, targetHitpoints);
+        return DamageDistribution.overkillFromExplicitDistribution(DamageDistribution.convolve(perHit, perHit), targetHitpoints);
     }
 
     /**
@@ -342,8 +291,6 @@ final class TonalzticsDualHit {
             avgDamage = cappedCombinedAverageDamageFromPerHit(hitChance, perHitMaxHit, cap);
             overkill = cappedCombinedExpectedOverkillFromPerHit(hitChance, perHitMaxHit, cap, targetHitpoints);
         }
-        double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
-        double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
-        return new DpsResult(visibleMaxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, false);
+        return DpsCalculator.result(visibleMaxHit, hitChance, avgDamage, overkill, weaponSpeedTicks, targetHitpoints, false);
     }
 }

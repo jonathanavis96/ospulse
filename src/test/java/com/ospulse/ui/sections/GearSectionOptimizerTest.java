@@ -155,7 +155,7 @@ public class GearSectionOptimizerTest
 			pickCerberus(section);
 
 			GearSectionTestOps.setBudgetText(section, "0");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertTrue(section.resultPanel.isVisible());
 			GearOptimizer.Result result = section.lastOptimizerResult;
@@ -183,7 +183,7 @@ public class GearSectionOptimizerTest
 			pickCerberus(section);
 
 			GearSectionTestOps.setBudgetText(section, "0");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
 			assertEquals(0L, result.totalSpend()); // owned, not purchased
@@ -301,7 +301,7 @@ public class GearSectionOptimizerTest
 			GearSectionTestOps.setBudgetText(section, "0");                // owned-only: the scimitar is the free de-risk target
 			section.expensiveCountField.setText("0");        // zero expensive items allowed
 			GearSectionTestOps.setExpensiveThresholdText(section, "50k");  // whip is expensive, scimitar is not
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
 			assertEquals("a worn 5m whip must be de-risked to the cheaper owned scimitar (the cap now sees its real value)",
@@ -323,7 +323,7 @@ public class GearSectionOptimizerTest
 			pickCerberus(section);
 
 			GearSectionTestOps.setBudgetText(section, "0");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 			section.applyResultToOverride();
 
 			assertEquals(DRAGON_SCIMITAR, section.override.itemIdFor(WhatIfLoadout.WEAPON_SLOT));
@@ -352,7 +352,7 @@ public class GearSectionOptimizerTest
 			pickCerberus(section);
 
 			GearSectionTestOps.setBudgetText(section, "0");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 			section.applyResultToOverride();
 			assertFalse(section.override.isEmpty());
 			assertTrue(section.resultPanel.isVisible());
@@ -398,7 +398,7 @@ public class GearSectionOptimizerTest
 			// A huge budget — but with no resolver wired in, nothing non-owned
 			// can ever be priced affordable, by design.
 			GearSectionTestOps.setBudgetText(section, "50m");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
 			assertEquals("no resolver: no non-owned item is ever priced affordable, so nothing is ever bought",
@@ -441,7 +441,7 @@ public class GearSectionOptimizerTest
 			pickCerberus(section);
 
 			GearSectionTestOps.setBudgetText(section, "100k");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
 			assertEquals("the resolver-priced, affordable scimitar upgrade must be bought",
@@ -477,7 +477,7 @@ public class GearSectionOptimizerTest
 			pickCerberus(section);
 
 			GearSectionTestOps.setBudgetText(section, "0");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
 			assertEquals("budget 0 must not buy anything even with a resolver wired in",
@@ -522,7 +522,7 @@ public class GearSectionOptimizerTest
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "100k");
 
-			section.findBestSetupButton.doClick();
+			section.findBestGridButton.doClick();
 
 			assertTrue("the Scorching bow's craft-ingredient id must be in the resolver's candidate "
 					+ "set so its GE price is available for the craft-ingredient budget exception",
@@ -563,14 +563,14 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "100k");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			// Each changed slot renders as [row, spacer] — see renderSwapList;
 			// only the weapon slot changes here, so exactly one row (+ its spacer).
 			assertEquals("expected exactly one swap row (the weapon upgrade) plus its spacer",
 				2, section.swapList.getComponentCount());
-			assertEquals(GearSection.NEEDS_PROTECTION_TINT, section.suggestedIconForTest(0).getBackground());
-			assertEquals(GearSection.NEEDS_PROTECTION_TOOLTIP, section.suggestedIconForTest(0).getToolTipText());
+			assertEquals(GearSection.NEEDS_PROTECTION_TINT, GearSectionTestOps.suggestedIconForTest(section, 0).getBackground());
+			assertEquals(GearSection.NEEDS_PROTECTION_TOOLTIP, GearSectionTestOps.suggestedIconForTest(section, 0).getToolTipText());
 		});
 	}
 
@@ -588,13 +588,13 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "100k");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertEquals(2, section.swapList.getComponentCount());
 			assertFalse("must not carry the needsProtection tint when not flagged",
-				GearSection.NEEDS_PROTECTION_TINT.equals(section.suggestedIconForTest(0).getBackground()));
+				GearSection.NEEDS_PROTECTION_TINT.equals(GearSectionTestOps.suggestedIconForTest(section, 0).getBackground()));
 			assertFalse("must not carry the exact needsProtection tooltip when not flagged",
-				GearSection.NEEDS_PROTECTION_TOOLTIP.equals(section.suggestedIconForTest(0).getToolTipText()));
+				GearSection.NEEDS_PROTECTION_TOOLTIP.equals(GearSectionTestOps.suggestedIconForTest(section, 0).getToolTipText()));
 		});
 	}
 
@@ -619,7 +619,7 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			// No target picked yet — clicking the REAL button must not crash and
 			// must not produce a result (the guard in runOptimizer()).
-			section.findBestSetupButton.doClick();
+			section.findBestGridButton.doClick();
 			assertEquals(null, section.lastOptimizerResult);
 			assertTrue(section.statusLabel.getText().toLowerCase(java.util.Locale.ROOT).contains("target"));
 		});
@@ -767,7 +767,7 @@ public class GearSectionOptimizerTest
 			GearSectionTestOps.setBudgetText(section, "0");
 			section.expensiveCountField.setText("2");
 			GearSectionTestOps.setExpensiveThresholdText(section, "10m");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
 			assertEquals(BRONZE_SWORD, weaponIdInResult(result));
@@ -799,14 +799,14 @@ public class GearSectionOptimizerTest
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "100k");
 
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 			assertEquals("sanity: the scimitar is suggested before any exclude",
 				DRAGON_SCIMITAR, weaponIdInResult(section.lastOptimizerResult));
 
 			section.excludeFromSuggestions(DRAGON_SCIMITAR);
 			assertTrue("excluded set must contain the item id", new java.util.LinkedHashSet<>(section.excludedItemIds).contains(DRAGON_SCIMITAR));
 
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 			GearOptimizer.Result afterExclude = section.lastOptimizerResult;
 			assertEquals("the excluded scimitar must never be suggested again",
 				BRONZE_SWORD, weaponIdInResult(afterExclude));
@@ -850,7 +850,7 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "100k");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.Result result = section.lastOptimizerResult;
 			long changedSlots = result.loadout().stream()
@@ -872,7 +872,7 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(ABYSSAL_WHIP)), null));
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "0"); // owned-only, nothing else owned -> whip must stay
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertEquals(ABYSSAL_WHIP, weaponIdInResult(section.lastOptimizerResult));
 			assertEquals(1, section.swapList.getComponentCount());
@@ -918,7 +918,7 @@ public class GearSectionOptimizerTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "0");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.PriceSource risk = section.lastRiskValueSource;
 			assertTrue("the risk source must be wired when the resolver supplies risk data", risk != null);
@@ -960,7 +960,7 @@ public class GearSectionOptimizerTest
 			pickCerberus(section);
 			section.excludeFromSuggestions(SARADOMIN_CAPE_DEADMAN);
 			GearSectionTestOps.setBudgetText(section, "0");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.PriceSource risk = section.lastRiskValueSource;
 			assertTrue("the risk source must be wired when the resolver supplies risk data", risk != null);
@@ -1051,7 +1051,7 @@ public class GearSectionOptimizerTest
 			GearSectionTestOps.setBudgetText(section, "5M");
 			GearSectionTestOps.setExpensiveThresholdText(section, "10M");
 			section.expensiveCountField.setText("0");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.PriceSource risk = section.lastRiskValueSource;
 			assertTrue("the risk source must be wired", risk != null);
@@ -1098,7 +1098,7 @@ public class GearSectionOptimizerTest
 			GearSectionTestOps.setBudgetText(section, "5M");
 			GearSectionTestOps.setExpensiveThresholdText(section, "10M");
 			section.expensiveCountField.setText("0");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertFalse("fixture sanity: the gate must actually be closed for this scenario to test anything",
 				section.riskCapApplies());
@@ -1150,7 +1150,7 @@ public class GearSectionOptimizerTest
 			GearSectionTestOps.setExpensiveThresholdText(section, "100k");
 			// 11 == GearOptimizer.SEARCHABLE_SLOTS.length: the cap cannot bind.
 			section.expensiveCountField.setText("11");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertEquals("with the cap unable to bind, the credit must stand — the plain id still reports "
 					+ "the held variant's risk because it is still credited, not bought",

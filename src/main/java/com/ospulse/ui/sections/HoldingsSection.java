@@ -3,32 +3,19 @@ package com.ospulse.ui.sections;
 import com.ospulse.OSPulseConfig;
 import com.ospulse.integration.PriceTrendService;
 import com.ospulse.model.ItemStack;
-import com.ospulse.session.HoldingPnl;
-import com.ospulse.session.SessionSnapshot;
-import com.ospulse.ui.CollapsibleSection;
-import com.ospulse.ui.GpFormat;
-import com.ospulse.ui.PanelWidgets;
+import com.ospulse.session.*;
+import com.ospulse.ui.*;
 import com.ospulse.wealth.WealthSnapshot;
 
 import net.runelite.api.Client;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.game.ItemManager;
-import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
+import net.runelite.client.ui.*;
 
-import javax.swing.BoxLayout;
-import javax.swing.JButton;
-import javax.swing.JPanel;
-import javax.swing.SwingUtilities;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
-import java.util.ArrayList;
-import java.util.HashMap;
+import javax.swing.*;
+import java.awt.*;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
-import java.util.OptionalDouble;
 
 /**
  * Top holdings: the most valuable items in the player's wealth. Collapsed
@@ -92,10 +79,7 @@ public final class HoldingsSection extends CollapsibleSection
 		this.client = client;
 		this.visibleCount = pageSize();
 
-		holdingsListPanel = new JPanel();
-		holdingsListPanel.setLayout(new BoxLayout(holdingsListPanel, BoxLayout.Y_AXIS));
-		holdingsListPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		holdingsListPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		holdingsListPanel = PanelWidgets.vbox();
 		body().add(holdingsListPanel);
 
 		moreButton = new JButton();
@@ -114,13 +98,10 @@ public final class HoldingsSection extends CollapsibleSection
 			render();
 		});
 
-		pagerRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
-		pagerRow.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		pagerRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+		pagerRow = PanelWidgets.panel(new FlowLayout(FlowLayout.LEFT, 6, 2));
 		pagerRow.add(moreButton);
 		pagerRow.add(lessButton);
-		pagerRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, pagerRow.getPreferredSize().height));
-		body().add(pagerRow);
+		body().add(PanelWidgets.capHeight(pagerRow));
 
 		if (priceTrendService != null)
 		{

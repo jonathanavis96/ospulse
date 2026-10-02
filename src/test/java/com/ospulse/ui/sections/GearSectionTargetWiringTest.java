@@ -163,8 +163,8 @@ public class GearSectionTargetWiringTest
 			section.apply(snapshotWith(meleeGear()));
 
 			assertNull("no monster may be pre-selected", section.selectedMonster);
-			assertEquals("-", section.plainTextForTest(section.dpsValue.getText()));
-			assertEquals("-", section.plainTextForTest(section.ttkValue.getText()));
+			assertEquals("-", GearSectionTestOps.plainTextForTest(section.dpsValue.getText()));
+			assertEquals("-", GearSectionTestOps.plainTextForTest(section.ttkValue.getText()));
 			assertEquals("Target: pick a monster above", section.targetLabel.getText());
 		});
 	}
@@ -199,8 +199,8 @@ public class GearSectionTargetWiringTest
 				gear.equipmentStats(), player, sel.type(),
 				MonsterRepository.getInstance().byName("Cerberus").get(), 20);
 
-			assertEquals(String.format(Locale.ROOT, "%.2f", expected.dps()), section.plainTextForTest(section.dpsValue.getText()));
-			assertEquals(formatTtk(expected.ttkSeconds()), section.plainTextForTest(section.ttkValue.getText()));
+			assertEquals(String.format(Locale.ROOT, "%.2f", expected.dps()), GearSectionTestOps.plainTextForTest(section.dpsValue.getText()));
+			assertEquals(formatTtk(expected.ttkSeconds()), GearSectionTestOps.plainTextForTest(section.ttkValue.getText()));
 
 			// Sanity for the historical bug: TTK must be on the 600-HP scale
 			// (hp / dps), NOT the ~12s of the old accidental 90-HP default.
@@ -212,7 +212,7 @@ public class GearSectionTargetWiringTest
 				expected.ttkSeconds() > 30.0);
 
 			System.out.printf(Locale.ROOT, "Cerberus check: dps=%.2f ttk=%.1fs (label \"%s\")%n",
-				expected.dps(), expected.ttkSeconds(), section.plainTextForTest(section.ttkValue.getText()));
+				expected.dps(), expected.ttkSeconds(), GearSectionTestOps.plainTextForTest(section.ttkValue.getText()));
 		});
 	}
 
@@ -298,14 +298,14 @@ public class GearSectionTargetWiringTest
 			section.monsterSearchField.setText("cerberus");
 			int index = indexOf(section.monsterList.getModel(), "Cerberus");
 			section.monsterList.setSelectedIndex(index);
-			String dpsBefore = section.plainTextForTest(section.dpsValue.getText());
+			String dpsBefore = GearSectionTestOps.plainTextForTest(section.dpsValue.getText());
 
 			// Narrow the filter so Cerberus vanishes from the visible list — the
 			// chosen target (and the numbers) must stick.
 			section.monsterSearchField.setText("zulrah");
 			assertEquals("Cerberus", section.selectedMonster.name());
 			assertEquals("Target: Cerberus", section.targetLabel.getText());
-			assertEquals(dpsBefore, section.plainTextForTest(section.dpsValue.getText()));
+			assertEquals(dpsBefore, GearSectionTestOps.plainTextForTest(section.dpsValue.getText()));
 		});
 	}
 }

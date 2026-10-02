@@ -54,7 +54,7 @@ final class KerisTripleRoll {
         if (maxHit <= 0 || targetHitpoints <= 0) {
             return 0.0;
         }
-        double[] displayed = uncappedPerHitDistribution(hitChance, maxHit);
+        double[] displayed = DamageDistribution.perHitDistribution(hitChance, maxHit);
         return overkillFromMixture(displayed, targetHitpoints);
     }
 
@@ -63,7 +63,7 @@ final class KerisTripleRoll {
         if (targetHitpoints <= 0) {
             return 0.0;
         }
-        double[] displayed = cappedPerHitDistribution(hitChance, uncappedMaxHit, cap);
+        double[] displayed = DamageDistribution.cappedPerHitDistribution(hitChance, uncappedMaxHit, cap);
         return overkillFromMixture(displayed, targetHitpoints);
     }
 
@@ -72,62 +72,8 @@ final class KerisTripleRoll {
         if (targetHitpoints <= 0) {
             return 0.0;
         }
-        double[] displayed = rerolledPerHitDistribution(hitChance, uncappedMaxHit, cap);
+        double[] displayed = DamageDistribution.rerolledPerHitDistribution(hitChance, uncappedMaxHit, cap);
         return overkillFromMixture(displayed, targetHitpoints);
-    }
-
-    /** One hit's outcome distribution (index 0 = miss, summing to 1): miss, or the ordinary bumped-uniform {@code 0..maxHit} roll. */
-    private static double[] uncappedPerHitDistribution(double hitChance, int maxHit) {
-        if (maxHit <= 0) {
-            double[] p = new double[2];
-            p[0] = 1.0 - hitChance;
-            p[1] = hitChance;
-            return p;
-        }
-        double[] p = new double[maxHit + 1];
-        p[0] = 1.0 - hitChance;
-        double denom = maxHit + 1.0;
-        p[1] = hitChance * 2.0 / denom;
-        for (int d = 2; d <= maxHit; d++) {
-            p[d] = hitChance / denom;
-        }
-        return p;
-    }
-
-    private static double[] cappedPerHitDistribution(double hitChance, int maxHit, int cap) {
-        if (maxHit <= 0 || cap >= maxHit) {
-            return uncappedPerHitDistribution(hitChance, maxHit);
-        }
-        if (cap <= 0) {
-            double[] p = new double[1];
-            p[0] = 1.0;
-            return p;
-        }
-        double[] capped = DamageDistribution.cappedHitsplatDistribution(maxHit, cap);
-        double[] p = new double[cap + 1];
-        p[0] = 1.0 - hitChance;
-        for (int d = 1; d <= cap; d++) {
-            p[d] = hitChance * capped[d];
-        }
-        return p;
-    }
-
-    private static double[] rerolledPerHitDistribution(double hitChance, int maxHit, int cap) {
-        if (maxHit <= 0 || cap >= maxHit) {
-            return uncappedPerHitDistribution(hitChance, maxHit);
-        }
-        if (cap <= 0) {
-            double[] p = new double[1];
-            p[0] = 1.0;
-            return p;
-        }
-        double[] rerolled = DamageDistribution.rerolledHitsplatDistribution(maxHit, cap);
-        double[] p = new double[cap + 1];
-        p[0] = (1.0 - hitChance) + hitChance * rerolled[0];
-        for (int d = 1; d <= cap; d++) {
-            p[d] = hitChance * rerolled[d];
-        }
-        return p;
     }
 
     /**
@@ -151,12 +97,7 @@ final class KerisTripleRoll {
     }
 
     private static double overkillFromMixture(double[] displayed, int targetHitpoints) {
-        double[] mixture = tripleMixture(displayed);
-        int[] identity = new int[mixture.length];
-        for (int v = 0; v < mixture.length; v++) {
-            identity[v] = v;
-        }
-        return DamageDistribution.overkillFromExplicitDistribution(mixture, identity, targetHitpoints);
+        return DamageDistribution.overkillFromExplicitDistribution(tripleMixture(displayed), targetHitpoints);
     }
 
     /**
@@ -185,14 +126,12 @@ final class KerisTripleRoll {
             overkill = cappedExpectedOverkill(hitChance, uncappedMaxHit, cap, targetHitpoints);
         }
         double avgDamage = averageDamage(baseAverage);
-        double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
-        double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
         // Deliberately returning visibleMaxHit (NOT 3x it) even though the 1/51
         // puncture roll can triple the landed damage: DpsResult#maxHit()'s
         // contract is the standard/displayed max hit, matching the wiki and
         // other calculators, not the true theoretical maximum with a rare proc
         // included - see that javadoc for the full rationale. The proc is
-        // still fully reflected in dps/avgDamage/ttkSeconds/overkill above.
-        return new DpsResult(visibleMaxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, false);
+        // still fully reflected in the result's dps/avgDamage/ttkSeconds/overkill.
+        return DpsCalculator.result(visibleMaxHit, hitChance, avgDamage, overkill, weaponSpeedTicks, targetHitpoints, false);
     }
 }

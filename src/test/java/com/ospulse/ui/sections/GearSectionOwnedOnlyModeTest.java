@@ -235,7 +235,7 @@ public class GearSectionOwnedOnlyModeTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "0");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertTrue("a usable result must still show the result panel",
 				section.resultPanel.isVisible());
@@ -272,7 +272,7 @@ public class GearSectionOwnedOnlyModeTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "0");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertTrue(section.resultPanel.isVisible());
 
@@ -302,7 +302,7 @@ public class GearSectionOwnedOnlyModeTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "0");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertTrue("sanity: budget column visible before the config change",
 				section.budgetColumn.isVisible());
@@ -348,7 +348,7 @@ public class GearSectionOwnedOnlyModeTest
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertFalse("budget column must be hidden while owned-only mode is on",
 				section.budgetColumn.isVisible());
@@ -404,7 +404,7 @@ public class GearSectionOwnedOnlyModeTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), wealth));
 			pickCerberus(section);
 			GearSectionTestOps.setBudgetText(section, "0");
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			// Sanity: a real result/preview exists before the mode flips on —
 			// B8-4's auto-preview already applied it to the what-if override.
@@ -446,7 +446,7 @@ public class GearSectionOwnedOnlyModeTest
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), null));
 			pickCerberus(section);
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertTrue("sanity: a result exists, computed while already owned-only",
 				section.lastOptimizerResult != null);
@@ -509,7 +509,7 @@ public class GearSectionOwnedOnlyModeTest
 			// sword -> Dragon scimitar upgrade), all while the generation
 			// token hasn't moved yet.
 			int staleGeneration = section.optimizerGeneration;
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 			GearOptimizer.Result staleResult = section.lastOptimizerResult;
 			assertTrue("sanity: a real usable result exists to stand in for the in-flight search",
 				staleResult != null && staleResult.style() != null);

@@ -1,10 +1,7 @@
 package com.ospulse.ui;
 
-import java.awt.Dimension;
-import java.awt.Rectangle;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.Scrollable;
+import java.awt.*;
+import javax.swing.*;
 
 /**
  * A {@link JPanel} for use as a {@link JScrollPane} view that never lays out

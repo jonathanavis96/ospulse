@@ -142,7 +142,7 @@ public class GearSectionBlowpipeDartTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearWithWeapon(TOXIC_BLOWPIPE)));
 
-			JPopupMenu popup = section.weaponSlotPopupForTest();
+			JPopupMenu popup = GearSectionTestOps.weaponSlotPopupForTest(section);
 			JMenu darts = findDartsMenu(popup);
 			assertTrue("blowpipe weapon slot must offer a 'Set darts' submenu", darts != null);
 
@@ -174,7 +174,7 @@ public class GearSectionBlowpipeDartTest
 			GearSection section = new GearSection(NO_STORE, null, null);
 			section.apply(snapshotWith(gearWithWeapon(ABYSSAL_WHIP)));
 
-			JPopupMenu popup = section.weaponSlotPopupForTest();
+			JPopupMenu popup = GearSectionTestOps.weaponSlotPopupForTest(section);
 			assertNull("a non-blowpipe weapon must not offer 'Set darts'", findDartsMenu(popup));
 		});
 	}

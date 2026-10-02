@@ -241,11 +241,8 @@ public final class DpsCalculator {
                 ? PotionBoosts.bestMeleeBoostedLevel(player.baseAttack())
                 : player.boostedAttack();
 
-        OffensivePrayer meleePrayer = assumed(player, OffensivePrayer.PIETY);
-        double prayerStrMult = player.assumeBestPrayer() ? meleePrayer.meleeStrengthMult()
-                : maxOf(player, OffensivePrayer::meleeStrengthMult);
-        double prayerAttMult = player.assumeBestPrayer() ? meleePrayer.meleeAttackMult()
-                : maxOf(player, OffensivePrayer::meleeAttackMult);
+        double prayerStrMult = prayerMult(player, OffensivePrayer.PIETY, OffensivePrayer::meleeStrengthMult);
+        double prayerAttMult = prayerMult(player, OffensivePrayer.PIETY, OffensivePrayer::meleeAttackMult);
 
         int styleBonusStr = player.stance() == Stance.AGGRESSIVE ? 3 : player.stance() == Stance.CONTROLLED ? 1 : 0;
         int styleBonusAtt = player.stance() == Stance.ACCURATE ? 3 : player.stance() == Stance.CONTROLLED ? 1 : 0;
@@ -359,11 +356,8 @@ public final class DpsCalculator {
                 ? PotionBoosts.bestRangedBoostedLevel(player.baseRanged())
                 : player.boostedRanged();
 
-        OffensivePrayer rangedPrayer = assumed(player, OffensivePrayer.RIGOUR);
-        double prayerAttMult = player.assumeBestPrayer() ? rangedPrayer.rangedAttackMult()
-                : maxOf(player, OffensivePrayer::rangedAttackMult);
-        double prayerStrMult = player.assumeBestPrayer() ? rangedPrayer.rangedStrengthMult()
-                : maxOf(player, OffensivePrayer::rangedStrengthMult);
+        double prayerAttMult = prayerMult(player, OffensivePrayer.RIGOUR, OffensivePrayer::rangedAttackMult);
+        double prayerStrMult = prayerMult(player, OffensivePrayer.RIGOUR, OffensivePrayer::rangedStrengthMult);
 
         // Ranged has only one meaningful style bonus (Accurate, +3), applied identically
         // to both the effective-attack and effective-strength calculations.
@@ -550,11 +544,8 @@ public final class DpsCalculator {
             baseSpellMaxHit = gear.poweredStaff().maxHitAt(boostedMagic);
         }
 
-        OffensivePrayer magicPrayer = assumed(player, OffensivePrayer.AUGURY);
-        double prayerAccMult = player.assumeBestPrayer() ? magicPrayer.magicAccuracyMult()
-                : maxOf(player, OffensivePrayer::magicAccuracyMult);
-        double prayerDamagePercent = player.assumeBestPrayer() ? magicPrayer.magicDamagePercent()
-                : maxOf(player, OffensivePrayer::magicDamagePercent);
+        double prayerAccMult = prayerMult(player, OffensivePrayer.AUGURY, OffensivePrayer::magicAccuracyMult);
+        double prayerDamagePercent = prayerMult(player, OffensivePrayer.AUGURY, OffensivePrayer::magicDamagePercent);
 
         int styleBonus = player.stance() == Stance.ACCURATE ? 3 : player.stance() == Stance.LONGRANGE ? 1 : 0;
         double voidMult = gear.voidSet().magicMultiplier();
@@ -876,6 +867,15 @@ public final class DpsCalculator {
         return player.assumedPrayer() != null ? player.assumedPrayer() : fallback;
     }
 
+    /**
+     * One prayer multiplier: the assumed prayer's (or {@code fallback}'s) value
+     * when the player assumes the best prayer, else the best active prayer's.
+     */
+    private static double prayerMult(PlayerCombat player, OffensivePrayer fallback,
+                                     java.util.function.ToDoubleFunction<OffensivePrayer> extractor) {
+        return player.assumeBestPrayer() ? extractor.applyAsDouble(assumed(player, fallback)) : maxOf(player, extractor);
+    }
+
     private static DpsResult finish(int maxHit, int attackRoll, int defenceRoll, int weaponSpeedTicks,
                                     int targetHitpoints, boolean baseEstimate) {
         return finish(new TargetDamage(maxHit, -1, MonsterCombatRequirement.CapMode.CLAMP), attackRoll, defenceRoll,
@@ -922,13 +922,7 @@ public final class DpsCalculator {
             avgDamage = DamageDistribution.cappedAverageDamage(hitChance, damage.uncapped, damage.cap);
             overkill = DamageDistribution.cappedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
         }
-        double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
-        // TTK must account for overkill: the killing blow rolls past 0 HP, wasting
-        // `overkill` HP of damage, so effective damage per kill is HP + overkill.
-        // By Wald's identity E[TTK] = (HP + E[overkill]) / DPS exactly — the naive
-        // HP/DPS understates it (e.g. Cerberus 57.3s vs GearScape's overkill-aware 59s).
-        double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
-        return new DpsResult(maxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, baseEstimate);
+        return result(maxHit, hitChance, avgDamage, overkill, weaponSpeedTicks, targetHitpoints, baseEstimate);
     }
 
     /**
@@ -980,9 +974,7 @@ public final class DpsCalculator {
             avgDamage = DamageDistribution.cappedFangAverageDamage(hitChance, damage.uncapped, damage.cap);
             overkill = DamageDistribution.cappedFangExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
         }
-        double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
-        double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
-        return new DpsResult(damage.visibleMaxHit(), hitChance, dps, avgDamage, ttkSeconds, overkill, false);
+        return result(damage.visibleMaxHit(), hitChance, avgDamage, overkill, weaponSpeedTicks, targetHitpoints, false);
     }
 
     /**
@@ -1035,8 +1027,18 @@ public final class DpsCalculator {
             overkill = TwinflameSecondHit.cappedCombinedExpectedOverkill(damage.uncapped, damage.cap, targetHitpoints);
         }
         double avgDamage = firstHitAvg + secondHitAvg;
-        double dps = CombatMath.dps(avgDamage, castSpeedTicks);
+        return result(maxHit, hitChance, avgDamage, overkill, castSpeedTicks, targetHitpoints, false);
+    }
+
+    /** Builds the result from the per-attack figures: DPS over the attack speed, TTK including overkill. */
+    static DpsResult result(int maxHit, double hitChance, double avgDamage, double overkill, int speedTicks,
+                            int targetHitpoints, boolean baseEstimate) {
+        double dps = CombatMath.dps(avgDamage, speedTicks);
+        // TTK must account for overkill: the killing blow rolls past 0 HP, wasting
+        // `overkill` HP of damage, so effective damage per kill is HP + overkill.
+        // By Wald's identity E[TTK] = (HP + E[overkill]) / DPS exactly — the naive
+        // HP/DPS understates it (e.g. Cerberus 57.3s vs GearScape's overkill-aware 59s).
         double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
-        return new DpsResult(maxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, false);
+        return new DpsResult(maxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, baseEstimate);
     }
 }

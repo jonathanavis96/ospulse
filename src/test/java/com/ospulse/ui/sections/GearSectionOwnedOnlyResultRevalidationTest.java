@@ -189,7 +189,7 @@ public class GearSectionOwnedOnlyResultRevalidationTest
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), dragonScimitarHeld()));
 			pickCerberus(section);
 			int generation = section.optimizerGeneration;
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			GearOptimizer.Result staleResult = section.lastOptimizerResult;
 			assertTrue("sanity: a real usable result exists, recommending the owned Dragon scimitar",
@@ -238,7 +238,7 @@ public class GearSectionOwnedOnlyResultRevalidationTest
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), dragonScimitarHeld()));
 			pickCerberus(section);
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertTrue("sanity: a real result was installed while the Dragon scimitar was owned",
 				section.lastOptimizerResult != null);
@@ -278,7 +278,7 @@ public class GearSectionOwnedOnlyResultRevalidationTest
 
 			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)), dragonScimitarHeld()));
 			pickCerberus(section);
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			assertTrue("sanity: a real result was installed",
 				section.lastOptimizerResult != null);

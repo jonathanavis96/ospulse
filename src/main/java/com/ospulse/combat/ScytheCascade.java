@@ -113,10 +113,10 @@ final class ScytheCascade {
         }
         double[] combined = null;
         for (int maxHit : cascadeMaxHits(firstMaxHit, hits)) {
-            double[] perHit = uncappedPerHitDistribution(hitChance, maxHit);
-            combined = combined == null ? perHit : convolve(combined, perHit);
+            double[] perHit = DamageDistribution.perHitDistribution(hitChance, maxHit);
+            combined = combined == null ? perHit : DamageDistribution.convolve(combined, perHit);
         }
-        return overkill(combined, targetHitpoints);
+        return DamageDistribution.overkillFromExplicitDistribution(combined, targetHitpoints);
     }
 
     /** Expected overkill for one full cascade against a target that CLAMPS each hitsplat (same cap for every cascade hit). */
@@ -126,10 +126,10 @@ final class ScytheCascade {
         }
         double[] combined = null;
         for (int maxHit : cascadeMaxHits(firstMaxHit, hits)) {
-            double[] perHit = cappedPerHitDistribution(hitChance, maxHit, cap);
-            combined = combined == null ? perHit : convolve(combined, perHit);
+            double[] perHit = DamageDistribution.cappedPerHitDistribution(hitChance, maxHit, cap);
+            combined = combined == null ? perHit : DamageDistribution.convolve(combined, perHit);
         }
-        return overkill(combined, targetHitpoints);
+        return DamageDistribution.overkillFromExplicitDistribution(combined, targetHitpoints);
     }
 
     /** Expected overkill for one full cascade against a target that RE-ROLLS each hitsplat above a cap. */
@@ -139,115 +139,10 @@ final class ScytheCascade {
         }
         double[] combined = null;
         for (int maxHit : cascadeMaxHits(firstMaxHit, hits)) {
-            double[] perHit = rerolledPerHitDistribution(hitChance, maxHit, cap);
-            combined = combined == null ? perHit : convolve(combined, perHit);
+            double[] perHit = DamageDistribution.rerolledPerHitDistribution(hitChance, maxHit, cap);
+            combined = combined == null ? perHit : DamageDistribution.convolve(combined, perHit);
         }
-        return overkill(combined, targetHitpoints);
-    }
-
-    /**
-     * One cascade hit's full outcome distribution (index 0 = miss, summing
-     * to 1 overall): miss with probability {@code 1 - hitChance}, else the
-     * ordinary bumped-uniform {@code 0..maxHit} roll. {@code maxHit <= 0} is
-     * folded to the degenerate "always deals 1 on a landed hit" case — see
-     * the class javadoc's documented simplification.
-     */
-    private static double[] uncappedPerHitDistribution(double hitChance, int maxHit) {
-        if (maxHit <= 0) {
-            double[] p = new double[2];
-            p[0] = 1.0 - hitChance;
-            p[1] = hitChance;
-            return p;
-        }
-        double[] p = new double[maxHit + 1];
-        p[0] = 1.0 - hitChance;
-        double denom = maxHit + 1.0;
-        p[1] = hitChance * 2.0 / denom;
-        for (int d = 2; d <= maxHit; d++) {
-            p[d] = hitChance / denom;
-        }
-        return p;
-    }
-
-    /**
-     * As {@link #uncappedPerHitDistribution}, but for a target that CLAMPS
-     * each hitsplat onto {@code cap}. {@code maxHit <= 0} is checked FIRST
-     * and always delegates to the uncapped degenerate case regardless of
-     * {@code cap} — the same documented low-impact simplification as
-     * {@link #uncappedPerHitDistribution}, for the doubly-degenerate corner
-     * where a cascade hit's own max has already floored to 0.
-     */
-    private static double[] cappedPerHitDistribution(double hitChance, int maxHit, int cap) {
-        if (maxHit <= 0 || cap >= maxHit) {
-            return uncappedPerHitDistribution(hitChance, maxHit);
-        }
-        if (cap <= 0) {
-            double[] p = new double[1];
-            p[0] = 1.0; // every landed hit clamps to 0 as well as every miss - all mass at 0
-            return p;
-        }
-        double[] capped = DamageDistribution.cappedHitsplatDistribution(maxHit, cap);
-        double[] p = new double[cap + 1];
-        p[0] = 1.0 - hitChance;
-        for (int d = 1; d <= cap; d++) {
-            p[d] = hitChance * capped[d];
-        }
-        return p;
-    }
-
-    /**
-     * As {@link #uncappedPerHitDistribution}, but for a target that
-     * RE-ROLLS each hitsplat above {@code cap} into {@code 0..cap}. Same
-     * {@code maxHit <= 0} precedence as {@link #cappedPerHitDistribution}.
-     */
-    private static double[] rerolledPerHitDistribution(double hitChance, int maxHit, int cap) {
-        if (maxHit <= 0 || cap >= maxHit) {
-            return uncappedPerHitDistribution(hitChance, maxHit);
-        }
-        if (cap <= 0) {
-            double[] p = new double[1];
-            p[0] = 1.0; // every landed hit re-rolls into the single value {0} as well as every miss
-            return p;
-        }
-        double[] rerolled = DamageDistribution.rerolledHitsplatDistribution(maxHit, cap);
-        double[] p = new double[cap + 1];
-        p[0] = (1.0 - hitChance) + hitChance * rerolled[0];
-        for (int d = 1; d <= cap; d++) {
-            p[d] = hitChance * rerolled[d];
-        }
-        return p;
-    }
-
-    /** Convolves two independent per-hit outcome distributions into their combined sum's distribution. */
-    private static double[] convolve(double[] a, double[] b) {
-        double[] out = new double[a.length + b.length - 1];
-        for (int i = 0; i < a.length; i++) {
-            if (a[i] == 0.0) {
-                continue;
-            }
-            for (int j = 0; j < b.length; j++) {
-                if (b[j] == 0.0) {
-                    continue;
-                }
-                out[i + j] += a[i] * b[j];
-            }
-        }
-        return out;
-    }
-
-    /**
-     * Runs {@link DamageDistribution#overkillFromExplicitDistribution(double[], int[], int)}
-     * (identity {@code amount[v] = v}) over the full cascade's combined
-     * per-cycle distribution — its {@code 1 - p[0]} renormalisation already
-     * correctly treats "every hit in the cascade missed" as a no-op, exactly
-     * like an ordinary miss.
-     */
-    private static double overkill(double[] combined, int targetHitpoints) {
-        int[] identity = new int[combined.length];
-        for (int v = 0; v < combined.length; v++) {
-            identity[v] = v;
-        }
-        return DamageDistribution.overkillFromExplicitDistribution(combined, identity, targetHitpoints);
+        return DamageDistribution.overkillFromExplicitDistribution(combined, targetHitpoints);
     }
 
     /**
@@ -276,8 +171,6 @@ final class ScytheCascade {
             avgDamage = cappedAverageDamage(hitChance, uncappedMaxHit, hits, cap);
             overkill = cappedExpectedOverkill(hitChance, uncappedMaxHit, hits, cap, targetHitpoints);
         }
-        double dps = CombatMath.dps(avgDamage, weaponSpeedTicks);
-        double ttkSeconds = dps > 0 ? (targetHitpoints + overkill) / dps : 0.0;
-        return new DpsResult(visibleMaxHit, hitChance, dps, avgDamage, ttkSeconds, overkill, false);
+        return DpsCalculator.result(visibleMaxHit, hitChance, avgDamage, overkill, weaponSpeedTicks, targetHitpoints, false);
     }
 }

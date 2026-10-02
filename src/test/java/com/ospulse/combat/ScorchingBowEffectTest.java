@@ -31,6 +31,8 @@ import static org.junit.Assert.assertTrue;
  * floor(40*29/20) = 58 but floor(floor(40*23/20)*13/10) = floor(46*1.3) = 59.
  */
 public class ScorchingBowEffectTest {
+    static { BundledGson.set(new com.google.gson.Gson()); }
+
 
     /** +100 arange, +168 rstr, speed 5; demonbane/slayer/salve set by the caller. */
     private static EquipmentStats.Builder gear() {

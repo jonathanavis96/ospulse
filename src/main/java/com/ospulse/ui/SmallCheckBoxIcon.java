@@ -2,14 +2,8 @@ package com.ospulse.ui;
 
 import net.runelite.client.ui.ColorScheme;
 
-import javax.swing.AbstractButton;
-import javax.swing.Icon;
-import java.awt.BasicStroke;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
+import javax.swing.*;
+import java.awt.*;
 
 /**
  * A small, self-drawn tick box, sized to sit flush on a text line.

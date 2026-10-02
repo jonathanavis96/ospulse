@@ -2,43 +2,27 @@ package com.ospulse;
 
 import com.google.gson.Gson;
 import com.google.inject.Provides;
-import com.ospulse.combat.BundledGson;
-import com.ospulse.integration.PriceTrendService;
-import com.ospulse.integration.RuneLiteItemValuation;
-import com.ospulse.integration.SessionTracker;
+import com.ospulse.combat.*;
+import com.ospulse.combat.optimizer.GearOptimizer;
+import com.ospulse.integration.*;
 import com.ospulse.ui.OSPulsePanel;
 import com.ospulse.ui.sections.GearSection;
-import com.ospulse.ui.sections.gear.IronmanAutoDetect;
-import com.ospulse.ui.sections.gear.IronmanOwnedOnlyStore;
+import com.ospulse.ui.sections.gear.*;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.Client;
-import net.runelite.api.GameState;
-import net.runelite.api.Player;
-import net.runelite.api.events.ActorDeath;
-import net.runelite.api.events.AnimationChanged;
-import net.runelite.api.events.GameStateChanged;
-import net.runelite.api.events.GameTick;
-import net.runelite.api.events.GrandExchangeOfferChanged;
-import net.runelite.api.events.ItemContainerChanged;
-import net.runelite.api.events.MenuOptionClicked;
-import net.runelite.api.events.StatChanged;
+import net.runelite.api.*;
+import net.runelite.api.events.*;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.vars.AccountType;
 import net.runelite.api.widgets.Widget;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
-import net.runelite.client.events.ConfigChanged;
-import net.runelite.client.events.RuneScapeProfileChanged;
+import net.runelite.client.events.*;
 import net.runelite.client.eventbus.Subscribe;
-import net.runelite.client.game.ItemManager;
-import net.runelite.client.game.SkillIconManager;
-import net.runelite.client.plugins.Plugin;
-import net.runelite.client.plugins.PluginDependency;
-import net.runelite.client.plugins.PluginDescriptor;
-import net.runelite.client.plugins.banktags.BankTagsPlugin;
-import net.runelite.client.plugins.loottracker.LootTrackerPlugin;
-import net.runelite.client.plugins.loottracker.LootReceived;
-import net.runelite.client.ui.ClientToolbar;
-import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.game.*;
+import net.runelite.client.plugins.*;
+import net.runelite.client.plugins.banktags.*;
+import net.runelite.client.plugins.loottracker.*;
+import net.runelite.client.ui.*;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ImageUtil;
 import okhttp3.OkHttpClient;
@@ -46,6 +30,7 @@ import okhttp3.OkHttpClient;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import java.awt.image.BufferedImage;
+import java.util.*;
 
 /**
  * OSPulse — accurate OSRS session profit + net-worth tracker.
@@ -103,19 +88,19 @@ public class OSPulsePlugin extends Plugin
 	private SkillIconManager skillIconManager;
 
 	@Inject
-	private net.runelite.client.game.SpriteManager spriteManager;
+	private SpriteManager spriteManager;
 
 	@Inject
 	private OverlayManager overlayManager;
 
 	@Inject
-	private net.runelite.client.callback.ClientThread clientThread;
+	private ClientThread clientThread;
 
 	@com.google.inject.Inject(optional = true)
-	private net.runelite.client.plugins.banktags.BankTagsService bankTagsService;
+	private BankTagsService bankTagsService;
 
 	@com.google.inject.Inject(optional = true)
-	private net.runelite.client.plugins.banktags.TagManager tagManager;
+	private TagManager tagManager;
 
 	/** Mirrors {@link OSPulseConfig#ironmanOwnedOnly()}'s {@code keyName} — see {@link #checkIronmanAutoDetect()} and {@link IronmanOwnedOnlyStore#KEY}. */
 	private static final String IRONMAN_OWNED_ONLY_KEY = IronmanOwnedOnlyStore.KEY;
@@ -126,7 +111,7 @@ public class OSPulsePlugin extends Plugin
 	private OSPulsePanel panel;
 	private PriceTrendService priceTrendService;
 	private NavigationButton navButton;
-	private com.ospulse.integration.BankRecommendationHighlighter bankHighlighter;
+	private BankRecommendationHighlighter bankHighlighter;
 	/** Owns every {@code ironmanOwnedOnly} read/write — the per-account merged-read scheme's reads/writes/mirror (issue #11 leak fix). */
 	private IronmanOwnedOnlyStore ownedOnlyStore;
 
@@ -161,7 +146,7 @@ public class OSPulsePlugin extends Plugin
 
 		priceTrendService = new PriceTrendService(okHttpClient, config, gson);
 
-		bankHighlighter = new com.ospulse.integration.BankRecommendationHighlighter(
+		bankHighlighter = new BankRecommendationHighlighter(
 			bankTagsService, tagManager, configManager, clientThread);
 		if (bankTagsService == null || tagManager == null)
 		{
@@ -181,8 +166,8 @@ public class OSPulsePlugin extends Plugin
 		// unowned untradeable must be unpurchasable, whatever it "costs".
 		GearSection.OptimizerPriceResolver optimizerPriceResolver = (ids, cb) -> clientThread.invoke(() ->
 		{
-			java.util.Map<Integer, Long> m = new java.util.HashMap<>();
-			java.util.Set<Integer> untradeable = new java.util.HashSet<>();
+			Map<Integer, Long> m = new HashMap<>();
+			Set<Integer> untradeable = new HashSet<>();
 			for (int id : ids)
 			{
 				if (!valuation.isTradeable(id))
@@ -193,7 +178,7 @@ public class OSPulsePlugin extends Plugin
 					// dragon defender). Price such an item at its component's GE
 					// cost so the optimiser can still recommend it; the readout
 					// keeps the assembled item's own name.
-					Integer component = com.ospulse.combat.AssembledItemComponents.priceSourceComponent(id);
+					Integer component = AssembledItemComponents.priceSourceComponent(id);
 					if (component != null && valuation.isTradeable(component))
 					{
 						long cv = valuation.unitValue(component);
@@ -232,24 +217,24 @@ public class OSPulsePlugin extends Plugin
 			// net.runelite:client/runelite-api 1.12.32 jars on this project's
 			// classpath).
 			long parchmentPrice = Math.max(0L, valuation.unitValue(24187));
-			java.util.Map<Integer, Long> riskValues = new java.util.HashMap<>();
-			java.util.Set<Integer> needsProtection = new java.util.HashSet<>();
+			Map<Integer, Long> riskValues = new HashMap<>();
+			Set<Integer> needsProtection = new HashSet<>();
 			for (int id : ids)
 			{
-				com.ospulse.combat.RiskValuation.Risk risk = com.ospulse.combat.RiskValuation.classify(
+				RiskValuation.Risk risk = RiskValuation.classify(
 					id, valuation::isTradeable, valuation::unitValue, parchmentPrice,
-					com.ospulse.combat.optimizer.GearOptimizer::isFreeReobtainable);
+					GearOptimizer::isFreeReobtainable);
 				if (risk.value > 0)
 				{
 					riskValues.put(id, risk.value);
 				}
-				if (risk.source == com.ospulse.combat.RiskValuation.Source.PARCHMENT)
+				if (risk.source == RiskValuation.Source.PARCHMENT)
 				{
 					needsProtection.add(id);
 				}
 			}
 			GearSection.PriceLookup lookup = new GearSection.PriceLookup(m, untradeable, riskValues, needsProtection);
-			javax.swing.SwingUtilities.invokeLater(() -> cb.accept(lookup));
+			SwingUtilities.invokeLater(() -> cb.accept(lookup));
 		});
 
 		panel = new OSPulsePanel(config, itemManager, configManager, priceTrendService, skillIconManager,
@@ -500,7 +485,7 @@ public class OSPulsePlugin extends Plugin
 	 * inventory, so this is the only signal available for those catches.
 	 */
 	@Subscribe
-	public void onChatMessage(net.runelite.api.events.ChatMessage event)
+	public void onChatMessage(ChatMessage event)
 	{
 		tracker.onChatMessage(event.getType(), event.getMessage());
 	}
@@ -511,7 +496,7 @@ public class OSPulsePlugin extends Plugin
 	 * widget text. See {@code FishBarrelTracker#onWidgetLoaded}.
 	 */
 	@Subscribe
-	public void onWidgetLoaded(net.runelite.api.events.WidgetLoaded event)
+	public void onWidgetLoaded(WidgetLoaded event)
 	{
 		tracker.onWidgetLoaded(event.getGroupId());
 	}

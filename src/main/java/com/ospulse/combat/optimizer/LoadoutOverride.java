@@ -1,9 +1,6 @@
 package com.ospulse.combat.optimizer;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 
 /**
  * A hypothetical per-slot item-id override on top of a live loadout — Phase 2's

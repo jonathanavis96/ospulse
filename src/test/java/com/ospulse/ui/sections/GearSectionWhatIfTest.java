@@ -181,7 +181,7 @@ public class GearSectionWhatIfTest
 			assertEquals(ABYSSAL_WHIP, section.renderedSlotIds[3]);
 			assertFalse(new java.util.LinkedHashSet<>(section.excludedItemIds).contains(ABYSSAL_WHIP));
 
-			section.rightClickExcludeSlotForTest(3);
+			GearSectionTestOps.rightClickExcludeSlotForTest(section, 3);
 			assertTrue("right-click on the slot cell must exclude the shown item",
 				new java.util.LinkedHashSet<>(section.excludedItemIds).contains(ABYSSAL_WHIP));
 		});
@@ -238,7 +238,7 @@ public class GearSectionWhatIfTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			double liveDps = Double.parseDouble(section.plainTextForTest(section.dpsValue.getText()));
+			double liveDps = Double.parseDouble(GearSectionTestOps.plainTextForTest(section.dpsValue.getText()));
 
 			section.toggleItemSearch(3);
 			section.itemSearchField.setText("dragon scimitar");
@@ -259,7 +259,7 @@ public class GearSectionWhatIfTest
 
 			// Readout changed to reflect the what-if weapon (whip and scimitar have
 			// different bonuses, so DPS must differ from the live baseline).
-			double whatIfDps = Double.parseDouble(section.plainTextForTest(section.dpsValue.getText()));
+			double whatIfDps = Double.parseDouble(GearSectionTestOps.plainTextForTest(section.dpsValue.getText()));
 			assertFalse("DPS must change after a real bonus-changing swap", liveDps == whatIfDps);
 
 			// Live gear itself is untouched — the snapshot's own item id is unchanged.
@@ -304,7 +304,7 @@ public class GearSectionWhatIfTest
 			section.apply(snapshotWith(gear));
 			pickCerberus(section);
 
-			double liveDps = Double.parseDouble(section.plainTextForTest(section.dpsValue.getText()));
+			double liveDps = Double.parseDouble(GearSectionTestOps.plainTextForTest(section.dpsValue.getText()));
 
 			section.toggleItemSearch(3);
 			section.itemSearchField.setText("dragon scimitar");
@@ -315,7 +315,7 @@ public class GearSectionWhatIfTest
 
 			assertTrue(section.override.isEmpty());
 			assertFalse(section.whatIfRow.isVisible());
-			assertEquals(liveDps, Double.parseDouble(section.plainTextForTest(section.dpsValue.getText())), 1e-9);
+			assertEquals(liveDps, Double.parseDouble(GearSectionTestOps.plainTextForTest(section.dpsValue.getText())), 1e-9);
 			assertEquals(ABYSSAL_WHIP, section.renderedSlotIds[3]);
 		});
 	}

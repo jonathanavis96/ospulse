@@ -1,9 +1,6 @@
 package com.ospulse.combat.optimizer;
 
-import com.ospulse.combat.CombatStyle;
-import com.ospulse.combat.EquipmentStatsRepository;
-import com.ospulse.combat.WeaponCategoryRepository;
-import com.ospulse.combat.WeaponStyle;
+import com.ospulse.combat.*;
 
 /**
  * Pure item-id scoring heuristics shared by {@link GearOptimizer}'s pruning

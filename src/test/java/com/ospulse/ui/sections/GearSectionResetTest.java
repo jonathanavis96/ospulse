@@ -154,7 +154,7 @@ public class GearSectionResetTest
 			assertTrue(new java.util.LinkedHashSet<>(section.excludedItemIds).contains(DRAGON_SCIMITAR));
 
 			// Produce an optimiser result on screen (owned-only search, no resolver).
-			section.runOptimizerSyncForTest();
+			GearSectionTestOps.runOptimizerSyncForTest(section);
 
 			// --- full panel reset ---
 			section.resetState();

@@ -2,11 +2,7 @@ package com.ospulse.wealth;
 
 import com.ospulse.model.ItemStack;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * Immutable point-in-time snapshot of a player's wealth, split into
@@ -15,6 +11,7 @@ import java.util.Map;
  *
  * Pure domain type: no RuneLite imports, unit-testable without a game client.
  */
+@lombok.Getter
 public final class WealthSnapshot
 {
 	private final long inventoryValue;
@@ -119,66 +116,12 @@ public final class WealthSnapshot
 		return new Builder();
 	}
 
-	public long getInventoryValue()
-	{
-		return inventoryValue;
-	}
-
-	public long getEquipmentValue()
-	{
-		return equipmentValue;
-	}
-
-	public long getGeInFlightValue()
-	{
-		return geInFlightValue;
-	}
-
-	public long getGeCollectableValue()
-	{
-		return geCollectableValue;
-	}
-
-	public long getPouchValue()
-	{
-		return pouchValue;
-	}
-
-	public long getBankValue()
-	{
-		return bankValue;
-	}
-
-	public boolean isBankKnown()
-	{
-		return bankKnown;
-	}
-
-	public long getTimestampMs()
-	{
-		return timestampMs;
-	}
-
-	public List<ItemStack> getTopHoldings()
-	{
-		return topHoldings;
-	}
-
-	public Map<Integer, ItemStack> getTrackedItems()
-	{
-		return trackedItems;
-	}
-
 	/**
 	 * The COMPLETE owned-item map (inventory + equipment + bank + pouches) —
 	 * see the {@link #allHoldings} field javadoc. Empty when the snapshot was
 	 * built without it (legacy callers/tests); membership-based ownership
 	 * checks should fall back to {@link #getTopHoldings()} in that case.
 	 */
-	public Map<Integer, ItemStack> getAllHoldings()
-	{
-		return allHoldings;
-	}
 
 	/**
 	 * Wealth that can move without a bank visit: inventory + equipment +

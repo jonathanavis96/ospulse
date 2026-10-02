@@ -448,7 +448,7 @@ public class GeReconcilerTest
 		// attributed as a GE transfer — net worth, not loot — and count toward the
 		// collectable value meanwhile. No pre-session flip P&L is resurrected.
 		// Mirrors the live bug: 4.9m of pre-session sale proceeds booked as loot.
-		reconciler.primeCollectable(0, GeOfferState.SOLD, WHIP, 1_000L, 5_000_000L, 5_000L);
+		reconciler.primeCollectable(0, GeOfferState.SOLD, WHIP, 1_000L, 1_000L, 5_000_000L, 5_000L);
 
 		long netProceeds = 5_000_000L - 100L * 1_000L; // 2% tax (5000/50 = 100) per item
 		assertEquals(4_900_000L, netProceeds);
@@ -467,7 +467,7 @@ public class GeReconcilerTest
 	{
 		// A BUY that completed pre-session: the bought items sit uncollected at login.
 		// Collecting them in-session is a GE transfer (already-owned goods), not loot.
-		reconciler.primeCollectable(0, GeOfferState.BOUGHT, WHIP, 5L, 500_000L, 100_000L);
+		reconciler.primeCollectable(0, GeOfferState.BOUGHT, WHIP, 5L, 5L, 500_000L, 100_000L);
 		assertEquals(0L, reconciler.realizedPnl());
 		assertEquals("collected pre-session bought items are excluded from loot",
 			5L, reconciler.attributeArrival(WHIP, 5L));
@@ -745,5 +745,24 @@ public class GeReconcilerTest
 		// Each slot still reports its own share.
 		assertEquals(OptionalLong.of(1_760_000L), reconciler.slotRealizedPnl(1));
 		assertEquals(OptionalLong.of(96_000L), reconciler.slotRealizedPnl(3));
+	}
+
+	/**
+	 * Cheap, high-volume items fill at mixed prices, so the gp per item is
+	 * rarely whole. Flip P&amp;L must come from the gp totals: truncating to a
+	 * whole gp per item on either side misstates it by up to 1 gp per item.
+	 */
+	@Test
+	public void flipOfACheapItemFilledAtMixedPricesUsesGpTotals()
+	{
+		int fireRune = 554;
+		// 10,000 runes bought for 49,999 in total (4.9999 gp each).
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, fireRune, "Fire rune",
+			10_000L, 10_000L, 49_999L, 6L, 1000L);
+		// Sold for 55,555 in total (5.5555 gp each; untaxed below 50 gp).
+		reconciler.onOfferUpdate(1, GeOfferState.SOLD, fireRune, "Fire rune",
+			10_000L, 10_000L, 55_555L, 5L, 2000L);
+
+		assertEquals(55_555L - 49_999L, reconciler.realizedPnl());
 	}
 }

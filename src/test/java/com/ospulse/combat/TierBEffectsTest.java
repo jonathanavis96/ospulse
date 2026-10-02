@@ -14,6 +14,8 @@ import static org.junit.Assert.assertTrue;
  * Expected values hand-derived from the documented wiki formulas.
  */
 public class TierBEffectsTest {
+    static { BundledGson.set(new com.google.gson.Gson()); }
+
     private static final double DELTA = 1e-9;
 
     private static EquipmentStats.Builder plainMeleeGear() {

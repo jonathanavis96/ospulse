@@ -1,8 +1,6 @@
 package com.ospulse.combat;
 
-import java.util.Collections;
-import java.util.EnumSet;
-import java.util.Set;
+import java.util.*;
 
 /**
  * The player-side inputs to a DPS calculation: base and boosted skill
@@ -14,106 +12,70 @@ import java.util.Set;
  * stance/task-state).
  */
 public final class PlayerCombat {
-    private final int baseAttack;
-    private final int boostedAttack;
-    private final int baseStrength;
-    private final int boostedStrength;
-    private final int baseDefence;
-    private final int boostedDefence;
-    private final int baseRanged;
-    private final int boostedRanged;
-    private final int baseMagic;
-    private final int boostedMagic;
-    private final int basePrayer;
-    private final int boostedPrayer;
-    private final int baseHitpoints;
-    private final int boostedHitpoints;
     private final Set<OffensivePrayer> activePrayers;
-    private final Stance stance;
-    private final boolean assumeBestPotion;
-    private final boolean assumeBestPrayer;
-    private final boolean onSlayerTask;
-    private final CombatIcons.BoostPotion magicPotionVariant;
-    private final OffensivePrayer assumedPrayer;
+
+    /** Private snapshot of the builder that made this object; never mutated after construction. */
+    private final Builder v;
 
     private PlayerCombat(Builder b) {
-        this.baseAttack = b.baseAttack;
-        this.boostedAttack = b.boostedAttack;
-        this.baseStrength = b.baseStrength;
-        this.boostedStrength = b.boostedStrength;
-        this.baseDefence = b.baseDefence;
-        this.boostedDefence = b.boostedDefence;
-        this.baseRanged = b.baseRanged;
-        this.boostedRanged = b.boostedRanged;
-        this.baseMagic = b.baseMagic;
-        this.boostedMagic = b.boostedMagic;
-        this.basePrayer = b.basePrayer;
-        this.boostedPrayer = b.boostedPrayer;
-        this.baseHitpoints = b.baseHitpoints;
-        this.boostedHitpoints = b.boostedHitpoints;
+        this.v = b.copy();
         this.activePrayers = Collections.unmodifiableSet(EnumSet.copyOf(b.activePrayers));
-        this.stance = b.stance;
-        this.assumeBestPotion = b.assumeBestPotion;
-        this.assumeBestPrayer = b.assumeBestPrayer;
-        this.onSlayerTask = b.onSlayerTask;
-        this.magicPotionVariant = b.magicPotionVariant;
-        this.assumedPrayer = b.assumedPrayer;
     }
 
     public int baseAttack() {
-        return baseAttack;
+        return v.baseAttack;
     }
 
     public int boostedAttack() {
-        return boostedAttack;
+        return v.boostedAttack;
     }
 
     public int baseStrength() {
-        return baseStrength;
+        return v.baseStrength;
     }
 
     public int boostedStrength() {
-        return boostedStrength;
+        return v.boostedStrength;
     }
 
     public int baseDefence() {
-        return baseDefence;
+        return v.baseDefence;
     }
 
     public int boostedDefence() {
-        return boostedDefence;
+        return v.boostedDefence;
     }
 
     public int baseRanged() {
-        return baseRanged;
+        return v.baseRanged;
     }
 
     public int boostedRanged() {
-        return boostedRanged;
+        return v.boostedRanged;
     }
 
     public int baseMagic() {
-        return baseMagic;
+        return v.baseMagic;
     }
 
     public int boostedMagic() {
-        return boostedMagic;
+        return v.boostedMagic;
     }
 
     public int basePrayer() {
-        return basePrayer;
+        return v.basePrayer;
     }
 
     public int boostedPrayer() {
-        return boostedPrayer;
+        return v.boostedPrayer;
     }
 
     public int baseHitpoints() {
-        return baseHitpoints;
+        return v.baseHitpoints;
     }
 
     public int boostedHitpoints() {
-        return boostedHitpoints;
+        return v.boostedHitpoints;
     }
 
     public Set<OffensivePrayer> activePrayers() {
@@ -121,19 +83,19 @@ public final class PlayerCombat {
     }
 
     public Stance stance() {
-        return stance;
+        return v.stance;
     }
 
     public boolean assumeBestPotion() {
-        return assumeBestPotion;
+        return v.assumeBestPotion;
     }
 
     public boolean assumeBestPrayer() {
-        return assumeBestPrayer;
+        return v.assumeBestPrayer;
     }
 
     public boolean onSlayerTask() {
-        return onSlayerTask;
+        return v.onSlayerTask;
     }
 
     /**
@@ -145,7 +107,7 @@ public final class PlayerCombat {
      * ranged best-potion picks are not swappable and ignore this field.
      */
     public CombatIcons.BoostPotion magicPotionVariant() {
-        return magicPotionVariant;
+        return v.magicPotionVariant;
     }
 
     /**
@@ -157,14 +119,14 @@ public final class PlayerCombat {
      * player's real active prayers win.
      */
     public OffensivePrayer assumedPrayer() {
-        return assumedPrayer;
+        return v.assumedPrayer;
     }
 
     public static Builder builder() {
         return new Builder();
     }
 
-    public static final class Builder {
+    public static final class Builder implements Cloneable {
         private int baseAttack;
         private int boostedAttack;
         private int baseStrength;
@@ -267,6 +229,14 @@ public final class PlayerCombat {
         public Builder assumedPrayer(OffensivePrayer assumedPrayer) {
             this.assumedPrayer = assumedPrayer;
             return this;
+        }
+
+        private Builder copy() {
+            try {
+                return (Builder) clone();
+            } catch (CloneNotSupportedException e) {
+                throw new AssertionError(e);
+            }
         }
 
         public PlayerCombat build() {

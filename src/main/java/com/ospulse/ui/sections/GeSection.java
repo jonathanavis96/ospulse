@@ -2,20 +2,13 @@ package com.ospulse.ui.sections;
 
 import com.ospulse.ge.GeOfferView;
 import com.ospulse.session.SessionSnapshot;
-import com.ospulse.ui.CollapsibleSection;
-import com.ospulse.ui.GpFormat;
-import com.ospulse.ui.PanelWidgets;
-import com.ospulse.ui.ThinProgressBar;
+import com.ospulse.ui.*;
 
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ColorScheme;
 
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.JPanel;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
+import javax.swing.*;
+import java.awt.*;
 import java.util.List;
 
 /**
@@ -41,10 +34,7 @@ public final class GeSection extends CollapsibleSection
 		super(KEY, "Grand Exchange", store);
 		this.itemManager = itemManager;
 
-		geListPanel = new JPanel();
-		geListPanel.setLayout(new BoxLayout(geListPanel, BoxLayout.Y_AXIS));
-		geListPanel.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		geListPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		geListPanel = PanelWidgets.vbox();
 		body().add(geListPanel);
 	}
 

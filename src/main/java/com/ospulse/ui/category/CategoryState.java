@@ -1,5 +1,7 @@
 package com.ospulse.ui.category;
 
+import lombok.Getter;
+
 /**
  * Per-category resettable/pausable state, adapted from RuneLite's own XP
  * Tracker plugin ({@code net.runelite.client.plugins.xptracker.XpStateSingle}
@@ -24,30 +26,20 @@ package com.ospulse.ui.category;
  */
 public final class CategoryState
 {
-	private final String id;
-	private boolean paused;
+	@Getter private final String id;
+	@Getter private boolean paused;
 	/**
 	 * Incremented on every {@link #reset()}. Sections that want "reset"
 	 * semantics for values derived from session-lifetime data (rather than
 	 * genuinely per-category accumulators) can snapshot this alongside the
 	 * baseline value at reset time and subtract it back out when rendering.
 	 */
-	private int resetEpoch;
-	private long resetAtMs;
+	@Getter private int resetEpoch;
+	@Getter private long resetAtMs;
 
 	public CategoryState(String id)
 	{
 		this.id = id;
-	}
-
-	public String getId()
-	{
-		return id;
-	}
-
-	public boolean isPaused()
-	{
-		return paused;
 	}
 
 	public void setPaused(boolean paused)
@@ -67,13 +59,4 @@ public final class CategoryState
 		this.resetAtMs = tsMs;
 	}
 
-	public int getResetEpoch()
-	{
-		return resetEpoch;
-	}
-
-	public long getResetAtMs()
-	{
-		return resetAtMs;
-	}
 }

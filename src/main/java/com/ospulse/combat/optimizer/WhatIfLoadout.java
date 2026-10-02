@@ -1,7 +1,6 @@
 package com.ospulse.combat.optimizer;
 
-import com.ospulse.combat.EquipmentIndexRepository;
-import com.ospulse.combat.EquipmentStats;
+import com.ospulse.combat.*;
 import com.ospulse.session.GearMapper;
 
 /**

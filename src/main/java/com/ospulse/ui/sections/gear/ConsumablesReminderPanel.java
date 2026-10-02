@@ -1,17 +1,12 @@
 package com.ospulse.ui.sections.gear;
 
-import com.ospulse.combat.MonsterConsumablesReminder;
-import com.ospulse.combat.MonsterConsumablesRepository;
+import com.ospulse.combat.*;
 
 import net.runelite.client.ui.ColorScheme;
 
-import javax.swing.BoxLayout;
-import javax.swing.JPanel;
-import javax.swing.JTextArea;
+import javax.swing.*;
 import java.awt.Component;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 /**
  * The "don't forget" consumables/gear reminder row(s) below the

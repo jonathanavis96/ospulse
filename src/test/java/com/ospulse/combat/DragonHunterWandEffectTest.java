@@ -14,6 +14,8 @@ import static org.junit.Assert.assertTrue;
  * coverage but for the MAGIC path.
  */
 public class DragonHunterWandEffectTest {
+    static { BundledGson.set(new com.google.gson.Gson()); }
+
 
     private static EquipmentStats.Builder plainMagicGear() {
         // +100 amagic, +0 mdmg, speed 5 (wand-ish).

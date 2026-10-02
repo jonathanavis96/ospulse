@@ -202,9 +202,7 @@ public class FishBarrelTracker
 	 */
 	public Map<Integer, Integer> drainCaughtToBarrel()
 	{
-		Map<Integer, Integer> out = new LinkedHashMap<>(caughtToBarrelThisTick);
-		caughtToBarrelThisTick.clear();
-		return out;
+		return drain(caughtToBarrelThisTick);
 	}
 
 	/**
@@ -214,23 +212,28 @@ public class FishBarrelTracker
 	 */
 	public Map<Integer, Integer> drainEmptied()
 	{
-		Map<Integer, Integer> out = new LinkedHashMap<>(emptiedThisTick);
-		emptiedThisTick.clear();
-		return out;
+		return drain(emptiedThisTick);
 	}
 
 	/**
-	 * Snapshots the current {@link #holding} into {@link #emptiedThisTick} before
-	 * an Empty clears it, so the exact materialised contents survive for the
+	 * Snapshots the current {@link #holding} into {@link #emptiedThisTick}, then
+	 * clears the barrel to a known-empty state, so the exact materialised contents survive for the
 	 * session tracker to drain. Idempotent: once holding is cleared, a second
 	 * empty signal the same tick adds nothing.
 	 */
-	private void captureEmptied()
+	private static Map<Integer, Integer> drain(Map<Integer, Integer> tick)
 	{
-		for (Map.Entry<Integer, Integer> e : holding.entrySet())
-		{
-			emptiedThisTick.merge(e.getKey(), e.getValue(), Integer::sum);
-		}
+		Map<Integer, Integer> out = new LinkedHashMap<>(tick);
+		tick.clear();
+		return out;
+	}
+
+	private void emptyBarrel()
+	{
+		holding.forEach((id, qty) -> emptiedThisTick.merge(id, qty, Integer::sum));
+		holding.clear();
+		totalHolding = 0;
+		unknown = false;
 	}
 
 	/**
@@ -294,10 +297,7 @@ public class FishBarrelTracker
 			}
 			else if (BANK_EMPTY_MESSAGE.equals(message) || CONTAINERS_EMPTY_MESSAGE.equals(message))
 			{
-				captureEmptied();
-				holding.clear();
-				totalHolding = 0;
-				unknown = false;
+				emptyBarrel();
 			}
 			return;
 		}
@@ -355,34 +355,17 @@ public class FishBarrelTracker
 			Map<Integer, Integer> previous = new HashMap<>(inventoryItems);
 			copyContainer(container, inventoryItems);
 
-			for (Map.Entry<Integer, Integer> entry : inventoryItems.entrySet())
-			{
-				int itemId = entry.getKey();
-				if (!ALL_FISH_TYPES.contains(itemId))
-				{
-					continue;
-				}
-				int before = previous.getOrDefault(itemId, 0);
-				int after = entry.getValue();
-				if (after > before)
-				{
-					newFishInInventoryThisTick += (after - before);
-				}
-			}
-
 			int removedFish = 0;
-			for (Map.Entry<Integer, Integer> entry : previous.entrySet())
+			for (int fishId : ALL_FISH_TYPES)
 			{
-				int itemId = entry.getKey();
-				if (!ALL_FISH_TYPES.contains(itemId))
+				int delta = inventoryItems.getOrDefault(fishId, 0) - previous.getOrDefault(fishId, 0);
+				if (delta > 0)
 				{
-					continue;
+					newFishInInventoryThisTick += delta;
 				}
-				int before = entry.getValue();
-				int after = inventoryItems.getOrDefault(itemId, 0);
-				if (after < before)
+				else
 				{
-					removedFish += (before - after);
+					removedFish -= delta;
 				}
 			}
 
@@ -491,10 +474,7 @@ public class FishBarrelTracker
 		}
 		else if (recentlyActioned(BarrelAction.EMPTY))
 		{
-			captureEmptied();
-			holding.clear();
-			totalHolding = 0;
-			unknown = false;
+			emptyBarrel();
 		}
 
 		fishCaughtThisTick.clear();

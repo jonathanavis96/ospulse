@@ -26,6 +26,7 @@ import java.util.Set;
  * {@code com.ospulse.combat} DPS engine. This keeps the gear-&gt;DPS mapping
  * pure and unit-testable without a running game client.
  */
+@Getter
 @Accessors(fluent = true)
 public final class GearSnapshot
 {
@@ -35,43 +36,24 @@ public final class GearSnapshot
 	private static final GearSnapshot EMPTY = builder().build();
 
 	private final int[] equippedItemIds;
-	@Getter
 	private final int baseAttack;
-	@Getter
 	private final int boostedAttack;
-	@Getter
 	private final int baseStrength;
-	@Getter
 	private final int boostedStrength;
-	@Getter
 	private final int baseDefence;
-	@Getter
 	private final int boostedDefence;
-	@Getter
 	private final int baseRanged;
-	@Getter
 	private final int boostedRanged;
-	@Getter
 	private final int baseMagic;
-	@Getter
 	private final int boostedMagic;
-	@Getter
 	private final int basePrayer;
-	@Getter
 	private final int boostedPrayer;
-	@Getter
 	private final int baseHitpoints;
-	@Getter
 	private final int boostedHitpoints;
-	@Getter
 	private final int baseSlayer;
-	@Getter
 	private final int boostedSlayer;
-	@Getter
 	private final int baseAgility;
-	@Getter
 	private final int boostedAgility;
-	@Getter
 	private final Set<OffensivePrayer> activePrayers;
 	/**
 	 * TODO Phase 2+: on-task Slayer detection is not wired to a live client
@@ -79,7 +61,6 @@ public final class GearSnapshot
 	 * always {@code false} for now, so Slayer helm(i)/black mask(i) on-task
 	 * bonuses never apply until this is read live.
 	 */
-	@Getter
 	private final boolean onSlayerTask;
 	/**
 	 * Pre-summed loadout-wide {@link EquipmentStats}, resolved once on the
