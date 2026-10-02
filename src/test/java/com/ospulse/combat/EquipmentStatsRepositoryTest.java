@@ -64,6 +64,29 @@ public class EquipmentStatsRepositoryTest {
         assertEquals(6, s.aspeed());
     }
 
+    /**
+     * Prayer bonus (row index 13) for the top-tier amulets, pinned to the OSRS Wiki
+     * infobox values read on 2026-10-02. An older backlog note claimed torture was
+     * +3; the wiki shows +2, matching the cache-derived file.
+     */
+    @Test
+    public void topTierAmulets_prayerBonusMatchesWiki() {
+        EquipmentStatsRepository repo = EquipmentStatsRepository.getInstance();
+        int[][] idAndPrayer = {
+            {19553, 2}, // Amulet of torture
+            {6585, 5},  // Amulet of fury
+            {19547, 2}, // Necklace of anguish
+            {12002, 2}, // Occult necklace
+            {29801, 2}, // Amulet of rancour
+            {24780, 5}, // Amulet of blood fury
+        };
+        for (int[] row : idAndPrayer) {
+            EquipmentStatsRepository.Stats s = repo.statsFor(row[0]);
+            assertNotNull("item " + row[0], s);
+            assertEquals("prayer bonus of item " + row[0], row[1], s.prayer());
+        }
+    }
+
     @Test
     public void unknownAndEmptyIdsReturnNull() {
         EquipmentStatsRepository repo = EquipmentStatsRepository.getInstance();
