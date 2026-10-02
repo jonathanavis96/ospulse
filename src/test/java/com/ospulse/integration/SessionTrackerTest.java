@@ -103,7 +103,7 @@ public class SessionTrackerTest
 		when(comp.getHaPrice()).thenReturn(0);
 		when(itemManager.canonicalize(itemId)).thenReturn(itemId);
 		when(itemManager.getItemComposition(itemId)).thenReturn(comp);
-		when(itemManager.getItemPrice(itemId)).thenReturn(unitValue);
+		when(itemManager.getItemPrice(itemId)).thenReturn((long) unitValue);
 	}
 
 	/** The published feed's group for {@code source}, or null when absent. */
