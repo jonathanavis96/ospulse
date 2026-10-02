@@ -109,4 +109,59 @@ public class WealthSnapshotTest
 		assertTrue(snap.getTrackedItems().isEmpty());
 		assertEquals(Collections.emptyList(), snap.getTopHoldings());
 	}
+
+	@Test
+	public void emptySnapshotIsAllZero()
+	{
+		WealthSnapshot snap = WealthSnapshot.builder().build();
+		assertEquals(0L, snap.tracked());
+		assertEquals(0L, snap.netWorth());
+		assertTrue(snap.getAllHoldings().isEmpty());
+	}
+
+	@Test
+	public void knownEmptyBankStillCountsAsZeroNotMissing()
+	{
+		WealthSnapshot snap = WealthSnapshot.builder()
+			.inventoryValue(5L).bankValue(0L).bankKnown(true).build();
+		assertEquals(5L, snap.netWorth());
+	}
+
+	@Test
+	public void netWorthSumsPastIntRangeWithoutOverflow()
+	{
+		long big = 2_000_000_000L;
+		WealthSnapshot snap = WealthSnapshot.builder()
+			.inventoryValue(big).equipmentValue(big).geInFlightValue(big)
+			.geCollectableValue(big).pouchValue(big).bankValue(big).bankKnown(true).build();
+		assertEquals(12_000_000_000L, snap.netWorth());
+	}
+
+	@Test
+	public void legacyConstructorLeavesAllHoldingsEmptyAndCollectableZero()
+	{
+		WealthSnapshot snap = new WealthSnapshot(1L, 2L, 3L, 4L, 5L, true, 0L, null, null, null);
+		assertTrue(snap.getAllHoldings().isEmpty());
+		assertEquals(0L, snap.getGeCollectableValue());
+		assertEquals(10L, snap.tracked());
+	}
+
+	@Test
+	public void allHoldingsIsDefensivelyCopiedAndReadOnly()
+	{
+		Map<Integer, ItemStack> all = new HashMap<>();
+		all.put(995, new ItemStack(995, "Coins", 1L, 1L));
+		WealthSnapshot snap = WealthSnapshot.builder().allHoldings(all).build();
+		all.put(4151, new ItemStack(4151, "Abyssal whip", 1L, 2L));
+		assertEquals(1, snap.getAllHoldings().size());
+		try
+		{
+			snap.getAllHoldings().clear();
+			org.junit.Assert.fail("allHoldings must be unmodifiable");
+		}
+		catch (UnsupportedOperationException expected)
+		{
+			// ok
+		}
+	}
 }
