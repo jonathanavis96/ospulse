@@ -10,7 +10,7 @@ import java.util.*;
  * 1. Filter to owned ({@link SpecWeapon#isOwned}), NOT excluded ({@link
  *    SpecWeapon#isExcluded} — the panel's user-facing "Exclude from
  *    suggestions" action, same as any ordinary optimiser candidate), NOT
- *    permanently restricted ({@link SpecWeapon#itemId()} present in the
+ *    permanently restricted ({@code SpecWeapon.itemId()} present in the
  *    caller's mode-lock restriction set — per-ID only, deliberately not
  *    alias-symmetric like {@code isExcluded}), equippable at the player's
  *    current levels ({@link SpecWeapon#canEquip} — owning an item never
@@ -78,7 +78,7 @@ public final class SpecWeaponSelector {
 
     /**
      * Supplies the (hitChance, maxHit) pair for wielding one curated {@link
-     * SpecWeapon} at its own {@link SpecWeapon#style()} against the current
+     * SpecWeapon} at its own {@code SpecWeapon.style()} against the current
      * target, with every other worn slot held fixed and only the weapon slot
      * swapped to the candidate — "if I switched to this weapon and attacked
      * normally, what would that attack roll look like" — the same

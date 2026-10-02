@@ -7,12 +7,12 @@ import lombok.experimental.Accessors;
 /**
  * One curated "don't forget" consumables/gear reminder for a monster — e.g.
  * "Zulrah poisons you — bring antivenom." Text is the payload; the optional
- * {@link #equipmentItemIds()} only ever names items that are genuinely
+ * {@code equipmentItemIds()} only ever names items that are genuinely
  * equipment and therefore verifiable against {@link EquipmentIndexRepository}
  * (a ring, a shield). Inventory consumables (potions) are named in
- * {@link #note()} prose, and — when the id has been verified against the
+ * {@code note()} prose, and — when the id has been verified against the
  * runelite-api jar's {@code ItemID} constants, not the equipment index — also
- * carried as an id in {@link #consumableItemIds()}, a separately-validated
+ * carried as an id in {@code consumableItemIds()}, a separately-validated
  * field because {@code equipment_index.min.json} indexes equipment alone. See
  * {@link MonsterConsumablesRepository} for how this is loaded/looked up and
  * that class's bundled resource README for provenance.

@@ -14,9 +14,9 @@ import lombok.experimental.Accessors;
  * curated by hand here, exactly as {@link DemonbaneWeapon}/{@link
  * DragonHunterWeapon}/{@link Tome} already are in this codebase.
  *
- * <p><b>Every {@link #itemId()} and every id in {@link #ownedAliasIds()} is
+ * <p><b>Every {@code itemId()} and every id in {@code ownedAliasIds()} is
  * verified against the bundled {@code equipment_index.min.json}</b> — see
- * {@code SpecWeaponCatalogDataTest}. {@link #displayName()} is that id's
+ * {@code SpecWeaponCatalogDataTest}. {@code displayName()} is that id's
  * EXACT indexed name, not a paraphrase. A weapon that could not be verified
  * this way is omitted from {@link #CATALOG} entirely, never included with a
  * guessed id (a missing entry is visibly absent; a wrong one looks modelled
@@ -39,7 +39,7 @@ import lombok.experimental.Accessors;
  * GearVariants#demonbaneWeaponFor} recognises only 19675). Aliasing it would
  * let an inactive-only owner be recommended, probed, and rendered a weapon
  * with better stats than the one they actually have. 30305 is therefore
- * deliberately absent from the Arclight entry's {@link #ownedAliasIds()}.
+ * deliberately absent from the Arclight entry's {@code ownedAliasIds()}.
  */
 @Accessors(fluent = true)
 public final class SpecWeapon {
@@ -96,9 +96,9 @@ public final class SpecWeapon {
 
     /**
      * The real {@link WeaponStyle} this catalog entry should be evaluated
-     * at: the one offered by {@code weaponRepo} for {@link #itemId()} whose
-     * type/stance exactly match {@link #style()}/{@link #stance()}, or the
-     * first style of the right {@link #style()} type if that exact stance
+     * at: the one offered by {@code weaponRepo} for {@code itemId()} whose
+     * type/stance exactly match {@code style()}/{@code stance()}, or the
+     * first style of the right {@code style()} type if that exact stance
      * isn't offered, or {@code null} if this weapon offers no style of that
      * type at all (should not happen for a correctly-curated entry — see
      * {@code SpecWeaponCatalogDataTest#everyWeaponOffersItsDeclaredCombatStyle}
@@ -133,7 +133,7 @@ public final class SpecWeapon {
         return false;
     }
 
-    /** True if {@code ownedItemIds} contains this weapon's canonical id or any of {@link #ownedAliasIds()}. */
+    /** True if {@code ownedItemIds} contains this weapon's canonical id or any of {@code ownedAliasIds()}. */
     public boolean isOwned(Set<Integer> ownedItemIds) {
         return anyId(ownedItemIds::contains);
     }
@@ -142,7 +142,7 @@ public final class SpecWeapon {
      * True if {@code excludedItemIds} (the panel's "Exclude from suggestions"
      * set — see {@code GearSection#excludedItemIds}, shipped in stage 4 at
      * the reporter's explicit request) contains this weapon's canonical id
-     * or any of {@link #ownedAliasIds()} — mirrors {@link #isOwned}'s
+     * or any of {@code ownedAliasIds()} — mirrors {@link #isOwned}'s
      * alias-symmetry so excluding a cosmetic recolour excludes the whole
      * weapon, the same as it would for an ordinary optimiser candidate.
      */
@@ -151,7 +151,7 @@ public final class SpecWeapon {
     }
 
     /**
-     * True if at least one of {@link #itemId()} or {@link #ownedAliasIds()}
+     * True if at least one of {@code itemId()} or {@code ownedAliasIds()}
      * is BOTH owned ({@code ownedItemIds}) AND NOT restricted ({@code
      * restrictedItemIds}) — round-3 fix. Checking the restriction against
      * the canonical id alone (as {@code SpecWeaponSelector} previously did)
@@ -170,7 +170,7 @@ public final class SpecWeapon {
     /**
      * True if a player at {@code baseLevels} can equip this weapon, per
      * {@link EquipmentRequirementsRepository#canEquip} — BUT resolved across
-     * the whole family ({@link #itemId()} plus every {@link #ownedAliasIds()}
+     * the whole family ({@code itemId()} plus every {@code ownedAliasIds()}
      * entry) rather than the canonical id alone (round-2 fix). Data-shape bug
      * found in review: the canonical Dragon dagger id (1231) has NO row in
      * {@code equipment_requirements.min.json}, while alias ids 1215/5698

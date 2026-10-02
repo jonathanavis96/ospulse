@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
  *       nothing to charge against and its cost is silently discarded — the
  *       value lands in the "Bank" residual instead. A miss here is a real
  *       accounting hole, not a missing line item.</li>
- *   <li>The episode ledger ({@code SessionEngine}'s skilling P&L) closes that
+ *   <li>The episode ledger ({@code SessionEngine}'s skilling P&amp;L) closes that
  *       hole for the case it was actually costing money — production skilling,
  *       where inputs like "Clean toadflax" or "Toadflax potion(unf)" match
  *       nothing here — by valuing the whole conversion rather than relying on

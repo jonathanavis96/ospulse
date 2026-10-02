@@ -137,8 +137,8 @@ public final class Monster {
      * bonus (see {@code RevenantWeapon}/{@code DpsCalculator}) — either
      * because it is a genuinely Wilderness-exclusive monster ({@link
      * WildernessMonsterRepository}'s curated set), or because it is a
-     * SYNTHETIC "(Wilderness)" twin of a both-locations monster (see {@link
-     * #lookupName()} and {@link WildernessVariantMonsterRepository}) that
+     * SYNTHETIC "(Wilderness)" twin of a both-locations monster (see {@code
+     * lookupName()} and {@link WildernessVariantMonsterRepository}) that
      * the player explicitly selected in preference to the ordinary,
      * non-Wilderness entry of the same species. An ordinary both-locations
      * monster's own (non-synthetic) entry always returns {@code false} here
@@ -257,13 +257,13 @@ public final class Monster {
             return this;
         }
 
-        /** Percent demonbane resistance (0-100; default 0). See {@link Monster#demonbaneResistPercent()}. */
+        /** Percent demonbane resistance (0-100; default 0). See {@code Monster.demonbaneResistPercent()}. */
         public Builder demonbaneResistPercent(int percent) {
             this.demonbaneResistPercent = percent;
             return this;
         }
 
-        /** Elemental weakness (nullable element + severity). See {@link Monster#weaknessElement()}/{@link Monster#weaknessSeverity()}. */
+        /** Elemental weakness (nullable element + severity). See {@code Monster.weaknessElement()}/{@code Monster.weaknessSeverity()}. */
         public Builder weakness(String element, int severity) {
             this.weaknessElement = element;
             this.weaknessSeverity = severity;
@@ -276,7 +276,7 @@ public final class Monster {
             return this;
         }
 
-        /** See {@link Monster#lookupName()}. Defaults to this builder's {@link #name} if never called. */
+        /** See {@code Monster.lookupName()}. Defaults to this builder's {@link #name} if never called. */
         public Builder lookupName(String value) {
             this.lookupName = value;
             return this;

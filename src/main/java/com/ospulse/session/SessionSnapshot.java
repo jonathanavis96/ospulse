@@ -14,7 +14,7 @@ import java.util.Map;
 
 /**
  * Immutable output DTO summarising the current state of a tracked session.
- * The {@link #getLoot()} list is aggregated per item and ordered by total
+ * The {@code getLoot()} list is aggregated per item and ordered by total
  * value descending (index 0 = most valuable item this session).
  */
 @Getter
@@ -315,12 +315,12 @@ public final class SessionSnapshot
 	}
 
 	/**
-	 * Session net profit: {@link #getLootValue() loot value}, minus the
-	 * {@link #getSuppliesUsed() consumable spend} burned to earn it, plus the
-	 * {@link #getEpisodePnl() episode P&L} of any skilling done. This is the
+	 * Session net profit: loot value, minus the
+	 * consumable spend burned to earn it, plus the
+	 * episode P&amp;L of any skilling done. This is the
 	 * true bottom line — what you actually walked away with — whereas
 	 * {@code getLootValue()} is gross loot before supply cost.
-	 * {@link #getProfitPerHour()} is the hourly extrapolation of THIS figure,
+	 * {@code getProfitPerHour()} is the hourly extrapolation of THIS figure,
 	 * so an hour that nets negative after supplies reads negative here too.
 	 *
 	 * <p>The episode term is what stops crafting at a loss from reading as pure

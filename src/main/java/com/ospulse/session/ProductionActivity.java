@@ -92,7 +92,7 @@ public final class ProductionActivity
 	 *       zero-XP step.</li>
 	 *   <li><b>An id that is not really production (false positive)</b> is the one
 	 *       to be careful about. Its blast radius is small but real: because
-	 *       episode P&L is defined as (tracked change − loot booked), a
+	 *       episode P&amp;L is defined as (tracked change − loot booked), a
 	 *       wrongly-opened episode leaves Profit's ARITHMETIC unchanged and merely
 	 *       relabels an acquisition out of the Loot feed. The genuine hazard is
 	 *       narrower — parking items outside tracked wealth (rune pouch, coal bag)

@@ -288,7 +288,7 @@ public final class GearOptimizer {
             /**
              * How many "expensive" items (see {@link #expensiveItemThreshold}) the
              * caller wants allowed in the result, e.g. for wilderness/PvP risk
-             * budgeting. Enforced by the search (see {@link Request#expensiveItemCount()})
+             * budgeting. Enforced by the search (see {@code Request.expensiveItemCount()})
              * only when the cap can bind — a positive threshold and an allowance
              * below the number of searchable slots.
              */
@@ -301,7 +301,7 @@ public final class GearOptimizer {
              * The gp value at/above which an item counts as "expensive" for
              * {@link #expensiveItemCount}. A threshold of 0 (the default) means
              * "no item is expensive" and disables the cap (see
-             * {@link Request#expensiveItemThreshold()}).
+             * {@code Request.expensiveItemThreshold()}).
              */
             public Builder expensiveItemThreshold(long threshold) {
                 this.expensiveItemThreshold = Math.max(0, threshold);

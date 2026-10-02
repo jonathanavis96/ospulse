@@ -177,7 +177,7 @@ public final class WealthSnapshot
 			return this;
 		}
 
-		/** GE value awaiting collection — see {@link WealthSnapshot#getGeCollectableValue()}. */
+		/** GE value awaiting collection — see {@code WealthSnapshot.getGeCollectableValue()}. */
 		public Builder geCollectableValue(long geCollectableValue)
 		{
 			this.geCollectableValue = geCollectableValue;
@@ -220,7 +220,7 @@ public final class WealthSnapshot
 			return this;
 		}
 
-		/** The complete owned-item map — see {@link WealthSnapshot#getAllHoldings()}. */
+		/** The complete owned-item map — see {@code WealthSnapshot.getAllHoldings()}. */
 		public Builder allHoldings(Map<Integer, ItemStack> allHoldings)
 		{
 			this.allHoldings = allHoldings;

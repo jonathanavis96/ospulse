@@ -79,7 +79,7 @@ public final class MonsterGearOverride {
             : Collections.unmodifiableSet(new LinkedHashSet<>(alternativeItemIds));
     }
 
-    /** True when {@code shownId} is either the primary {@link #itemId()} or one of {@link #alternativeItemIds()}. */
+    /** True when {@code shownId} is either the primary {@code itemId()} or one of {@code alternativeItemIds()}. */
     public boolean satisfiedBy(int shownId) {
         return shownId == itemId || alternativeItemIds.contains(shownId);
     }

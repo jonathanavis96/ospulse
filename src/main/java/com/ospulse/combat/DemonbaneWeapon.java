@@ -23,7 +23,7 @@ package com.ospulse.combat;
  * and Emberlight boost both (+70%); the Scorching bow boosts both (+30%);
  * Burning claws boost both (+5%). Cerberus and almost all demons take the
  * full multiplier — the documented exception is Duke Sucellus (30%
- * demonbane resistance), modelled via {@link Monster#demonbaneResistPercent()}
+ * demonbane resistance), modelled via {@code Monster.demonbaneResistPercent()}
  * and applied in {@code DpsCalculator}'s demonbane step (see that class for
  * the exact formula).
  *

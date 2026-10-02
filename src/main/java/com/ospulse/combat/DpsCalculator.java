@@ -41,8 +41,8 @@ package com.ospulse.combat;
  * — gated on {@link Monster#isWildernessTarget()}, true for both genuinely
  * Wilderness-exclusive monsters ({@link WildernessMonsterRepository}) and a
  * player-selected synthetic "(Wilderness)" twin of a both-locations monster
- * ({@link WildernessVariantMonsterRepository}; see {@link
- * Monster#lookupName()} for how every OTHER lookup resolves such a twin back
+ * ({@link WildernessVariantMonsterRepository}; see {@code
+ * Monster.lookupName()} for how every OTHER lookup resolves such a twin back
  * to its real underlying monster) — and the
  * Crystal armour set + Crystal bow/Bow of Faerdhinen's +15% damage/+30%
  * accuracy (see {@code EquipmentStats#crystalSetBonusActive}). Remaining
@@ -53,8 +53,8 @@ package com.ospulse.combat;
  *
  * <p>Per-target damage-magnitude effects (a curated {@link
  * MonsterCombatRequirement}, resolved once per compute call from {@code
- * target.lookupName()} — {@link Monster#lookupName()}, NOT {@link
- * Monster#name()}, so a synthetic Wilderness-variant target resolves the
+ * target.lookupName()} — {@code Monster.lookupName()}, NOT {@code
+ * Monster.name()}, so a synthetic Wilderness-variant target resolves the
  * SAME requirement its real underlying monster would — via {@link
  * MonsterCombatRequirementRepository} by the
  * overloads below that don't take one explicitly, or supplied directly by a

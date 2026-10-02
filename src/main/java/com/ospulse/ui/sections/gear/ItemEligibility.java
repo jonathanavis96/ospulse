@@ -166,8 +166,8 @@ public final class ItemEligibility
 	 * (an item present in {@code exclusions} is left out of the forced set
 	 * rather than fighting the exclude list).
 	 *
-	 * <p>Outside owned-only mode this always forces the primary {@link
-	 * MonsterGearOverride#itemId()} — an unaffordable force-include there is
+	 * <p>Outside owned-only mode this always forces the primary {@code
+	 * MonsterGearOverride.itemId()} — an unaffordable force-include there is
 	 * a legitimate purchase suggestion, and the player may simply buy it. In
 	 * owned-only mode it forces whichever id {@link
 	 * OwnedOnlyMandatoryOverrideGate#ownedOnlySatisfyingItemId} says actually

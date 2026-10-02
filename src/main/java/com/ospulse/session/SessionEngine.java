@@ -3334,7 +3334,7 @@ public final class SessionEngine
 		return episodeOpen;
 	}
 
-	/** Session-cumulative episode P&L; folded into Profit by {@link #snapshot}. */
+	/** Session-cumulative episode P&amp;L; folded into Profit by {@link #snapshot}. */
 	public long getEpisodePnl()
 	{
 		return episodePnl;
