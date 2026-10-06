@@ -55,12 +55,11 @@ import java.util.*;
 // bound inside the banktags plugin's own injector, so without declaring the
 // dependency they inject as null and the feature silently no-ops.
 @PluginDependency(BankTagsPlugin.class)
-// The loot feed consumes Loot Tracker's LootReceived events to NAME a drop's
-// source; declaring the dependency makes RuneLite start that plugin first so
-// early kills are not missed. A nicety, not a requirement: the feed derives the
-// loot itself from the inventory diff (see SessionTracker#attributeDiffLoot), so
-// with Loot Tracker off the drops still appear, just unnamed.
-@PluginDependency(LootTrackerPlugin.class)
+// No @PluginDependency on LootTrackerPlugin: RuneLite refuses to start a plugin
+// whose dependency exposes no services, and Loot Tracker exposes none. Its
+// LootReceived events reach us over the shared event bus regardless, and with
+// Loot Tracker off the feed still derives drops from the inventory diff (see
+// SessionTracker#attributeDiffLoot), just unnamed.
 public class OSPulsePlugin extends Plugin
 {
 	@Inject

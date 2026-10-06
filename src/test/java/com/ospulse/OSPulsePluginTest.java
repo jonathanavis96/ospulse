@@ -10,6 +10,7 @@ import net.runelite.api.events.GameTick;
 import net.runelite.api.vars.AccountType;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.plugins.PluginDependency;
 
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -17,6 +18,7 @@ import org.mockito.Mockito;
 import java.lang.reflect.Field;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -293,5 +295,32 @@ public class OSPulsePluginTest
 			plugin.pendingIronmanAutoDetectForTest());
 		Mockito.verify(configManager)
 			.setRSProfileConfiguration(OSPulseConfig.GROUP, "ironmanOwnedOnlyAutoDetectSeen", true);
+	}
+
+	// ---------------------------- 0.2.3: plugin failed to start on current RuneLite
+
+	/**
+	 * RuneLite's {@code PluginManager.instantiate} refuses to create a plugin
+	 * whose {@link PluginDependency} names a plugin with no public module
+	 * ("Plugin dependency LootTrackerPlugin does not expose any services").
+	 * The plugin then never starts and its sidebar button never appears. A
+	 * dependency is only legal when that plugin overrides {@code getPublicModule}.
+	 */
+	@Test
+	public void everyPluginDependency_exposesAPublicModule()
+	{
+		for (PluginDependency dependency : OSPulsePlugin.class.getAnnotationsByType(PluginDependency.class))
+		{
+			java.lang.reflect.Method module = null;
+			try
+			{
+				module = dependency.value().getDeclaredMethod("getPublicModule");
+			}
+			catch (NoSuchMethodException ignored)
+			{
+			}
+			assertNotNull(dependency.value().getSimpleName() + " exposes no services, so RuneLite refuses to start OSPulse",
+				module);
+		}
 	}
 }

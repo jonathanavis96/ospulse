@@ -180,17 +180,35 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 
 ## 📝 Changelog
 
-<!-- 0.2.2 is the version declared in build.gradle + runelite-plugin.properties and is
+<!-- 0.2.3 is the version declared in build.gradle + runelite-plugin.properties and is
      what master builds as. It is NOT yet the version served by the Plugin Hub: the
      hub manifest pins a commit SHA, so going live needs a PR against
      runelite/plugin-hub setting commit= to the master tip.
-     0.2.1 SHIPPED on 2026-07-28 (plugin-hub PR #13797, pinned at 0d75444), so it is
+     0.2.2 SHIPPED on 2026-07-30 (plugin-hub PR #14483, pinned at 72b07fc), so it is
      collapsed below and must not be edited further — users already have it.
-     Keep adding user-facing lines to the 0.2.2 section until its manifest PR merges.
+     Keep adding user-facing lines to the 0.2.3 section until its manifest PR merges.
      After that release, add a fresh "### Unreleased" block ABOVE it and stage new lines
      there; on the next release, rename it to its version, collapse the previous version
      into a <details> block as below, and cut the manifest PR. -->
-### 0.2.2 — Wilderness‑aware risk, your own prayers
+### 0.2.3 — Back in the sidebar, profit you can add up
+
+**🔧 Fixed**
+
+- **OSPulse stopped appearing in the sidebar.** A RuneLite update in late September started refusing to load plugins that declare Loot Tracker as a dependency, so OSPulse failed to start and its sidebar button never showed. That dependency is gone. Loot Tracker still names your drops when it's on, and the loot feed still works without it.
+- **Net profit now includes skilling.** Your net‑worth components now add up to the total you're shown.
+- **GE buys are costed at what you actually paid**, not at the offer price you typed, so a buy that fills below your offer no longer understates your flip profit.
+- **Flip profit no longer rounds away.** It's worked out from gp totals instead of whole‑gp averages per item, so cheap, high‑volume flips report what they really made.
+- **Collecting a cancelled offer isn't loot.** Items or gp waiting in the GE collection box when a session starts are expected, so collecting them no longer counts as a drop.
+- **Resetting a session no longer breaks later numbers.** Open GE buys keep their exact cost basis, a freshly reset row starts from the right baseline, and a deployed cannon or items held at Death stay yours, so getting them back isn't counted as loot.
+
+**✨ New**
+
+- 🗡️ **The latest gear is in.** Equipment data is refreshed to game cache 2710, adding eight new items, including the two‑handed **Hallowfell**, with its correct attack styles.
+
+<details>
+<summary><b>0.2.2 — Wilderness‑aware risk, your own prayers</b></summary>
+
+<br>
 
 **✨ New**
 
@@ -201,6 +219,8 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
 **🔧 Fixed**
 
 - **Ironmen couldn't reach the risk cap at all.** Owned‑only mode hid the whole budget row, and the expensive‑item count and value went with it — while still quietly applying their default values to every search. The budget is about what you can buy, so it stays hidden; the cap is about what you can afford to lose, which matters just as much on an ironman.
+
+</details>
 
 <details>
 <summary><b>0.2.1 — Truthful wealth, readable numbers</b></summary>
