@@ -43,13 +43,9 @@ public final class WeaponCategoryRepository {
         if (raw != null) {
             for (Map.Entry<String, String> e : raw.entrySet()) {
                 WeaponCategory category = WeaponCategory.fromDataName(e.getValue());
-                if (category == null) {
-                    continue; // unknown/blank category — treated as "no data" (caller falls back)
-                }
-                try {
-                    parsed.put(Integer.parseInt(e.getKey().trim()), category);
-                } catch (NumberFormatException ignored) {
-                    // non-numeric key in the data — skip defensively
+                Integer itemId = CombatDataLoader.parseItemId(e.getKey());
+                if (category != null && itemId != null) {
+                    parsed.put(itemId, category);
                 }
             }
         }

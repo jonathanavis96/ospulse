@@ -51,6 +51,15 @@ public class FishBarrelWidgetParserTest
 	}
 
 	@Test
+	public void lineWrapAfterTrailingSpaceStillParses()
+	{
+		Map<Integer, Integer> parsed = FishBarrelWidgetParser.parse(
+			"The barrel contains: <br>2 x Raw shark, <br>3 x Raw tuna", Map.of("shark", 1, "tuna", 2));
+
+		assertEquals(Map.of(1, 2, 2, 3), parsed);
+	}
+
+	@Test
 	public void multiEntryParsesEverySpecies()
 	{
 		Map<Integer, Integer> parsed = FishBarrelWidgetParser.parse(String.join("<br>",

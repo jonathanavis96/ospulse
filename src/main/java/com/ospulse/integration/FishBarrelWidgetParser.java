@@ -25,6 +25,7 @@ final class FishBarrelWidgetParser
 	private static final String EMPTY_MESSAGE = "The barrel is empty.";
 	private static final String MESSAGE_ENTRY_REGEX = "([0-9]+) x ([a-zA-Z ]+),? ?";
 	private static final Pattern MESSAGE_ENTRY_PATTERN = Pattern.compile(MESSAGE_ENTRY_REGEX);
+	private static final Pattern WHITESPACE_RUN = Pattern.compile("\\s+");
 	private static final Pattern FULL_MESSAGE_PATTERN =
 		Pattern.compile("^The barrel contains: (" + MESSAGE_ENTRY_REGEX + ")+$");
 
@@ -46,7 +47,9 @@ final class FishBarrelWidgetParser
 		{
 			return null;
 		}
-		String normalized = message.replace("<br>", " ").trim();
+		// Collapse runs of whitespace: a line that wraps after "x, " leaves a
+		// trailing space before the <br>, and the strict pattern below allows one.
+		String normalized = WHITESPACE_RUN.matcher(message.replace("<br>", " ")).replaceAll(" ").trim();
 
 		if (EMPTY_MESSAGE.equals(normalized))
 		{

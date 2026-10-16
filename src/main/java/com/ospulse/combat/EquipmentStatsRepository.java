@@ -67,11 +67,9 @@ public final class EquipmentStatsRepository {
                 if (row == null || row.length < MIN_ROW_LEN) {
                     continue; // malformed row — treated as "no data" (caller falls back)
                 }
-                int itemId;
-                try {
-                    itemId = Integer.parseInt(e.getKey().trim());
-                } catch (NumberFormatException ignored) {
-                    continue; // non-numeric key in the data — skip defensively
+                Integer itemId = CombatDataLoader.parseItemId(e.getKey());
+                if (itemId == null) {
+                    continue;
                 }
                 parsed.put(itemId, Stats.fromRow(row));
             }

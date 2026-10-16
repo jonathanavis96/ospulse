@@ -78,10 +78,8 @@ public final class EquipmentIndexRepository {
                 if (row == null || row.size() < 2) {
                     continue; // malformed row — treated as "no data"
                 }
-                int itemId;
-                try {
-                    itemId = Integer.parseInt(e.getKey().trim());
-                } catch (NumberFormatException ignored) {
+                Integer itemId = CombatDataLoader.parseItemId(e.getKey());
+                if (itemId == null) {
                     continue;
                 }
                 JsonElement nameEl = row.get(0);
@@ -89,8 +87,12 @@ public final class EquipmentIndexRepository {
                 if (nameEl == null || nameEl.isJsonNull() || slotEl == null || slotEl.isJsonNull()) {
                     continue;
                 }
-                boolean isTwoHanded = row.size() > 2 && !row.get(2).isJsonNull() && row.get(2).getAsBoolean();
-                parsed.add(new Entry(itemId, nameEl.getAsString(), slotEl.getAsInt(), isTwoHanded));
+                try {
+                    boolean isTwoHanded = row.size() > 2 && !row.get(2).isJsonNull() && row.get(2).getAsBoolean();
+                    parsed.add(new Entry(itemId, nameEl.getAsString(), slotEl.getAsInt(), isTwoHanded));
+                } catch (UnsupportedOperationException | IllegalStateException | NumberFormatException wrongType) {
+                    // e.g. a non-numeric slot — skip the row rather than fail the whole index
+                }
             }
         }
         return new EquipmentIndexRepository(parsed);
