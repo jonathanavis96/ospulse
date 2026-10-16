@@ -53,11 +53,9 @@ public final class EquipmentRequirementsRepository {
                 if (reqs == null || reqs.isEmpty()) {
                     continue;
                 }
-                int itemId;
-                try {
-                    itemId = Integer.parseInt(e.getKey().trim());
-                } catch (NumberFormatException ignored) {
-                    continue; // non-numeric key — skip defensively
+                Integer itemId = CombatDataLoader.parseItemId(e.getKey());
+                if (itemId == null) {
+                    continue;
                 }
                 Map<String, Integer> levels = new LinkedHashMap<>();
                 for (Map.Entry<String, Number> r : reqs.entrySet()) {
