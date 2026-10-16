@@ -46,7 +46,9 @@ final class FishBarrelWidgetParser
 		{
 			return null;
 		}
-		String normalized = message.replace("<br>", " ").trim();
+		// Collapse runs of whitespace: a line that wraps after "x, " leaves a
+		// trailing space before the <br>, and the strict pattern below allows one.
+		String normalized = message.replace("<br>", " ").replaceAll("\\s+", " ").trim();
 
 		if (EMPTY_MESSAGE.equals(normalized))
 		{
