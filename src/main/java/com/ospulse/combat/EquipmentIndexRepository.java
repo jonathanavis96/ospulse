@@ -90,8 +90,8 @@ public final class EquipmentIndexRepository {
                 try {
                     boolean isTwoHanded = row.size() > 2 && !row.get(2).isJsonNull() && row.get(2).getAsBoolean();
                     parsed.add(new Entry(itemId, nameEl.getAsString(), slotEl.getAsInt(), isTwoHanded));
-                } catch (RuntimeException wrongType) {
-                    continue; // e.g. a non-numeric slot — skip the row rather than fail the whole index
+                } catch (UnsupportedOperationException | IllegalStateException | NumberFormatException wrongType) {
+                    // e.g. a non-numeric slot — skip the row rather than fail the whole index
                 }
             }
         }

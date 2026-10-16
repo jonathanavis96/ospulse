@@ -46,7 +46,9 @@ public class EquipmentIndexRepositoryTest {
         assertEquals("Abyssal whip", repo.entryFor(4151).name());
         assertTrue(repo.entryFor(20997).isTwoHanded());
         assertNull(repo.entryFor(11));
+        assertNull(repo.entryFor(12));
         assertNull(repo.entryFor(13));
+        assertNull(repo.entryFor(14));
     }
 
     @Test
