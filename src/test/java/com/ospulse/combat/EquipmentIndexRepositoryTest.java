@@ -37,6 +37,19 @@ public class EquipmentIndexRepositoryTest {
     }
 
     @Test
+    public void malformedRowsAreSkippedNotFatal() {
+        // A wrong-typed slot, name or two-handed flag used to throw out of
+        // loadFromResource and take the whole index (and the gear panel) down.
+        EquipmentIndexRepository repo =
+                EquipmentIndexRepository.loadFromResource("/com/ospulse/combat/equipment_index_malformed.json");
+        assertEquals(2, repo.size());
+        assertEquals("Abyssal whip", repo.entryFor(4151).name());
+        assertTrue(repo.entryFor(20997).isTwoHanded());
+        assertNull(repo.entryFor(11));
+        assertNull(repo.entryFor(13));
+    }
+
+    @Test
     public void abyssalWhip_nameAndWeaponSlot_oneHanded() {
         EquipmentIndexRepository.Entry e = EquipmentIndexRepository.getInstance().entryFor(4151);
         assertNotNull(e);
