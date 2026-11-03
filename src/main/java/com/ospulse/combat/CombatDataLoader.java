@@ -42,6 +42,15 @@ final class CombatDataLoader {
         }
     }
 
+    /** A data file's item-id key as an int; {@code null} for a non-numeric key, which callers skip. */
+    static Integer parseItemId(String key) {
+        try {
+            return Integer.parseInt(key.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
     /** Case-insensitive, whitespace-trimmed enum lookup; {@code null} for a null or unknown name. */
     static <E extends Enum<E>> E parseEnum(Class<E> type, String name) {
         if (name == null) {

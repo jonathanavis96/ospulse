@@ -1,0 +1,13 @@
+{
+  "4151": ["Abyssal whip", 3],
+  "20997": ["Twisted bow", 3, true],
+  "x1": ["Bad key", 3],
+  "11": ["Bad slot", "weapon"],
+  "12": [{"name": "Bad name"}, 3],
+  "13": ["Bad two-handed flag", 3, {"two": true}],
+  "14": ["Short row"],
+  "15": [123, 3, false],
+  "16": ["Numeric flag", 3, 1],
+  "17": ["String slot", "3"],
+  "18": ["Fractional slot", 3.5]
+}

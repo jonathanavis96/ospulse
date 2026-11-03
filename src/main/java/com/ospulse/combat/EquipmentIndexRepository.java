@@ -78,22 +78,31 @@ public final class EquipmentIndexRepository {
                 if (row == null || row.size() < 2) {
                     continue; // malformed row — treated as "no data"
                 }
-                int itemId;
-                try {
-                    itemId = Integer.parseInt(e.getKey().trim());
-                } catch (NumberFormatException ignored) {
+                Integer itemId = CombatDataLoader.parseItemId(e.getKey());
+                if (itemId == null) {
                     continue;
                 }
                 JsonElement nameEl = row.get(0);
                 JsonElement slotEl = row.get(1);
-                if (nameEl == null || nameEl.isJsonNull() || slotEl == null || slotEl.isJsonNull()) {
+                JsonElement twoEl = row.size() > 2 ? row.get(2) : JsonNull.INSTANCE;
+                // Gson coerces between primitive types, so check each type explicitly
+                // and skip a wrong-typed row rather than fail or mis-read the index.
+                if (!isPrimitive(nameEl, JsonPrimitive::isString) || !isPrimitive(slotEl, JsonPrimitive::isNumber)
+                        || !(twoEl.isJsonNull() || isPrimitive(twoEl, JsonPrimitive::isBoolean))) {
                     continue;
                 }
-                boolean isTwoHanded = row.size() > 2 && !row.get(2).isJsonNull() && row.get(2).getAsBoolean();
-                parsed.add(new Entry(itemId, nameEl.getAsString(), slotEl.getAsInt(), isTwoHanded));
+                double slot = slotEl.getAsDouble();
+                if (slot != (int) slot) {
+                    continue;
+                }
+                parsed.add(new Entry(itemId, nameEl.getAsString(), (int) slot, !twoEl.isJsonNull() && twoEl.getAsBoolean()));
             }
         }
         return new EquipmentIndexRepository(parsed);
+    }
+
+    private static boolean isPrimitive(JsonElement el, java.util.function.Predicate<JsonPrimitive> type) {
+        return el != null && el.isJsonPrimitive() && type.test(el.getAsJsonPrimitive());
     }
 
     public int size() {
