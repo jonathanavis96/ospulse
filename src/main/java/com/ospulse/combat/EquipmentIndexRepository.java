@@ -84,18 +84,25 @@ public final class EquipmentIndexRepository {
                 }
                 JsonElement nameEl = row.get(0);
                 JsonElement slotEl = row.get(1);
-                if (nameEl == null || nameEl.isJsonNull() || slotEl == null || slotEl.isJsonNull()) {
+                JsonElement twoEl = row.size() > 2 ? row.get(2) : JsonNull.INSTANCE;
+                // Gson coerces between primitive types, so check each type explicitly
+                // and skip a wrong-typed row rather than fail or mis-read the index.
+                if (!isPrimitive(nameEl, JsonPrimitive::isString) || !isPrimitive(slotEl, JsonPrimitive::isNumber)
+                        || !(twoEl.isJsonNull() || isPrimitive(twoEl, JsonPrimitive::isBoolean))) {
                     continue;
                 }
-                try {
-                    boolean isTwoHanded = row.size() > 2 && !row.get(2).isJsonNull() && row.get(2).getAsBoolean();
-                    parsed.add(new Entry(itemId, nameEl.getAsString(), slotEl.getAsInt(), isTwoHanded));
-                } catch (UnsupportedOperationException | IllegalStateException | NumberFormatException wrongType) {
-                    // e.g. a non-numeric slot — skip the row rather than fail the whole index
+                double slot = slotEl.getAsDouble();
+                if (slot != (int) slot) {
+                    continue;
                 }
+                parsed.add(new Entry(itemId, nameEl.getAsString(), (int) slot, !twoEl.isJsonNull() && twoEl.getAsBoolean()));
             }
         }
         return new EquipmentIndexRepository(parsed);
+    }
+
+    private static boolean isPrimitive(JsonElement el, java.util.function.Predicate<JsonPrimitive> type) {
+        return el != null && el.isJsonPrimitive() && type.test(el.getAsJsonPrimitive());
     }
 
     public int size() {

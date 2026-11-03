@@ -49,6 +49,11 @@ public class EquipmentIndexRepositoryTest {
         assertNull(repo.entryFor(12));
         assertNull(repo.entryFor(13));
         assertNull(repo.entryFor(14));
+        // Gson would coerce these primitives rather than throw; they must still be skipped.
+        assertNull(repo.entryFor(15));
+        assertNull(repo.entryFor(16));
+        assertNull(repo.entryFor(17));
+        assertNull(repo.entryFor(18));
     }
 
     @Test
