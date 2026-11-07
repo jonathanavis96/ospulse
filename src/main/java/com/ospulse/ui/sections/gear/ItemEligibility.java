@@ -86,12 +86,13 @@ public final class ItemEligibility
 
 	/**
 	 * Matches a parenthesised game-mode marker in an item's display name —
-	 * Deadman Mode, Bounty Hunter, Last Man Standing/LMS, or a league beta
-	 * cosmetic. These items are not usable by a normal-mode player and must
+	 * Deadman Mode, Bounty Hunter, Last Man Standing/LMS, Pete Kayer's
+	 * Challenges, or a league beta cosmetic. These items are not usable by a
+	 * normal-mode player and must
 	 * never be suggested by the optimiser (bug C).
 	 */
 	private static final Pattern MODE_LOCKED_NAME_PATTERN = Pattern.compile(
-		"(?i)\\((deadman mode|deadman|bh|lms|last man standing|beta)\\)");
+		"(?i)\\((deadman mode|deadman|bh|lms|last man standing|pete kayer's challenges|beta)\\)");
 
 	/** True when an item's indexed display name carries a mode-locked marker — see {@link #MODE_LOCKED_NAME_PATTERN}. */
 	public static boolean isModeLockedItem(String name)
@@ -166,28 +167,25 @@ public final class ItemEligibility
 	 * (an item present in {@code exclusions} is left out of the forced set
 	 * rather than fighting the exclude list).
 	 *
-	 * <p>Outside owned-only mode this always forces the primary {@code
-	 * MonsterGearOverride.itemId()} — an unaffordable force-include there is
-	 * a legitimate purchase suggestion, and the player may simply buy it. In
-	 * owned-only mode it forces whichever id {@link
-	 * OwnedOnlyMandatoryOverrideGate#ownedOnlySatisfyingItemId} says actually
-	 * satisfies the requirement — the owned alternative (e.g. a Slayer
-	 * helmet the player owns for a Dust devil's Facemask requirement) when
-	 * the primary isn't owned, so {@code GearOptimizer.applyForcedIncludes}
-	 * can never force-equip an unowned item that {@link
-	 * OwnedOnlyMandatoryOverrideGate#blockingOverride} agreed the target was
-	 * satisfied for. When neither the primary nor any alternative is owned,
-	 * this still returns the primary — but that case is exactly what {@link
-	 * OwnedOnlyMandatoryOverrideGate#blockingOverride} refuses the target
-	 * for before a result reaches the player, so the unowned id is never
-	 * actually shown/equipped.
+	 * <p>In every mode the id forced is the one {@link
+	 * OwnedOnlyMandatoryOverrideGate#forceIncludeItemId} picks: a worn item that
+	 * satisfies the requirement and can be equipped, else an owned alternative
+	 * (a V's shield for a Basilisk's Mirror shield requirement, issue #35),
+	 * else the primary. Outside owned-only mode an unowned primary is a legitimate purchase
+	 * suggestion. In owned-only mode it is only returned when the player owns
+	 * nothing that satisfies the requirement, which is exactly the case {@link
+	 * OwnedOnlyMandatoryOverrideGate#blockingOverride} refuses the target for
+	 * before a result reaches the player, so {@code
+	 * GearOptimizer.applyForcedIncludes} can never force-equip an unowned item
+	 * the gate agreed the target was satisfied for. If everything the player
+	 * owns for the requirement is excluded, owned-only mode forces nothing.
 	 *
 	 * @param ownedOnly whether the ironman "owned gear only" mode is active
-	 * @param ownedIds every item id the player currently owns — only
-	 *                  consulted when {@code ownedOnly} is true
+	 * @param ownedIds every item id the player currently owns
+	 * @param wornIds the item ids currently worn
 	 */
 	public static Set<Integer> mandatoryOverrideItemIds(Monster target, Set<Integer> exclusions,
-		boolean ownedOnly, Set<Integer> ownedIds)
+		boolean ownedOnly, Set<Integer> ownedIds, int[] wornIds)
 	{
 		if (target == null)
 		{
@@ -196,10 +194,9 @@ public final class ItemEligibility
 		Set<Integer> ids = new LinkedHashSet<>();
 		for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(target.lookupName()))
 		{
-			int id = ownedOnly
-				? OwnedOnlyMandatoryOverrideGate.ownedOnlySatisfyingItemId(override, ownedIds)
-				: override.itemId();
-			if (!exclusions.contains(id))
+			int id = OwnedOnlyMandatoryOverrideGate.forceIncludeItemId(override, wornIds, ownedIds, exclusions);
+			boolean unownedPastTheGate = ownedOnly && !ownedIds.contains(id) && override.satisfiedByAnyOf(ownedIds);
+			if (!exclusions.contains(id) && !unownedPastTheGate)
 			{
 				ids.add(id);
 			}

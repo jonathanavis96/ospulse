@@ -25,6 +25,7 @@ public enum WeaponCategory {
     BLUNT,
     BOW,
     BULWARK,
+    CHAIN_MACE,
     CHINCHOMPA,
     CLAW,
     CROSSBOW,
@@ -78,6 +79,8 @@ public enum WeaponCategory {
                 return BOW;
             case "bulwark":
                 return BULWARK;
+            case "extending chain mace":
+                return CHAIN_MACE;
             case "chinchompas":
                 return CHINCHOMPA;
             case "claw":
@@ -101,6 +104,7 @@ public enum WeaponCategory {
             case "polestaff":
                 return POLESTAFF;
             case "powered staff":
+            case "powered book":
                 return POWERED_STAFF;
             case "powered wand":
                 return POWERED_WAND;

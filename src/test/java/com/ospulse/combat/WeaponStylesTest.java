@@ -19,6 +19,48 @@ public class WeaponStylesTest
 	static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 	private static final WeaponCategoryRepository REPO = WeaponCategoryRepository.getInstance();
 
+	/**
+	 * A category string the plugin does not know silently falls back to
+	 * unarmed styles, so a data refresh that brings a new weapon type has to
+	 * fail here rather than ship wrong attack styles.
+	 */
+	@Test
+	public void everyBundledCategoryIsKnownAndHasStyles() throws java.io.IOException
+	{
+		try (java.io.Reader reader = new java.io.InputStreamReader(
+			WeaponStylesTest.class.getResourceAsStream("/com/ospulse/combat/weapon_categories.min.json"),
+			java.nio.charset.StandardCharsets.UTF_8))
+		{
+			java.util.Map<String, String> bundled = new com.google.gson.Gson().fromJson(reader,
+				new com.google.gson.reflect.TypeToken<java.util.Map<String, String>>()
+				{
+				}.getType());
+			for (java.util.Map.Entry<String, String> entry : bundled.entrySet())
+			{
+				WeaponCategory category = WeaponCategory.fromDataName(entry.getValue());
+				assertTrue("item " + entry.getKey() + " has unknown category '" + entry.getValue() + "'",
+					category != null);
+				assertTrue("no attack styles for " + category,
+					category == WeaponCategory.BLASTER || !WeaponStyles.forCategory(category).isEmpty());
+			}
+		}
+	}
+
+	@Test
+	public void obligatorOffersBothThrustStancesAndSmash()
+	{
+		assertEquals(WeaponCategory.CHAIN_MACE, REPO.categoryFor(34715));
+		List<WeaponStyle> styles = WeaponStyles.forCategory(WeaponCategory.CHAIN_MACE);
+		assertEquals(3, styles.size());
+		assertEquals(Stance.SMASH, styles.get(2).stance());
+	}
+
+	@Test
+	public void zoryasTomeUsesPoweredStaffStyles()
+	{
+		assertEquals(WeaponCategory.POWERED_STAFF, REPO.categoryFor(34725));
+	}
+
 	@Test
 	public void bundledMapLoadsAndResolvesKnownWeapons()
 	{

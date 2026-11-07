@@ -28,8 +28,8 @@ rather than raw DPS, so the DPS optimiser would never surface it on its own.
   `MonsterGearOverride.Slot`), not the raw ordinal, for readability.
 - `itemId` / `itemName`: verified against this repo's own bundled
   `equipment_index.min.json` (cache-derived — see that file's README), never
-  guessed from the wiki. This is the PRIMARY item — shown in the advisory note
-  and what the optimiser force-includes.
+  guessed from the wiki. This is the PRIMARY item — what the advisory note
+  names and the optimiser force-includes when the player has no alternative.
 - `reason`: one short sentence shown verbatim in the advisory note.
 - `alternativeItemIds` (optional array of ints): other item ids that satisfy
   this requirement equally well as `itemId` — e.g. every Slayer helmet
@@ -38,8 +38,12 @@ rather than raw DPS, so the DPS optimiser would never surface it on its own.
   `GearSection#isSlotInvalidForTarget` checks — an equipped item red-crosses
   the slot only when it matches NEITHER `itemId` NOR any id in this list).
   Omit entirely (or leave empty) when the requirement has no known
-  substitute. Only relaxes the red-cross display check; the optimiser still
-  only force-includes the primary `itemId`.
+  substitute. Listed best first: the optimiser keeps a worn item that
+  satisfies the requirement, otherwise force-includes the first alternative
+  the player owns, and only falls back to the primary `itemId` when they own
+  none (see `OwnedOnlyMandatoryOverrideGate#satisfyingItemId`). That is why
+  the imbued Slayer helmets come before the plain ones: owning an imbued helm
+  also credits its plain form as owned.
 
 Multiple overrides per monster are allowed (repeat the monster name in another
 entry's `monsters` array) — extend by adding one more object to `overrides`.

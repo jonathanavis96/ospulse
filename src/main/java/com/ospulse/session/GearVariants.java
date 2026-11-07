@@ -379,6 +379,11 @@ public final class GearVariants
 	 * left unmapped here (they still carry the Wilderness +50% bonus via
 	 * {@link RevenantWeapon}, which is a separate, already-modelled
 	 * mechanic).
+	 *
+	 * <p><b>Zorya's tome (34725, charged only)</b> is a "powered book", which
+	 * the bundled data treats as a powered staff. Its formula comes from
+	 * weirdgloop's calculator; the wiki's "base max hit of 18" is the same
+	 * formula at its 85 Magic requirement.
 	 */
 	static PoweredStaff poweredStaffFor(int weaponItemId)
 	{
@@ -398,6 +403,8 @@ public final class GearVariants
 				return PoweredStaff.THAMMARONS_SCEPTRE;
 			case 27665:
 				return PoweredStaff.ACCURSED_SCEPTRE;
+			case 34725:
+				return PoweredStaff.ZORYAS_TOME;
 			default:
 				return PoweredStaff.NONE;
 		}

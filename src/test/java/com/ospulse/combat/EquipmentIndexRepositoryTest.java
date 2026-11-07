@@ -21,7 +21,8 @@ public class EquipmentIndexRepositoryTest {
     @Test
     public void loadsBundledResourceWithManyEntries() {
         EquipmentIndexRepository repo = EquipmentIndexRepository.getInstance();
-        assertEquals(3187, repo.size());
+        // A floor, not a count: every game update adds items, and a data refresh must not fail for that.
+        assertTrue("expected the full item index, got " + repo.size(), repo.size() >= 3100);
     }
 
     @Test

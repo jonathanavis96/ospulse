@@ -198,4 +198,38 @@ public class GearSectionMonsterGearOverrideTest
 			}
 		});
 	}
+
+	/** Issue #35: a worn V's shield satisfies every basilisk and cockatrice requirement. */
+	@Test
+	public void vsShield_satisfiesTheMirrorShieldRequirement()
+	{
+		int shieldSlot = 5;
+		int vsShield = 24266;
+		int[] ids = new int[GearSnapshot.EQUIPMENT_SLOT_COUNT];
+		Arrays.fill(ids, -1);
+		ids[shieldSlot] = vsShield;
+		GearSnapshot gear = GearSnapshot.builder()
+			.equippedItemIds(ids)
+			.attack(99, 99)
+			.strength(99, 99)
+			.defence(99, 99)
+			.ranged(99, 99)
+			.magic(99, 99)
+			.prayer(77, 77)
+			.hitpoints(99, 99)
+			.equipmentStats(EquipmentStats.builder().weaponSpeedTicks(4).build())
+			.build();
+
+		onEdt(() ->
+		{
+			for (String monster : new String[]{"Basilisk", "Monstrous basilisk", "Basilisk Knight", "Cockatrice"})
+			{
+				GearSection section = new GearSection(NO_STORE, null, null);
+				section.apply(snapshotWith(gear));
+				pickMonster(section, monster);
+				assertNull(monster + ": a V's shield must not red-cross the shield slot",
+					section.slotLabels[shieldSlot].getBorder());
+			}
+		});
+	}
 }

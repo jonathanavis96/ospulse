@@ -417,7 +417,7 @@ public class GearSectionGearPoolTest
 		for (Integer id : index.allItemIds())
 		{
 			EquipmentIndexRepository.Entry e = index.entryFor(id);
-			if (e != null && e.name().equals(name))
+			if (e != null && e.name().equalsIgnoreCase(name))
 			{
 				return id;
 			}

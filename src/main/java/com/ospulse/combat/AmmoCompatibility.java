@@ -69,6 +69,13 @@ public final class AmmoCompatibility {
          * them. Consumable.
          */
         HUNTER_BOLT(true),
+        /**
+         * Ascension bolts and their gem-tipped forms. Split from BOLT because
+         * the Ascension crossbows fire only these and no other crossbow fires
+         * them; a 3-tick crossbow credited with dragon-tier bolts would win
+         * every search. Consumable.
+         */
+        ASCENSION_BOLT(true),
         /** Javelins (ballista ammo). Consumable. */
         JAVELIN(true),
         /** Atlatl darts — real class, but no indexed members (see class javadoc). Consumable. */
@@ -121,6 +128,9 @@ public final class AmmoCompatibility {
         }
         if (name.contains("javelin")) {
             return AmmoClass.JAVELIN;
+        }
+        if (name.contains("ascension")) {
+            return AmmoClass.ASCENSION_BOLT;
         }
         if (name.contains("bolt rack")) {
             return AmmoClass.RACK;
@@ -187,6 +197,9 @@ public final class AmmoCompatibility {
             }
             if (name.contains("hunters'")) {
                 return AmmoClass.HUNTER_BOLT;
+            }
+            if (name.contains("ascension")) {
+                return AmmoClass.ASCENSION_BOLT;
             }
             return AmmoClass.BOLT;
         }

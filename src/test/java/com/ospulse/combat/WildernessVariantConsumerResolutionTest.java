@@ -97,9 +97,9 @@ public class WildernessVariantConsumerResolutionTest {
         java.util.Set<Integer> noOwned = java.util.Collections.emptySet();
 
         java.util.Set<Integer> viaReal = com.ospulse.ui.sections.gear.ItemEligibility.mandatoryOverrideItemIds(
-                realRuneDragon, noExclusions, false, noOwned);
+                realRuneDragon, noExclusions, false, noOwned, new int[0]);
         java.util.Set<Integer> viaTwin = com.ospulse.ui.sections.gear.ItemEligibility.mandatoryOverrideItemIds(
-                syntheticTwin, noExclusions, false, noOwned);
+                syntheticTwin, noExclusions, false, noOwned, new int[0]);
 
         assertTrue("fixture must actually carry the Insulated boots requirement", viaReal.contains(7159));
         assertEquals(viaReal, viaTwin);
@@ -127,7 +127,7 @@ public class WildernessVariantConsumerResolutionTest {
         java.util.Set<Integer> noOwned = java.util.Collections.emptySet();
 
         java.util.Set<Integer> viaTwin = com.ospulse.ui.sections.gear.ItemEligibility.mandatoryOverrideItemIds(
-                twin, noExclusions, false, noOwned);
+                twin, noExclusions, false, noOwned, new int[0]);
         assertTrue(viaTwin.contains(7159));
 
         Optional<MonsterGearOverride> viaGateTwin = com.ospulse.ui.sections.gear.OwnedOnlyMandatoryOverrideGate

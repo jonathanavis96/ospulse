@@ -244,7 +244,8 @@ public final class DpsCalculator {
         double prayerStrMult = prayerMult(player, OffensivePrayer.PIETY, OffensivePrayer::meleeStrengthMult);
         double prayerAttMult = prayerMult(player, OffensivePrayer.PIETY, OffensivePrayer::meleeAttackMult);
 
-        int styleBonusStr = player.stance() == Stance.AGGRESSIVE ? 3 : player.stance() == Stance.CONTROLLED ? 1 : 0;
+        boolean aggressive = player.stance() == Stance.AGGRESSIVE || player.stance() == Stance.SMASH;
+        int styleBonusStr = aggressive ? 3 : player.stance() == Stance.CONTROLLED ? 1 : 0;
         int styleBonusAtt = player.stance() == Stance.ACCURATE ? 3 : player.stance() == Stance.CONTROLLED ? 1 : 0;
 
         double voidMult = gear.voidSet().meleeMultiplier();
@@ -317,6 +318,14 @@ public final class DpsCalculator {
             attackRoll = (int) revenant.accuracyMult().applyFloor(attackRoll);
         }
 
+        // Obligator: while charged, Thrust gains +20%/+40% max hit vs 2x2/3x3+
+        // targets and keeps the best of 2-4 damage rolls, so like the Keris's
+        // triple roll it bypasses the generic finish() path below.
+        boolean obligatorThrust = ObligatorThrust.appliesTo(weaponId, player.stance());
+        if (obligatorThrust) {
+            maxHit = ObligatorThrust.boostedMaxHit(maxHit, target.size());
+        }
+
         int defenceRoll = CombatMath.npcDefenceRoll(target.defenceLevel(), target.defenceBonus(style));
 
         // Osmumten's fang (and re-skins/cosmetics): two passives, STAB style
@@ -344,8 +353,13 @@ public final class DpsCalculator {
             return KerisTripleRoll.finish(damage.uncapped, damage.cap, damage.mode, attackRoll, defenceRoll,
                     gear.weaponSpeedTicks(), target.hitpoints());
         }
+        if (obligatorThrust) {
+            return ObligatorThrust.finish(damage.uncapped, damage.cap, damage.mode, ObligatorThrust.damageRolls(target),
+                    attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints());
+        }
 
-        return finish(damage, attackRoll, defenceRoll, gear.weaponSpeedTicks(), target.hitpoints(), false);
+        int speedTicks = player.stance() == Stance.SMASH ? ObligatorThrust.SMASH_SPEED_TICKS : gear.weaponSpeedTicks();
+        return finish(damage, attackRoll, defenceRoll, speedTicks, target.hitpoints(), false);
     }
 
     // ---- Ranged -----------------------------------------------------------------------

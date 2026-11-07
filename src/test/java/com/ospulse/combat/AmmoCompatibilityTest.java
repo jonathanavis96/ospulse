@@ -163,4 +163,23 @@ public class AmmoCompatibilityTest {
         assertTrue("an unindexed ammo id keeps the pre-compatibility behaviour",
                 AmmoCompatibility.wornAmmoContributes(MAGIC_SHORTBOW, 999_999));
     }
+
+	/** Wiki: "The crossbows can only fire ascension bolts and their gem-tipped variants." */
+	@Test
+	public void ascensionCrossbowsAndBoltsOnlyPairWithEachOther()
+	{
+		int ascensionCrossbows = 34681;
+		int ascensionBolts = 34684;
+		int onyxAscensionBoltsE = 34708;
+		int runeCrossbow = 9185;
+		int dragonBolts = 21905;
+
+		assertEquals(AmmoCompatibility.AmmoClass.ASCENSION_BOLT, AmmoCompatibility.classify(ascensionBolts));
+		assertEquals(AmmoCompatibility.AmmoClass.ASCENSION_BOLT, AmmoCompatibility.classify(onyxAscensionBoltsE));
+		assertEquals(AmmoCompatibility.AmmoClass.ASCENSION_BOLT, AmmoCompatibility.consumedClass(ascensionCrossbows));
+		assertEquals(AmmoCompatibility.AmmoClass.BOLT, AmmoCompatibility.consumedClass(runeCrossbow));
+		assertTrue(AmmoCompatibility.wornAmmoContributes(ascensionCrossbows, ascensionBolts));
+		assertFalse(AmmoCompatibility.wornAmmoContributes(ascensionCrossbows, dragonBolts));
+		assertFalse(AmmoCompatibility.wornAmmoContributes(runeCrossbow, ascensionBolts));
+	}
 }

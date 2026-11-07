@@ -43,6 +43,19 @@ public final class HeldItemIds
 	 */
 	public static Set<Integer> from(WealthSnapshot wealth, GearSnapshot gear, EquipmentIndexRepository index)
 	{
+		Set<Integer> held = allFrom(wealth, gear);
+		held.removeIf(id -> index.entryFor(id) == null);
+		return held;
+	}
+
+	/**
+	 * Every id present in {@code wealth}'s holdings or worn in {@code gear},
+	 * indexed or not. Mechanic items with no combat stats (Earmuffs, Facemask,
+	 * Nose peg, Reinforced goggles, Lit bug lantern) have no index row, so
+	 * this is the only way to tell that the player has one.
+	 */
+	public static Set<Integer> allFrom(WealthSnapshot wealth, GearSnapshot gear)
+	{
 		Set<Integer> held = new HashSet<>();
 		if (wealth != null)
 		{
@@ -51,7 +64,7 @@ public final class HeldItemIds
 				: wealth.getTopHoldings();
 			for (ItemStack stack : stacks == null ? Collections.<ItemStack>emptyList() : stacks)
 			{
-				if (stack != null && index.entryFor(stack.getId()) != null)
+				if (stack != null)
 				{
 					held.add(stack.getId());
 				}
@@ -61,7 +74,7 @@ public final class HeldItemIds
 		{
 			for (int id : gear.equippedItemIds())
 			{
-				if (id > 0 && index.entryFor(id) != null)
+				if (id > 0)
 				{
 					held.add(id);
 				}
