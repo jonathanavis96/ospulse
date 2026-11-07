@@ -55,6 +55,11 @@
     {"name": "Medium fuse", "type": "RANGED", "stance": "RAPID"},
     {"name": "Long fuse", "type": "RANGED", "stance": "LONGRANGE"}
   ],
+  "CHAIN_MACE": [
+    {"name": "Thrust", "type": "CRUSH", "stance": "ACCURATE"},
+    {"name": "Thrust", "type": "CRUSH", "stance": "AGGRESSIVE"},
+    {"name": "Smash", "type": "CRUSH", "stance": "SMASH"}
+  ],
   "CLAW": [
     {"name": "Chop", "type": "SLASH", "stance": "ACCURATE"},
     {"name": "Slash", "type": "SLASH", "stance": "AGGRESSIVE"},

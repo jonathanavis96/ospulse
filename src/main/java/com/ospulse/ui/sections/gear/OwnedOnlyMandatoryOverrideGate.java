@@ -38,17 +38,17 @@ import java.util.*;
  * whatever target/ownership inputs they hold rather than this class reaching
  * into private mutable fields.
  *
- * <p>{@link #ownedOnlySatisfyingItemId} is the single source of truth for
- * "which owned id (if any) satisfies this override" — both {@link
- * #blockingOverride} (should owned-only mode refuse this target outright)
- * and {@code ItemEligibility#mandatoryOverrideItemIds} (which id owned-only
- * mode's force-include should actually inject) are derived from it, so the
- * two questions cannot disagree the way they did before this fix: the gate
- * accepted an owned alternative (e.g. a Slayer helmet for a Dust devil's
- * Facemask requirement) as satisfying the requirement and let the result
- * through, while the force-include path kept injecting the unowned primary
- * — equipping an item owned-only mode had just promised was never going to
- * happen.
+ * <p>{@link #satisfyingItemId} is the single source of truth for "which id
+ * should the player use for this override", shared by the advisory note
+ * ({@code GearSection#updateGearOverrideNote()}) and, through {@link
+ * #forceIncludeItemId}, the force-include ({@code
+ * ItemEligibility#mandatoryOverrideItemIds}). The gate's own question is
+ * the broader {@link MonsterGearOverride#satisfiedByAnyOf}. They cannot
+ * disagree the way they did before this fix: the gate accepted an owned
+ * alternative (e.g. a Slayer helmet for a Dust devil's Facemask requirement)
+ * as satisfying the requirement and let the result through, while the
+ * force-include path kept injecting the unowned primary — equipping an item
+ * owned-only mode had just promised was never going to happen.
  */
 public final class OwnedOnlyMandatoryOverrideGate
 {
@@ -79,7 +79,7 @@ public final class OwnedOnlyMandatoryOverrideGate
 		}
 		for (MonsterGearOverride override : MonsterGearOverrideRepository.getInstance().forMonster(target.lookupName()))
 		{
-			if (!ownedIds.contains(ownedOnlySatisfyingItemId(override, ownedIds)))
+			if (!override.satisfiedByAnyOf(ownedIds))
 			{
 				return Optional.of(override);
 			}
@@ -88,28 +88,58 @@ public final class OwnedOnlyMandatoryOverrideGate
 	}
 
 	/**
-	 * The item id that satisfies {@code override} under owned-only mode given
-	 * {@code ownedIds}: the owned alternative when the primary {@link
-	 * MonsterGearOverride#itemId()} isn't owned but one of {@link
-	 * MonsterGearOverride#alternativeItemIds()} is, otherwise the primary
-	 * itself (whether owned or not — an unowned return here is exactly what
-	 * makes {@link #blockingOverride} refuse the target, and is also what
-	 * {@code ItemEligibility#mandatoryOverrideItemIds} force-includes outside
-	 * owned-only mode, where an unaffordable force-include is a legitimate
-	 * purchase suggestion rather than a broken guarantee).
+	 * The item id the player should use for {@code override}, in every mode:
+	 * a worn item that satisfies it (so nothing is swapped needlessly), else
+	 * the first {@link MonsterGearOverride#alternativeItemIds()} entry the
+	 * player owns, else the primary {@link MonsterGearOverride#itemId()}. An
+	 * alternative beats an owned primary because alternatives are listed
+	 * because they do the same job at least as well: a player holding both a
+	 * V's shield and a Mirror shield must not be told to take the worse one
+	 * (issue #35). Ids in {@code exclusions} are never returned as the worn
+	 * or alternative choice, so the player's own exclusion moves on to the
+	 * next option; the primary is the unconditional fallback, and callers
+	 * must apply their own exclusion and ownership rules to it.
+	 *
+	 * @param wornIds the item ids currently worn ({@code <= 0} for an empty slot)
+	 * @param ownedIds every item id the player currently owns
+	 * @param exclusions item ids the player has ruled out
 	 */
-	static int ownedOnlySatisfyingItemId(MonsterGearOverride override, Set<Integer> ownedIds)
+	public static int satisfyingItemId(MonsterGearOverride override, int[] wornIds, Set<Integer> ownedIds,
+		Set<Integer> exclusions)
 	{
-		if (!ownedIds.contains(override.itemId()))
+		for (int wornId : wornIds)
 		{
-			for (Integer alternativeId : override.alternativeItemIds())
+			if (override.satisfiedBy(wornId) && !exclusions.contains(wornId))
 			{
-				if (ownedIds.contains(alternativeId))
-				{
-					return alternativeId;
-				}
+				return wornId;
+			}
+		}
+		for (Integer alternativeId : override.alternativeItemIds())
+		{
+			if (ownedIds.contains(alternativeId) && !exclusions.contains(alternativeId))
+			{
+				return alternativeId;
 			}
 		}
 		return override.itemId();
+	}
+
+	/**
+	 * The item id to force-include for {@code override}: {@link
+	 * #satisfyingItemId}, passing over any worn item with no equipment index
+	 * row. The optimiser cannot equip such an item (Earmuffs, a Nose peg), so
+	 * forcing it does nothing and leaves the search free to pick a helm that
+	 * fails the requirement, while the player has a Slayer helmet in the bank.
+	 *
+	 * @param wornIds the item ids currently worn ({@code <= 0} for an empty slot)
+	 * @param ownedIds every item id the player currently owns
+	 * @param exclusions item ids the player has ruled out
+	 */
+	public static int forceIncludeItemId(MonsterGearOverride override, int[] wornIds, Set<Integer> ownedIds,
+		Set<Integer> exclusions)
+	{
+		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		int[] equippableWornIds = Arrays.stream(wornIds).filter(id -> index.entryFor(id) != null).toArray();
+		return satisfyingItemId(override, equippableWornIds, ownedIds, exclusions);
 	}
 }

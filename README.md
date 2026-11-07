@@ -190,6 +190,18 @@ The blowpipe's loaded dart is set by **right‑clicking the blowpipe in the gear
      After that release, add a fresh "### Unreleased" block ABOVE it and stage new lines
      there; on the next release, rename it to its version, collapse the previous version
      into a <details> block as below, and cut the manifest PR. -->
+### Unreleased
+
+**🔧 Fixed**
+
+- **V's shield is no longer swapped for a Mirror shield.** It does the same job on basilisks, basilisk knights and cockatrice, so OSPulse now keeps it on and tells you to. The same goes for any accepted substitute: if you own one, the optimiser uses it instead of the listed item.
+- **A Slayer helmet now counts for sourhogs**, as it does in game.
+- **Earmuffs, Nose peg, Facemask, Reinforced goggles and the Lit bug lantern now count as yours.** They have no combat stats, so OSPulse was saying you didn't own them, and owned-only mode refused to recommend anything for those monsters.
+
+**✨ New**
+
+- **Equipment data updated to the current game**, including the Fractured Archive rewards. The Obligator's Thrust and Smash are both modelled with its charged passive, Ascension crossbows only pair with ascension bolts, and Zorya's tome uses its built-in spell. The tome's special attack and the Rondache's are not modelled yet.
+
 ### 0.2.3 — Back in the sidebar, profit you can add up
 
 **🔧 Fixed**

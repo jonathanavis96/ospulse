@@ -47,6 +47,7 @@ public class ItemEligibilityOwnedOnlyMandatoryOverrideTest
 	private static final Monster WALL_BEAST = Monster.builder().name("Wall beast").build();
 	private static final int SPINY_HELMET = 4551; // primary itemId
 	private static final int SLAYER_HELMET = 11864; // one of alternativeItemIds()
+	private static final int[] NOT_WEARING_ANYTHING = new int[0];
 
 	private static MonsterGearOverride wallBeastOverride()
 	{
@@ -68,7 +69,7 @@ public class ItemEligibilityOwnedOnlyMandatoryOverrideTest
 		Set<Integer> ownedIds = Collections.singleton(SLAYER_HELMET);
 
 		Set<Integer> forced = ItemEligibility.mandatoryOverrideItemIds(
-			WALL_BEAST, Collections.emptySet(), true, ownedIds);
+			WALL_BEAST, Collections.emptySet(), true, ownedIds, NOT_WEARING_ANYTHING);
 
 		assertTrue("must force-include the OWNED alternative (Slayer helmet): " + forced,
 			forced.contains(SLAYER_HELMET));
@@ -93,7 +94,7 @@ public class ItemEligibilityOwnedOnlyMandatoryOverrideTest
 		assertFalse("owned alternative must satisfy the requirement (no block)", blocking.isPresent());
 
 		Set<Integer> forced = ItemEligibility.mandatoryOverrideItemIds(
-			WALL_BEAST, Collections.emptySet(), true, ownedIds);
+			WALL_BEAST, Collections.emptySet(), true, ownedIds, NOT_WEARING_ANYTHING);
 		assertTrue("the id force-included must be one the player actually owns: " + forced,
 			forced.stream().allMatch(ownedIds::contains));
 	}
@@ -104,7 +105,7 @@ public class ItemEligibilityOwnedOnlyMandatoryOverrideTest
 		Set<Integer> ownedIds = Collections.singleton(SPINY_HELMET);
 
 		Set<Integer> forced = ItemEligibility.mandatoryOverrideItemIds(
-			WALL_BEAST, Collections.emptySet(), true, ownedIds);
+			WALL_BEAST, Collections.emptySet(), true, ownedIds, NOT_WEARING_ANYTHING);
 
 		assertEquals(Collections.singleton(SPINY_HELMET), forced);
 	}
@@ -119,7 +120,7 @@ public class ItemEligibilityOwnedOnlyMandatoryOverrideTest
 		// player. See GearSectionOwnedOnlyMandatoryOverrideBlockTest for that
 		// end-to-end block.
 		Set<Integer> forced = ItemEligibility.mandatoryOverrideItemIds(
-			WALL_BEAST, Collections.emptySet(), true, Collections.emptySet());
+			WALL_BEAST, Collections.emptySet(), true, Collections.emptySet(), NOT_WEARING_ANYTHING);
 
 		assertEquals(Collections.singleton(SPINY_HELMET), forced);
 	}
@@ -127,15 +128,25 @@ public class ItemEligibilityOwnedOnlyMandatoryOverrideTest
 	// ---------------------------- non-owned-only mode must not regress
 
 	@Test
-	public void notOwnedOnly_alternativeOwnedPrimaryNot_stillForcesThePrimary_unchangedBehaviour()
+	public void notOwnedOnly_alternativeOwnedPrimaryNot_forcesTheOwnedAlternative()
 	{
-		// Outside owned-only mode an unaffordable/unowned force-include is a
-		// legitimate purchase suggestion (the player may simply buy the
-		// primary) -- this must be completely unaffected by the P1 fix.
+		// This used to pin the opposite: outside owned-only mode the primary
+		// was always forced, so an owner of the alternative was told to buy
+		// and wear the primary (issue #35). An owned substitute now wins in
+		// every mode.
 		Set<Integer> ownedIds = Collections.singleton(SLAYER_HELMET);
 
 		Set<Integer> forced = ItemEligibility.mandatoryOverrideItemIds(
-			WALL_BEAST, Collections.emptySet(), false, ownedIds);
+			WALL_BEAST, Collections.emptySet(), false, ownedIds, NOT_WEARING_ANYTHING);
+
+		assertEquals(Collections.singleton(SLAYER_HELMET), forced);
+	}
+
+	@Test
+	public void notOwnedOnly_nothingOwned_stillForcesThePrimaryAsAPurchaseSuggestion()
+	{
+		Set<Integer> forced = ItemEligibility.mandatoryOverrideItemIds(
+			WALL_BEAST, Collections.emptySet(), false, Collections.emptySet(), NOT_WEARING_ANYTHING);
 
 		assertEquals(Collections.singleton(SPINY_HELMET), forced);
 	}
@@ -148,7 +159,7 @@ public class ItemEligibilityOwnedOnlyMandatoryOverrideTest
 		Set<Integer> ownedIds = Collections.singleton(SLAYER_HELMET);
 		Set<Integer> exclusions = new LinkedHashSet<>(Collections.singleton(SLAYER_HELMET));
 
-		Set<Integer> forced = ItemEligibility.mandatoryOverrideItemIds(WALL_BEAST, exclusions, true, ownedIds);
+		Set<Integer> forced = ItemEligibility.mandatoryOverrideItemIds(WALL_BEAST, exclusions, true, ownedIds, NOT_WEARING_ANYTHING);
 
 		assertTrue("the excluded resolved id must not be forced back in: " + forced,
 			forced.isEmpty());

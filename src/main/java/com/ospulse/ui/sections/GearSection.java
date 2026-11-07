@@ -3105,6 +3105,10 @@ public final class GearSection extends CollapsibleSection
 	 * is NOT gated to owned-only mode: an unowned mandatory include bypasses
 	 * the budget filter in every mode, not just budget-0, so the gap is
 	 * worth disclosing regardless of mode.
+	 *
+	 * <p>The note names what the optimiser will actually use ({@link
+	 * OwnedOnlyMandatoryOverrideGate#satisfyingItemId}), so a V's shield owner
+	 * is not told to equip a Mirror shield (issue #35).
 	 */
 	private void updateGearOverrideNote()
 	{
@@ -3112,13 +3116,16 @@ public final class GearSection extends CollapsibleSection
 		List<MonsterGearOverride> overrides = selectedMonster == null
 			? Collections.emptyList()
 			: MonsterGearOverrideRepository.getInstance().forMonster(selectedMonster.lookupName());
-		Set<Integer> ownedIds = overrides.isEmpty() ? Collections.emptySet() : ownedPriceMap().keySet();
+		Set<Integer> ownedIds = overrides.isEmpty() ? Collections.emptySet() : ownedIdsForRequirements();
+		int[] wornIds = lastGear == null ? new int[0] : lastGear.equippedItemIds();
 		for (MonsterGearOverride override : overrides)
 		{
-			boolean owned = ownedIds.contains(override.itemId())
-				|| override.alternativeItemIds().stream().anyMatch(ownedIds::contains);
+			boolean owned = override.satisfiedByAnyOf(ownedIds);
+			EquipmentIndexRepository.Entry satisfying = EquipmentIndexRepository.getInstance().entryFor(
+				OwnedOnlyMandatoryOverrideGate.satisfyingItemId(override, wornIds, ownedIds, excludedItemIds));
 			String raw = "⚠ vs " + selectedMonster.name() + ": equip "
-				+ override.itemName() + " (" + slotDisplayName(override.slot()) + ")"
+				+ (satisfying == null ? override.itemName() : satisfying.name())
+				+ " (" + slotDisplayName(override.slot()) + ")"
 				+ (owned ? "" : " — you don't own this") + " — " + override.reason();
 			// A plain JLabel does not wrap, and a hard-coded HTML div width
 			// clips as soon as the side panel is narrower than that pixel
@@ -4066,6 +4073,19 @@ public final class GearSection extends CollapsibleSection
 	}
 
 	/**
+	 * {@link #ownedPriceMap()}'s ids plus held items with no equipment index
+	 * row, for asking "does the player have this": many required items have
+	 * no combat stats, and any worn item can lack a row, so the price map
+	 * alone would call them unowned.
+	 */
+	private Set<Integer> ownedIdsForRequirements()
+	{
+		Set<Integer> ids = new HashSet<>(ownedPriceMap().keySet());
+		ids.addAll(HeldItemIds.allFrom(lastWealth, lastGear));
+		return ids;
+	}
+
+	/**
 	 * If {@code ownedItemId}'s indexed name ends in one of
 	 * {@link OwnedVariantResolver#SUFFIXES}, marks the plain (suffix-stripped)
 	 * form's item id owned at price 0 too — see {@link #ownedPriceMap}'s
@@ -4612,7 +4632,7 @@ public final class GearSection extends CollapsibleSection
 			// GearOptimizer.expensiveItemCountOf's updated javadoc).
 			.ownedItemPrices(ownedPrices)
 			.exclude(exclusions)
-			.include(ItemEligibility.mandatoryOverrideItemIds(target, exclusions, ironmanOwnedOnlyPref(), ownedPrices.keySet()))
+			.include(ItemEligibility.mandatoryOverrideItemIds(target, exclusions, ironmanOwnedOnlyPref(), ownedPrices.keySet(), liveIds))
 			.priceSource(priceSource)
 			// The expensive-item risk cap's OWN price source: a real gp "risk
 			// value" per item — tradeable = GE price, untradeable = value of
@@ -4733,9 +4753,9 @@ public final class GearSection extends CollapsibleSection
 		// the block is a property of the target + ownership, independent of
 		// whatever loadout the optimiser happened to compute around the
 		// forced item.
-		Map<Integer, Long> ownedIds = ownedPriceMap();
+		Set<Integer> ownedIds = ownedIdsForRequirements();
 		Optional<MonsterGearOverride> blockingOverride = OwnedOnlyMandatoryOverrideGate.blockingOverride(
-			ironmanOwnedOnlyPref(), selectedMonster, ownedIds.keySet());
+			ironmanOwnedOnlyPref(), selectedMonster, ownedIds);
 		if (blockingOverride.isPresent())
 		{
 			MonsterGearOverride blocking = blockingOverride.get();
@@ -4768,7 +4788,7 @@ public final class GearSection extends CollapsibleSection
 		// snapshot the optimiser searched against — before installing,
 		// previewing, or bank-highlighting anything from `result`.
 		Optional<Map.Entry<Integer, Integer>> unownedEntry = OwnedOnlyResultOwnershipGate
-			.firstUnownedEntry(ironmanOwnedOnlyPref(), loadoutSlotMap(result), ownedIds.keySet());
+			.firstUnownedEntry(ironmanOwnedOnlyPref(), loadoutSlotMap(result), ownedIds);
 		if (unownedEntry.isPresent())
 		{
 			int unownedSlot = unownedEntry.get().getKey();
@@ -5513,7 +5533,7 @@ public final class GearSection extends CollapsibleSection
 			return;
 		}
 		if (OwnedOnlyResultOwnershipGate.firstUnownedEntry(true,
-			loadoutSlotMap(lastOptimizerResult), ownedPriceMap().keySet()).isPresent())
+			loadoutSlotMap(lastOptimizerResult), ownedIdsForRequirements()).isPresent())
 		{
 			resetAllOverrides();
 		}

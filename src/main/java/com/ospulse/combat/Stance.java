@@ -28,5 +28,7 @@ public enum Stance {
     CONTROLLED,
     RAPID,
     LONGRANGE,
-    STANDARD
+    STANDARD,
+    /** The Obligator's Smash: aggressive, but a faster attack with no passive. See {@link ObligatorThrust}. */
+    SMASH
 }

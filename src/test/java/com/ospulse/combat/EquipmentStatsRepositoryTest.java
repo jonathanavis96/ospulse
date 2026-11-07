@@ -5,6 +5,7 @@ import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Verifies the bundled clean-room {@code equipment_stats.min.json} (cache-derived,
@@ -16,11 +17,13 @@ public class EquipmentStatsRepositoryTest {
     static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
     private static final double DELTA = 1e-9;
+    /** A floor, not a count: every game update adds items, and a data refresh must not fail for that. */
+    private static final int MIN_BUNDLED_ITEMS = 3500;
 
     @Test
     public void loadsBundledResourceWithManyEntries() {
         EquipmentStatsRepository repo = EquipmentStatsRepository.getInstance();
-        assertEquals("expected the full cache-derived item set", 3509, repo.size());
+        assertTrue("expected the full cache-derived item set, got " + repo.size(), repo.size() >= MIN_BUNDLED_ITEMS);
     }
 
     @Test

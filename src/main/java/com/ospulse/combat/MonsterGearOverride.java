@@ -44,7 +44,7 @@ public final class MonsterGearOverride {
     /** The exact monster display name this entry was declared under (one name per expanded entry). */
     @Getter private final String monsterName;
     @Getter private final Slot slot;
-    /** The primary/canonical item id — shown in the advisory note and what the optimiser force-includes. */
+    /** The primary/canonical item id — what the advisory note names and the optimiser force-includes when the player owns no alternative. */
     @Getter private final int itemId;
     @Getter private final String itemName;
     /** One short sentence explaining why this item matters (shown verbatim in the advisory note). */
@@ -53,6 +53,7 @@ public final class MonsterGearOverride {
      * Other item ids that satisfy this requirement equally well as
      * {@link #itemId()} (e.g. every Slayer helmet variant substitutes for a
      * plain face-protection item like a Facemask) — see {@link #satisfiedBy}.
+     * Listed best first; the first one the player owns is the one suggested.
      * Empty when this requirement has no known substitutes.
      */
     @Getter private final Set<Integer> alternativeItemIds;
@@ -82,5 +83,10 @@ public final class MonsterGearOverride {
     /** True when {@code shownId} is either the primary {@code itemId()} or one of {@code alternativeItemIds()}. */
     public boolean satisfiedBy(int shownId) {
         return shownId == itemId || alternativeItemIds.contains(shownId);
+    }
+
+    /** True when {@code ids} holds the primary {@code itemId()} or any of {@code alternativeItemIds()}. */
+    public boolean satisfiedByAnyOf(Set<Integer> ids) {
+        return ids.contains(itemId) || !Collections.disjoint(alternativeItemIds, ids);
     }
 }

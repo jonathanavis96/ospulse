@@ -585,11 +585,11 @@ public class GearSectionOptimizerStyleTest
 			assertFalse("the optimiser itself must never choose the mode-locked deadman id directly",
 				capeChoiceId == IMBUED_SARADOMIN_CAPE_DEADMAN);
 
-			String swapTooltip = findSwapTooltipStartingWith(section, "Imbued saradomin cape");
+			String swapTooltip = findSwapTooltipStartingWith(section, "Imbued Saradomin cape");
 			assertTrue("a swap row must exist for the cape slot: " + swapTooltip, swapTooltip != null);
 			assertTrue("the swap row must name the cape the player actually holds, not the credited plain id "
 					+ "they have no copy of: " + swapTooltip,
-				swapTooltip.contains("(deadman)"));
+				swapTooltip.contains("(Deadman)"));
 
 			section.applyResultToOverride();
 			int appliedCapeId = section.override.itemIdFor(CAPE_SLOT);
@@ -657,7 +657,7 @@ public class GearSectionOptimizerStyleTest
 				IMBUED_SARADOMIN_CAPE_DEADMAN, capeChoiceId);
 
 			assertEquals("no swap row may be rendered for a cape the player is already wearing",
-				null, findSwapTooltipStartingWith(section, "Imbued saradomin cape"));
+				null, findSwapTooltipStartingWith(section, "Imbued Saradomin cape"));
 			assertFalse("the cape slot must not count as a change, or the panel reports an upgrade "
 					+ "that is the item already on the player's back",
 				section.hasAnySlotChange(section.lastOptimizerResult));
@@ -703,11 +703,11 @@ public class GearSectionOptimizerStyleTest
 			assertEquals("the optimiser must pick the plain cape the player genuinely holds",
 				IMBUED_SARADOMIN_CAPE_PLAIN, capeChoiceId);
 
-			String swapTooltip = findSwapTooltipStartingWith(section, "Imbued saradomin cape");
+			String swapTooltip = findSwapTooltipStartingWith(section, "Imbued Saradomin cape");
 			assertTrue("a swap row must exist for the cape slot: " + swapTooltip, swapTooltip != null);
 			assertFalse("a genuinely-held plain id must never be swapped out for the mode-locked "
 					+ "look-alike: " + swapTooltip,
-				swapTooltip.contains("(deadman)"));
+				swapTooltip.contains("(Deadman)"));
 
 			section.applyResultToOverride();
 			assertEquals("the applied preview must equip the genuinely-held plain id",

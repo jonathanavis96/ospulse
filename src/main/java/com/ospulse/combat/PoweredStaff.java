@@ -19,6 +19,10 @@ package com.ospulse.combat;
  * Thammaron's, matching the constant −6 vs −8 difference ✓. Both are exact
  * published formulas, not estimates, so neither is flagged approximate.
  *
+ * <p>Zorya's tome −10 comes from weirdgloop's calculator, not a published wiki
+ * formula. Cross-check: the wiki gives a base max hit of 18, and {@code
+ * floor(85 / 3) - 10 = 18} at its 85 Magic requirement.
+ *
  * <p><b>Tumeken's shadow is approximate:</b> its passive also multiplies the
  * worn equipment's magic attack bonus and magic damage by 3 (4 inside ToA),
  * with its own caps — that multiplier is NOT yet modelled, so shadow results
@@ -33,7 +37,8 @@ public enum PoweredStaff {
     SANGUINESTI_STAFF(-1, false),
     TUMEKENS_SHADOW(1, true),
     THAMMARONS_SCEPTRE(-8, false),
-    ACCURSED_SCEPTRE(-6, false);
+    ACCURSED_SCEPTRE(-6, false),
+    ZORYAS_TOME(-10, false);
 
     private final int maxHitOffset;
     private final boolean approximate;
