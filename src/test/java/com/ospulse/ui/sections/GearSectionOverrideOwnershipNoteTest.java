@@ -209,4 +209,22 @@ public class GearSectionOverrideOwnershipNoteTest
 				!notes.get(0).contains("you don't own this"));
 		});
 	}
+
+	/** Putting the boots on after picking the target must refresh the note, not keep "you don't own this". */
+	@Test
+	public void runeDragon_bootsEquippedAfterPickingTheTarget_noteNoLongerSaysNotOwned()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gearWithBoots(RANDOM_UNRELATED_BOOTS)));
+			pickMonster(section, "Rune dragon");
+			section.apply(snapshotWith(gearWithBoots(INSULATED_BOOTS)));
+
+			List<String> notes = GearSectionTestOps.gearOverrideNoteTextsForTest(section);
+			assertEquals(1, notes.size());
+			assertTrue("the note must reflect the boots now worn: " + notes.get(0),
+				!notes.get(0).contains("you don't own this"));
+		});
+	}
 }

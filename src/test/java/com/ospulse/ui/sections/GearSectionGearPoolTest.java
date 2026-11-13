@@ -208,6 +208,35 @@ public class GearSectionGearPoolTest
 	}
 
 	/**
+	 * Masori body (f) needs Defence 80; the plain body needs 30. A Defence-50
+	 * player holding the (f) cannot wear it, so it must not credit the plain
+	 * body as owned (the optimiser would otherwise recommend it free and then
+	 * point at the (f) they cannot equip).
+	 */
+	@Test
+	public void ownedFortifiedVariant_playerBelowItsLevelGate_creditsNoPlainForm()
+	{
+		onEdt(() ->
+		{
+			int[] ids = loadout(BRONZE_SWORD);
+			GearSnapshot gear = GearSnapshot.builder()
+				.equippedItemIds(ids)
+				.attack(99, 99).strength(99, 99).defence(50, 50).ranged(99, 99).magic(99, 99)
+				.prayer(77, 77).hitpoints(99, 99)
+				.equipmentStats(WhatIfLoadout.buildEquipmentStats(ids, LoadoutOverride.empty()))
+				.build();
+			GearSection section = new GearSection(NO_STORE, null, null);
+			section.apply(snapshotWith(gear, WealthSnapshot.builder().topHoldings(java.util.Collections.singletonList(
+				new ItemStack(MASORI_BODY_F, "Masori body (f)", 1, 20_000_000L))).build()));
+
+			Map<Integer, Long> owned = section.ownedPriceMap();
+			assertTrue(owned.containsKey(MASORI_BODY_F));
+			assertFalse("a variant the player cannot wear must not credit its plain form",
+				owned.containsKey(MASORI_BODY));
+		});
+	}
+
+	/**
 	 * End-to-end: once the imbued Berserker ring is owned, the optimiser must
 	 * never propose BUYING the plain Berserker ring (it's already effectively
 	 * owned) — it competes on real DPS instead of being suggested as an

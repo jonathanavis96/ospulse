@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.ospulse.OSPulseConfig;
+import com.ospulse.PriceTrendWindow;
 
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.Call;
@@ -20,6 +21,7 @@ import java.util.OptionalDouble;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 
 /**
  * Optional, off-by-default source of per-item price trend percentages, backed
@@ -41,6 +43,8 @@ import java.util.concurrent.TimeUnit;
 public final class PriceTrendService
 {
 	private static final long CACHE_TTL_MS = TimeUnit.HOURS.toMillis(1);
+	/** A failed fetch (network error, non-2xx, bad body) is retried after this, not the full TTL. */
+	private static final long FAILURE_RETRY_MS = TimeUnit.MINUTES.toMillis(5);
 	private static final String USER_AGENT = "OSPulse RuneLite plugin (github.com/jonathanavis96/ospulse)";
 	private static final String ENDPOINT =
 		"https://prices.runescape.wiki/api/v1/osrs/timeseries?timestep=24h&id=";
@@ -55,6 +59,8 @@ public final class PriceTrendService
 
 	private volatile Runnable onUpdate = () -> {};
 	private volatile boolean stopped;
+	/** Test seam: wall clock in epoch ms. */
+	LongSupplier clock = System::currentTimeMillis;
 
 	public PriceTrendService(OkHttpClient httpClient, OSPulseConfig config, Gson gson)
 	{
@@ -86,7 +92,8 @@ public final class PriceTrendService
 			return;
 		}
 
-		long now = System.currentTimeMillis();
+		long now = clock.getAsLong();
+		PriceTrendWindow window = config.priceTrendWindow();
 		for (Integer itemId : itemIds)
 		{
 			if (itemId == null || itemId <= 0)
@@ -95,7 +102,8 @@ public final class PriceTrendService
 			}
 
 			CacheEntry entry = cache.get(itemId);
-			if (entry != null && now - entry.fetchedAtMs < CACHE_TTL_MS)
+			if (entry != null && entry.window == window
+				&& now - entry.fetchedAtMs < (entry.failed ? FAILURE_RETRY_MS : CACHE_TTL_MS))
 			{
 				continue;
 			}
@@ -123,7 +131,7 @@ public final class PriceTrendService
 		}
 
 		CacheEntry entry = cache.get(itemId);
-		return entry == null ? OptionalDouble.empty() : entry.value;
+		return entry == null || entry.window != config.priceTrendWindow() ? OptionalDouble.empty() : entry.value;
 	}
 
 	private void fetch(int itemId)
@@ -142,7 +150,7 @@ public final class PriceTrendService
 			{
 				activeCalls.remove(call);
 				log.debug("Price trend fetch failed for item {}", itemId, e);
-				completeWith(itemId, OptionalDouble.empty());
+				completeWith(itemId, OptionalDouble.empty(), config.priceTrendWindow(), true);
 			}
 
 			@Override
@@ -150,11 +158,14 @@ public final class PriceTrendService
 			{
 				activeCalls.remove(call);
 				OptionalDouble trend = OptionalDouble.empty();
+				PriceTrendWindow window = config.priceTrendWindow();
+				boolean failed = true;
 				try (Response r = response)
 				{
 					if (r.isSuccessful() && r.body() != null)
 					{
-						trend = parseTrend(r.body().string());
+						trend = parseTrend(r.body().string(), window);
+						failed = false;
 					}
 					else
 					{
@@ -170,14 +181,14 @@ public final class PriceTrendService
 					// Malformed JSON etc. - never let a parse failure propagate.
 					log.debug("Price trend parse failed for item {}", itemId, e);
 				}
-				completeWith(itemId, trend);
+				completeWith(itemId, trend, window, failed);
 			}
 		});
 	}
 
-	private void completeWith(int itemId, OptionalDouble trend)
+	private void completeWith(int itemId, OptionalDouble trend, PriceTrendWindow window, boolean failed)
 	{
-		cache.put(itemId, new CacheEntry(trend, System.currentTimeMillis()));
+		cache.put(itemId, new CacheEntry(trend, clock.getAsLong(), window, failed));
 		inFlight.remove(itemId);
 		// Don't fire the UI callback after shutdown(): a late okhttp completion
 		// must not run Swing work (HoldingsSection::render) against a panel that
@@ -210,7 +221,7 @@ public final class PriceTrendService
 	 * latest point, versus the point closest to the configured window's
 	 * start, expressed as a percentage change.
 	 */
-	private OptionalDouble parseTrend(String body)
+	private OptionalDouble parseTrend(String body, PriceTrendWindow window)
 	{
 		if (body == null || body.isEmpty())
 		{
@@ -229,8 +240,8 @@ public final class PriceTrendService
 			return OptionalDouble.empty();
 		}
 
-		long windowDays = Math.max(1, config.priceTrendWindow().days());
-		long nowSec = System.currentTimeMillis() / 1000L;
+		long windowDays = Math.max(1, window.days());
+		long nowSec = clock.getAsLong() / 1000L;
 		long targetSec = nowSec - TimeUnit.DAYS.toSeconds(windowDays);
 
 		Double latestMid = null;
@@ -303,11 +314,16 @@ public final class PriceTrendService
 	{
 		private final OptionalDouble value;
 		private final long fetchedAtMs;
+		/** The window the trend was computed over; another window's value is stale. */
+		private final PriceTrendWindow window;
+		private final boolean failed;
 
-		private CacheEntry(OptionalDouble value, long fetchedAtMs)
+		private CacheEntry(OptionalDouble value, long fetchedAtMs, PriceTrendWindow window, boolean failed)
 		{
 			this.value = value;
 			this.fetchedAtMs = fetchedAtMs;
+			this.window = window;
+			this.failed = failed;
 		}
 	}
 }

@@ -96,6 +96,18 @@ public class GearVariantsTest
 	}
 
 	@Test
+	public void slayerHeadgearFor_oathplateAndRadiantHelmets()
+	{
+		// Main-game Slayer-master cosmetics since 11 June 2026 (OSRS Wiki item ids).
+		assertEquals(SlayerHeadgear.STANDARD, GearVariants.slayerHeadgearFor(33338)); // Oathplate
+		assertEquals(SlayerHeadgear.STANDARD, GearVariants.slayerHeadgearFor(33340)); // Radiant
+		for (int id : new int[]{33439, 33441, 33443, 33445, 33447, 33449})
+		{
+			assertEquals("id " + id, SlayerHeadgear.IMBUED, GearVariants.slayerHeadgearFor(id));
+		}
+	}
+
+	@Test
 	public void slayerHeadgearFor_nonSlayerHead_returnsNone()
 	{
 		assertEquals(SlayerHeadgear.NONE, GearVariants.slayerHeadgearFor(1053)); // arbitrary unrelated head slot item

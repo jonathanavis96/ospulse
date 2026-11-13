@@ -207,4 +207,28 @@ public class GearSectionBlowpipeDartTest
 			assertEquals(BlowpipeDart.DRAGON, section.currentBlowpipeDart());
 		});
 	}
+
+	/**
+	 * Any what-if override (here only a ring) must keep scoring the blowpipe
+	 * with the configured dart: the live readout uses Mithril (rstr 9), so the
+	 * preview must too, not the Dragon-dart default (rstr 35).
+	 */
+	@Test
+	public void whatIfOverride_keepsTheConfiguredBlowpipeDart()
+	{
+		net.runelite.client.config.ConfigManager config =
+			org.mockito.Mockito.mock(net.runelite.client.config.ConfigManager.class);
+		org.mockito.Mockito.when(config.getConfiguration(com.ospulse.OSPulseConfig.GROUP, BlowpipeDart.CONFIG_KEY))
+			.thenReturn(BlowpipeDart.MITHRIL.name());
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null, null, config);
+			section.apply(snapshotWith(gearWithWeapon(TOXIC_BLOWPIPE)));
+			section.override = section.override.withSlot(12, 6737); // RING: Berserker ring
+
+			int blowpipeRstr = com.ospulse.combat.EquipmentStatsRepository.getInstance().statsFor(TOXIC_BLOWPIPE).rstr();
+			assertEquals(blowpipeRstr + BlowpipeDart.MITHRIL.rangedStrength(),
+				section.effectiveEquipmentStats().rstr());
+		});
+	}
 }

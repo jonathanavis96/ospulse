@@ -23,6 +23,20 @@ public class SupplyClassifierTest
 	}
 
 	@Test
+	public void enchantedPoisonedAndThrownAmmoIsConsumable()
+	{
+		assertTrue(SupplyClassifier.isConsumable("Ruby dragon bolts (e)"));
+		assertTrue(SupplyClassifier.isConsumable("Diamond bolts (e)"));
+		assertTrue(SupplyClassifier.isConsumable("Dragon arrow(p++)"));
+		assertTrue(SupplyClassifier.isConsumable("Runite bolts (p+)"));
+		assertTrue(SupplyClassifier.isConsumable("Amethyst dart(p)"));
+		assertTrue(SupplyClassifier.isConsumable("Rune thrownaxe"));
+		assertTrue(SupplyClassifier.isConsumable("Bolt rack"));
+		assertTrue(SupplyClassifier.isConsumable("Toktz-xil-ul"));
+		assertFalse(SupplyClassifier.isConsumable("Dragon bolts (unf)"));
+	}
+
+	@Test
 	public void chargedJewelleryWithHigherDoseSuffixIsNotConsumable()
 	{
 		// Charged jewellery uses (6)/(8) charge suffixes, which look

@@ -251,20 +251,24 @@ public class OSPulsePanel extends PluginPanel implements SessionListener
 	/**
 	 * Live-applies the {@code show*Section} toggles without a plugin restart:
 	 * re-lays-out the visible sections and feeds any newly-shown section the last
-	 * snapshot so it isn't blank until the next game tick. Called from the plugin's
+	 * snapshot so it isn't blank until the next game tick, and removes the canvas
+	 * overlays of any section switched off. Called from the plugin's
 	 * {@code onConfigChanged}. Runs on the EDT.
 	 */
 	public void applySectionVisibility()
 	{
 		rebuildSectionsColumn();
-		if (lastSnapshot != null)
+		for (CollapsibleSection section : sectionList)
 		{
-			for (CollapsibleSection section : sectionList)
+			if (!isSectionEnabled(section))
 			{
-				if (isSectionEnabled(section))
-				{
-					section.apply(lastSnapshot);
-				}
+				// A switched-off section stops receiving snapshots, so its canvas
+				// overlays would sit on screen frozen; take them down.
+				section.removeAllCategoryOverlays();
+			}
+			else if (lastSnapshot != null)
+			{
+				section.apply(lastSnapshot);
 			}
 		}
 		sectionsColumn.revalidate();

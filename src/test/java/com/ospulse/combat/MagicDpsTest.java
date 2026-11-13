@@ -177,4 +177,56 @@ public class MagicDpsTest {
         DpsResult result = DpsCalculator.compute(gear, player, CombatStyle.MAGIC, target, (Spell) null);
         return result.maxHit();
     }
+
+    // ---- Salve variants vs the imbued slayer helm, magic (weirdgloop
+    // osrs-dps-calc getPlayerMaxMagicAttackRoll / magic max hit; OSRS Wiki
+    // Salve amulet(ei) bonus table: (i) 15% magic, (ei) 20% magic) ----
+
+    @Test
+    public void salveEi_vsUndead_magicAccuracyIsSixFifths() {
+        EquipmentStats gear = EquipmentStats.builder()
+                .add(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0)
+                .salveType(SalveType.SALVE_EI)
+                .weaponSpeedTicks(5)
+                .build();
+        PlayerCombat player = PlayerCombat.builder()
+                .magic(99, 99)
+                .stance(Stance.ACCURATE)
+                .build();
+        DpsResult result = DpsCalculator.compute(gear, player, CombatStyle.MAGIC, undead(), 20);
+
+        // effMagic = 99 + 3 + 9 = 111; roll = floor(111 * 64 * 6/5) = 8524; defence (1+9)*64 = 640.
+        int attackRoll = CombatMath.magicAccuracyRoll(111, 0, new Fraction(6, 5));
+        assertEquals(8524, attackRoll);
+        assertEquals(CombatMath.hitChance(attackRoll, 640), result.accuracy(), DELTA);
+    }
+
+    @Test
+    public void meleeOnlySalve_doesNotSuppressSlayerHelmMagicDamage() {
+        PlayerCombat player = PlayerCombat.builder()
+                .magic(99, 99)
+                .onSlayerTask(true)
+                .build();
+        for (SalveType salve : new SalveType[] {SalveType.SALVE, SalveType.SALVE_E}) {
+            EquipmentStats gear = EquipmentStats.builder()
+                    .add(0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0)
+                    .slayerHeadgear(SlayerHeadgear.IMBUED)
+                    .salveType(salve)
+                    .weaponSpeedTicks(5)
+                    .build();
+            DpsResult result = DpsCalculator.compute(gear, player, CombatStyle.MAGIC, undead(), 20);
+            // A melee-only salve gives no magic bonus, so the helm's floor(20 * 23/20) = 23 stands.
+            assertEquals(salve.name(), 23, result.maxHit());
+        }
+    }
+
+    private static Monster undead() {
+        return Monster.builder()
+                .name("Undead target")
+                .magicLevel(1)
+                .defenceBonuses(0, 0, 0, 0, 0)
+                .hitpoints(100)
+                .attributes(EnumSet.of(MonsterAttribute.UNDEAD))
+                .build();
+    }
 }

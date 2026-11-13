@@ -346,4 +346,44 @@ public class GearSectionOwnedOnlyMandatoryOverrideBlockTest
 	{
 		assertBansheeHeadSlotKeepsTheRequirement("false");
 	}
+
+	/**
+	 * Owned-only mode: a blocked result drops the previous target's preview,
+	 * and the DPS readout must follow straight away rather than keep showing
+	 * the dropped preview's numbers.
+	 */
+	@Test
+	public void ownedOnly_blockedAfterAPreview_readoutMatchesTheWornGear()
+	{
+		onEdt(() ->
+		{
+			final int dragonScimitar = 4587;
+			ConfigManager configManager = mockConfigManager("true");
+			GearSection section = new GearSection(NO_STORE, null, null, null, configManager);
+			java.util.List<com.ospulse.model.ItemStack> holdings = new java.util.ArrayList<>();
+			holdings.add(new com.ospulse.model.ItemStack(dragonScimitar, "Dragon scimitar", 1, 100_000L));
+			int[] worn = bootsSlot(RANDOM_UNRELATED_BOOTS);
+			worn[3] = 1277; // Bronze sword
+			GearSnapshot gear = GearSnapshot.builder().equippedItemIds(worn)
+				.attack(99, 99).strength(99, 99).defence(99, 99).ranged(99, 99).magic(99, 99)
+				.prayer(77, 77).hitpoints(99, 99)
+				.equipmentStats(com.ospulse.combat.optimizer.WhatIfLoadout.buildEquipmentStats(worn,
+					com.ospulse.combat.optimizer.LoadoutOverride.empty()))
+				.build();
+			section.apply(snapshotWith(gear, WealthSnapshot.builder().topHoldings(holdings).build()));
+			pickMonster(section, "Cerberus");
+			GearSectionTestOps.runOptimizerSyncForTest(section);
+			assertEquals("fixture: the scimitar is previewed", dragonScimitar,
+				section.override.itemIdFor(3));
+
+			pickMonster(section, "Rune dragon");
+			GearSectionTestOps.runOptimizerSyncForTest(section);
+			assertTrue("fixture: blocked", section.ownedOnlyBlockedLabel.isVisible());
+			String shown = section.dpsValue.getText();
+
+			section.rankAndRender();
+			assertEquals("the readout must not keep the dropped preview's DPS",
+				section.dpsValue.getText(), shown);
+		});
+	}
 }

@@ -48,22 +48,22 @@ public final class CombatIcons {
         new Rung(OffensivePrayer.PIETY, 70),
         new Rung(OffensivePrayer.CHIVALRY, 60),
         new Rung(OffensivePrayer.ULTIMATE_STRENGTH, 31),
-        new Rung(OffensivePrayer.SUPERHUMAN_STRENGTH, 20),
+        new Rung(OffensivePrayer.SUPERHUMAN_STRENGTH, 13),
         new Rung(OffensivePrayer.BURST_OF_STRENGTH, 4),
     };
 
     private static final Rung[] RANGED_LADDER = {
         new Rung(OffensivePrayer.RIGOUR, 74),
-        new Rung(OffensivePrayer.EAGLE_EYE, 70),
-        new Rung(OffensivePrayer.HAWK_EYE, 44),
+        new Rung(OffensivePrayer.EAGLE_EYE, 44),
+        new Rung(OffensivePrayer.HAWK_EYE, 26),
         new Rung(OffensivePrayer.SHARP_EYE, 8),
     };
 
     private static final Rung[] MAGIC_LADDER = {
         new Rung(OffensivePrayer.AUGURY, 77),
-        new Rung(OffensivePrayer.MYSTIC_MIGHT, 74),
-        new Rung(OffensivePrayer.MYSTIC_LORE, 60),
-        new Rung(OffensivePrayer.MYSTIC_WILL, 45),
+        new Rung(OffensivePrayer.MYSTIC_MIGHT, 45),
+        new Rung(OffensivePrayer.MYSTIC_LORE, 27),
+        new Rung(OffensivePrayer.MYSTIC_WILL, 9),
     };
 
     /**

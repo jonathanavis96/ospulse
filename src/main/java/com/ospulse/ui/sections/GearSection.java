@@ -223,6 +223,8 @@ public final class GearSection extends CollapsibleSection
 	 * {@code lastOptimizerResult != null} guard above has nothing to clear —
 	 * is exactly the gap this closes: its eventually-arriving result is
 	 * simply dropped rather than installed/auto-previewed/bank-highlighted.
+	 * Also bumped by every new search and by {@link #resetState}, so only the
+	 * latest search can land (an earlier target's search must not).
 	 */
 	int optimizerGeneration;
 	/** Nullable collaborator wired post-construction by {@link OSPulsePanel#setBankHighlighter} — see {@link #setBankHighlighter}. */
@@ -3087,7 +3089,9 @@ public final class GearSection extends CollapsibleSection
 	 * override (e.g. "vs Rune dragon: equip Insulated boots (Boots) — Halves
 	 * the lightning special-attack damage."), hidden entirely when the target
 	 * has none or no target is selected. Called whenever {@link #selectedMonster}
-	 * changes (every {@link #updateTargetLabel} call site).
+	 * changes (every {@link #updateTargetLabel} call site), and on every
+	 * snapshot and exclusion change, since ownership, worn gear and
+	 * exclusions decide what it names.
 	 *
 	 * <p><b>Ownership disclosure:</b> {@code GearOptimizer} force-includes a
 	 * mandatory override's item id past the budget filter entirely ({@code
@@ -3395,6 +3399,7 @@ public final class GearSection extends CollapsibleSection
 		optimizerStyle = null;
 		styleUserPicked = false;
 		styleAutoPicked = false;
+		optimizerGeneration++;
 		updateTargetLabel();
 		// Reuse the shared what-if/optimiser teardown: it also clears
 		// userPickedStyle/userPickedSpell, hides the optimiser panel, closes the
@@ -3437,7 +3442,7 @@ public final class GearSection extends CollapsibleSection
 	 * the live snapshot's precomputed stats unchanged (zero behaviour change
 	 * with no overrides active).
 	 */
-	private EquipmentStats effectiveEquipmentStats()
+	EquipmentStats effectiveEquipmentStats()
 	{
 		if (lastGear == null)
 		{
@@ -3447,7 +3452,9 @@ public final class GearSection extends CollapsibleSection
 		{
 			return lastGear.equipmentStats();
 		}
-		return WhatIfLoadout.buildEquipmentStats(lastGear.equippedItemIds(), override);
+		// Same dart as the live readout (SessionTracker), not the 3-arg Dragon default.
+		return GearMapper.buildEquipmentStats(WhatIfLoadout.effectiveItemIds(lastGear.equippedItemIds(), override),
+			WhatIfLoadout.WEAPON_SLOT, BundledSlotStatsLookup.INSTANCE, currentBlowpipeDart().rangedStrength());
 	}
 
 	/**
@@ -3880,6 +3887,7 @@ public final class GearSection extends CollapsibleSection
 		saveExcludedItemsPref();
 		renderExcludedList();
 		updateSpecWeaponCell();
+		updateGearOverrideNote();
 		if (lastOptimizerResult != null)
 		{
 			runOptimizer();
@@ -3902,6 +3910,7 @@ public final class GearSection extends CollapsibleSection
 		saveExcludedItemsPref();
 		renderExcludedList();
 		updateSpecWeaponCell();
+		updateGearOverrideNote();
 		if (lastOptimizerResult != null)
 		{
 			runOptimizer();
@@ -4028,6 +4037,7 @@ public final class GearSection extends CollapsibleSection
 	{
 		Map<Integer, Long> prices = new HashMap<>();
 		EquipmentIndexRepository index = EquipmentIndexRepository.getInstance();
+		Map<String, Integer> levels = lastGear == null ? null : currentBaseLevels();
 		// Real GE/bank values FIRST. This map feeds the expensive-item RISK cap
 		// (GearOptimizer.Request.ownedItemPrices), which must price an owned item
 		// at its ACTUAL value — a worn 5m whip is 5m of risk in the wilderness,
@@ -4050,7 +4060,7 @@ public final class GearSection extends CollapsibleSection
 				if (index.entryFor(stack.getId()) != null)
 				{
 					prices.merge(stack.getId(), Math.max(0L, stack.getUnitValue()), Math::max);
-					addVariantPlainForm(prices, index, stack.getId(), excludedItemIds);
+					addVariantPlainForm(prices, index, stack.getId(), excludedItemIds, levels);
 				}
 			}
 		}
@@ -4065,7 +4075,7 @@ public final class GearSection extends CollapsibleSection
 				if (id > 0 && index.entryFor(id) != null)
 				{
 					prices.putIfAbsent(id, 0L);
-					addVariantPlainForm(prices, index, id, excludedItemIds);
+					addVariantPlainForm(prices, index, id, excludedItemIds, levels);
 				}
 			}
 		}
@@ -4105,11 +4115,16 @@ public final class GearSection extends CollapsibleSection
 	 * the credit rather than the layers that read it. It is the load-bearing
 	 * one: dropping the credit here means the plain form is simply not owned,
 	 * so a budgeted search prices it as the genuine purchase it would be.
+	 *
+	 * <p>A variant the player cannot wear credits nothing either: Masori body
+	 * (f) needs Defence 80, the plain body only 30, so the credit would hand a
+	 * Defence-50 player a free body they cannot put on.
 	 */
 	private static void addVariantPlainForm(Map<Integer, Long> prices, EquipmentIndexRepository index,
-		int ownedItemId, Set<Integer> excludedItemIds)
+		int ownedItemId, Set<Integer> excludedItemIds, Map<String, Integer> levels)
 	{
-		if (excludedItemIds != null && excludedItemIds.contains(ownedItemId))
+		if (excludedItemIds != null && excludedItemIds.contains(ownedItemId)
+			|| !EquipmentRequirementsRepository.getInstance().canEquip(ownedItemId, levels))
 		{
 			return;
 		}
@@ -4317,7 +4332,7 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private void runOptimizer()
 	{
-		int generation = optimizerGeneration;
+		int generation = ++optimizerGeneration;
 		withResolvedPrices((budget, ownedPrices, priceSource, riskValues, needsProtection) ->
 		{
 			lastOptimizerNeedsProtection = needsProtection;
@@ -4343,7 +4358,7 @@ public final class GearSection extends CollapsibleSection
 	 */
 	private void runAndRankStyles()
 	{
-		int generation = optimizerGeneration;
+		int generation = ++optimizerGeneration;
 		withResolvedPrices((budget, ownedPrices, priceSource, riskValues, needsProtection) ->
 		{
 			lastOptimizerNeedsProtection = needsProtection;
@@ -4872,8 +4887,9 @@ public final class GearSection extends CollapsibleSection
 			noUsableWeaponLabel.setVisible(false);
 			renderSwapList(result);
 		}
-		// Nothing to preview/clear/show-in-bank when the suggestion equals what's
-		// already worn, or when there's no usable weapon to recommend at all.
+		// Nothing new to preview when the suggestion equals what's already worn,
+		// or when there's no usable weapon to recommend at all — but an earlier
+		// result's preview is superseded and is dropped below.
 		// (B8-4 auto-previews below instead of waiting for a manual click.)
 		// B9-4: auto-arm the bank filter the moment a usable result exists — no
 		// manual "Show in bank" toggle. This arms even when anyChange is false
@@ -4903,6 +4919,11 @@ public final class GearSection extends CollapsibleSection
 		// otherwise the only place updateGearGrid gets called after a fresh
 		// optimiser result, so without this the "every slot crossed out" render
 		// would only appear on some later, unrelated grid refresh.
+		if ((noUsableWeapon || !anyChange) && !override.isEmpty())
+		{
+			override = LoadoutOverride.empty();
+			rankAndRender();
+		}
 		updateGearGrid(lastGear);
 
 		// B8-4: auto-preview — apply the swaps immediately instead of requiring
@@ -5197,6 +5218,7 @@ public final class GearSection extends CollapsibleSection
 		resultPanel.revalidate();
 		body().revalidate();
 		body().repaint();
+		rankAndRender(); // the readout must drop the cleared preview too
 		updateGearGrid(lastGear);
 	}
 
@@ -5487,6 +5509,7 @@ public final class GearSection extends CollapsibleSection
 		lastGear = snapshot.getGear();
 		lastWealth = snapshot.getWealth();
 		autoToggleSlayerFromGear();
+		updateGearOverrideNote(); // ownership and worn gear feed the note
 		invalidateStaleOwnedOnlyResult();
 		// Finding 4 fix: re-rank before regridding — see applyOverride()'s
 		// comment. Matters here too: a live gear change (e.g. the player

@@ -28,8 +28,16 @@ final class CombatMath {
      * added, floor only at the very start and the very end.
      */
     static int effectiveMeleeOrRangedLevel(int boostedLevel, double prayerMult, int styleBonus, int flatAdd, double voidMult) {
-        int afterPrayer = (int) Math.floor(boostedLevel * prayerMult);
+        int afterPrayer = afterPrayer(boostedLevel, prayerMult);
         return (int) Math.floor((afterPrayer + styleBonus + flatAdd) * voidMult);
+    }
+
+    /**
+     * floor(boostedLevel * prayerMult) on exact integers: every prayer is a whole
+     * percentage, and in doubles 100 * 1.15 is 114.99999999999999.
+     */
+    private static int afterPrayer(int boostedLevel, double prayerMult) {
+        return (int) (boostedLevel * Math.round(prayerMult * 100) / 100);
     }
 
     /**
@@ -41,7 +49,7 @@ final class CombatMath {
      * the wiki lists "round down", "multiply void", "+3/+1", "+9", "round down" in that order.
      */
     static int effectiveMagicLevel(int boostedLevel, double prayerMult, int styleBonus, double voidMult) {
-        int afterPrayer = (int) Math.floor(boostedLevel * prayerMult);
+        int afterPrayer = afterPrayer(boostedLevel, prayerMult);
         double afterVoid = afterPrayer * voidMult;
         return (int) Math.floor(afterVoid + styleBonus + 9);
     }
@@ -77,7 +85,7 @@ final class CombatMath {
      * floor(effMagic * (gearAmagicBonus + 64) * targetGearBonus)
      * </pre>
      * targetGearBonus is 1.15 (23/20) if wearing an on-task imbued slayer helm/black mask,
-     * or attacking undead with an imbued salve amulet; {@link Fraction#ONE} otherwise.
+     * or attacking undead with a salve amulet (i) (6/5 for (ei)); {@link Fraction#ONE} otherwise.
      */
     static int magicAccuracyRoll(int effMagic, int gearAmagicBonus, Fraction targetGearBonus) {
         long base = (long) effMagic * (gearAmagicBonus + 64);
@@ -104,10 +112,11 @@ final class CombatMath {
      * </pre>
      */
     static double hitChance(int attackRoll, int defenceRoll) {
-        if (attackRoll > defenceRoll) {
-            return 1.0 - (defenceRoll + 2.0) / (2.0 * (attackRoll + 1.0));
-        }
-        return attackRoll / (2.0 * (defenceRoll + 1.0));
+        double chance = attackRoll > defenceRoll
+            ? 1.0 - (defenceRoll + 2.0) / (2.0 * (attackRoll + 1.0))
+            : attackRoll / (2.0 * (defenceRoll + 1.0));
+        // A bonus below -64 makes a roll negative; the result is still a probability.
+        return Math.max(0.0, Math.min(1.0, chance));
     }
 
     /** DPS = average damage per attack / (weaponSpeedTicks * 0.6 seconds/tick). */

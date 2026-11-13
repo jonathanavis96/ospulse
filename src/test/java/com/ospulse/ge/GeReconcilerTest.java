@@ -386,6 +386,20 @@ public class GeReconcilerTest
 	}
 
 	@Test
+	public void collectableUnitsIgnoreRepricesButDropOnCollection()
+	{
+		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
+			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
+		assertEquals(10L, reconciler.collectableUnits());
+		// A price refresh moves the value but not the units.
+		assertEquals(9_000_000L, reconciler.collectableValue(id -> 900_000L));
+		assertEquals(10L, reconciler.collectableUnits());
+		reconciler.onOfferUpdate(0, GeOfferState.EMPTY, 0, null,
+			0L, 0L, 0L, 0L, 2000L);
+		assertEquals(0L, reconciler.collectableUnits());
+	}
+
+	@Test
 	public void collectableValueShrinksAsGoodsAreCollectedIntoInventory()
 	{
 		// Bought 10 whips; collectable starts at 10 * 1M.

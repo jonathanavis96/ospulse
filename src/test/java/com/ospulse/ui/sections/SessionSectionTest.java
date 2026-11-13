@@ -154,4 +154,32 @@ public class SessionSectionTest
 		section.apply(snapshotWith(10_000L, 0L, 0L, 0L));
 		assertEquals(0L, section.displayedProfitForTest());
 	}
+
+	/**
+	 * A relog / world hop / account switch starts a new engine session (new
+	 * startMs) whose figures restart near 0; a per-row Reset baseline from the
+	 * previous session must not be subtracted from them.
+	 */
+	@Test
+	public void newSessionDropsPreviousSessionRowBaseline()
+	{
+		section.apply(lootSnapshot(1_000L, 50_000L));
+		section.resetCategoryForTest("session:profit");
+		section.apply(lootSnapshot(1_000L, 50_000L));
+		section.apply(lootSnapshot(1_000L, 60_000L));
+		assertEquals(10_000L, section.displayedProfitForTest());
+
+		section.apply(lootSnapshot(9_000L, 2_000L));
+		assertEquals(2_000L, section.displayedProfitForTest());
+	}
+
+	private static SessionSnapshot lootSnapshot(long startMs, long lootValue)
+	{
+		return new SessionSnapshot(
+			startMs, 1000L, lootValue, 0L, 0L, lootValue,
+			true, Collections.emptyList(), Collections.emptyMap(), 0L, null,
+			Collections.emptyList(), Collections.emptyList(),
+			Collections.emptyList(), 0L, null, 0L, Collections.emptyList(), 0L,
+			0L, 0L);
+	}
 }

@@ -1157,4 +1157,63 @@ public class GearSectionOptimizerTest
 				40_000_000L, section.lastRiskValueSource.priceFor(SARADOMIN_CAPE_PLAIN));
 		});
 	}
+
+	/**
+	 * A re-run whose result changes nothing (here: the previewed scimitar is
+	 * excluded, so the worn sword is best) must not leave the previous
+	 * result's auto-preview applied under "No upgrade found".
+	 */
+	@Test
+	public void noChangeResult_dropsThePreviousResultsPreview()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(DRAGON_SCIMITAR, "Dragon scimitar", 1, 100_000L));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)),
+				WealthSnapshot.builder().topHoldings(holdings).build()));
+			pickCerberus(section);
+			GearSectionTestOps.setBudgetText(section, "0");
+			GearSectionTestOps.runOptimizerSyncForTest(section);
+			assertEquals("fixture: the scimitar is previewed", DRAGON_SCIMITAR,
+				section.override.itemIdFor(WhatIfLoadout.WEAPON_SLOT));
+
+			section.excludedItemIds.add(DRAGON_SCIMITAR);
+			GearSectionTestOps.runOptimizerSyncForTest(section);
+
+			assertTrue("the superseded preview must be cleared: " + section.override, section.override.isEmpty());
+		});
+	}
+
+	/**
+	 * A search still in flight when the player picks another target must
+	 * never install its result (preview, swap list, bank highlight) for the
+	 * new target.
+	 */
+	@Test
+	public void searchForThePreviousTarget_isDroppedAfterATargetChange()
+	{
+		onEdt(() ->
+		{
+			GearSection section = new GearSection(NO_STORE, null, null);
+			List<ItemStack> holdings = new ArrayList<>();
+			holdings.add(new ItemStack(DRAGON_SCIMITAR, "Dragon scimitar", 1, 100_000L));
+			section.apply(snapshotWith(gearFor(loadout(BRONZE_SWORD)),
+				WealthSnapshot.builder().topHoldings(holdings).build()));
+			pickCerberus(section);
+			GearSectionTestOps.setBudgetText(section, "0");
+			int cerberusGeneration = section.optimizerGeneration;
+			GearSectionTestOps.runOptimizerSyncForTest(section);
+			GearOptimizer.Result cerberusResult = section.lastOptimizerResult;
+			section.resetAllOverrides(); // stands in for "not landed yet"
+
+			pickChaosElemental(section);
+			section.installResultIfCurrent(cerberusResult, cerberusGeneration);
+
+			assertTrue("the Cerberus search must not be installed for Chaos Elemental",
+				section.lastOptimizerResult != cerberusResult);
+			assertTrue(section.override.isEmpty());
+		});
+	}
 }

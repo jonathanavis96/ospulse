@@ -26,6 +26,11 @@ public final class WealthSnapshot
 	 * value moves locked → collectable → inventory without a dip.
 	 */
 	private final long geCollectableValue;
+	/**
+	 * Total units (item quantity, or gp for coins) behind {@link #geCollectableValue}.
+	 * Unchanged units with a lower value is a reprice, not a collection.
+	 */
+	private final long geCollectableUnits;
 	private final long pouchValue;
 	private final long bankValue;
 	private final boolean bankKnown;
@@ -75,7 +80,7 @@ public final class WealthSnapshot
 		Map<Integer, ItemStack> trackedItems,
 		Map<Integer, ItemStack> allHoldings)
 	{
-		this(inventoryValue, equipmentValue, geInFlightValue, 0L, pouchValue, bankValue,
+		this(inventoryValue, equipmentValue, geInFlightValue, 0L, 0L, pouchValue, bankValue,
 			bankKnown, timestampMs, topHoldings, trackedItems, allHoldings);
 	}
 
@@ -84,6 +89,7 @@ public final class WealthSnapshot
 		long equipmentValue,
 		long geInFlightValue,
 		long geCollectableValue,
+		long geCollectableUnits,
 		long pouchValue,
 		long bankValue,
 		boolean bankKnown,
@@ -96,6 +102,7 @@ public final class WealthSnapshot
 		this.equipmentValue = equipmentValue;
 		this.geInFlightValue = geInFlightValue;
 		this.geCollectableValue = geCollectableValue;
+		this.geCollectableUnits = geCollectableUnits;
 		this.pouchValue = pouchValue;
 		this.bankValue = bankValue;
 		this.bankKnown = bankKnown;
@@ -151,6 +158,7 @@ public final class WealthSnapshot
 		private long equipmentValue;
 		private long geInFlightValue;
 		private long geCollectableValue;
+		private long geCollectableUnits;
 		private long pouchValue;
 		private long bankValue;
 		private boolean bankKnown;
@@ -181,6 +189,12 @@ public final class WealthSnapshot
 		public Builder geCollectableValue(long geCollectableValue)
 		{
 			this.geCollectableValue = geCollectableValue;
+			return this;
+		}
+
+		public Builder geCollectableUnits(long geCollectableUnits)
+		{
+			this.geCollectableUnits = geCollectableUnits;
 			return this;
 		}
 
@@ -234,6 +248,7 @@ public final class WealthSnapshot
 				equipmentValue,
 				geInFlightValue,
 				geCollectableValue,
+				geCollectableUnits,
 				pouchValue,
 				bankValue,
 				bankKnown,
