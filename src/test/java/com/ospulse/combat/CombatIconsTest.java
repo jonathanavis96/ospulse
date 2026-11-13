@@ -15,8 +15,8 @@ import static org.junit.Assert.assertTrue;
 public class CombatIconsTest {
     static { com.ospulse.combat.BundledGson.set(new com.google.gson.Gson()); }
 
-    // ---- Melee ladder: Piety(70) -> Chivalry(60) -> Ultimate Strength(31)
-    // -> Superhuman Strength(20) -> Burst of Strength(4) ---------------------
+    // ---- Melee ladder (OSRS Wiki Prayer page unlock levels): Piety(70) ->
+    // Chivalry(60) -> Ultimate Strength(31) -> Superhuman Strength(13) -> Burst of Strength(4)
 
     @Test
     public void meleeLadderDegradesByPrayerLevel() {
@@ -33,16 +33,16 @@ public class CombatIconsTest {
         assertEquals(OffensivePrayer.SUPERHUMAN_STRENGTH,
             CombatIcons.bestOffensivePrayer(CombatStyle.SLASH, 30, false));
         assertEquals(OffensivePrayer.SUPERHUMAN_STRENGTH,
-            CombatIcons.bestOffensivePrayer(CombatStyle.SLASH, 20, false));
+            CombatIcons.bestOffensivePrayer(CombatStyle.SLASH, 13, false));
         assertEquals(OffensivePrayer.BURST_OF_STRENGTH,
-            CombatIcons.bestOffensivePrayer(CombatStyle.SLASH, 19, false));
+            CombatIcons.bestOffensivePrayer(CombatStyle.SLASH, 12, false));
         assertEquals(OffensivePrayer.BURST_OF_STRENGTH,
             CombatIcons.bestOffensivePrayer(CombatStyle.SLASH, 4, false));
         assertNull(CombatIcons.bestOffensivePrayer(CombatStyle.SLASH, 3, false));
         assertNull(CombatIcons.bestOffensivePrayer(CombatStyle.SLASH, 1, false));
     }
 
-    // ---- Ranged ladder: Rigour(74) -> Eagle Eye(70) -> Hawk Eye(44) -> Sharp Eye(8) ----
+    // ---- Ranged ladder: Rigour(74) -> Eagle Eye(44) -> Hawk Eye(26) -> Sharp Eye(8) ----
 
     @Test
     public void rangedLadderDegradesByPrayerLevel() {
@@ -51,19 +51,19 @@ public class CombatIconsTest {
         assertEquals(OffensivePrayer.EAGLE_EYE,
             CombatIcons.bestOffensivePrayer(CombatStyle.RANGED, 73, false));
         assertEquals(OffensivePrayer.EAGLE_EYE,
-            CombatIcons.bestOffensivePrayer(CombatStyle.RANGED, 70, false));
-        assertEquals(OffensivePrayer.HAWK_EYE,
-            CombatIcons.bestOffensivePrayer(CombatStyle.RANGED, 69, false));
-        assertEquals(OffensivePrayer.HAWK_EYE,
             CombatIcons.bestOffensivePrayer(CombatStyle.RANGED, 44, false));
-        assertEquals(OffensivePrayer.SHARP_EYE,
+        assertEquals(OffensivePrayer.HAWK_EYE,
             CombatIcons.bestOffensivePrayer(CombatStyle.RANGED, 43, false));
+        assertEquals(OffensivePrayer.HAWK_EYE,
+            CombatIcons.bestOffensivePrayer(CombatStyle.RANGED, 26, false));
+        assertEquals(OffensivePrayer.SHARP_EYE,
+            CombatIcons.bestOffensivePrayer(CombatStyle.RANGED, 25, false));
         assertEquals(OffensivePrayer.SHARP_EYE,
             CombatIcons.bestOffensivePrayer(CombatStyle.RANGED, 8, false));
         assertNull(CombatIcons.bestOffensivePrayer(CombatStyle.RANGED, 7, false));
     }
 
-    // ---- Magic ladder: Augury(77) -> Mystic Might(74) -> Mystic Lore(60) -> Mystic Will(45) ----
+    // ---- Magic ladder: Augury(77) -> Mystic Might(45) -> Mystic Lore(27) -> Mystic Will(9) ----
 
     @Test
     public void magicLadderDegradesByPrayerLevel() {
@@ -72,16 +72,16 @@ public class CombatIconsTest {
         assertEquals(OffensivePrayer.MYSTIC_MIGHT,
             CombatIcons.bestOffensivePrayer(CombatStyle.MAGIC, 76, false));
         assertEquals(OffensivePrayer.MYSTIC_MIGHT,
-            CombatIcons.bestOffensivePrayer(CombatStyle.MAGIC, 74, false));
-        assertEquals(OffensivePrayer.MYSTIC_LORE,
-            CombatIcons.bestOffensivePrayer(CombatStyle.MAGIC, 73, false));
-        assertEquals(OffensivePrayer.MYSTIC_LORE,
-            CombatIcons.bestOffensivePrayer(CombatStyle.MAGIC, 60, false));
-        assertEquals(OffensivePrayer.MYSTIC_WILL,
-            CombatIcons.bestOffensivePrayer(CombatStyle.MAGIC, 59, false));
-        assertEquals(OffensivePrayer.MYSTIC_WILL,
             CombatIcons.bestOffensivePrayer(CombatStyle.MAGIC, 45, false));
-        assertNull(CombatIcons.bestOffensivePrayer(CombatStyle.MAGIC, 44, false));
+        assertEquals(OffensivePrayer.MYSTIC_LORE,
+            CombatIcons.bestOffensivePrayer(CombatStyle.MAGIC, 44, false));
+        assertEquals(OffensivePrayer.MYSTIC_LORE,
+            CombatIcons.bestOffensivePrayer(CombatStyle.MAGIC, 27, false));
+        assertEquals(OffensivePrayer.MYSTIC_WILL,
+            CombatIcons.bestOffensivePrayer(CombatStyle.MAGIC, 26, false));
+        assertEquals(OffensivePrayer.MYSTIC_WILL,
+            CombatIcons.bestOffensivePrayer(CombatStyle.MAGIC, 9, false));
+        assertNull(CombatIcons.bestOffensivePrayer(CombatStyle.MAGIC, 8, false));
     }
 
     // ---- assumeBestPrayer=true must match DpsCalculator's hardcoded top-tier prayer ----

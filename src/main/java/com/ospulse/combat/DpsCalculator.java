@@ -566,10 +566,11 @@ public final class DpsCalculator {
 
         int effMagic = CombatMath.effectiveMagicLevel(boostedMagic, prayerAccMult, styleBonus, voidMult);
 
-        boolean salveVsUndead = target.isUndead() && gear.salveType() != SalveType.NONE;
+        // Only an imbued salve affects magic; a plain/(e) salve leaves the slayer helm's bonus alone.
+        boolean salveVsUndead = target.isUndead() && gear.salveType().isImbued();
         boolean slayerOnTaskImbued = player.onSlayerTask() && gear.slayerHeadgear().isImbued();
-        boolean magicAccuracyBonusApplies = (salveVsUndead && gear.salveType().isImbued()) || slayerOnTaskImbued;
-        Fraction accuracyTargetBonus = magicAccuracyBonusApplies ? new Fraction(23, 20) : Fraction.ONE;
+        Fraction accuracyTargetBonus = salveVsUndead && gear.salveType() == SalveType.SALVE_EI ? new Fraction(6, 5)
+                : salveVsUndead || slayerOnTaskImbued ? new Fraction(23, 20) : Fraction.ONE;
 
         int accuracyRoll = CombatMath.magicAccuracyRoll(effMagic, gear.amagic(), accuracyTargetBonus);
         int defenceRoll = CombatMath.npcDefenceRoll(target.magicLevel(), target.dmagic());

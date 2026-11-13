@@ -181,7 +181,9 @@ public final class ProductionActivity
 			11100,   // gameval.AnimationID.HUMAN_FLETCHING_SINGLE
 			13150,   // gameval.AnimationID.HUMAN_FLETCHING_HUNTINGBOLTS_CHISEL_SINGLE_QUICK
 			// --- Smithing ------------------------------------------------
-			827,   // AnimationID.SMITHING_CANNONBALL
+			// 827 (SMITHING_CANNONBALL) is left out: it is also BURYING_BONES,
+			// so it would open an episode on every bone buried. Cannonball
+			// smithing grants Smithing XP, which opens the episode instead.
 			898,   // AnimationID.SMITHING_ANVIL
 			899,   // AnimationID.SMITHING_SMELTING
 			8911,   // AnimationID.SMITHING_IMCANDO_HAMMER

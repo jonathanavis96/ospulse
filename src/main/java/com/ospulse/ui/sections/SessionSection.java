@@ -87,6 +87,8 @@ public final class SessionSection extends CollapsibleSection
 	private long netProfitBaseline;
 	private long profitPerHourBaseline;
 	private long gePnlBaseline;
+	/** Engine session start of the last snapshot; a change means a new session (relog, world hop, account switch). */
+	private long sessionStartMs;
 	/**
 	 * Net-worth-change baselines, captured PER COMPONENT when the "Net worth
 	 * change" row is reset — one raw component value each, ALWAYS all four
@@ -186,6 +188,13 @@ public final class SessionSection extends CollapsibleSection
 	@Override
 	public void apply(SessionSnapshot snapshot)
 	{
+		if (snapshot.getStartMs() != sessionStartMs)
+		{
+			// The new session's figures restart near 0: a per-row Reset baseline
+			// from the previous one would render as a phantom.
+			sessionStartMs = snapshot.getStartMs();
+			clearBaselines();
+		}
 		elapsedMs = snapshot.getElapsedMs();
 		long rawProfit = snapshot.getLootValue();
 		long rawSuppliesUsed = snapshot.getSuppliesUsed();
@@ -339,6 +348,19 @@ public final class SessionSection extends CollapsibleSection
 	@Override
 	public void resetState()
 	{
+		clearBaselines();
+		elapsedMs = 0;
+		displayedProfit = 0;
+		lastRawNetProfit = 0;
+		lastRawGePnl = 0;
+		lastRawGePositions = 0;
+		lastRawBankDelta = 0;
+		categorySupport.clearAll();
+		refreshSummary();
+	}
+
+	private void clearBaselines()
+	{
 		profitBaseline = 0;
 		suppliesBaseline = 0;
 		netProfitBaseline = 0;
@@ -348,14 +370,6 @@ public final class SessionSection extends CollapsibleSection
 		nwGeFlipBaseline = 0;
 		nwGePositionsBaseline = 0;
 		nwBankBaseline = 0;
-		elapsedMs = 0;
-		displayedProfit = 0;
-		lastRawNetProfit = 0;
-		lastRawGePnl = 0;
-		lastRawGePositions = 0;
-		lastRawBankDelta = 0;
-		categorySupport.clearAll();
-		refreshSummary();
 	}
 
 	// ------------------------------------------------- test seams (package)

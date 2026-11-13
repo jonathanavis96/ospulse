@@ -562,6 +562,20 @@ public final class GeReconciler implements GeAttributions
 		return total;
 	}
 
+	/** Units behind {@link #collectableValue}: changes only on a fill or a collection, never on a reprice. */
+	public long collectableUnits()
+	{
+		long total = 0L;
+		for (ExpectedArrival e : expectedArrivals)
+		{
+			if (e.deadlineMs == 0 && e.quantity > 0)
+			{
+				total += e.quantity;
+			}
+		}
+		return total;
+	}
+
 	/**
 	 * Clears all per-session state (open-slot tracking, cost-basis ledger,
 	 * expectation ledgers and realised P&amp;L) so a new tracking window

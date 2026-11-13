@@ -285,6 +285,26 @@ public class ProfitInvariantsTest
 	}
 
 	@Test
+	public void itemsHeldAtDeathOnAnotherAccountAreNotCarriedIntoTheNewSession()
+	{
+		ItemStack whip = new ItemStack(WHIP, "Abyssal whip", 1L, 1_000_000L);
+		engine.startSession(wealth(0L, whip), 0L);
+		WealthSnapshot died = wealth(1_000L);
+		engine.update(died, (GeAttributions) null, MovementSignals.builder().died(true).build(), 1_000L);
+
+		// The player switches to a different account with nothing on it.
+		engine.forgetOwnedAway();
+		WealthSnapshot other = wealth(2_000L);
+		engine.startSession(other, 2_000L);
+		assertAllZero("new account starts clean", snapshot(other, 0L, 2_000L));
+
+		// A whip this account picks up is its own loot, not a reclaim from the other account's Death.
+		WealthSnapshot looted = wealth(3_000L, whip);
+		engine.update(looted, (GeAttributions) null, MovementSignals.NONE, 3_000L);
+		assertEquals(1_000_000L, snapshot(looted, 0L, 3_000L).getLootValue());
+	}
+
+	@Test
 	public void resetZeroesEveryComponent()
 	{
 		GeReconciler ge = new GeReconciler();

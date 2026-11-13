@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -67,14 +68,16 @@ public class SessionTrackerTest
 	private ItemManager itemManager;
 	private SessionEngine engine;
 	private SessionTracker tracker;
+	private OSPulseConfig config;
+	private ConfigManager configManager;
 
 	@Before
 	public void setUp()
 	{
 		client = mock(Client.class);
 		itemManager = mock(ItemManager.class);
-		OSPulseConfig config = mock(OSPulseConfig.class);
-		ConfigManager configManager = mock(ConfigManager.class);
+		config = mock(OSPulseConfig.class);
+		configManager = mock(ConfigManager.class);
 		engine = spy(new SessionEngine());
 
 		when(client.getItemContainer(any())).thenReturn(null);
@@ -361,6 +364,22 @@ public class SessionTrackerTest
 		assertEquals(3L, un.getItems().get(0).getQuantity());
 	}
 
+	@Test
+	public void loggingInToAnotherAccountForgetsTheOldAccountsCannonAndDeathItems()
+	{
+		// setUp bootstrapped on the mock's account hash (0).
+		tracker.onLogout();
+		tracker.onLogin();
+		tracker.onTick();
+		verify(engine, never()).forgetOwnedAway(); // same account relog keeps them
+
+		when(client.getAccountHash()).thenReturn(222L);
+		tracker.onLogout();
+		tracker.onLogin();
+		tracker.onTick();
+		verify(engine, times(1)).forgetOwnedAway();
+	}
+
 	/**
 	 * A BANK-id container change drives the eager refresh path without involving
 	 * the fish-barrel inventory/equipment diff (which only handles INVENTORY /
@@ -543,6 +562,69 @@ public class SessionTrackerTest
 
 		assertEquals("55,555 sold (untaxed below 50 gp) - 45,000 paid",
 			10_555L, tracker.getLatest().getGeRealizedPnl());
+	}
+
+	/**
+	 * Plugin enabled while the bank is open: the first tick reports the bank
+	 * open before the tracker has started its session. The fresh session must
+	 * still start in bank-open mode, or deposits read as losses.
+	 */
+	@Test
+	public void sessionStartedWhileTheBankIsOpenStartsInBankOpenMode()
+	{
+		SessionEngine fresh = spy(new SessionEngine());
+		SessionTracker late = new SessionTracker(client, itemManager, config, configManager, new Gson(), fresh);
+		late.onLogin();
+		late.onBankOpenChanged(true);
+		late.onTick();
+
+		assertTrue(fresh.isBankOpen());
+	}
+
+	/**
+	 * Logging out with the bank open must not leave the bank "open" for the
+	 * next login: a reset after relogging, with the bank closed, must start
+	 * in bank-closed mode.
+	 */
+	@Test
+	public void bankOpenAtLogoutIsNotCarriedIntoTheNextLogin()
+	{
+		tracker.onBankOpenChanged(true);
+		tracker.onLogout();
+		tracker.onLogin();
+		tracker.onTick();
+		assertFalse(engine.isBankOpen());
+
+		tracker.resetSession();
+
+		assertFalse(engine.isBankOpen());
+	}
+
+	/**
+	 * Fish caught into the barrel while "Include fish barrel" is off must not
+	 * be booked later, all at once, when the option is turned on.
+	 */
+	@Test
+	public void barrelCatchesWhileTheOptionIsOffAreNotBookedWhenItIsTurnedOn()
+	{
+		int rawShark = net.runelite.api.gameval.ItemID.RAW_SHARK;
+		priceItem(rawShark, "Raw shark", 700);
+		net.runelite.api.ItemContainer inv = mock(net.runelite.api.ItemContainer.class);
+		when(inv.getItems()).thenReturn(new net.runelite.api.Item[] {
+			new net.runelite.api.Item(net.runelite.api.gameval.ItemID.FISH_BARREL_OPEN, 1)});
+		tracker.onItemContainerChanged(InventoryID.INVENTORY.getId(), inv);
+
+		tracker.onChatMessage(net.runelite.api.ChatMessageType.SPAM, "You catch a shark.");
+		tracker.onTick();
+
+		when(config.includeFishBarrel()).thenReturn(true);
+		reset(engine);
+		tracker.onTick();
+
+		ArgumentCaptor<MovementSignals> signals = ArgumentCaptor.forClass(MovementSignals.class);
+		verify(engine).update(any(WealthSnapshot.class), any(GeAttributions.class), signals.capture(), anyLong());
+		assertTrue("a catch made while the option was off must not be booked",
+			signals.getValue().lootReceipts().isEmpty());
 	}
 
 	private static GrandExchangeOffer offer(net.runelite.api.GrandExchangeOfferState state,

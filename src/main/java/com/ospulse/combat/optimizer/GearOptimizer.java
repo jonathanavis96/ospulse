@@ -615,11 +615,11 @@ public final class GearOptimizer {
      * reject any swap that would push cumulative spend over budget (see
      * {@link #withinBudget}). Owned items are always 0 regardless of price.
      */
-    private static long totalSpendOf(int[] itemIds, Request request) {
+    private static long totalSpendOf(int[] itemIds, Request request, boolean skipIncluded) {
         long total = 0L;
         for (int slot : SEARCHABLE_SLOTS) {
             int itemId = slot < itemIds.length ? itemIds[slot] : -1;
-            if (itemId <= 0 || request.owned.contains(itemId)) {
+            if (itemId <= 0 || request.owned.contains(itemId) || (skipIncluded && request.include.contains(itemId))) {
                 continue;
             }
             total += priceOf(itemId, request);
@@ -643,7 +643,10 @@ public final class GearOptimizer {
      * overflows into a false rejection.
      */
     private static boolean withinBudget(int[] itemIds, Request request) {
-        return totalSpendOf(itemIds, request) <= request.budget;
+        // A forced include priced past the budget (or unpriced) must not freeze
+        // the search: the rest of the loadout may then still take free items.
+        return totalSpendOf(itemIds, request, false) <= request.budget
+                || totalSpendOf(itemIds, request, true) == 0;
     }
 
     /**
@@ -902,10 +905,10 @@ public final class GearOptimizer {
                 if (trialOverflow >= overflow) {
                     continue;
                 }
-                long spend = totalSpendOf(trial, request);
-                if (spend > request.budget) {
+                if (!withinBudget(trial, request)) {
                     continue;
                 }
+                long spend = totalSpendOf(trial, request, false);
                 Evaluation trialEval = evaluate(trial, request);
                 if (trialEval == null) {
                     continue;
@@ -1736,11 +1739,13 @@ public final class GearOptimizer {
         return eval == null ? 0.0 : eval.dps.dps();
     }
 
-    /** Every owned, non-excluded item for {@code slot}, as free owned candidates in index order. */
+    /** Every owned, non-excluded item for {@code slot} the player can equip, as free owned candidates in index order. */
     private static List<Candidate> ownedForSlot(EquipmentIndexRepository index, int slot, Request request) {
         List<Candidate> out = new ArrayList<>();
         for (EquipmentIndexRepository.Entry e : index.forSlot(slot)) {
-            if (request.owned.contains(e.itemId()) && !request.exclude.contains(e.itemId())) {
+            if (request.owned.contains(e.itemId()) && !request.exclude.contains(e.itemId())
+                    && (request.playerBaseLevels.isEmpty() // same level gate as buildCandidatesForSlot
+                        || EquipmentRequirementsRepository.getInstance().canEquip(e.itemId(), request.playerBaseLevels))) {
                 out.add(new Candidate(e.itemId(), 0L, true));
             }
         }

@@ -907,6 +907,30 @@ public class GearOptimizerTest {
                 BRONZE_SWORD, weaponIdIn(result));
     }
 
+    @Test
+    public void unaffordableForcedInclude_doesNotFreezeFreeSwaps() {
+        int insulatedBoots = 7159; // untradeable: an unpriced item resolves to Long.MAX_VALUE
+        int[] live = emptyLoadout();
+        live[3] = BRONZE_SWORD;
+
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(BRONZE_SWORD, 0L);
+        fixed.put(DRAGON_SCIMITAR, 0L); // free but not owned: only the local search can pick it
+        fixed.put(insulatedBoots, Long.MAX_VALUE);
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .include(new HashSet<>(Arrays.asList(insulatedBoots)))
+                .priceSource(everyWeaponExpensiveExcept(fixed))
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals(insulatedBoots, itemIdInSlot(result, 10));
+        assertEquals("a forced item over budget must not block a free upgrade elsewhere",
+                DRAGON_SCIMITAR, weaponIdIn(result));
+    }
+
     // -------------------------------------------------- DPS-per-gp
 
     @Test

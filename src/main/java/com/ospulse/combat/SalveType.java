@@ -26,7 +26,7 @@ public enum SalveType {
     SALVE_E,
     /** Salve amulet (i): melee x7/6, ranged x7/6 (accuracy+damage), magic accuracy x1.15 / damage +15%. */
     SALVE_I,
-    /** Salve amulet (ei): melee x1.2, ranged x1.2, magic accuracy x1.15 / damage +20%. */
+    /** Salve amulet (ei): melee x1.2, ranged x1.2, magic accuracy x1.2 / damage +20%. */
     SALVE_EI;
 
     public boolean isImbued() {

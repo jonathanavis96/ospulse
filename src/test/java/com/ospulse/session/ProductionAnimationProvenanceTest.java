@@ -279,6 +279,14 @@ public class ProductionAnimationProvenanceTest
 	}
 
 	@Test
+	public void regression_buryingBonesIsNotProduction()
+	{
+		// 827 names SMITHING_CANNONBALL but is also BURYING_BONES; burying a
+		// bone must not open a production episode.
+		assertFalse(ProductionActivity.isProductionAnimation(827));
+	}
+
+	@Test
 	public void regression_herblorePotionmakingIsProduction()
 	{
 		assertTrue(ProductionActivity.isProductionAnimation(363));

@@ -56,6 +56,9 @@ public final class CategoryContextMenu
 	public static JPopupMenu build(CategoryController controller, String categoryId,
 		RsnSupplier rsnSupplier, String womMetric, java.util.function.LongSupplier nowMs)
 	{
+		// Register the row so "Reset others"/"Reset all"/"Pause all" reach it
+		// even if it was never reset or paused on its own.
+		controller.stateFor(categoryId);
 		JPopupMenu menu = PanelWidgets.popupMenu();
 		PanelWidgets.menuItem(menu, "Open Wise Old Man", () -> LinkBrowser.browse(buildWiseOldManUrl(
 			rsnSupplier == null ? null : rsnSupplier.getRsn(), womMetric)));

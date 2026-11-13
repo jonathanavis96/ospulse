@@ -1230,6 +1230,50 @@ public class SessionEngineTest
 	}
 
 	@Test
+	public void repriceOfUncollectedGeItemsShowsAsGePositionsNotCollectToBank()
+	{
+		WealthSnapshot initial = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geCollectableValue(1_000_000L)
+			.geCollectableUnits(100L)
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(0L)
+			.build();
+		engine.startSession(initial, 0L);
+
+		// A price refresh marks the still-uncollected bought goods down 100k.
+		// Nothing was collected: the bank stays where it was.
+		WealthSnapshot repriced = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geCollectableValue(900_000L)
+			.geCollectableUnits(100L)
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(1000L)
+			.build();
+		engine.update(repriced, Collections.emptySet(), 1000L);
+		SessionSnapshot s = engine.snapshot(repriced, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("a reprice of uncollected GE goods is a GE-positions move", -100_000L, s.getGePositions());
+		assertEquals(-100_000L, s.getNetWorthDelta());
+		assertEquals(0L, s.getNetProfit());
+
+		WealthSnapshot later = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geCollectableValue(900_000L)
+			.geCollectableUnits(100L)
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(20_000L)
+			.build();
+		engine.update(later, Collections.emptySet(), 20_000L);
+		s = engine.snapshot(later, 0L, Collections.emptyMap(), 0L, 20_000L);
+		assertEquals("still a GE-positions move once any hold would have expired", -100_000L, s.getGePositions());
+		assertEquals(0L, s.getNetProfit());
+		assertIdentity("after reprice", s);
+	}
+
+	@Test
 	public void bankDepositCancelsToZeroOnNetWorthChange()
 	{
 		WealthSnapshot initial = snap(100_000_000L, Collections.emptyMap(), 0L, false, 0L);
@@ -2649,6 +2693,7 @@ public class SessionEngineTest
 
 	private static final int SUPER_ANTIFIRE_4 = 21978;
 	private static final int SUPER_ANTIFIRE_3 = 21981;
+	private static final int SUPER_ANTIFIRE_2 = 21984;
 	private static final int SUPER_ANTIFIRE_1 = 21987;
 
 	@Test
@@ -2681,6 +2726,32 @@ public class SessionEngineTest
 		assertEquals("only the consumed dose value counts as supplies used",
 			1_000L, result.getSuppliesUsed());
 		assertEquals(1_000L, engine.getSuppliesUsed());
+	}
+
+	@Test
+	public void combiningPotionDosesUpwardIsNeitherLootNorSupplies()
+	{
+		// (3) + (1) -> (4): no dose was drunk and nothing was looted.
+		engine.startSession(snap(4_000L, items(
+			new ItemStack(SUPER_ANTIFIRE_3, "Super antifire potion(3)", 1L, 3_000L),
+			new ItemStack(SUPER_ANTIFIRE_1, "Super antifire potion(1)", 1L, 1_000L)), 0L, false, 0L), 0L);
+		WealthSnapshot combined = snap(4_000L, items(
+			new ItemStack(SUPER_ANTIFIRE_4, "Super antifire potion(4)", 1L, 4_000L)), 0L, false, 1000L);
+		engine.update(combined, Collections.emptySet(), 1000L);
+		SessionSnapshot s = engine.snapshot(combined, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("a combined (4) is not loot", 0L, s.getLootValue());
+		assertEquals("combining drinks nothing", 0L, s.getSuppliesUsed());
+
+		// (3) + (3) -> (4) + (2): still six doses.
+		engine.startSession(snap(6_000L, items(
+			new ItemStack(SUPER_ANTIFIRE_3, "Super antifire potion(3)", 2L, 3_000L)), 0L, false, 2000L), 2000L);
+		WealthSnapshot evened = snap(6_000L, items(
+			new ItemStack(SUPER_ANTIFIRE_4, "Super antifire potion(4)", 1L, 4_000L),
+			new ItemStack(SUPER_ANTIFIRE_2, "Super antifire potion(2)", 1L, 2_000L)), 0L, false, 3000L);
+		engine.update(evened, Collections.emptySet(), 3000L);
+		s = engine.snapshot(evened, 0L, Collections.emptyMap(), 0L, 3000L);
+		assertEquals(0L, s.getLootValue());
+		assertEquals(0L, s.getSuppliesUsed());
 	}
 
 	@Test
@@ -3354,6 +3425,77 @@ public class SessionEngineTest
 		assertEquals("bank true-up is net-worth-neutral",
 			beforeDeposit.getNetWorthDelta(), afterDepositSnap.getNetWorthDelta());
 		assertEquals("Loot unchanged by the bank deposit", 80_000L, afterDepositSnap.getLootValue());
+	}
+
+	private SessionSnapshot bonesAt(long qty, long unit, long ts)
+	{
+		WealthSnapshot w = snap(qty * unit, items(new ItemStack(DRAGON_BONES, "Dragon bones", qty, unit)), 0L, false, ts);
+		engine.update(w, Collections.emptySet(), ts);
+		return engine.snapshot(w, 0L, Collections.emptyMap(), 0L, ts);
+	}
+
+	@Test
+	public void reversedSameIdGainRestoresTheExactPreGainBasis()
+	{
+		engine.startSession(snap(4_000L, items(new ItemStack(DRAGON_BONES, "Dragon bones", 5L, 800L)), 0L, false, 0L), 0L);
+		bonesAt(5L, 1_000L, 1_000L);          // price rises: +1,000 unrealized
+		bonesAt(8L, 1_000L, 1_600L);          // 3 more appear
+		SessionSnapshot s = bonesAt(5L, 1_000L, 2_100L); // and go again next tick
+		assertEquals(0L, s.getLootValue());
+		assertEquals("the 5 original bones keep their 800 basis", 1_000L, s.getUnrealizedPnl());
+		assertEquals(0L, s.getNetProfit());
+	}
+
+	@Test
+	public void partialVanishThatReturnsRestoresTheExactPreVanishBasis()
+	{
+		engine.startSession(snap(8_000L, items(new ItemStack(DRAGON_BONES, "Dragon bones", 10L, 800L)), 0L, false, 0L), 0L);
+		bonesAt(10L, 1_000L, 1_000L);         // price rises: +2,000 unrealized
+		bonesAt(7L, 1_000L, 1_600L);          // 3 vanish for a tick
+		SessionSnapshot s = bonesAt(10L, 1_000L, 2_100L); // and come back
+		assertEquals("the 10 bones keep their 800 basis", 2_000L, s.getUnrealizedPnl());
+		assertEquals(0L, s.getNetProfit());
+	}
+
+	@Test
+	public void sackEmptiedToBankWhoseRiseArrivesInTheCloseSnapshotTruesUpStoredLoot()
+	{
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			(GeAttributions) null,
+			MovementSignals.builder().lootReceived(new LootReceipt(RANARR, 10L, 8_000L)).build(), 1000L);
+		WealthSnapshot atOpen = snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 2000L);
+		engine.setBankOpen(true, atOpen, 2000L);
+		SessionSnapshot before = engine.snapshot(atOpen, 0L, Collections.emptyMap(), 0L, 2000L);
+
+		// Sack emptied into the bank, then closed before any open-bank tick saw the rise.
+		WealthSnapshot atClose = snap(10_000_000L, Collections.emptyMap(), 20_080_000L, true, 2500L);
+		engine.setBankOpen(false, atClose, 2500L);
+		SessionSnapshot after = engine.snapshot(atClose, 0L, Collections.emptyMap(), 0L, 2500L);
+
+		assertEquals("sack-to-bank empty is net-worth-neutral", before.getNetWorthDelta(), after.getNetWorthDelta());
+		assertEquals("Loot unchanged by the bank empty", 80_000L, after.getLootValue());
+	}
+
+	@Test
+	public void sackEmptiedToBankWhoseRiseLandsInsideTheCloseGraceTruesUpStoredLoot()
+	{
+		engine.startSession(snap(10_000_000L, Collections.emptyMap(), 0L, false, 0L), 0L);
+		engine.update(snap(10_000_000L, Collections.emptyMap(), 0L, false, 1000L),
+			(GeAttributions) null,
+			MovementSignals.builder().lootReceived(new LootReceipt(RANARR, 10L, 8_000L)).build(), 1000L);
+		WealthSnapshot atOpen = snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 2000L);
+		engine.setBankOpen(true, atOpen, 2000L);
+		SessionSnapshot before = engine.snapshot(atOpen, 0L, Collections.emptyMap(), 0L, 2000L);
+		engine.setBankOpen(false, snap(10_000_000L, Collections.emptyMap(), 20_000_000L, true, 2500L), 2500L);
+
+		// The lagged bank reading of the sack empty lands two seconds after the close.
+		WealthSnapshot lagged = snap(10_000_000L, Collections.emptyMap(), 20_080_000L, true, 4500L);
+		engine.update(lagged, Collections.emptySet(), 4500L);
+		SessionSnapshot after = engine.snapshot(lagged, 0L, Collections.emptyMap(), 0L, 4500L);
+
+		assertEquals("sack-to-bank empty is net-worth-neutral", before.getNetWorthDelta(), after.getNetWorthDelta());
+		assertEquals("Loot unchanged by the bank empty", 80_000L, after.getLootValue());
 	}
 
 	@Test

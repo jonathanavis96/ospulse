@@ -213,6 +213,9 @@ public class SessionTracker implements SessionService
 		engine.setVerboseDiagnostics(config.verboseDiagnostics());
 	}
 
+	/** Account hash the running session belongs to; -1 until known. */
+	private long sessionAccountHash = -1L;
+
 	// ------------------------------------------------------------- lifecycle
 
 	public void onLogin()
@@ -234,6 +237,9 @@ public class SessionTracker implements SessionService
 	public void onLogout()
 	{
 		loggedIn = false;
+		// The plugin forgets its own bank-open edge on logout; forget ours too so
+		// a stale "open" is not replayed into the next login's session.
+		lastBankOpenState = false;
 		// Persist the latest bank contents so the next login restores the bank
 		// value, net worth and top holdings without reopening the bank.
 		saveBankCache();
@@ -278,6 +284,10 @@ public class SessionTracker implements SessionService
 		// eagerly (and potentially several times per tick) off container-change
 		// events; draining there would double-count a tick's catches.
 		fishBarrelTracker.onTick();
+		// Drain every tick even with the option off, so catches made while it
+		// was off are not all booked at once when it is turned on.
+		Map<Integer, Integer> caughtToBarrel = fishBarrelTracker.drainCaughtToBarrel();
+		Map<Integer, Integer> emptiedFromBarrel = fishBarrelTracker.drainEmptied();
 		if (config.includeFishBarrel())
 		{
 			// Book fish stored into the barrel this tick as storage-routed loot:
@@ -286,7 +296,7 @@ public class SessionTracker implements SessionService
 			// stored-loot ledger as a herb sack — lifting Loot AND net worth together
 			// with no separate net-worth row. Added to pendingSignals here (once per
 			// tick) so the eager container-change refresh never re-counts them.
-			for (Map.Entry<Integer, Integer> caught : fishBarrelTracker.drainCaughtToBarrel().entrySet())
+			for (Map.Entry<Integer, Integer> caught : caughtToBarrel.entrySet())
 			{
 				int canonicalId = valuation.canonical(caught.getKey());
 				long unit = valuation.unitValue(caught.getKey());
@@ -297,7 +307,7 @@ public class SessionTracker implements SessionService
 			// exact stored-loot entries that materialise in the bank (keyed the same
 			// canonical way as the catches above), so the bank-value rise draws those
 			// precise entries instead of an id-blind, qty-desyncing value heuristic.
-			for (Map.Entry<Integer, Integer> emptied : fishBarrelTracker.drainEmptied().entrySet())
+			for (Map.Entry<Integer, Integer> emptied : emptiedFromBarrel.entrySet())
 			{
 				pendingSignals.storageEmptied(valuation.canonical(emptied.getKey()), emptied.getValue());
 			}
@@ -557,7 +567,9 @@ public class SessionTracker implements SessionService
 		primeGeOffers();
 		WealthSnapshot current = buildWealth(ts);
 		engine.startSession(current, ts);
-		if (replayBankOpen && lastBankOpenState)
+		// Also on a fresh start: the plugin reports a bank that is already open
+		// (plugin enabled at the bank) before the first tick starts the session.
+		if (lastBankOpenState)
 		{
 			engine.setBankOpen(true, current, ts);
 		}
@@ -607,6 +619,16 @@ public class SessionTracker implements SessionService
 		// diff is against real contents rather than empty maps.
 		fishBarrelTracker.reset();
 		fishBarrelTracker.primeContainers();
+		// A cannon or Death pile is carried across a relog, but never into another account.
+		long hash = client.getAccountHash();
+		if (hash != -1L && sessionAccountHash != -1L && hash != sessionAccountHash)
+		{
+			engine.forgetOwnedAway();
+		}
+		if (hash != -1L)
+		{
+			sessionAccountHash = hash;
+		}
 		beginSession(ts, false);
 	}
 
@@ -1048,6 +1070,7 @@ public class SessionTracker implements SessionService
 			.equipmentValue(equipmentValue)
 			.geInFlightValue(geValue)
 			.geCollectableValue(geCollectableValue)
+			.geCollectableUnits(geReconciler.collectableUnits())
 			.pouchValue(pouchValue)
 			.bankValue(bankValue)
 			.bankKnown(bankEverSeen)

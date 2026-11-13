@@ -356,6 +356,30 @@ public class GearOptimizerCombatGateTest {
                 DRAGON_SCIMITAR, weaponIdIn(result));
     }
 
+    /** The owned-only baseline obeys the same level gate, so the gain over owned gear is never negative. */
+    @Test
+    public void levelGate_appliesToOwnedOnlyBaselineToo() {
+        int[] live = emptyLoadout();
+
+        java.util.Map<Integer, Long> fixed = new java.util.HashMap<>();
+        fixed.put(RUNE_SCIMITAR, 0L);
+        fixed.put(DRAGON_SCIMITAR, 0L);
+        GearOptimizer.Request request = GearOptimizer.Request
+                .builder(live, cerberus(), maxedPlayerTemplate())
+                .budget(0L)
+                .priceSource(everyWeaponExpensiveExcept(fixed))
+                .owned(new HashSet<>(Arrays.asList(RUNE_SCIMITAR, DRAGON_SCIMITAR)))
+                .style(CombatStyle.SLASH)
+                .playerBaseLevels(baseLevels(40))
+                .build();
+
+        GearOptimizer.Result result = GearOptimizer.optimize(request);
+
+        assertEquals(RUNE_SCIMITAR, weaponIdIn(result));
+        assertEquals("owned-only search and baseline must agree on an owned-only budget",
+                result.dps().dps(), result.ownedOnlyDps(), 1e-9);
+    }
+
     @Test
     public void combatGate_neverRecommendsAGatedOutWeapon_evenWhenCheaperAndHigherDps() {
         int[] live = emptyLoadout();

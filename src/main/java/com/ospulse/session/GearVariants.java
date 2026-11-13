@@ -131,9 +131,9 @@ public final class GearVariants
 	 * Plain (non-imbued) Slayer helmet variants: the base helm plus the common
 	 * colour recolours (Black/Green/Red from Slayer master rewards, Purple/
 	 * Turquoise from later reward updates) and the boss-kit recolours (Hydra,
-	 * Twisted, Jad/"Tztok", Verzik/"Vampyric", Zuk/"Tzkal", Araxyte, Hooded).
-	 * Deliberately omits the current Leagues-only cosmetic recolour (not
-	 * wearable outside that league).
+	 * Twisted, Jad/"Tztok", Verzik/"Vampyric", Zuk/"Tzkal", Araxyte, Hooded) and
+	 * the Oathplate/Radiant Slayer-master cosmetics (gameval LEAGUE_6_SLAYER_HELM*,
+	 * main-game since 11 June 2026 per the OSRS Wiki).
 	 */
 	private static final Set<Integer> SLAYER_HELM = setOf(
 		11864, // SLAYER_HELM
@@ -148,7 +148,9 @@ public final class GearVariants
 		25904, // SLAYER_HELM_VERZIK ("Vampyric slayer helmet")
 		25910, // SLAYER_HELM_ZUK ("Tzkal slayer helmet")
 		29816, // SLAYER_HELM_ARAXYTE
-		33066  // SLAYER_HELM_HOODED
+		33066, // SLAYER_HELM_HOODED
+		33338, // LEAGUE_6_SLAYER_HELM1 ("Oathplate slayer helmet")
+		33340  // LEAGUE_6_SLAYER_HELM2 ("Radiant slayer helmet")
 	);
 
 	/**
@@ -163,7 +165,9 @@ public final class GearVariants
 		// Soul Wars zeal shop (SW_SLAYER_HELM_I*)
 		25177, 25179, 25181, 25183, 25185, 25187, 25189, 25191, 25902, 25908, 25914, 29820, 33070,
 		// PvP Arena shop (PVPA_SLAYER_HELM_I*)
-		26674, 26675, 26676, 26677, 26678, 26679, 26680, 26681, 26682, 26683, 26684, 29822, 33072
+		26674, 26675, 26676, 26677, 26678, 26679, 26680, 26681, 26682, 26683, 26684, 29822, 33072,
+		// Oathplate / Radiant, each base, Soul Wars, PvP Arena (LEAGUE_6_SLAYER_HELM*_I)
+		33439, 33441, 33443, 33445, 33447, 33449
 	);
 
 	/** Maps a worn HEAD-slot item id to the {@link SlayerHeadgear} it grants ({@link SlayerHeadgear#NONE} if neither). */

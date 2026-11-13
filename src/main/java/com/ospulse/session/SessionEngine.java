@@ -876,6 +876,17 @@ public final class SessionEngine
 	}
 
 	/**
+	 * Forgets the deployed cannon and items held at Death. Call before
+	 * {@link #startSession} when the new session is on a different account, so
+	 * the previous account's away holdings are not carried into it.
+	 */
+	public void forgetOwnedAway()
+	{
+		deployed.clear();
+		atDeath.clear();
+	}
+
+	/**
 	 * Begins a new session. Resets baseline, start time, loot, and banking
 	 * state.
 	 */
@@ -1155,6 +1166,30 @@ public final class SessionEngine
 				revaluation -= storedDraw;
 			}
 			this.baseline -= transfer + materialisedDraw + storedDraw;
+			if (transfer == delta)
+			{
+				// An open-bank (or close-grace) rise is folded whole as a transfer.
+				// Only the portion NOT already explained — by the settles just
+				// consumed, or by a same-observation tracked drop (the inventory half
+				// of a live deposit) — can be a storage sack emptied into the bank:
+				// draw that from the materialising buffer exactly, then the id-blind
+				// ledger. Drawing by the raw delta let an unrelated deposit drain the
+				// ledger. Checked here, not only on an open-bank update, so a sack
+				// empty whose rise lands in the close snapshot or the grace window is
+				// not held twice (bank + ledger). Leftover stays folded: an open-bank
+				// rise not backed by stored loot is a real gain (e.g. a GE fill).
+				long trackedDrop = previous == null ? 0L
+					: Math.max(0L, previous.tracked() - current.tracked());
+				long unexplainedRise = delta - settled - trackedDrop;
+				if (unexplainedRise > 0)
+				{
+					long rest = unexplainedRise - drawStorageMaterialising(unexplainedRise);
+					if (rest > 0)
+					{
+						drawDownStoredLoot(rest);
+					}
+				}
+			}
 			if (transfer != 0)
 			{
 				suspectArmed = maybeSuspectStaleReread(current, delta, tsMs);
@@ -1376,7 +1411,11 @@ public final class SessionEngine
 			return;
 		}
 		long collectableDrop = previous.getGeCollectableValue() - current.getGeCollectableValue();
-		if (collectableDrop <= 0)
+		// Same units, lower value: a price refresh on goods still in the box, which
+		// must show through as GE positions, not as a collection to the bank.
+		boolean repriceOnly = current.getGeCollectableUnits() > 0
+			&& current.getGeCollectableUnits() == previous.getGeCollectableUnits();
+		if (collectableDrop <= 0 || repriceOnly)
 		{
 			return;
 		}
@@ -1649,37 +1688,6 @@ public final class SessionEngine
 			syncCostBasis(current);
 			syncGeCostBasis(current);
 			long bankDelta = reconcileBankMovement(current, tsMs);
-			if (bankDelta > 0)
-			{
-				// Only the portion of the rise NOT already explained — by the
-				// in-flight deposit expectations it just settled, or by a
-				// same-observation tracked drop (the inventory half of a live
-				// deposit, which never creates an expectation) — can be a
-				// storage sack materialising in the bank. Drawing the ledger
-				// down by the raw delta let an unrelated deposit drain it, so
-				// a later sack-empty to the inventory found an empty ledger
-				// and re-booked the stored items as fresh loot.
-				long trackedDrop = previous == null ? 0L
-					: Math.max(0L, previous.tracked() - current.tracked());
-				long unexplainedRise = bankDelta - lastRiseSettled - trackedDrop;
-				if (unexplainedRise > 0)
-				{
-					// Draw the materialising buffer EXACTLY first (a signalled barrel
-					// empty: precise id + qty), then fall back to the id-blind ledger
-					// draw for unsignalled containers (herb sack / gem bag) and any
-					// other genuine unexplained rise. Left leftover in the baseline as
-					// reconcileBankMovement (open) folded it — an open-bank rise not
-					// backed by stored loot is a real gain (e.g. a GE fill), which a
-					// price appreciation on the tiny barrel stack is indistinguishable
-					// from here; the closed deposit-box path books that reprice cleanly.
-					long materialisedDraw = drawStorageMaterialising(unexplainedRise);
-					long rest = unexplainedRise - materialisedDraw;
-					if (rest > 0)
-					{
-						drawDownStoredLoot(rest);
-					}
-				}
-			}
 			trackOpenSwing(current, bankDelta, tsMs);
 			logUpdateBreakdown(current, 0L, 0L, 0L, 0L, 0L, 0L);
 			previous = current;
@@ -1925,6 +1933,50 @@ public final class SessionEngine
 		// lower-dose unit value, times the doses drunk) is booked as supplies
 		// via the normal recordSupplyConsumed path; neither side is booked as
 		// loot for the paired portion.
+		//
+		// First, combining or decanting: when a potion's doses that vanished
+		// equal the doses that appeared ((3)+(1) -> (4)), nothing was drunk and
+		// nothing looted, so both sides are paired out like an id swap; only a
+		// net value lost to the regrouping counts as supplies.
+		Map<String, long[]> doseTotals = new LinkedHashMap<>(); // vanished doses, appeared doses, net value lost
+		for (List<Swing> side : Arrays.asList(vanished, appeared))
+		{
+			boolean out = side == vanished;
+			for (Swing sw : side)
+			{
+				DoseName d = DoseName.parse(sw.name);
+				if (d != null && sw.quantity > 0)
+				{
+					long[] t = doseTotals.computeIfAbsent(d.base, k -> new long[3]);
+					t[out ? 0 : 1] += sw.quantity * d.dose;
+					t[2] += (out ? 1 : -1) * sw.quantity * sw.unitValue;
+				}
+			}
+		}
+		for (Map.Entry<String, long[]> e : doseTotals.entrySet())
+		{
+			long[] t = e.getValue();
+			if (t[0] == 0 || t[0] != t[1])
+			{
+				continue;
+			}
+			for (List<Swing> side : Arrays.asList(vanished, appeared))
+			{
+				for (Swing sw : side)
+				{
+					DoseName d = DoseName.parse(sw.name);
+					if (d != null && d.base.equals(e.getKey()))
+					{
+						sw.quantity = 0L;
+					}
+				}
+			}
+			if (t[2] > 0)
+			{
+				recordSupplyConsumed(t[2]);
+			}
+			logAttribution(0, e.getKey(), 0L, -t[2], "DOSE-COMBINE");
+		}
 		for (Swing v : vanished)
 		{
 			DoseName vDose = DoseName.parse(v.name);
@@ -2779,7 +2831,10 @@ public final class SessionEngine
 	 * syncCostBasis} just made for the carried quantity and substituting the
 	 * carried (correct) cost instead — this reduces to the old overwrite when
 	 * there was no pre-existing holding, and additionally handles the
-	 * already-held case correctly.
+	 * already-held case correctly. When exactly the carried quantity is held
+	 * the carried cost is the whole basis: a same-id flicker that shrank or
+	 * prorated the stack (rather than adding live-priced units) is restored
+	 * as it was, not shifted by the live price.
 	 */
 	private void applyBasisCarry(WealthSnapshot current, BasisCarry carry)
 	{
@@ -2787,6 +2842,11 @@ public final class SessionEngine
 		ItemStack stack = current.getTrackedItems().get(carry.itemId);
 		if (basis == null || stack == null || basis.quantity < carry.expectedQuantity)
 		{
+			return;
+		}
+		if (basis.quantity == carry.expectedQuantity)
+		{
+			basis.totalCost = carry.totalCost;
 			return;
 		}
 		long wronglyPricedAtLive = carry.expectedQuantity * stack.getUnitValue();
