@@ -1,5 +1,7 @@
 package com.ospulse.ge;
 
+import com.ospulse.wealth.GeCollectablePosition;
+
 import java.util.*;
 
 /**
@@ -563,22 +565,29 @@ public final class GeReconciler implements GeAttributions
 	}
 
 	/**
-	 * Units behind {@link #collectableValue}, per item id (coins counted in gp):
-	 * changes only on a fill or a collection, never on a reprice. Per item, so a
-	 * collection of one item in the same tick as a same-size fill of another
-	 * still shows as a change.
+	 * {@link #collectableValue}, broken down per offer slot and item (keyed by
+	 * {@link GeCollectablePosition#key}): units (coins counted in gp) and value.
+	 * Units change only on a fill or a collection, never on a reprice, so a
+	 * collection from one slot in the same tick as a fill or a reprice in another
+	 * still shows, and can be valued on its own.
+	 *
+	 * @param unitValue itemId -&gt; gp value per unit
 	 */
-	public Map<Integer, Long> collectableUnitsByItem()
+	public Map<Long, GeCollectablePosition> collectablePositions(java.util.function.IntToLongFunction unitValue)
 	{
-		Map<Integer, Long> units = new java.util.HashMap<>();
+		Map<Long, GeCollectablePosition> positions = new HashMap<>();
 		for (ExpectedArrival e : expectedArrivals)
 		{
-			if (e.deadlineMs == 0 && e.quantity > 0)
+			if (e.deadlineMs != 0 || e.quantity <= 0)
 			{
-				units.merge(e.itemId, e.quantity, Long::sum);
+				continue;
 			}
+			long unit = e.itemId == COINS_ITEM_ID ? 1L : unitValue.applyAsLong(e.itemId);
+			positions.merge(GeCollectablePosition.key(e.slot, e.itemId),
+				new GeCollectablePosition(e.quantity, e.quantity * unit),
+				(a, b) -> new GeCollectablePosition(a.getUnits() + b.getUnits(), a.getValue() + b.getValue()));
 		}
-		return units;
+		return positions;
 	}
 
 	/**

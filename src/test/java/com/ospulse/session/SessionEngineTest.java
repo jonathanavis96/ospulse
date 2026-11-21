@@ -4,6 +4,7 @@ import com.ospulse.ge.GeAttributions;
 import com.ospulse.ge.GeOfferState;
 import com.ospulse.ge.GeReconciler;
 import com.ospulse.model.ItemStack;
+import com.ospulse.wealth.GeCollectablePosition;
 import com.ospulse.wealth.WealthSnapshot;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -1235,7 +1236,7 @@ public class SessionEngineTest
 		WealthSnapshot initial = WealthSnapshot.builder()
 			.inventoryValue(1_000_000L)
 			.geCollectableValue(1_000_000L)
-			.geCollectableUnits(Collections.singletonMap(WHIP, 100L))
+			.geCollectablePositions(box(0, WHIP, 100L, 1_000_000L))
 			.bankValue(50_000_000L)
 			.bankKnown(true)
 			.timestampMs(0L)
@@ -1247,7 +1248,7 @@ public class SessionEngineTest
 		WealthSnapshot repriced = WealthSnapshot.builder()
 			.inventoryValue(1_000_000L)
 			.geCollectableValue(900_000L)
-			.geCollectableUnits(Collections.singletonMap(WHIP, 100L))
+			.geCollectablePositions(box(0, WHIP, 100L, 900_000L))
 			.bankValue(50_000_000L)
 			.bankKnown(true)
 			.timestampMs(1000L)
@@ -1261,7 +1262,7 @@ public class SessionEngineTest
 		WealthSnapshot later = WealthSnapshot.builder()
 			.inventoryValue(1_000_000L)
 			.geCollectableValue(900_000L)
-			.geCollectableUnits(Collections.singletonMap(WHIP, 100L))
+			.geCollectablePositions(box(0, WHIP, 100L, 900_000L))
 			.bankValue(50_000_000L)
 			.bankKnown(true)
 			.timestampMs(20_000L)
@@ -1282,7 +1283,7 @@ public class SessionEngineTest
 			.inventoryValue(1_000_000L)
 			.geInFlightValue(10_000L)
 			.geCollectableValue(1_000_000L)
-			.geCollectableUnits(Collections.singletonMap(WHIP, 1L))
+			.geCollectablePositions(box(0, WHIP, 1L, 1_000_000L))
 			.bankValue(50_000_000L)
 			.bankKnown(true)
 			.timestampMs(0L)
@@ -1297,7 +1298,7 @@ public class SessionEngineTest
 			.inventoryValue(1_000_000L)
 			.geInFlightValue(0L)
 			.geCollectableValue(10_000L)
-			.geCollectableUnits(Collections.singletonMap(SHARK, 1L))
+			.geCollectablePositions(box(1, SHARK, 1L, 10_000L))
 			.bankValue(50_000_000L)
 			.bankKnown(true)
 			.timestampMs(1000L)
@@ -1311,7 +1312,7 @@ public class SessionEngineTest
 			.inventoryValue(1_000_000L)
 			.geInFlightValue(0L)
 			.geCollectableValue(10_000L)
-			.geCollectableUnits(Collections.singletonMap(SHARK, 1L))
+			.geCollectablePositions(box(1, SHARK, 1L, 10_000L))
 			.bankValue(51_000_000L)
 			.bankKnown(true)
 			.timestampMs(2000L)
@@ -1333,7 +1334,7 @@ public class SessionEngineTest
 			.inventoryValue(1_000_000L)
 			.geInFlightValue(1_000_000L)
 			.geCollectableValue(10_000L)
-			.geCollectableUnits(Collections.singletonMap(SHARK, 1L))
+			.geCollectablePositions(box(0, SHARK, 1L, 10_000L))
 			.bankValue(50_000_000L)
 			.bankKnown(true)
 			.timestampMs(0L)
@@ -1346,7 +1347,7 @@ public class SessionEngineTest
 			.inventoryValue(1_000_000L)
 			.geInFlightValue(0L)
 			.geCollectableValue(1_000_000L)
-			.geCollectableUnits(Collections.singletonMap(WHIP, 1L))
+			.geCollectablePositions(box(1, WHIP, 1L, 1_000_000L))
 			.bankValue(50_000_000L)
 			.bankKnown(true)
 			.timestampMs(1000L)
@@ -1360,7 +1361,7 @@ public class SessionEngineTest
 			.inventoryValue(1_000_000L)
 			.geInFlightValue(0L)
 			.geCollectableValue(1_000_000L)
-			.geCollectableUnits(Collections.singletonMap(WHIP, 1L))
+			.geCollectablePositions(box(1, WHIP, 1L, 1_000_000L))
 			.bankValue(50_010_000L)
 			.bankKnown(true)
 			.timestampMs(2000L)
@@ -1371,6 +1372,60 @@ public class SessionEngineTest
 		assertEquals(0L, s.getBankDelta());
 		assertEquals(0L, s.getNetWorthDelta());
 		assertIdentity("after collect and pricier fill", s);
+	}
+
+	@Test
+	public void collectToBankDuringAnEscrowRepriceHoldsOnlyWhatWasCollected()
+	{
+		// A whip waits in the collection box while an unsold sell offer sits in
+		// escrow.
+		WealthSnapshot initial = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geInFlightValue(500_000L)
+			.geCollectableValue(1_000_000L)
+			.geCollectablePositions(box(0, WHIP, 1L, 1_000_000L))
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(0L)
+			.build();
+		engine.startSession(initial, 0L);
+
+		// Same tick: the whip goes straight to the bank and the sell offer's goods
+		// are marked down 100k. Only the 1M whip was collected; the 100k is a GE
+		// price move. The bank reading lags.
+		WealthSnapshot afterCollect = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geInFlightValue(400_000L)
+			.geCollectableValue(0L)
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(1000L)
+			.build();
+		engine.update(afterCollect, Collections.emptySet(), 1000L);
+		SessionSnapshot s = engine.snapshot(afterCollect, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("the markdown is a GE-positions move", -100_000L, s.getGePositions());
+		assertEquals(-100_000L, s.getNetWorthDelta());
+
+		WealthSnapshot bankLands = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geInFlightValue(400_000L)
+			.geCollectableValue(0L)
+			.bankValue(51_000_000L)
+			.bankKnown(true)
+			.timestampMs(2000L)
+			.build();
+		engine.update(bankLands, Collections.emptySet(), 2000L);
+		s = engine.snapshot(bankLands, 0L, Collections.emptyMap(), 0L, 2000L);
+		assertEquals(-100_000L, s.getGePositions());
+		assertEquals("the collected whip is not a bank gain or loss", 0L, s.getBankDelta());
+		assertEquals(-100_000L, s.getNetWorthDelta());
+		assertIdentity("after collect during escrow reprice", s);
+	}
+
+	/** One slot's goods of one item awaiting collection. */
+	private static Map<Long, GeCollectablePosition> box(int slot, int itemId, long units, long value)
+	{
+		return Collections.singletonMap(GeCollectablePosition.key(slot, itemId), new GeCollectablePosition(units, value));
 	}
 
 	@Test

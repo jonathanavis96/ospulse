@@ -3,6 +3,7 @@ package com.ospulse.session;
 import com.ospulse.ge.GeAttributions;
 import com.ospulse.ge.GeOfferView;
 import com.ospulse.model.ItemStack;
+import com.ospulse.wealth.GeCollectablePosition;
 import com.ospulse.wealth.WealthSnapshot;
 import lombok.extern.slf4j.Slf4j;
 
@@ -1411,30 +1412,22 @@ public final class SessionEngine
 			return;
 		}
 		long collectableDrop = previous.getGeCollectableValue() - current.getGeCollectableValue();
-		Map<Integer, Long> previousUnits = previous.getGeCollectableUnits();
-		Map<Integer, Long> currentUnits = current.getGeCollectableUnits();
+		Map<Long, GeCollectablePosition> before = previous.getGeCollectablePositions();
+		Map<Long, GeCollectablePosition> after = current.getGeCollectablePositions();
 		long collected;
-		if (previousUnits.isEmpty() && currentUnits.isEmpty())
+		if (before.isEmpty() && after.isEmpty())
 		{
-			// No per-item units reported: fall back to the box's value alone.
+			// No per-slot breakdown reported: fall back to the box's value alone.
 			collected = collectableDrop;
 		}
 		else
 		{
-			// A collection is some item's units leaving the box. The same units of
-			// the same items at a lower value is a price refresh on goods still in
-			// the box, which must show through as GE positions. Compared per item,
-			// so collecting one item in the same tick as a same-size fill of
-			// another is still seen as a collection.
-			if (!anyUnitsLeft(previousUnits, currentUnits))
-			{
-				return;
-			}
-			// What left is measured on the whole GE pool (in escrow plus awaiting
-			// collection): a fill landing in the same tick only moves value from
-			// escrow into the box, so it neither hides nor inflates the collection.
-			collected = (previous.getGeInFlightValue() + previous.getGeCollectableValue())
-				- (current.getGeInFlightValue() + current.getGeCollectableValue());
+			// A collection is units leaving a slot's position, valued at that
+			// position's own last value. Units never move on a price refresh, so a
+			// reprice of goods still in the box collects nothing and shows through
+			// as GE positions; and a fill or a reprice elsewhere in the same tick
+			// neither hides nor inflates what was collected.
+			collected = collectedValue(before, after);
 		}
 		if (collected <= 0)
 		{
@@ -1458,17 +1451,17 @@ public final class SessionEngine
 		}
 	}
 
-	/** True when some item has fewer units awaiting collection than before. */
-	private static boolean anyUnitsLeft(Map<Integer, Long> before, Map<Integer, Long> after)
+	/** Value of the units that left the collection box, at each position's previous value. */
+	private static long collectedValue(Map<Long, GeCollectablePosition> before, Map<Long, GeCollectablePosition> after)
 	{
-		for (Map.Entry<Integer, Long> e : before.entrySet())
+		long total = 0L;
+		for (Map.Entry<Long, GeCollectablePosition> e : before.entrySet())
 		{
-			if (after.getOrDefault(e.getKey(), 0L) < e.getValue())
-			{
-				return true;
-			}
+			GeCollectablePosition now = after.get(e.getKey());
+			long departed = e.getValue().getUnits() - (now == null ? 0L : now.getUnits());
+			total += e.getValue().valueOf(departed);
 		}
-		return false;
+		return total;
 	}
 
 	/** Sum of the outstanding in-flight deposit expectations. */

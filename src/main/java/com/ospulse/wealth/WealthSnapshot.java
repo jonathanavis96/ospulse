@@ -27,11 +27,13 @@ public final class WealthSnapshot
 	 */
 	private final long geCollectableValue;
 	/**
-	 * Units (item quantity, or gp for coins) behind {@link #geCollectableValue},
-	 * per item id. The same units of the same items with a lower value is a
-	 * reprice, not a collection.
+	 * What makes up {@link #geCollectableValue}, per offer slot and item (keyed by
+	 * {@link GeCollectablePosition#key}): units and value. Units change only on a
+	 * fill or a collection, never on a reprice, so the same units in every
+	 * position at a lower value is a reprice, and a position whose units fell was
+	 * collected.
 	 */
-	private final Map<Integer, Long> geCollectableUnits;
+	private final Map<Long, GeCollectablePosition> geCollectablePositions;
 	private final long pouchValue;
 	private final long bankValue;
 	private final boolean bankKnown;
@@ -90,7 +92,7 @@ public final class WealthSnapshot
 		long equipmentValue,
 		long geInFlightValue,
 		long geCollectableValue,
-		Map<Integer, Long> geCollectableUnits,
+		Map<Long, GeCollectablePosition> geCollectablePositions,
 		long pouchValue,
 		long bankValue,
 		boolean bankKnown,
@@ -103,9 +105,9 @@ public final class WealthSnapshot
 		this.equipmentValue = equipmentValue;
 		this.geInFlightValue = geInFlightValue;
 		this.geCollectableValue = geCollectableValue;
-		this.geCollectableUnits = geCollectableUnits == null
+		this.geCollectablePositions = geCollectablePositions == null
 			? Collections.emptyMap()
-			: Collections.unmodifiableMap(new HashMap<>(geCollectableUnits));
+			: Collections.unmodifiableMap(new HashMap<>(geCollectablePositions));
 		this.pouchValue = pouchValue;
 		this.bankValue = bankValue;
 		this.bankKnown = bankKnown;
@@ -161,7 +163,7 @@ public final class WealthSnapshot
 		private long equipmentValue;
 		private long geInFlightValue;
 		private long geCollectableValue;
-		private Map<Integer, Long> geCollectableUnits = Collections.emptyMap();
+		private Map<Long, GeCollectablePosition> geCollectablePositions = Collections.emptyMap();
 		private long pouchValue;
 		private long bankValue;
 		private boolean bankKnown;
@@ -195,10 +197,10 @@ public final class WealthSnapshot
 			return this;
 		}
 
-		/** Units awaiting collection per item id — see {@code WealthSnapshot.getGeCollectableUnits()}. */
-		public Builder geCollectableUnits(Map<Integer, Long> geCollectableUnits)
+		/** Goods awaiting collection per slot and item — see {@code WealthSnapshot.getGeCollectablePositions()}. */
+		public Builder geCollectablePositions(Map<Long, GeCollectablePosition> geCollectablePositions)
 		{
-			this.geCollectableUnits = geCollectableUnits;
+			this.geCollectablePositions = geCollectablePositions;
 			return this;
 		}
 
@@ -252,7 +254,7 @@ public final class WealthSnapshot
 				equipmentValue,
 				geInFlightValue,
 				geCollectableValue,
-				geCollectableUnits,
+				geCollectablePositions,
 				pouchValue,
 				bankValue,
 				bankKnown,

@@ -1,5 +1,6 @@
 package com.ospulse.ge;
 
+import com.ospulse.wealth.GeCollectablePosition;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -387,17 +388,19 @@ public class GeReconcilerTest
 	}
 
 	@Test
-	public void collectableUnitsIgnoreRepricesButDropOnCollection()
+	public void collectablePositionsKeepUnitsThroughARepriceButDropOnCollection()
 	{
 		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
 			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
-		assertEquals(Collections.singletonMap(WHIP, 10L), reconciler.collectableUnitsByItem());
+		long key = GeCollectablePosition.key(0, WHIP);
+		assertEquals(Collections.singletonMap(key, new GeCollectablePosition(10L, 10_000_000L)),
+			reconciler.collectablePositions(id -> 1_000_000L));
 		// A price refresh moves the value but not the units.
-		assertEquals(9_000_000L, reconciler.collectableValue(id -> 900_000L));
-		assertEquals(Collections.singletonMap(WHIP, 10L), reconciler.collectableUnitsByItem());
+		assertEquals(Collections.singletonMap(key, new GeCollectablePosition(10L, 9_000_000L)),
+			reconciler.collectablePositions(id -> 900_000L));
 		reconciler.onOfferUpdate(0, GeOfferState.EMPTY, 0, null,
 			0L, 0L, 0L, 0L, 2000L);
-		assertEquals(Collections.emptyMap(), reconciler.collectableUnitsByItem());
+		assertEquals(Collections.emptyMap(), reconciler.collectablePositions(id -> 900_000L));
 	}
 
 	@Test
