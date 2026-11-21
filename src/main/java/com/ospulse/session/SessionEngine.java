@@ -1399,7 +1399,7 @@ public final class SessionEngine
 	 *
 	 * <p>Only the portion that actually LEFT tracked wealth is held: collecting
 	 * to the inventory instead is offset by an inventory rise (net tracked
-	 * unchanged), so {@code min(collectableDrop, trackedDrop)} holds nothing and
+	 * unchanged), so {@code min(collected, trackedDrop)} holds nothing and
 	 * no phantom gain is created. Must run BEFORE {@link #reconcileBankMovement}
 	 * so a bank rise delivered in the SAME observation settles the freshly-held
 	 * deposit rather than being booked as a revaluation.
@@ -1411,16 +1411,37 @@ public final class SessionEngine
 			return;
 		}
 		long collectableDrop = previous.getGeCollectableValue() - current.getGeCollectableValue();
-		// Same units, lower value: a price refresh on goods still in the box, which
-		// must show through as GE positions, not as a collection to the bank.
-		boolean repriceOnly = current.getGeCollectableUnits() > 0
-			&& current.getGeCollectableUnits() == previous.getGeCollectableUnits();
-		if (collectableDrop <= 0 || repriceOnly)
+		Map<Integer, Long> previousUnits = previous.getGeCollectableUnits();
+		Map<Integer, Long> currentUnits = current.getGeCollectableUnits();
+		long collected;
+		if (previousUnits.isEmpty() && currentUnits.isEmpty())
+		{
+			// No per-item units reported: fall back to the box's value alone.
+			collected = collectableDrop;
+		}
+		else
+		{
+			// A collection is some item's units leaving the box. The same units of
+			// the same items at a lower value is a price refresh on goods still in
+			// the box, which must show through as GE positions. Compared per item,
+			// so collecting one item in the same tick as a same-size fill of
+			// another is still seen as a collection.
+			if (!anyUnitsLeft(previousUnits, currentUnits))
+			{
+				return;
+			}
+			// What left is measured on the whole GE pool (in escrow plus awaiting
+			// collection): a fill landing in the same tick only moves value from
+			// escrow into the box, so it neither hides nor inflates the collection.
+			collected = (previous.getGeInFlightValue() + previous.getGeCollectableValue())
+				- (current.getGeInFlightValue() + current.getGeCollectableValue());
+		}
+		if (collected <= 0)
 		{
 			return;
 		}
 		long trackedDrop = previous.tracked() - current.tracked();
-		long deposit = Math.min(collectableDrop, trackedDrop);
+		long deposit = Math.min(collected, trackedDrop);
 		if (deposit > 0)
 		{
 			pendingBankSettles.add(new PendingBankSettle(deposit, tsMs));
@@ -1432,9 +1453,22 @@ public final class SessionEngine
 			// own nonPool-based matching cannot see this exit (the value went
 			// straight to the bank, never touching non-GE tracked wealth).
 			reduceGeCostBasis(deposit);
-			logDiag("[reanchor] GE collect-to-bank deposit hold {} (collectableDrop={} trackedDrop={} pendingSettle total {})",
-				deposit, collectableDrop, trackedDrop, pendingSettleTotal());
+			logDiag("[reanchor] GE collect-to-bank deposit hold {} (collected={} trackedDrop={} pendingSettle total {})",
+				deposit, collected, trackedDrop, pendingSettleTotal());
 		}
+	}
+
+	/** True when some item has fewer units awaiting collection than before. */
+	private static boolean anyUnitsLeft(Map<Integer, Long> before, Map<Integer, Long> after)
+	{
+		for (Map.Entry<Integer, Long> e : before.entrySet())
+		{
+			if (after.getOrDefault(e.getKey(), 0L) < e.getValue())
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** Sum of the outstanding in-flight deposit expectations. */

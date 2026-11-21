@@ -562,18 +562,23 @@ public final class GeReconciler implements GeAttributions
 		return total;
 	}
 
-	/** Units behind {@link #collectableValue}: changes only on a fill or a collection, never on a reprice. */
-	public long collectableUnits()
+	/**
+	 * Units behind {@link #collectableValue}, per item id (coins counted in gp):
+	 * changes only on a fill or a collection, never on a reprice. Per item, so a
+	 * collection of one item in the same tick as a same-size fill of another
+	 * still shows as a change.
+	 */
+	public Map<Integer, Long> collectableUnitsByItem()
 	{
-		long total = 0L;
+		Map<Integer, Long> units = new java.util.HashMap<>();
 		for (ExpectedArrival e : expectedArrivals)
 		{
 			if (e.deadlineMs == 0 && e.quantity > 0)
 			{
-				total += e.quantity;
+				units.merge(e.itemId, e.quantity, Long::sum);
 			}
 		}
-		return total;
+		return units;
 	}
 
 	/**

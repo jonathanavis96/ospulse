@@ -27,10 +27,11 @@ public final class WealthSnapshot
 	 */
 	private final long geCollectableValue;
 	/**
-	 * Total units (item quantity, or gp for coins) behind {@link #geCollectableValue}.
-	 * Unchanged units with a lower value is a reprice, not a collection.
+	 * Units (item quantity, or gp for coins) behind {@link #geCollectableValue},
+	 * per item id. The same units of the same items with a lower value is a
+	 * reprice, not a collection.
 	 */
-	private final long geCollectableUnits;
+	private final Map<Integer, Long> geCollectableUnits;
 	private final long pouchValue;
 	private final long bankValue;
 	private final boolean bankKnown;
@@ -80,7 +81,7 @@ public final class WealthSnapshot
 		Map<Integer, ItemStack> trackedItems,
 		Map<Integer, ItemStack> allHoldings)
 	{
-		this(inventoryValue, equipmentValue, geInFlightValue, 0L, 0L, pouchValue, bankValue,
+		this(inventoryValue, equipmentValue, geInFlightValue, 0L, Collections.emptyMap(), pouchValue, bankValue,
 			bankKnown, timestampMs, topHoldings, trackedItems, allHoldings);
 	}
 
@@ -89,7 +90,7 @@ public final class WealthSnapshot
 		long equipmentValue,
 		long geInFlightValue,
 		long geCollectableValue,
-		long geCollectableUnits,
+		Map<Integer, Long> geCollectableUnits,
 		long pouchValue,
 		long bankValue,
 		boolean bankKnown,
@@ -102,7 +103,9 @@ public final class WealthSnapshot
 		this.equipmentValue = equipmentValue;
 		this.geInFlightValue = geInFlightValue;
 		this.geCollectableValue = geCollectableValue;
-		this.geCollectableUnits = geCollectableUnits;
+		this.geCollectableUnits = geCollectableUnits == null
+			? Collections.emptyMap()
+			: Collections.unmodifiableMap(new HashMap<>(geCollectableUnits));
 		this.pouchValue = pouchValue;
 		this.bankValue = bankValue;
 		this.bankKnown = bankKnown;
@@ -158,7 +161,7 @@ public final class WealthSnapshot
 		private long equipmentValue;
 		private long geInFlightValue;
 		private long geCollectableValue;
-		private long geCollectableUnits;
+		private Map<Integer, Long> geCollectableUnits = Collections.emptyMap();
 		private long pouchValue;
 		private long bankValue;
 		private boolean bankKnown;
@@ -192,7 +195,8 @@ public final class WealthSnapshot
 			return this;
 		}
 
-		public Builder geCollectableUnits(long geCollectableUnits)
+		/** Units awaiting collection per item id — see {@code WealthSnapshot.getGeCollectableUnits()}. */
+		public Builder geCollectableUnits(Map<Integer, Long> geCollectableUnits)
 		{
 			this.geCollectableUnits = geCollectableUnits;
 			return this;

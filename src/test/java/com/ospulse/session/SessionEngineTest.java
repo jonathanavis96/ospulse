@@ -1235,7 +1235,7 @@ public class SessionEngineTest
 		WealthSnapshot initial = WealthSnapshot.builder()
 			.inventoryValue(1_000_000L)
 			.geCollectableValue(1_000_000L)
-			.geCollectableUnits(100L)
+			.geCollectableUnits(Collections.singletonMap(WHIP, 100L))
 			.bankValue(50_000_000L)
 			.bankKnown(true)
 			.timestampMs(0L)
@@ -1247,7 +1247,7 @@ public class SessionEngineTest
 		WealthSnapshot repriced = WealthSnapshot.builder()
 			.inventoryValue(1_000_000L)
 			.geCollectableValue(900_000L)
-			.geCollectableUnits(100L)
+			.geCollectableUnits(Collections.singletonMap(WHIP, 100L))
 			.bankValue(50_000_000L)
 			.bankKnown(true)
 			.timestampMs(1000L)
@@ -1261,7 +1261,7 @@ public class SessionEngineTest
 		WealthSnapshot later = WealthSnapshot.builder()
 			.inventoryValue(1_000_000L)
 			.geCollectableValue(900_000L)
-			.geCollectableUnits(100L)
+			.geCollectableUnits(Collections.singletonMap(WHIP, 100L))
 			.bankValue(50_000_000L)
 			.bankKnown(true)
 			.timestampMs(20_000L)
@@ -1271,6 +1271,106 @@ public class SessionEngineTest
 		assertEquals("still a GE-positions move once any hold would have expired", -100_000L, s.getGePositions());
 		assertEquals(0L, s.getNetProfit());
 		assertIdentity("after reprice", s);
+	}
+
+	@Test
+	public void collectToBankDuringSameSizeFillOfAnotherItemIsNotAReprice()
+	{
+		// One expensive item waits in the collection box while a buy of one
+		// cheap item is still in escrow.
+		WealthSnapshot initial = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geInFlightValue(10_000L)
+			.geCollectableValue(1_000_000L)
+			.geCollectableUnits(Collections.singletonMap(WHIP, 1L))
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(0L)
+			.build();
+		engine.startSession(initial, 0L);
+
+		// Same tick: the expensive item is collected straight to the bank and
+		// the cheap buy fills. One unit left the box and one unit arrived, so
+		// the box still holds one unit, but it is a different item: this is a
+		// collection, not a price refresh. The bank reading lags.
+		WealthSnapshot afterSwap = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geInFlightValue(0L)
+			.geCollectableValue(10_000L)
+			.geCollectableUnits(Collections.singletonMap(SHARK, 1L))
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(1000L)
+			.build();
+		engine.update(afterSwap, Collections.emptySet(), 1000L);
+		SessionSnapshot s = engine.snapshot(afterSwap, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals("a collection to the bank is not a GE-positions loss", 0L, s.getGePositions());
+		assertEquals("net worth holds while the bank reading lags", 0L, s.getNetWorthDelta());
+
+		WealthSnapshot bankLands = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geInFlightValue(0L)
+			.geCollectableValue(10_000L)
+			.geCollectableUnits(Collections.singletonMap(SHARK, 1L))
+			.bankValue(51_000_000L)
+			.bankKnown(true)
+			.timestampMs(2000L)
+			.build();
+		engine.update(bankLands, Collections.emptySet(), 2000L);
+		s = engine.snapshot(bankLands, 0L, Collections.emptyMap(), 0L, 2000L);
+		assertEquals(0L, s.getGePositions());
+		assertEquals("the collected item is the player's own, not a bank gain", 0L, s.getBankDelta());
+		assertEquals(0L, s.getNetWorthDelta());
+		assertIdentity("after collect-and-fill", s);
+	}
+
+	@Test
+	public void collectToBankWhileAPricierFillLandsIsStillHeld()
+	{
+		// A cheap item waits in the collection box while a buy of one expensive
+		// item is still in escrow.
+		WealthSnapshot initial = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geInFlightValue(1_000_000L)
+			.geCollectableValue(10_000L)
+			.geCollectableUnits(Collections.singletonMap(SHARK, 1L))
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(0L)
+			.build();
+		engine.startSession(initial, 0L);
+
+		// Same tick: the cheap item goes straight to the bank and the expensive
+		// buy fills, so the box's value rises even though something was collected.
+		WealthSnapshot afterSwap = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geInFlightValue(0L)
+			.geCollectableValue(1_000_000L)
+			.geCollectableUnits(Collections.singletonMap(WHIP, 1L))
+			.bankValue(50_000_000L)
+			.bankKnown(true)
+			.timestampMs(1000L)
+			.build();
+		engine.update(afterSwap, Collections.emptySet(), 1000L);
+		SessionSnapshot s = engine.snapshot(afterSwap, 0L, Collections.emptyMap(), 0L, 1000L);
+		assertEquals(0L, s.getGePositions());
+		assertEquals("net worth holds while the bank reading lags", 0L, s.getNetWorthDelta());
+
+		WealthSnapshot bankLands = WealthSnapshot.builder()
+			.inventoryValue(1_000_000L)
+			.geInFlightValue(0L)
+			.geCollectableValue(1_000_000L)
+			.geCollectableUnits(Collections.singletonMap(WHIP, 1L))
+			.bankValue(50_010_000L)
+			.bankKnown(true)
+			.timestampMs(2000L)
+			.build();
+		engine.update(bankLands, Collections.emptySet(), 2000L);
+		s = engine.snapshot(bankLands, 0L, Collections.emptyMap(), 0L, 2000L);
+		assertEquals(0L, s.getGePositions());
+		assertEquals(0L, s.getBankDelta());
+		assertEquals(0L, s.getNetWorthDelta());
+		assertIdentity("after collect and pricier fill", s);
 	}
 
 	@Test

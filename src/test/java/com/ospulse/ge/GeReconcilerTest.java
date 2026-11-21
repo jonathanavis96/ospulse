@@ -3,6 +3,7 @@ package com.ospulse.ge;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.OptionalLong;
 
@@ -390,13 +391,13 @@ public class GeReconcilerTest
 	{
 		reconciler.onOfferUpdate(0, GeOfferState.BOUGHT, WHIP, "Abyssal whip",
 			10L, 10L, 10_000_000L, 1_000_000L, 1000L);
-		assertEquals(10L, reconciler.collectableUnits());
+		assertEquals(Collections.singletonMap(WHIP, 10L), reconciler.collectableUnitsByItem());
 		// A price refresh moves the value but not the units.
 		assertEquals(9_000_000L, reconciler.collectableValue(id -> 900_000L));
-		assertEquals(10L, reconciler.collectableUnits());
+		assertEquals(Collections.singletonMap(WHIP, 10L), reconciler.collectableUnitsByItem());
 		reconciler.onOfferUpdate(0, GeOfferState.EMPTY, 0, null,
 			0L, 0L, 0L, 0L, 2000L);
-		assertEquals(0L, reconciler.collectableUnits());
+		assertEquals(Collections.emptyMap(), reconciler.collectableUnitsByItem());
 	}
 
 	@Test

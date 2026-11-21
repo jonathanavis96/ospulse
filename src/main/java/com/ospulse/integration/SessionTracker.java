@@ -1070,7 +1070,7 @@ public class SessionTracker implements SessionService
 			.equipmentValue(equipmentValue)
 			.geInFlightValue(geValue)
 			.geCollectableValue(geCollectableValue)
-			.geCollectableUnits(geReconciler.collectableUnits())
+			.geCollectableUnits(geReconciler.collectableUnitsByItem())
 			.pouchValue(pouchValue)
 			.bankValue(bankValue)
 			.bankKnown(bankEverSeen)
